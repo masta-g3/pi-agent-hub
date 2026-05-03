@@ -1,4 +1,4 @@
-import { centerDir } from "../core/paths.js";
+import { sessionsStateDir } from "../core/paths.js";
 import { mcpResultToText, normalizeMcpInputSchema } from "./adapter.js";
 import { loadMcpCatalog, loadProjectMcpState } from "./config.js";
 import { createDirectMcpClient, type DirectMcpClient } from "./direct-client.js";
@@ -34,7 +34,7 @@ export async function registerMcpTools(pi: PiToolApi, cwd: string, options: Regi
     const server = catalog.servers[serverId];
     if (!server) throw new Error(`MCP server ${serverId} is enabled but missing from catalog`);
     const client = server.type === "stdio" && server.pool
-      ? pooledClient(serverId, createPoolClient(options.poolSocketPath ?? `${centerDir()}/pool/pool.sock`))
+      ? pooledClient(serverId, createPoolClient(options.poolSocketPath ?? `${sessionsStateDir()}/pool/pool.sock`))
       : await createClient(serverId, server);
     clients.push(client);
     const tools = await client.listTools();

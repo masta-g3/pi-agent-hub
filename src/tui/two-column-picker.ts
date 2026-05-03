@@ -1,4 +1,4 @@
-import { darkTheme, stripAnsi, styleToken, type CenterTheme } from "./theme.js";
+import { darkTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 
 export interface PickerItem {
   name: string;
@@ -29,7 +29,7 @@ export function movePickerSelection(state: PickerState, delta: number): PickerSt
   return { ...state, selected: indexes[(visiblePosition + delta + indexes.length) % indexes.length] ?? current };
 }
 
-export function renderTwoColumnPicker(state: PickerState, width: number, theme?: CenterTheme): string[] {
+export function renderTwoColumnPicker(state: PickerState, width: number, theme?: SessionsTheme): string[] {
   const styles = theme ? createStyles(theme) : createStyles({ ...darkTheme, accent: "", border: "", dim: "", muted: "" });
   const inner = Math.max(20, width - 2);
   const visible = visibleItems(state);
@@ -61,7 +61,7 @@ function formatItem(state: PickerState, item: PickerItem | undefined): string {
   return `${selected ? ">" : " "} ${item.enabled ? "✓" : " "} ${item.name}`;
 }
 
-function createStyles(theme: CenterTheme) {
+function createStyles(theme: SessionsTheme) {
   return {
     accent: (text: string) => styleToken(theme, "accent", text),
     border: (text: string) => styleToken(theme, "border", text),

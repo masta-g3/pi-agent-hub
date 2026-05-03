@@ -1,32 +1,35 @@
 import { spawn } from "node:child_process";
 import { ProcessTerminal, TUI } from "@mariozechner/pi-tui";
-import { CenterController } from "./controller.js";
-import { startRefreshLoop } from "./refresh-loop.js";
-import { CenterView } from "../tui/center-view.js";
-import { loadCenterTheme } from "../tui/theme.js";
+import { SessionsController } from "./controller.js";
+import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
+import { SessionsView } from "../tui/sessions-view.js";
+import { loadSessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
 import { restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
+import { deleteManagedSession } from "./delete-session.js";
 
 export async function runTui(): Promise<void> {
-  const theme = await loadCenterTheme({ cwd: process.cwd() });
+  const theme = await loadSessionsTheme({ cwd: process.cwd() });
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
-  const controller = new CenterController();
+  const controller = new SessionsController();
   const cwd = process.cwd();
   const skillPool = await listSkillPool();
   const skillState = await loadProjectSkillsState(cwd);
   let enabledSkillNames = new Set(skillState.attached.map((skill) => skill.name));
   const mcpCatalog = await loadMcpCatalog();
   let mcpState = await loadProjectMcpState(cwd);
-  let stopLoop: (() => void) | undefined;
+  let stopLoop: RefreshLoopHandle | undefined;
+  let stopped = false;
   const stop = () => {
-    stopLoop?.();
+    stopped = true;
+    void stopLoop?.stop();
     void restoreSwitchReturnBinding({ onlyOwnerPid: process.pid }).catch(() => {});
     tui.stop();
   };
-  const view = new CenterView(controller, stop, {
+  const view = new SessionsView(controller, stop, {
     attachOutsideTmux(tmuxSession) {
       stop();
       spawn("tmux", ["attach-session", "-t", tmuxSession], { stdio: "inherit" });
@@ -37,11 +40,34 @@ export async function runTui(): Promise<void> {
     restart(sessionId) {
       spawn(process.execPath, [process.argv[1] ?? "", "restart", sessionId], { stdio: "inherit" });
     },
+    async deleteSession(sessionId) {
+      const loop = stopLoop;
+      stopLoop = undefined;
+      try {
+        await loop?.stop();
+        const deleted = await deleteManagedSession(sessionId);
+        controller.removeSession(deleted.id);
+        tui.requestRender();
+      } finally {
+        if (!stopped) stopLoop = startRefreshLoop(controller, tui);
+      }
+    },
     createSession(input) {
       spawn(process.execPath, [process.argv[1] ?? "", "add", input.cwd, "-g", input.group, "-t", input.title], { stdio: "inherit" });
     },
     forkSession(sourceSessionId, input) {
       spawn(process.execPath, [process.argv[1] ?? "", "fork", sourceSessionId, "-g", input.group, "-t", input.title], { stdio: "inherit" });
+    },
+    newFormContext() {
+      const sessions = controller.snapshot().registry.sessions;
+      const knownCwds = Array.from(new Set(sessions.map((session) => session.cwd))).sort();
+      const groupForCwd = (cwd: string): string | undefined => {
+        const matches = sessions.filter((session) => session.cwd === cwd);
+        if (matches.length === 0) return undefined;
+        const recent = matches.reduce((acc, session) => session.updatedAt > acc.updatedAt ? session : acc);
+        return recent.group;
+      };
+      return { cwd: process.cwd(), knownCwds, groupForCwd };
     },
     skills() {
       return skillPool.map((skill) => ({ name: skill.name, enabled: enabledSkillNames.has(skill.name) }));

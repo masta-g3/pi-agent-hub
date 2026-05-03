@@ -10,7 +10,7 @@ export interface ProjectSkillsState {
 
 export interface SkillAttachment {
   name: string;
-  source: "center-pool" | "path";
+  source: "sessions-pool" | "path";
   sourcePath: string;
   materializedPath: string;
 }

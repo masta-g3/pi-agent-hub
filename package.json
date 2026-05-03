@@ -1,10 +1,10 @@
 {
-  "name": "pi-command-center",
+  "name": "pi-sessions",
   "version": "1.0.0",
-  "description": "Minimal Pi-native command center for tmux-managed Pi sessions",
+  "description": "Minimal Pi-native session manager for tmux-managed Pi sessions",
   "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/link-cli.mjs",
+    "build": "rm -rf dist && tsc -p tsconfig.json && node scripts/link-cli.mjs",
     "test": "npm run build && node --test dist/test/*.test.js",
     "test:unit": "npm test"
   },
@@ -26,10 +26,11 @@
     "typescript": "^6.0.3"
   },
   "bin": {
-    "pi-center": "dist/cli.js"
+    "pi-sessions": "dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/src",
+    "dist/cli.js",
     "README.md"
   ],
   "pi": {

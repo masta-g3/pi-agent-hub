@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentDir } from "../core/paths.js";
+import { sessionsStateDir } from "../core/paths.js";
 
 export interface SkillCatalogEntry {
   name: string;
@@ -8,7 +8,7 @@ export interface SkillCatalogEntry {
 }
 
 export async function listSkillPool(env: NodeJS.ProcessEnv = process.env): Promise<SkillCatalogEntry[]> {
-  const pool = join(agentDir(env), "command-center", "skills", "pool");
+  const pool = join(sessionsStateDir(env), "skills", "pool");
   try {
     const entries = await readdir(pool, { withFileTypes: true });
     return entries

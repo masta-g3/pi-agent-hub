@@ -1,13 +1,13 @@
 import { readJsonOr } from "./atomic-json.js";
 import { heartbeatPath } from "./paths.js";
-import type { CenterSession, CenterStatus, Heartbeat, StatusInput, TmuxState } from "./types.js";
+import type { ManagedSession, SessionStatus, Heartbeat, StatusInput, TmuxState } from "./types.js";
 
 export const HEARTBEAT_INTERVAL_MS = 15_000;
 export const HEARTBEAT_STALE_MS = 60_000;
 export const TMUX_ACTIVE_MS = 5_000;
 
 export interface ComputedStatus {
-  status: CenterStatus;
+  status: SessionStatus;
   note?: string;
   error?: string;
 }
@@ -46,7 +46,7 @@ export function computeStatus(input: StatusInput): ComputedStatus {
   return { status: "idle" };
 }
 
-export function applyComputedStatus(session: CenterSession, computed: ComputedStatus, now = Date.now(), heartbeat?: Heartbeat): CenterSession {
+export function applyComputedStatus(session: ManagedSession, computed: ComputedStatus, now = Date.now(), heartbeat?: Heartbeat): ManagedSession {
   return {
     ...session,
     status: computed.status,
@@ -57,7 +57,7 @@ export function applyComputedStatus(session: CenterSession, computed: ComputedSt
   };
 }
 
-export function markAcknowledged(session: CenterSession, now = Date.now()): CenterSession {
+export function markAcknowledged(session: ManagedSession, now = Date.now()): ManagedSession {
   return { ...session, acknowledgedAt: now, status: session.status === "waiting" ? "idle" : session.status, updatedAt: now };
 }
 

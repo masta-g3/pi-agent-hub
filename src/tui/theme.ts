@@ -4,11 +4,11 @@ import { agentDir } from "../core/paths.js";
 
 export type ThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border";
 
-export type CenterTheme = Record<ThemeToken, string | number>;
+export type SessionsTheme = Record<ThemeToken, string | number>;
 
 const RESET = "\u001b[0m";
 
-export const darkTheme: CenterTheme = {
+export const darkTheme: SessionsTheme = {
   accent: "#7aa2f7",
   success: "#9ece6a",
   warning: "#e0af68",
@@ -29,7 +29,7 @@ interface PiThemeFile {
   colors?: Record<string, string | number>;
 }
 
-export async function loadCenterTheme(options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<CenterTheme> {
+export async function loadSessionsTheme(options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<SessionsTheme> {
   const env = options.env ?? process.env;
   const name = await readThemeName(options.cwd, env);
   if (!name || name === "dark" || name === "light") return darkTheme;
@@ -39,7 +39,7 @@ export async function loadCenterTheme(options: { cwd?: string; env?: NodeJS.Proc
   return themeFromPiTheme(parsed);
 }
 
-export function styleToken(theme: CenterTheme, token: ThemeToken, text: string): string {
+export function styleToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
   const value = theme[token];
   if (value === "" || text === "") return text;
   return `${ansi(value)}${text}${RESET}`;
@@ -49,7 +49,7 @@ export function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-export function themeFromPiTheme(theme: PiThemeFile): CenterTheme {
+export function themeFromPiTheme(theme: PiThemeFile): SessionsTheme {
   const vars = theme.vars ?? {};
   const colors = theme.colors ?? {};
   const resolveToken = (token: ThemeToken): string | number => {

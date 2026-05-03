@@ -4,10 +4,10 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { writeJsonAtomic } from "../src/core/atomic-json.js";
-import { createSessionRecord, loadRegistry, normalizeGroup, renameGroup, saveRegistry } from "../src/core/registry.js";
+import { createSessionRecord, loadRegistry, normalizeGroup, removeSession, renameGroup, saveRegistry } from "../src/core/registry.js";
 
 async function tempPath(name: string) {
-  const dir = await mkdtemp(join(tmpdir(), "pi-center-"));
+  const dir = await mkdtemp(join(tmpdir(), "pi-sessions-"));
   return join(dir, name);
 }
 
@@ -35,6 +35,19 @@ test("group rename only affects matching sessions", () => {
   const renamed = renameGroup({ version: 1, sessions: [a, b] }, "old", "new");
   assert.equal(renamed.sessions[0]?.group, "new");
   assert.equal(renamed.sessions[1]?.group, "other");
+});
+
+test("removeSession removes only the matching session", () => {
+  const a = createSessionRecord({ cwd: "/tmp/a", group: "work", now: 1 });
+  const b = createSessionRecord({ cwd: "/tmp/b", group: "work", now: 1 });
+  const result = removeSession({ version: 1, sessions: [a, b] }, a.id);
+  assert.equal(result.removed.id, a.id);
+  assert.deepEqual(result.registry.sessions, [b]);
+});
+
+test("removeSession rejects unknown ids", () => {
+  const a = createSessionRecord({ cwd: "/tmp/a", group: "work", now: 1 });
+  assert.throws(() => removeSession({ version: 1, sessions: [a] }, "missing"), /Unknown session: missing/);
 });
 
 test("group names are flat labels", () => {

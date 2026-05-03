@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { centerDir } from "./paths.js";
+import { sessionsStateDir } from "./paths.js";
 import type { CommandResult } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -98,8 +98,8 @@ export async function switchClientWithReturn(
   exec: TmuxExec = realTmuxExec,
 ): Promise<void> {
   const returnKey = options.returnKey ?? "C-q";
-  const managedPrefix = options.managedPrefix ?? "pi-center-";
-  const stateDir = options.stateDir ?? join(centerDir(), "return-key");
+  const managedPrefix = options.managedPrefix ?? "pi-sessions-";
+  const stateDir = options.stateDir ?? join(sessionsStateDir(), "return-key");
   const activePath = join(stateDir, "active.json");
   const restorePath = join(stateDir, "previous.tmux");
 
@@ -153,7 +153,7 @@ export async function restoreSwitchReturnBinding(
   options: { stateDir?: string; onlyOwnerPid?: number; refuseLiveForeignOwner?: boolean } = {},
   exec: TmuxExec = realTmuxExec,
 ): Promise<void> {
-  const stateDir = options.stateDir ?? join(centerDir(), "return-key");
+  const stateDir = options.stateDir ?? join(sessionsStateDir(), "return-key");
   const activePath = join(stateDir, "active.json");
   let active: ActiveReturnBinding;
   try {

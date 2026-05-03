@@ -1,10 +1,11 @@
 import { Key, matchesKey, type Component } from "@mariozechner/pi-tui";
 import { attachPlan, restartConfirmMessage } from "../app/actions.js";
-import type { CenterController } from "../app/controller.js";
+import type { SessionsController } from "../app/controller.js";
 import { buildRenderModel } from "./render-model.js";
-import { renderCenter, renderDialog } from "./layout.js";
-import { stripAnsi, styleToken, type CenterTheme } from "./theme.js";
+import { renderSessions, renderDialog, renderForm } from "./layout.js";
+import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import { movePickerSelection, renderTwoColumnPicker, togglePickerItem, type PickerState, type PickerItem } from "./two-column-picker.js";
+import { appendChar, backspace, createNewForm, cycleCwdSuggestion, moveFocus, submission, validateNewForm, type NewFormContext, type NewFormState } from "./new-form.js";
 
 export interface SessionDialogInput {
   title: string;
@@ -12,12 +13,14 @@ export interface SessionDialogInput {
   group: string;
 }
 
-export interface CenterViewActions {
+export interface SessionsViewActions {
   attachOutsideTmux?: (tmuxSession: string) => void;
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => void;
+  deleteSession?: (sessionId: string) => void | Promise<void>;
   createSession?: (input: Required<SessionDialogInput>) => void;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => void;
+  newFormContext?: () => NewFormContext;
   skills?: () => PickerItem[];
   applySkills?: (items: PickerItem[]) => void | Promise<void>;
   mcpServers?: () => PickerItem[];
@@ -26,15 +29,18 @@ export interface CenterViewActions {
   now?: () => number;
 }
 
-export class CenterView implements Component {
-  private mode: "normal" | "filter" | "help" | "new" | "fork" | "skills" | "mcp" = "normal";
+export class SessionsView implements Component {
+  private mode: "normal" | "filter" | "help" | "new" | "fork" | "skills" | "mcp" | "delete" = "normal";
   private filterDraft = "";
   private dialogDraft = "";
+  private newForm: NewFormState | undefined;
   private picker: PickerState | undefined;
   private message: string | undefined;
   private pendingRestart: { sessionId: string; expiresAt: number } | undefined;
+  private deleteTargetId: string | undefined;
+  private deleting = false;
 
-  constructor(private controller: CenterController, private stop: () => void, private actions: CenterViewActions = {}, private theme?: CenterTheme) {}
+  constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {}
 
   handleInput(data: string): void {
     if (this.mode === "filter") {
@@ -42,13 +48,23 @@ export class CenterView implements Component {
       return;
     }
 
-    if (this.mode === "new" || this.mode === "fork") {
+    if (this.mode === "new") {
+      this.handleNewFormInput(data);
+      return;
+    }
+
+    if (this.mode === "fork") {
       this.handleDialogInput(data);
       return;
     }
 
     if (this.mode === "skills" || this.mode === "mcp") {
       this.handlePickerInput(data);
+      return;
+    }
+
+    if (this.mode === "delete") {
+      this.handleDeleteInput(data);
       return;
     }
 
@@ -78,6 +94,7 @@ export class CenterView implements Component {
     else if (data === "n") this.startNewDialog();
     else if (data === "f") this.startForkDialog();
     else if (data === "r") this.restartSelected();
+    else if (data === "d") this.startDeleteDialog();
     else if (data === "s") this.startPicker("skills");
     else if (data === "m") this.startPicker("mcp");
     else if (data === "a") {
@@ -95,10 +112,12 @@ export class CenterView implements Component {
     this.clearExpiredConfirmation();
     if (this.mode === "help") return renderHelp(width);
     if ((this.mode === "skills" || this.mode === "mcp") && this.picker) return renderTwoColumnPicker(this.picker, width, this.theme);
-    if (this.mode === "new" || this.mode === "fork") return this.renderSessionDialog(width);
+    if (this.mode === "new" && this.newForm) return this.renderNewForm(width);
+    if (this.mode === "fork") return this.renderSessionDialog(width);
+    if (this.mode === "delete") return this.renderDeleteDialog(width);
     if (this.pendingRestart && this.message?.startsWith("press r again")) return this.renderRestartDialog(width);
     const snapshot = this.controller.snapshot();
-    const lines = renderCenter(buildRenderModel({
+    const lines = renderSessions(buildRenderModel({
       sessions: snapshot.registry.sessions,
       selectedId: snapshot.selectedId,
       width,
@@ -122,8 +141,9 @@ export class CenterView implements Component {
 
   private startNewDialog() {
     this.clearPendingRestart();
+    const ctx = this.actions.newFormContext?.() ?? { cwd: process.cwd() };
     this.mode = "new";
-    this.dialogDraft = `${process.cwd()}|default|`;
+    this.newForm = createNewForm(ctx);
     this.message = undefined;
   }
 
@@ -190,6 +210,54 @@ export class CenterView implements Component {
     this.message = restartConfirmMessage(selected.title);
   }
 
+  private startDeleteDialog() {
+    const selected = this.controller.selected();
+    if (!selected) return;
+    this.clearPendingRestart();
+    this.mode = "delete";
+    this.deleteTargetId = selected.id;
+    this.message = undefined;
+  }
+
+  private handleDeleteInput(data: string) {
+    if (matchesKey(data, Key.escape)) {
+      if (this.deleting) return;
+      this.mode = "normal";
+      this.deleteTargetId = undefined;
+      this.message = undefined;
+      return;
+    }
+    if (data !== "d" || this.deleting) return;
+    const id = this.deleteTargetId;
+    if (!id) {
+      this.mode = "normal";
+      return;
+    }
+    try {
+      this.deleting = true;
+      const result = this.actions.deleteSession?.(id);
+      if (isPromise(result)) {
+        void result.then(() => {
+          this.deleting = false;
+          this.mode = "normal";
+          this.deleteTargetId = undefined;
+          this.message = "session deleted";
+        }).catch((error: unknown) => {
+          this.deleting = false;
+          this.message = errorMessage(error);
+        });
+      } else {
+        this.deleting = false;
+        this.mode = "normal";
+        this.deleteTargetId = undefined;
+        this.message = "session deleted";
+      }
+    } catch (error) {
+      this.deleting = false;
+      this.message = errorMessage(error);
+    }
+  }
+
   private clearPendingRestart() {
     this.pendingRestart = undefined;
     if (this.message?.startsWith("press r again")) this.message = undefined;
@@ -240,8 +308,7 @@ export class CenterView implements Component {
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
-      if (this.mode === "new") this.submitNewDialog();
-      else this.submitForkDialog();
+      this.submitForkDialog();
       return;
     }
     if (matchesKey(data, Key.backspace)) {
@@ -255,15 +322,47 @@ export class CenterView implements Component {
     }
   }
 
-  private submitNewDialog() {
-    const [cwd, group, title] = this.dialogDraft.split("|");
-    if (!cwd?.trim() || !group?.trim() || !title?.trim()) {
-      this.message = "Required: cwd, group, and title";
+  private handleNewFormInput(data: string) {
+    if (!this.newForm) {
+      this.mode = "normal";
       return;
     }
-    this.actions.createSession?.({ cwd: cwd.trim(), group: group.trim(), title: title.trim() });
-    this.mode = "normal";
-    this.dialogDraft = "";
+    if (matchesKey(data, Key.escape)) {
+      this.mode = "normal";
+      this.newForm = undefined;
+      this.message = undefined;
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
+      const result = validateNewForm(this.newForm);
+      this.newForm = result.state;
+      if (!result.ok) return;
+      this.actions.createSession?.(submission(result.state));
+      this.mode = "normal";
+      this.newForm = undefined;
+      return;
+    }
+    if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) {
+      this.newForm = moveFocus(this.newForm, 1);
+      return;
+    }
+    if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) {
+      this.newForm = moveFocus(this.newForm, -1);
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("n"))) {
+      this.newForm = cycleCwdSuggestion(this.newForm, 1);
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("p"))) {
+      this.newForm = cycleCwdSuggestion(this.newForm, -1);
+      return;
+    }
+    if (matchesKey(data, Key.backspace)) {
+      this.newForm = backspace(this.newForm);
+      return;
+    }
+    if (isPrintable(data)) this.newForm = appendChar(this.newForm, data);
   }
 
   private submitForkDialog() {
@@ -289,19 +388,30 @@ export class CenterView implements Component {
     ], width, this.theme);
   }
 
+  private renderDeleteDialog(width: number): string[] {
+    const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
+    return renderDialog("Delete session", [
+      target ? `target  ${target.title}` : "target  none",
+      "",
+      "Removes this session from pi-sessions.",
+      "Pi conversation files are kept.",
+      "",
+      this.deleting ? "deleting..." : this.message ?? "press d again to delete · esc cancel",
+    ], width, this.theme);
+  }
+
+  private renderNewForm(width: number): string[] {
+    if (!this.newForm) return [];
+    return renderForm({
+      title: "New session",
+      fields: this.newForm.order.map((key) => this.newForm!.fields[key]),
+      focus: this.newForm.focus,
+      footer: newFormFooter(this.newForm),
+      narrowFooter: "tab · enter · esc",
+    }, width, this.theme);
+  }
+
   private renderSessionDialog(width: number): string[] {
-    if (this.mode === "new") {
-      const [cwd = "", group = "", title = ""] = this.dialogDraft.split("|");
-      return renderDialog("New session", [
-        "Type: cwd|group|title, then enter",
-        "",
-        `cwd    ${cwd}`,
-        `group  ${group}`,
-        `title  ${title}`,
-        "",
-        this.message ?? "esc cancel",
-      ], width, this.theme);
-    }
     const [group = "", title = ""] = this.dialogDraft.split("|");
     return renderDialog("Fork session", [
       "Type: group|title, then enter",
@@ -341,6 +451,15 @@ function isPrintable(data: string): boolean {
   return [...data].length === 1 && data >= " " && data !== "\u007f";
 }
 
+function newFormFooter(state: NewFormState): string {
+  const focus = state.fields[state.focus];
+  const cwdHasSuggestions = state.focus === "cwd" && (focus.suggestions?.length ?? 0) > 1;
+  const parts = ["tab/↓ next", "shift-tab/↑ prev"];
+  if (cwdHasSuggestions) parts.push("ctrl-n/p cycle");
+  parts.push("enter create", "esc cancel");
+  return parts.join(" · ");
+}
+
 function isPromise(value: unknown): value is Promise<void> {
   return typeof value === "object" && value !== null && typeof (value as { then?: unknown }).then === "function";
 }
@@ -351,10 +470,10 @@ function errorMessage(error: unknown): string {
 
 function renderHelp(width: number): string[] {
   const lines = [
-    "pi center help",
+    "pi sessions help",
     "",
     "navigation   ↑↓/j/k move   / filter",
-    "sessions     enter attach   n new   f fork   r restart   a mark read",
+    "sessions     enter attach   n new   f fork   r restart   d delete   a mark read",
     "config       s skills       m mcp",
     "system       q quit         esc cancel",
   ];
@@ -366,7 +485,7 @@ function renderHelp(width: number): string[] {
   ];
 }
 
-function replaceFooter(lines: string[], message: string, theme?: CenterTheme): string[] {
+function replaceFooter(lines: string[], message: string, theme?: SessionsTheme): string[] {
   if (lines.length < 3) return lines;
   const copy = lines.slice();
   const footerIndex = copy.length - 2;

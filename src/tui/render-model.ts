@@ -1,11 +1,11 @@
-import type { CenterSession, CenterStatus } from "../core/types.js";
+import type { ManagedSession, SessionStatus } from "../core/types.js";
 
 export interface RenderSession {
   id: string;
   title: string;
   cwd: string;
   group: string;
-  status: CenterStatus;
+  status: SessionStatus;
   displayStatus: "running" | "waiting" | "idle" | "error" | "stopped";
   symbol: string;
   selected: boolean;
@@ -36,7 +36,7 @@ export interface RenderModel {
 }
 
 export interface BuildRenderModelInput {
-  sessions: CenterSession[];
+  sessions: ManagedSession[];
   selectedId?: string;
   width: number;
   filter?: string;
@@ -50,7 +50,7 @@ const groupOrder = (a: string, b: string) => {
   return a.localeCompare(b);
 };
 
-const statusRank: Record<CenterStatus, number> = {
+const statusRank: Record<SessionStatus, number> = {
   error: 0,
   waiting: 1,
   running: 2,
@@ -99,15 +99,15 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       ? input.filterEditing
         ? `filter: ${input.filter || ""}  • esc clear • enter done`
         : `filter: ${input.filter || ""}  • esc clear`
-      : compactFooter ? "? help • / filter • enter • q" : "↑↓/jk • enter attach • n new • f fork • r restart • s skills • m mcp • q",
+      : compactFooter ? "? help • / filter • enter • d delete • q" : "↑↓/jk • enter attach • n new • f fork • r restart • d delete • s skills • m mcp • q",
     filter: input.filter,
     preview: input.preview ?? "",
   };
 }
 
 export function retainSelectionAfterRefresh(
-  previous: CenterSession[],
-  next: CenterSession[],
+  previous: ManagedSession[],
+  next: ManagedSession[],
   selectedId: string | undefined,
 ): string | undefined {
   if (!next.length) return undefined;
@@ -123,18 +123,18 @@ export function retainSelectionAfterRefresh(
   return sameGroup[Math.min(oldIndex, sameGroup.length - 1)]?.id ?? sameGroup.at(-1)?.id;
 }
 
-function pickSelectedId(sessions: CenterSession[], selectedId: string | undefined): string | undefined {
+function pickSelectedId(sessions: ManagedSession[], selectedId: string | undefined): string | undefined {
   if (!sessions.length) return undefined;
   if (selectedId && sessions.some((session) => session.id === selectedId)) return selectedId;
   return sessions[0]?.id;
 }
 
-function matchesFilter(session: CenterSession, filter: string): boolean {
+function matchesFilter(session: ManagedSession, filter: string): boolean {
   return [session.title, session.group, session.cwd.split(/[\\/]/).pop() ?? "", session.status]
     .some((value) => value.toLowerCase().includes(filter));
 }
 
-function toRenderSession(session: CenterSession, selected: boolean): RenderSession {
+function toRenderSession(session: ManagedSession, selected: boolean): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   return {
     id: session.id,
@@ -151,7 +151,7 @@ function toRenderSession(session: CenterSession, selected: boolean): RenderSessi
   };
 }
 
-function displayStatusFor(status: CenterStatus): RenderSession["displayStatus"] {
+function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"] {
   if (status === "starting") return "running";
   return status;
 }

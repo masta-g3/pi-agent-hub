@@ -1,16 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRenderModel, retainSelectionAfterRefresh } from "../src/tui/render-model.js";
-import { renderCenter } from "../src/tui/layout.js";
-import type { CenterSession, CenterStatus } from "../src/core/types.js";
+import { renderSessions } from "../src/tui/layout.js";
+import type { ManagedSession, SessionStatus } from "../src/core/types.js";
 
-function session(id: string, group: string, status: CenterStatus, title = id): CenterSession {
+function session(id: string, group: string, status: SessionStatus, title = id): ManagedSession {
   return {
     id,
     title,
     cwd: `/tmp/${title}`,
     group,
-    tmuxSession: `pi-center-${id}`,
+    tmuxSession: `pi-sessions-${id}`,
     status,
     createdAt: 1,
     updatedAt: 1,
@@ -18,7 +18,7 @@ function session(id: string, group: string, status: CenterStatus, title = id): C
 }
 
 test("empty state rendering includes first-run prompts", () => {
-  const lines = renderCenter(buildRenderModel({ sessions: [], width: 64 }));
+  const lines = renderSessions(buildRenderModel({ sessions: [], width: 64 }));
   assert.match(lines.join("\n"), /No managed Pi sessions yet/);
   assert.match(lines.join("\n"), /n  create a session/);
   assert.match(lines.join("\n"), /q  quit/);
@@ -32,7 +32,7 @@ test("grouping order and status counts", () => {
   assert.deepEqual(model.groups.map((group) => group.name), ["default", "work"]);
   assert.equal(model.groups[0]?.waitingCount, 1);
   assert.equal(model.groups[0]?.errorCount, 1);
-  assert.match(renderCenter(model).join("\n"), /1 waiting · 1 error/);
+  assert.match(renderSessions(model).join("\n"), /1 waiting · 1 error/);
 });
 
 test("narrow layout hides preview and uses compact footer", () => {
@@ -44,30 +44,30 @@ test("narrow layout hides preview and uses compact footer", () => {
 
 test("long titles/cwd truncate without exceeding width", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "a".repeat(100))], width: 60 });
-  for (const line of renderCenter(model)) assert.ok([...line].length <= 60, line);
+  for (const line of renderSessions(model)) assert.ok([...line].length <= 60, line);
 });
 
 test("error reason appears in selected metadata", () => {
   const broken = { ...session("a", "default", "error", "api"), error: "MCP failed" };
-  const lines = renderCenter(buildRenderModel({ sessions: [broken], selectedId: "a", width: 120 }));
+  const lines = renderSessions(buildRenderModel({ sessions: [broken], selectedId: "a", width: 120 }));
   assert.match(lines.join("\n"), /error\s+MCP failed/);
 });
 
 test("selected and stopped rows have distinct treatments", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api"), session("b", "default", "stopped", "docs")], selectedId: "a", width: 100 });
-  const lines = renderCenter(model).join("\n");
+  const lines = renderSessions(model).join("\n");
   assert.match(lines, /▶ ○ api/);
   assert.match(lines, /· - docs/);
 });
 
 test("preview renders captured tmux output with empty state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "one\ntwo" });
-  const lines = renderCenter(model).join("\n");
+  const lines = renderSessions(model).join("\n");
   assert.match(lines, /one/);
   assert.match(lines, /two/);
   assert.doesNotMatch(lines, /preview loads from tmux/);
 
-  const empty = renderCenter(buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "" })).join("\n");
+  const empty = renderSessions(buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "" })).join("\n");
   assert.match(empty, /preview empty/);
 });
 
@@ -80,7 +80,7 @@ test("filter matches across title group cwd basename and status", () => {
 test("filter with zero matches renders no-match state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
   assert.equal(model.noMatches, true);
-  assert.match(renderCenter(model).join("\n"), /No sessions match/);
+  assert.match(renderSessions(model).join("\n"), /No sessions match/);
 });
 
 test("starting displays as running", () => {

@@ -12,7 +12,7 @@ export interface DirectMcpClient {
 
 export async function createDirectMcpClient(serverId: string, config: McpServerConfig): Promise<DirectMcpClient> {
   const transport = createTransport(config);
-  const client = new Client({ name: `pi-command-center-${serverId}`, version: "0.1.0" });
+  const client = new Client({ name: `pi-sessions-${serverId}`, version: "0.1.0" });
   await client.connect(transport);
   return {
     async listTools() {

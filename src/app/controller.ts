@@ -1,22 +1,22 @@
 import { loadRegistry, saveRegistry } from "../core/registry.js";
 import { applyComputedStatus, computeStatus, markAcknowledged, readHeartbeat } from "../core/status.js";
 import { capturePane, sessionExists } from "../core/tmux.js";
-import type { CenterRegistry, CenterSession } from "../core/types.js";
+import type { SessionsRegistry, ManagedSession } from "../core/types.js";
 
-export interface CenterSnapshot {
-  registry: CenterRegistry;
+export interface SessionsSnapshot {
+  registry: SessionsRegistry;
   selectedId?: string;
   preview: string;
   filter?: string;
 }
 
-export class CenterController {
-  private registry: CenterRegistry;
+export class SessionsController {
+  private registry: SessionsRegistry;
   private selectedId: string | undefined;
   private preview = "";
   private filter: string | undefined;
 
-  constructor(registry: CenterRegistry = { version: 1, sessions: [] }) {
+  constructor(registry: SessionsRegistry = { version: 1, sessions: [] }) {
     this.registry = registry;
     this.selectedId = registry.sessions[0]?.id;
   }
@@ -24,7 +24,7 @@ export class CenterController {
   async refresh(now = Date.now()): Promise<void> {
     this.registry = await loadRegistry();
     this.selectedId = keepSelection(this.registry.sessions, this.selectedId);
-    const sessions: CenterSession[] = [];
+    const sessions: ManagedSession[] = [];
     for (const session of this.registry.sessions) {
       const exists = await sessionExists(session.tmuxSession);
       const heartbeat = await readHeartbeat(session.id);
@@ -45,7 +45,7 @@ export class CenterController {
     this.preview = await capturePane(selected.tmuxSession, lines);
   }
 
-  snapshot(): CenterSnapshot {
+  snapshot(): SessionsSnapshot {
     return { registry: this.registry, selectedId: this.selectedId, preview: this.preview, filter: this.filter };
   }
 
@@ -79,19 +79,29 @@ export class CenterController {
     void saveRegistry(this.registry);
   }
 
-  selected(): CenterSession | undefined {
+  removeSession(id: string): void {
+    const before = visibleSessions(this.registry.sessions, this.filter);
+    const oldIndex = before.findIndex((session) => session.id === id);
+    const wasSelected = this.selectedId === id;
+    this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => session.id !== id) };
+    const after = visibleSessions(this.registry.sessions, this.filter);
+    this.selectedId = wasSelected ? after[Math.min(oldIndex, after.length - 1)]?.id : keepSelection(after, this.selectedId);
+    if (wasSelected) this.preview = "";
+  }
+
+  selected(): ManagedSession | undefined {
     if (!this.selectedId) return undefined;
     return visibleSessions(this.registry.sessions, this.filter).find((session) => session.id === this.selectedId);
   }
 }
 
-function keepSelection(sessions: CenterSession[], selectedId: string | undefined): string | undefined {
+function keepSelection(sessions: ManagedSession[], selectedId: string | undefined): string | undefined {
   if (!sessions.length) return undefined;
   if (selectedId && sessions.some((session) => session.id === selectedId)) return selectedId;
   return sessions[0]?.id;
 }
 
-function visibleSessions(sessions: CenterSession[], filter: string | undefined): CenterSession[] {
+function visibleSessions(sessions: ManagedSession[], filter: string | undefined): ManagedSession[] {
   if (!filter) return sessions;
   const value = filter.toLowerCase();
   return sessions.filter((session) => [session.title, session.group, basename(session.cwd), session.status].some((text) => text.toLowerCase().includes(value)));

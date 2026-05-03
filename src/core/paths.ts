@@ -9,30 +9,30 @@ export function sessionDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env.PI_CODING_AGENT_SESSION_DIR ?? join(agentDir(env), "sessions"));
 }
 
-export function centerDir(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(env.PI_CENTER_DIR ?? join(agentDir(env), "command-center"));
+export function sessionsStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return resolve(env.PI_SESSIONS_DIR ?? join(agentDir(env), "pi-sessions"));
 }
 
 export function registryPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(centerDir(env), "registry.json");
+  return join(sessionsStateDir(env), "registry.json");
 }
 
 export function heartbeatDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(centerDir(env), "heartbeats");
+  return join(sessionsStateDir(env), "heartbeats");
 }
 
 export function heartbeatPath(sessionId: string, env: NodeJS.ProcessEnv = process.env): string {
   return join(heartbeatDir(env), `${sessionId}.json`);
 }
 
-export function projectCenterDir(cwd: string): string {
-  return join(resolve(cwd), ".pi", "command-center");
+export function projectSessionsDir(cwd: string): string {
+  return join(resolve(cwd), ".pi", "sessions");
 }
 
 export function projectSkillsStatePath(cwd: string): string {
-  return join(projectCenterDir(cwd), "skills.json");
+  return join(projectSessionsDir(cwd), "skills.json");
 }
 
 export function projectMcpStatePath(cwd: string): string {
-  return join(projectCenterDir(cwd), "mcp.json");
+  return join(projectSessionsDir(cwd), "mcp.json");
 }

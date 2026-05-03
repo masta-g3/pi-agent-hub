@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { centerDir } from "../core/paths.js";
+import { sessionsStateDir } from "../core/paths.js";
 import { HEARTBEAT_INTERVAL_MS } from "../core/status.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import type { Heartbeat } from "../core/types.js";
@@ -14,23 +14,23 @@ type PiContext = {
   };
 };
 
-export default function piCenterExtension(pi: ExtensionAPI) {
+export default function piSessionsExtension(pi: ExtensionAPI) {
   let currentState: Heartbeat["state"] = "starting";
   let stateSince = Date.now();
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let mcpCleanup: (() => Promise<void>) | undefined;
 
   async function heartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string) {
-    const id = process.env.PI_CENTER_SESSION_ID;
+    const id = process.env.PI_SESSIONS_SESSION_ID;
     if (!id) return;
     if (state !== currentState) {
       currentState = state;
       stateSince = Date.now();
     }
-    const file = join(process.env.PI_CENTER_DIR ?? centerDir(), "heartbeats", `${id}.json`);
+    const file = join(process.env.PI_SESSIONS_DIR ?? sessionsStateDir(), "heartbeats", `${id}.json`);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, `${JSON.stringify({
-      centerSessionId: id,
+      managedSessionId: id,
       cwd: ctx.cwd,
       piSessionFile: ctx.sessionManager?.getSessionFile?.(),
       piSessionId: ctx.sessionManager?.getSessionId?.(),

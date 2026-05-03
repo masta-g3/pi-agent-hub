@@ -39,7 +39,7 @@ test("currentTmuxClient reads and trims the current tmux client", async () => {
 });
 
 test("switchClientWithReturn installs return binding then switches client", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const exec = fakeTmux((call) => {
     const subcommand = call.args[0];
     if (subcommand === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
@@ -48,17 +48,17 @@ test("switchClientWithReturn installs return binding then switches client", asyn
     return { stdout: "", stderr: "" };
   });
 
-  await switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec);
+  await switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec);
 
   assert.deepEqual(exec.calls.map((call) => call.args[0] === "bind-key" ? call.args.slice(0, 4) : call.args), [
     ["display-message", "-p", "#{session_name}"],
     ["display-message", "-p", "#{client_name}"],
     ["list-keys", "-T", "root", "C-q"],
     ["bind-key", "-n", "C-q", "run-shell"],
-    ["switch-client", "-c", "/dev/ttys011", "-t", "pi-center-target"],
+    ["switch-client", "-c", "/dev/ttys011", "-t", "pi-sessions-target"],
   ]);
   const script = exec.calls.find((call) => call.args[0] === "bind-key")?.args[4] ?? "";
-  assert.match(script, /pi-center-\*/);
+  assert.match(script, /pi-sessions-\*/);
   assert.doesNotMatch(script, /\*\);/);
   assert.match(script, /control/);
   assert.match(script, /previous\.tmux/);
@@ -68,7 +68,7 @@ test("switchClientWithReturn installs return binding then switches client", asyn
 });
 
 test("switchClientWithReturn handles absent previous binding", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const exec = fakeTmux((call) => {
     if (call.args[0] === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
     if (call.args[0] === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
@@ -76,14 +76,14 @@ test("switchClientWithReturn handles absent previous binding", async () => {
     return { stdout: "", stderr: "" };
   });
 
-  await switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec);
+  await switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec);
 
   assert.equal(exec.calls.some((call) => call.args[0] === "bind-key"), true);
   assert.equal(exec.calls.some((call) => call.args[0] === "switch-client"), true);
 });
 
 test("switchClientWithReturn rethrows unexpected list-keys failures", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const exec = fakeTmux((call) => {
     if (call.args[0] === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
     if (call.args[0] === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
@@ -91,13 +91,13 @@ test("switchClientWithReturn rethrows unexpected list-keys failures", async () =
     return { stdout: "", stderr: "" };
   });
 
-  await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec), /tmux server unavailable/);
+  await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec), /tmux server unavailable/);
   assert.equal(exec.calls.some((call) => call.args[0] === "bind-key"), false);
   assert.equal(exec.calls.some((call) => call.args[0] === "switch-client"), false);
 });
 
 test("switchClientWithReturn restores binding when switch fails after bind", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const exec = fakeTmux((call) => {
     if (call.args[0] === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
     if (call.args[0] === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
@@ -106,7 +106,7 @@ test("switchClientWithReturn restores binding when switch fails after bind", asy
     return { stdout: "", stderr: "" };
   });
 
-  await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec), /switch failed/);
+  await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec), /switch failed/);
 
   const switchIndex = exec.calls.findIndex((call) => call.args[0] === "switch-client");
   const unbindIndex = exec.calls.findIndex((call, index) => index > switchIndex && call.args[0] === "unbind-key");
@@ -116,13 +116,13 @@ test("switchClientWithReturn restores binding when switch fails after bind", asy
 });
 
 test("restoreSwitchReturnBinding restores active binding without rebinding", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const previousPath = join(stateDir, "previous.tmux");
   await writeFile(previousPath, "bind-key -T root C-q send-prefix\n");
   await writeFile(join(stateDir, "active.json"), JSON.stringify({
     ownerPid: process.pid,
     controlSession: "old-control",
-    targetSession: "pi-center-old",
+    targetSession: "pi-sessions-old",
     returnKey: "C-q",
     restorePath: previousPath,
   }));
@@ -137,7 +137,7 @@ test("restoreSwitchReturnBinding restores active binding without rebinding", asy
 });
 
 test("switchClientWithReturn refuses to replace a live foreign return binding", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const previousPath = join(stateDir, "previous.tmux");
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
   try {
@@ -146,13 +146,13 @@ test("switchClientWithReturn refuses to replace a live foreign return binding", 
     await writeFile(join(stateDir, "active.json"), JSON.stringify({
       ownerPid: child.pid,
       controlSession: "other-control",
-      targetSession: "pi-center-other",
+      targetSession: "pi-sessions-other",
       returnKey: "C-q",
       restorePath: previousPath,
     }));
     const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
 
-    await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec), /already active/);
+    await assert.rejects(() => switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec), /already active/);
     assert.deepEqual(exec.calls, []);
   } finally {
     child.kill();
@@ -160,13 +160,13 @@ test("switchClientWithReturn refuses to replace a live foreign return binding", 
 });
 
 test("switchClientWithReturn restores stale active binding before rebinding", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "pi-center-return-"));
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
   const previousPath = join(stateDir, "previous.tmux");
   await writeFile(previousPath, "bind-key -T root C-q send-prefix\n");
   await writeFile(join(stateDir, "active.json"), JSON.stringify({
     ownerPid: 999999999,
     controlSession: "old-control",
-    targetSession: "pi-center-old",
+    targetSession: "pi-sessions-old",
     returnKey: "C-q",
     restorePath: previousPath,
   }));
@@ -177,9 +177,9 @@ test("switchClientWithReturn restores stale active binding before rebinding", as
     return { stdout: "", stderr: "" };
   });
 
-  await switchClientWithReturn({ targetSession: "pi-center-target", stateDir }, exec);
+  await switchClientWithReturn({ targetSession: "pi-sessions-target", stateDir }, exec);
 
   assert.deepEqual(exec.calls.slice(0, 2).map((call) => call.args[0]), ["unbind-key", "source-file"]);
   const active = JSON.parse(await readFile(join(stateDir, "active.json"), "utf8")) as { targetSession: string };
-  assert.equal(active.targetSession, "pi-center-target");
+  assert.equal(active.targetSession, "pi-sessions-target");
 });

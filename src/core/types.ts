@@ -1,12 +1,12 @@
-export type CenterStatus = "starting" | "running" | "waiting" | "idle" | "error" | "stopped";
+export type SessionStatus = "starting" | "running" | "waiting" | "idle" | "error" | "stopped";
 
-export interface CenterSession {
+export interface ManagedSession {
   id: string;
   title: string;
   cwd: string;
   group: string;
   tmuxSession: string;
-  status: CenterStatus;
+  status: SessionStatus;
   sessionFile?: string;
   piSessionId?: string;
   acknowledgedAt?: number;
@@ -16,13 +16,13 @@ export interface CenterSession {
   enabledMcpServers?: string[];
 }
 
-export interface CenterRegistry {
+export interface SessionsRegistry {
   version: 1;
-  sessions: CenterSession[];
+  sessions: ManagedSession[];
 }
 
 export interface Heartbeat {
-  centerSessionId: string;
+  managedSessionId: string;
   piSessionFile?: string;
   piSessionId?: string;
   cwd: string;
@@ -39,7 +39,7 @@ export interface TmuxState {
 }
 
 export interface StatusInput {
-  session: CenterSession;
+  session: ManagedSession;
   tmux: TmuxState;
   heartbeat?: Heartbeat;
   now: number;

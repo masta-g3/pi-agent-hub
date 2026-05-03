@@ -1,17 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyComputedStatus, computeStatus, HEARTBEAT_STALE_MS, markAcknowledged } from "../src/core/status.js";
-import type { CenterSession, Heartbeat } from "../src/core/types.js";
+import type { ManagedSession, Heartbeat } from "../src/core/types.js";
 
 const now = 1_000_000;
 
-function session(overrides: Partial<CenterSession> = {}): CenterSession {
+function session(overrides: Partial<ManagedSession> = {}): ManagedSession {
   return {
     id: "s1",
     title: "api",
     cwd: "/tmp/api",
     group: "default",
-    tmuxSession: "pi-center-s1",
+    tmuxSession: "pi-sessions-s1",
     status: "running",
     createdAt: 1,
     updatedAt: 1,
@@ -21,7 +21,7 @@ function session(overrides: Partial<CenterSession> = {}): CenterSession {
 
 function heartbeat(overrides: Partial<Heartbeat> = {}): Heartbeat {
   return {
-    centerSessionId: "s1",
+    managedSessionId: "s1",
     cwd: "/tmp/api",
     state: "waiting",
     stateSince: now - 1_000,

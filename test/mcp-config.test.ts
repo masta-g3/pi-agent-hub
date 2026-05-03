@@ -21,7 +21,7 @@ test("catalog validation rejects pool true on HTTP servers", () => {
 });
 
 test("project enable disable persists sorted state", async () => {
-  const project = await mkdtemp(join(tmpdir(), "pi-center-mcp-"));
+  const project = await mkdtemp(join(tmpdir(), "pi-sessions-mcp-"));
   await setProjectMcpServer(project, "z", true);
   const state = await setProjectMcpServer(project, "a", true);
   assert.deepEqual(state.enabledServers, ["a", "z"]);
@@ -30,7 +30,7 @@ test("project enable disable persists sorted state", async () => {
 });
 
 test("project bulk enable writes final sorted state once", async () => {
-  const project = await mkdtemp(join(tmpdir(), "pi-center-mcp-"));
+  const project = await mkdtemp(join(tmpdir(), "pi-sessions-mcp-"));
   const state = await setProjectMcpServers(project, ["z", "a", "a"]);
   assert.deepEqual(state.enabledServers, ["a", "z"]);
   const next = await setProjectMcpServers(project, ["docs"]);

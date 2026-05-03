@@ -1,5 +1,5 @@
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
-import { centerDir, projectMcpStatePath } from "../core/paths.js";
+import { sessionsStateDir, projectMcpStatePath } from "../core/paths.js";
 import { join } from "node:path";
 
 export interface McpCatalog {
@@ -17,7 +17,7 @@ export interface ProjectMcpState {
 }
 
 export function mcpCatalogPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(centerDir(env), "mcp.json");
+  return join(sessionsStateDir(env), "mcp.json");
 }
 
 export async function loadMcpCatalog(path = mcpCatalogPath()): Promise<McpCatalog> {

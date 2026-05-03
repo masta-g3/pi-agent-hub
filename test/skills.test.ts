@@ -16,7 +16,7 @@ async function makeSkill(root: string, name: string) {
 }
 
 test("attach records managed skill and materializes it", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-skills-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-skills-"));
   const project = join(root, "project");
   const source = await makeSkill(root, "repo-rules");
 
@@ -27,7 +27,7 @@ test("attach records managed skill and materializes it", async () => {
 });
 
 test("bulk skill selection writes final state and preserves unrelated attachments", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-skills-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-skills-"));
   const project = join(root, "project");
   const keep = await makeSkill(root, "keep");
   const add = await makeSkill(root, "add");
@@ -46,7 +46,7 @@ test("bulk skill selection writes final state and preserves unrelated attachment
 });
 
 test("detach removes only managed attachment", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-skills-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-skills-"));
   const project = join(root, "project");
   const source = await makeSkill(root, "repo-rules");
   await attachSkill({ projectCwd: project, sourcePath: source, preferSymlink: false });
@@ -56,7 +56,7 @@ test("detach removes only managed attachment", async () => {
 });
 
 test("detach refuses unmanaged skill names", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-skills-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-skills-"));
   const project = join(root, "project");
   await mkdir(join(project, ".pi", "skills", "manual"), { recursive: true });
   await writeFile(join(project, ".pi", "skills", "manual", "SKILL.md"), "manual", "utf8");
@@ -66,13 +66,14 @@ test("detach refuses unmanaged skill names", async () => {
 });
 
 test("listSkillPool discovers pool skills", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-skill-pool-"));
-  await makeSkill(join(root, "agent", "command-center", "skills", "pool"), "a");
-  await makeSkill(join(root, "agent", "command-center", "skills", "pool"), "b");
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-skill-pool-"));
+  const stateDir = join(root, "state");
+  await makeSkill(join(stateDir, "skills", "pool"), "a");
+  await makeSkill(join(stateDir, "skills", "pool"), "b");
 
-  assert.deepEqual((await listSkillPool({ PI_CODING_AGENT_DIR: join(root, "agent") })).map((skill) => skill.name), ["a", "b"]);
+  assert.deepEqual((await listSkillPool({ PI_SESSIONS_DIR: stateDir })).map((skill) => skill.name), ["a", "b"]);
 });
 
 test("skills state path is project local", () => {
-  assert.match(projectSkillsStatePath("/tmp/project"), /\.pi\/command-center\/skills\.json$/);
+  assert.match(projectSkillsStatePath("/tmp/project"), /\.pi\/sessions\/skills\.json$/);
 });

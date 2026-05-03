@@ -4,10 +4,11 @@ import { access, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildPiArgs } from "./core/pi-process.js";
 import { extensionPath } from "./core/extension-path.js";
-import { centerDir, registryPath } from "./core/paths.js";
+import { sessionsStateDir, registryPath } from "./core/paths.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "./core/registry.js";
 import { hasTmux, newSession, sessionExists, killSession } from "./core/tmux.js";
 import { runTui } from "./app/run-tui.js";
+import { deleteManagedSession, resolveSession } from "./app/delete-session.js";
 import { startMcpPool } from "./mcp/pool-daemon.js";
 
 const command = process.argv[2] ?? "tui";
@@ -38,6 +39,9 @@ async function main() {
     case "restart":
       await restart(args[0]);
       return;
+    case "delete":
+      await deleteCommand(args[0]);
+      return;
     case "fork":
       await fork(args);
       return;
@@ -53,18 +57,19 @@ async function main() {
 }
 
 function printHelp() {
-  console.log(`pi-center
+  console.log(`pi-sessions
 
 Usage:
-  pi-center
-  pi-center list
-  pi-center add <cwd> [-t title] [-g group]
-  pi-center start <session-id>
-  pi-center stop <session-id>
-  pi-center restart <session-id>
-  pi-center fork <session-id> [-t title] [-g group]
-  pi-center mcp-pool
-  pi-center doctor
+  pi-sessions
+  pi-sessions list
+  pi-sessions add <cwd> [-t title] [-g group]
+  pi-sessions start <session-id>
+  pi-sessions stop <session-id>
+  pi-sessions restart <session-id>
+  pi-sessions delete <session-id>
+  pi-sessions fork <session-id> [-t title] [-g group]
+  pi-sessions mcp-pool
+  pi-sessions doctor
 `);
 }
 
@@ -81,7 +86,7 @@ async function list() {
 
 async function add(argv: string[]) {
   const cwdArg = argv[0];
-  if (!cwdArg) throw new Error("Usage: pi-center add <cwd> [-t title] [-g group]");
+  if (!cwdArg) throw new Error("Usage: pi-sessions add <cwd> [-t title] [-g group]");
   const title = flag(argv, "-t") ?? flag(argv, "--title");
   const group = flag(argv, "-g") ?? flag(argv, "--group");
   const record = createSessionRecord({ cwd: resolve(cwdArg), title, group });
@@ -93,7 +98,7 @@ async function add(argv: string[]) {
 }
 
 async function start(id: string | undefined) {
-  if (!id) throw new Error("Usage: pi-center start <session-id>");
+  if (!id) throw new Error("Usage: pi-sessions start <session-id>");
   const registry = await loadRegistry();
   const session = findSession(registry, id);
   if (await sessionExists(session.tmuxSession)) return;
@@ -102,12 +107,12 @@ async function start(id: string | undefined) {
     name: session.tmuxSession,
     cwd: session.cwd,
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
-    env: { PI_CENTER_SESSION_ID: session.id, PI_CENTER_DIR: centerDir() },
+    env: { PI_SESSIONS_SESSION_ID: session.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
 }
 
 async function stop(id: string | undefined) {
-  if (!id) throw new Error("Usage: pi-center stop <session-id>");
+  if (!id) throw new Error("Usage: pi-sessions stop <session-id>");
   const registry = await loadRegistry();
   const session = findSession(registry, id);
   if (await sessionExists(session.tmuxSession)) await killSession(session.tmuxSession);
@@ -117,7 +122,7 @@ async function stop(id: string | undefined) {
 }
 
 async function restart(id: string | undefined) {
-  if (!id) throw new Error("Usage: pi-center restart <session-id>");
+  if (!id) throw new Error("Usage: pi-sessions restart <session-id>");
   await stop(id);
   const registry = await loadRegistry();
   const session = findSession(registry, id);
@@ -127,9 +132,15 @@ async function restart(id: string | undefined) {
   await start(id);
 }
 
+async function deleteCommand(id: string | undefined) {
+  if (!id) throw new Error("Usage: pi-sessions delete <session-id>");
+  const deleted = await deleteManagedSession(id);
+  console.log(`deleted ${deleted.id}\t${deleted.title}`);
+}
+
 async function fork(argv: string[]) {
   const sourceId = argv[0];
-  if (!sourceId) throw new Error("Usage: pi-center fork <session-id> [-t title] [-g group]");
+  if (!sourceId) throw new Error("Usage: pi-sessions fork <session-id> [-t title] [-g group]");
   const registry = await loadRegistry();
   const source = findSession(registry, sourceId);
   if (!source.sessionFile) throw new Error(`Cannot fork ${source.id}: Pi session file is not known yet`);
@@ -143,13 +154,13 @@ async function fork(argv: string[]) {
     name: record.tmuxSession,
     cwd: record.cwd,
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
-    env: { PI_CENTER_SESSION_ID: record.id, PI_CENTER_DIR: centerDir() },
+    env: { PI_SESSIONS_SESSION_ID: record.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
   console.log(record.id);
 }
 
 async function mcpPool() {
-  const pool = await startMcpPool({ socketPath: `${centerDir()}/pool/pool.sock` });
+  const pool = await startMcpPool({ socketPath: `${sessionsStateDir()}/pool/pool.sock` });
   console.log(`MCP pool listening at ${pool.socketPath}`);
   await new Promise<void>((resolve) => {
     process.once("SIGINT", resolve);
@@ -159,11 +170,11 @@ async function mcpPool() {
 }
 
 async function doctor() {
-  const dir = centerDir();
+  const dir = sessionsStateDir();
   await mkdir(dir, { recursive: true });
   await access(dir, constants.W_OK);
   const ext = extensionPath();
-  console.log(`center dir: ${dir}`);
+  console.log(`sessions dir: ${dir}`);
   console.log(`registry:   ${registryPath()}`);
   console.log(`writable:   ok`);
   console.log(`tmux:       ${(await hasTmux()) ? "ok" : "missing"}`);
@@ -175,11 +186,8 @@ function flag(argv: string[], name: string): string | undefined {
   return index === -1 ? undefined : argv[index + 1];
 }
 
-function findSession(registry: { sessions: Array<{ id: string }> }, id: string | undefined) {
-  if (!id) throw new Error("Missing session id");
-  const session = registry.sessions.find((item) => item.id === id || item.id.startsWith(id));
-  if (!session) throw new Error(`Unknown session: ${id}`);
-  return session as (typeof registry.sessions)[number] & { title: string; group: string; tmuxSession: string; cwd: string; sessionFile?: string; status: string; updatedAt: number };
+function findSession(registry: Parameters<typeof resolveSession>[0], id: string | undefined) {
+  return resolveSession(registry, id) as ReturnType<typeof resolveSession> & { sessionFile?: string; status: string; updatedAt: number };
 }
 
 function shellQuote(value: string): string {

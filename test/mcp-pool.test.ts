@@ -16,7 +16,7 @@ function fakeClient(): DirectMcpClient {
 }
 
 test("MCP pool lists and calls pooled stdio server over Unix socket", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-pool-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-pool-"));
   const catalogPath = join(root, "mcp.json");
   const socketPath = join(root, "pool.sock");
   await writeFile(catalogPath, JSON.stringify({ version: 1, servers: { fake: { type: "stdio", command: "fake", pool: true } } }), "utf8");
@@ -31,7 +31,7 @@ test("MCP pool lists and calls pooled stdio server over Unix socket", async () =
 });
 
 test("MCP pool reports unavailable pooled server", async () => {
-  const root = await mkdtemp(join(tmpdir(), "pi-center-pool-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-pool-"));
   const catalogPath = join(root, "mcp.json");
   const socketPath = join(root, "pool.sock");
   await writeFile(catalogPath, JSON.stringify({ version: 1, servers: {} }), "utf8");
