@@ -7,6 +7,7 @@ import { loadCenterTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
+import { restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
 
 export async function runTui(): Promise<void> {
   const theme = await loadCenterTheme({ cwd: process.cwd() });
@@ -22,12 +23,16 @@ export async function runTui(): Promise<void> {
   let stopLoop: (() => void) | undefined;
   const stop = () => {
     stopLoop?.();
+    void restoreSwitchReturnBinding({ onlyOwnerPid: process.pid }).catch(() => {});
     tui.stop();
   };
   const view = new CenterView(controller, stop, {
     attachOutsideTmux(tmuxSession) {
       stop();
       spawn("tmux", ["attach-session", "-t", tmuxSession], { stdio: "inherit" });
+    },
+    switchInsideTmux(tmuxSession) {
+      return switchClientWithReturn({ targetSession: tmuxSession });
     },
     restart(sessionId) {
       spawn(process.execPath, [process.argv[1] ?? "", "restart", sessionId], { stdio: "inherit" });

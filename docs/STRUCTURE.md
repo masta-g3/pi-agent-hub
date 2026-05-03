@@ -26,6 +26,7 @@ docs/STRUCTURE.md        this onboarding guide
 - Project skill state lives in `<project>/.pi/command-center/skills.json`.
 - Project MCP enablement lives in `<project>/.pi/command-center/mcp.json`.
 - Pooled MCP uses a Unix socket at `<agent-dir>/command-center/pool/pool.sock`.
+- Inside-tmux switch return state lives under `return-key/` while a temporary `Ctrl+Q` binding is active.
 
 ## Build and test
 
@@ -39,7 +40,7 @@ node dist/cli.js --help
 ## Design rules
 
 - Keep status logic centralized in `src/core/status.ts`.
-- Keep tmux shelling centralized in `src/core/tmux.ts`.
+- Keep tmux shelling centralized in `src/core/tmux.ts`. Inside-tmux attach uses native `switch-client` plus a temporary guarded `Ctrl+Q` return binding; outside-tmux attach remains normal `tmux attach-session`.
 - Keep rendering pure and testable in `src/tui/*`; ANSI styling must stay width-safe via theme helpers.
 - Use single bulk writes for multi-item project state changes; avoid parallel read-modify-write loops against JSON files.
 - Keep clipboard integration best-effort. The UI must always show the actionable tmux command even when clipboard tooling is missing.

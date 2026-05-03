@@ -38,7 +38,7 @@ export class CenterController {
 
   async refreshPreview(lines = 160): Promise<void> {
     const selected = this.selected();
-    if (!selected || selected.status === "stopped") {
+    if (!selected || selected.status === "stopped" || selected.status === "error") {
       this.preview = "";
       return;
     }

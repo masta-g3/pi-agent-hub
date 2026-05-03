@@ -14,6 +14,7 @@ export interface SessionDialogInput {
 
 export interface CenterViewActions {
   attachOutsideTmux?: (tmuxSession: string) => void;
+  switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => void;
   createSession?: (input: Required<SessionDialogInput>) => void;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => void;
@@ -158,7 +159,18 @@ export class CenterView implements Component {
     const plan = attachPlan(selected);
     if (plan.type === "inside-tmux") {
       this.actions.copy?.(plan.command);
-      this.message = plan.message;
+      const switchInsideTmux = this.actions.switchInsideTmux;
+      if (!switchInsideTmux) {
+        this.message = plan.message;
+        return;
+      }
+      this.message = `switching: ${plan.command} · Ctrl+Q returns`;
+      try {
+        const result = switchInsideTmux(selected.tmuxSession);
+        if (isPromise(result)) void result.catch((error: unknown) => { this.message = `switch failed: ${errorMessage(error)}`; });
+      } catch (error) {
+        this.message = `switch failed: ${errorMessage(error)}`;
+      }
       return;
     }
     this.actions.attachOutsideTmux?.(selected.tmuxSession);

@@ -92,6 +92,49 @@ test("enter triggers attach action outside tmux", () => {
   }
 });
 
+test("enter inside tmux switches client and keeps command visible", () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    let switched: string | undefined;
+    let copied: string | undefined;
+    const controller = new CenterController({ version: 1, sessions: [session("api", "api")] });
+    const view = new CenterView(controller, () => {}, {
+      attachOutsideTmux: () => { throw new Error("outside attach should not run inside tmux"); },
+      switchInsideTmux: (tmuxSession) => { switched = tmuxSession; },
+      copy: (text) => { copied = text; },
+    });
+
+    view.handleInput("\r");
+
+    assert.equal(switched, "pi-center-api");
+    assert.equal(copied, "tmux switch-client -t pi-center-api");
+    assert.match(view.render(100).join("\n"), /tmux switch-client -t pi-center-api/);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("inside tmux switch action errors show in footer", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const controller = new CenterController({ version: 1, sessions: [session("api", "api")] });
+    const view = new CenterView(controller, () => {}, {
+      switchInsideTmux: async () => { throw new Error("switch failed"); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(view.render(100).join("\n"), /switch failed: switch failed/);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
 test("new dialog submits cwd group title", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new CenterView(new CenterController(), () => {}, { createSession: (input) => { created = input; } });

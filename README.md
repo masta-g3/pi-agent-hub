@@ -28,6 +28,10 @@ node dist/cli.js
 
 After linking or publishing, the binary is `pi-center`.
 
+## TUI attach behavior
+
+When `pi-center` is running inside tmux, pressing `enter` on a managed session switches the current tmux client to that session and shows the equivalent `tmux switch-client -t <session>` command. Press `Ctrl+Q` from a managed `pi-center-*` session to return to the control center. Outside tmux, attach uses normal `tmux attach-session`; return with tmux's standard detach keys.
+
 ## Pi package
 
 The package declares its extension in `package.json`:
@@ -60,6 +64,7 @@ The standalone TUI reads Pi settings from the current project first (`.pi/settin
 - Project MCP state: `<project>/.pi/command-center/mcp.json`
 - MCP catalog: `<agent-dir>/command-center/mcp.json`
 - MCP pool socket: `<agent-dir>/command-center/pool/pool.sock`
+- Temporary tmux return binding state: `return-key/active.json` and `return-key/previous.tmux`
 
 ## MCP catalog example
 
