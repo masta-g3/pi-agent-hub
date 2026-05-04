@@ -4,7 +4,7 @@ import { SessionsController } from "./controller.js";
 import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
 import type { NewFormContext } from "../tui/new-form.js";
-import { loadSessionsTheme } from "../tui/theme.js";
+import { loadSessionsTheme, type SessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
@@ -19,21 +19,60 @@ export function buildNewFormContext(input: { cwd: string; sessions: ManagedSessi
   return { cwd: input.selected?.cwd ?? input.cwd, group: input.selected?.group, knownCwds };
 }
 
+export interface ThemeRefreshLoopOptions {
+  initialTheme: SessionsTheme;
+  load: () => Promise<SessionsTheme>;
+  apply: (theme: SessionsTheme) => void;
+  intervalMs?: number;
+}
+
+export function startThemeRefreshLoop(options: ThemeRefreshLoopOptions): () => void {
+  let activeThemeKey = themeKey(options.initialTheme);
+  let inFlight: Promise<void> | undefined;
+  let stopped = false;
+  const run = () => {
+    if (stopped || inFlight) return;
+    inFlight = (async () => {
+      try {
+        const nextTheme = await options.load();
+        if (stopped) return;
+        const nextThemeKey = themeKey(nextTheme);
+        if (nextThemeKey === activeThemeKey) return;
+        activeThemeKey = nextThemeKey;
+        options.apply(nextTheme);
+      } catch {
+        // Keep the last good theme if settings/theme files are mid-write.
+      }
+    })().finally(() => { inFlight = undefined; });
+  };
+  const timer = setInterval(run, options.intervalMs ?? 1_000);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+function themeKey(theme: SessionsTheme): string {
+  return JSON.stringify(theme);
+}
+
 export async function runTui(): Promise<void> {
-  const theme = await loadSessionsTheme({ cwd: process.cwd() });
+  const cwd = process.cwd();
+  const theme = await loadSessionsTheme({ cwd });
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
   const controller = new SessionsController();
-  const cwd = process.cwd();
   const skillPool = await listSkillPool();
   const skillState = await loadProjectSkillsState(cwd);
   let enabledSkillNames = new Set(skillState.attached.map((skill) => skill.name));
   const mcpCatalog = await loadMcpCatalog();
   let mcpState = await loadProjectMcpState(cwd);
   let stopLoop: RefreshLoopHandle | undefined;
+  let stopThemeLoop: (() => void) | undefined;
   let stopped = false;
   const stop = () => {
     stopped = true;
+    stopThemeLoop?.();
     void stopLoop?.stop();
     void restoreSwitchReturnBinding({ onlyOwnerPid: process.pid }).catch(() => {});
     tui.stop();
@@ -131,6 +170,15 @@ export async function runTui(): Promise<void> {
       child.stdin.end(text);
     },
   }, theme);
+  stopThemeLoop = startThemeRefreshLoop({
+    initialTheme: theme,
+    load: () => loadSessionsTheme({ cwd }),
+    apply(nextTheme) {
+      view.setTheme(nextTheme);
+      tui.invalidate();
+      tui.requestRender();
+    },
+  });
   tui.addChild(view);
   tui.setFocus(view);
   tui.start();

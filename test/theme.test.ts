@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { renderSessions, renderForm } from "../src/tui/layout.js";
-import { darkTheme, loadSessionsTheme, stripAnsi, styleToken, themeFromPiTheme } from "../src/tui/theme.js";
+import { darkTheme, lightTheme, loadSessionsTheme, stripAnsi, styleToken, themeFromPiTheme } from "../src/tui/theme.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function session(): ManagedSession {
@@ -45,6 +45,16 @@ test("loadSessionsTheme reads project settings before global settings", async ()
 
   const theme = await loadSessionsTheme({ cwd: project, env: { PI_CODING_AGENT_DIR: agent } });
   assert.equal(theme.accent, "#123456");
+});
+
+test("loadSessionsTheme returns built-in light theme for Pi light", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-theme-"));
+  const agent = join(root, "agent");
+  await mkdir(agent, { recursive: true });
+  await writeFile(join(agent, "settings.json"), JSON.stringify({ theme: "light" }), "utf8");
+
+  const theme = await loadSessionsTheme({ env: { PI_CODING_AGENT_DIR: agent } });
+  assert.deepEqual(theme, lightTheme);
 });
 
 test("loadSessionsTheme falls back to dark theme", async () => {

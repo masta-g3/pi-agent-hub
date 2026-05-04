@@ -19,6 +19,17 @@ export const darkTheme: SessionsTheme = {
   border: 240,
 };
 
+export const lightTheme: SessionsTheme = {
+  accent: "#5a8080",
+  success: "#588458",
+  warning: "#9a7326",
+  error: "#aa5555",
+  muted: "#6c6c6c",
+  dim: "#767676",
+  text: "",
+  border: "#547da7",
+};
+
 interface PiSettings {
   theme?: string;
 }
@@ -32,7 +43,8 @@ interface PiThemeFile {
 export async function loadSessionsTheme(options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<SessionsTheme> {
   const env = options.env ?? process.env;
   const name = await readThemeName(options.cwd, env);
-  if (!name || name === "dark" || name === "light") return darkTheme;
+  if (name === "light") return lightTheme;
+  if (!name || name === "dark") return darkTheme;
   const file = await findThemeFile(name, options.cwd, env);
   if (!file) return darkTheme;
   const parsed = JSON.parse(await readFile(file, "utf8")) as PiThemeFile;

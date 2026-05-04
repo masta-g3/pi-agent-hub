@@ -645,6 +645,19 @@ test("themed footer messages keep terminal width", () => {
   for (const line of view.render(80)) assert.ok(stripAnsi(line).length <= 80, stripAnsi(line));
 });
 
+test("setTheme updates rendered ANSI without changing visible width", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {}, { ...darkTheme, accent: "#010203" });
+  const before = view.render(80);
+
+  view.setTheme({ ...darkTheme, accent: "#040506" });
+  const after = view.render(80);
+
+  assert.notEqual(after.join("\n"), before.join("\n"));
+  assert.deepEqual(after.map(stripAnsi), before.map(stripAnsi));
+  for (const line of after) assert.ok(stripAnsi(line).length <= 80, stripAnsi(line));
+});
+
 test("restart requires double uppercase R press", () => {
   const restarted: string[] = [];
   let now = 100;

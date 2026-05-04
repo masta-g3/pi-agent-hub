@@ -87,6 +87,10 @@ export class SessionsView implements Component {
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {}
 
+  setTheme(theme: SessionsTheme): void {
+    this.theme = theme;
+  }
+
   handleInput(data: string): void {
     if (this.mode === "filter") {
       this.handleFilterInput(data);
