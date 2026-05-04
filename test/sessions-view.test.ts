@@ -689,7 +689,7 @@ test("help, empty picker, and attach cancel pending restart", () => {
   assert.deepEqual(restarted, []);
 });
 
-test("zero-match filter blocks selected actions", async () => {
+test("zero-match filter blocks selected actions", () => {
   const restarted: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id) });
@@ -697,13 +697,12 @@ test("zero-match filter blocks selected actions", async () => {
   for (const char of "zzz") view.handleInput(char);
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
-  await controller.refresh();
   view.handleInput("R");
   view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 
-test("filter matching ignores parent cwd directories for action selection", async () => {
+test("filter matching ignores parent cwd directories for action selection", () => {
   const restarted: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), cwd: "/tmp/hidden-parent/api" }] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id) });
@@ -711,7 +710,6 @@ test("filter matching ignores parent cwd directories for action selection", asyn
   for (const char of "hidden") view.handleInput(char);
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
-  await controller.refresh();
   view.handleInput("R");
   view.handleInput("R");
   assert.deepEqual(restarted, []);

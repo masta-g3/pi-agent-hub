@@ -169,7 +169,7 @@ export class SessionsView implements Component {
     else if (data === "m") this.startPicker("mcp");
     else if (data === "a") {
       this.clearPendingRestart();
-      this.runAction(() => this.actions.acknowledge?.() ?? this.controller.acknowledgeSelected(), "marking read...");
+      this.runAction(() => this.actions.acknowledge ? this.actions.acknowledge() : this.controller.acknowledgeSelected(), "marking read...");
     }
     else if (data === "?") {
       this.clearPendingRestart();
@@ -518,7 +518,7 @@ export class SessionsView implements Component {
     this.moveGroupForm = result.state;
     if (!result.ok) return;
     const group = result.state.fields.group.value;
-    this.runAction(() => this.actions.changeGroup?.(selected.id, group) ?? this.controller.moveSessionToGroup(selected.id, group), "moving session...");
+    this.runAction(() => this.actions.changeGroup ? this.actions.changeGroup(selected.id, group) : this.controller.moveSessionToGroup(selected.id, group), "moving session...");
     this.mode = "normal";
     this.moveGroupForm = undefined;
   }
@@ -530,7 +530,7 @@ export class SessionsView implements Component {
     this.renameSessionForm = result.state;
     if (!result.ok) return;
     const title = result.state.fields.title.value;
-    this.runAction(() => this.actions.renameSession?.(selected.id, title) ?? this.controller.renameSession(selected.id, title), "renaming session...");
+    this.runAction(() => this.actions.renameSession ? this.actions.renameSession(selected.id, title) : this.controller.renameSession(selected.id, title), "renaming session...");
     this.mode = "normal";
     this.renameSessionForm = undefined;
   }
@@ -546,7 +546,7 @@ export class SessionsView implements Component {
       this.renameGroupForm = setFieldError(this.renameGroupForm, "to", "group is required");
       return;
     }
-    this.runAction(() => this.actions.renameGroup?.(from, to) ?? this.controller.renameGroup(from, to), "renaming group...");
+    this.runAction(() => this.actions.renameGroup ? this.actions.renameGroup(from, to) : this.controller.renameGroup(from, to), "renaming group...");
     this.mode = "normal";
     this.renameGroupFrom = undefined;
     this.renameGroupForm = undefined;

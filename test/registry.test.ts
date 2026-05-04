@@ -22,6 +22,19 @@ test("atomic JSON write/read round trip", async () => {
   assert.equal(await readFile(path, "utf8"), "{\n  \"ok\": true\n}\n");
 });
 
+test("concurrent atomic writes keep valid JSON", async () => {
+  const path = await tempPath("state.json");
+  const originalNow = Date.now;
+  Date.now = () => 1;
+  try {
+    await Promise.all(Array.from({ length: 20 }, (_, i) => writeJsonAtomic(path, { value: i })));
+  } finally {
+    Date.now = originalNow;
+  }
+  const state = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(typeof state.value, "number");
+});
+
 test("registry save/load round trip", async () => {
   const path = await tempPath("registry.json");
   const session = createSessionRecord({ cwd: "/tmp/project", title: "api", group: "work", now: 10 });
