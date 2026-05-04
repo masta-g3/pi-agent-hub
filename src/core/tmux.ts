@@ -107,6 +107,7 @@ export interface SwitchClientOptions {
     name: string;
     cwd: string;
     command: string;
+    env?: Record<string, string>;
   };
 }
 
@@ -246,6 +247,7 @@ function returnBindingScript(input: {
     name: string;
     cwd: string;
     command: string;
+    env?: Record<string, string>;
   };
 }): string {
   const prefixPattern = shellCasePrefix(input.managedPrefix);
@@ -254,11 +256,17 @@ function returnBindingScript(input: {
     `test -s ${shellQuote(input.restorePath)} && tmux source-file ${shellQuote(input.restorePath)}`,
     `rm -f ${shellQuote(input.restorePath)} ${shellQuote(input.activePath)}`,
   ].join("; ");
+  const returnCommand = input.returnSession ? commandWithEnv(input.returnSession.command, input.returnSession.env) : "";
   const ensureReturnSession = input.returnSession?.name === input.controlSession
-    ? `tmux has-session -t ${shellQuote(input.controlSession)} 2>/dev/null || tmux new-session -d -s ${shellQuote(input.controlSession)} -c ${shellQuote(input.returnSession.cwd)} ${shellQuote(input.returnSession.command)} 2>/dev/null || true; `
+    ? `tmux has-session -t ${shellQuote(input.controlSession)} 2>/dev/null || tmux new-session -d -s ${shellQuote(input.controlSession)} -c ${shellQuote(input.returnSession.cwd)} ${shellQuote(returnCommand)} 2>/dev/null || true; `
     : "";
   return `S=$(tmux display-message -p '#{session_name}'); case "$S" in ${prefixPattern}*) `
     + `${ensureReturnSession}if tmux switch-client -t ${shellQuote(input.controlSession)} 2>/dev/null; then ${restore}; fi;; esac`;
+}
+
+function commandWithEnv(command: string, env: Record<string, string> | undefined): string {
+  const assignments = Object.entries(env ?? {}).map(([key, value]) => `${key}=${shellQuote(value)}`);
+  return [...assignments, command].join(" ");
 }
 
 function isProcessAlive(pid: number): boolean {

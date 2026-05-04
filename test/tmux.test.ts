@@ -119,12 +119,19 @@ test("switchClientWithReturn can self-heal a missing return session before clean
   await switchClientWithReturn({
     targetSession: "pi-sessions-target",
     stateDir,
-    returnSession: { name: "pi-sessions-dashboard", cwd: "/repo/pi-command-center", command: "pi-sessions tui" },
+    returnSession: {
+      name: "pi-sessions-dashboard",
+      cwd: "/repo/pi-command-center",
+      command: "pi-sessions tui",
+      env: { PI_CODING_AGENT_DIR: "/tmp/pi agent", PI_SESSIONS_DIR: "/tmp/pi-sessions" },
+    },
   }, exec);
 
   const script = exec.calls.find((call) => call.args[0] === "bind-key")?.args[4] ?? "";
   assert.match(script, /tmux has-session -t 'pi-sessions-dashboard'/);
-  assert.match(script, /tmux new-session -d -s 'pi-sessions-dashboard' -c '\/repo\/pi-command-center' 'pi-sessions tui'/);
+  assert.match(script, /tmux new-session -d -s 'pi-sessions-dashboard' -c '\/repo\/pi-command-center'/);
+  assert.match(script, /PI_CODING_AGENT_DIR=.*\/tmp\/pi agent/);
+  assert.match(script, /PI_SESSIONS_DIR=.*\/tmp\/pi-sessions/);
   assert.match(script, /if tmux switch-client -t 'pi-sessions-dashboard'/);
   assert.match(script, /then tmux unbind-key/);
   assert.match(script, /then .*rm -f .*previous\.tmux.*active\.json.*; fi/);

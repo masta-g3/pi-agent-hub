@@ -8,7 +8,7 @@ import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
 import { configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
-import { DASHBOARD_SESSION } from "./dashboard.js";
+import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { deleteManagedSession } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession } from "./session-commands.js";
 
@@ -59,7 +59,7 @@ export async function runTui(): Promise<void> {
       if (session) await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
       return switchClientWithReturn({
         targetSession: tmuxSession,
-        returnSession: { name: DASHBOARD_SESSION, cwd, command: "pi-sessions tui" },
+        returnSession: { name: DASHBOARD_SESSION, cwd, command: "pi-sessions tui", env: dashboardEnv() },
       });
     },
     restart(sessionId) {
