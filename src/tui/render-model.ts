@@ -45,6 +45,7 @@ export interface BuildRenderModelInput {
 }
 
 const groupOrder = (a: string, b: string) => {
+  if (a === b) return 0;
   if (a === "default") return -1;
   if (b === "default") return 1;
   return a.localeCompare(b);

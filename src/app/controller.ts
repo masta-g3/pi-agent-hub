@@ -18,7 +18,7 @@ export class SessionsController {
 
   constructor(registry: SessionsRegistry = { version: 1, sessions: [] }) {
     this.registry = registry;
-    this.selectedId = registry.sessions[0]?.id;
+    this.selectedId = visibleSessions(registry.sessions, undefined)[0]?.id;
   }
 
   async refresh(now = Date.now()): Promise<void> {
@@ -125,10 +125,28 @@ function keepSelection(sessions: ManagedSession[], selectedId: string | undefine
   return sessions[0]?.id;
 }
 
+const groupOrder = (a: string, b: string) => {
+  if (a === b) return 0;
+  if (a === "default") return -1;
+  if (b === "default") return 1;
+  return a.localeCompare(b);
+};
+
+const statusRank: Record<ManagedSession["status"], number> = {
+  error: 0,
+  waiting: 1,
+  running: 2,
+  starting: 2,
+  idle: 3,
+  stopped: 4,
+};
+
 function visibleSessions(sessions: ManagedSession[], filter: string | undefined): ManagedSession[] {
-  if (!filter) return sessions;
-  const value = filter.toLowerCase();
-  return sessions.filter((session) => [session.title, session.group, basename(session.cwd), session.status].some((text) => text.toLowerCase().includes(value)));
+  const value = filter?.toLowerCase();
+  const visible = value
+    ? sessions.filter((session) => [session.title, session.group, basename(session.cwd), session.status].some((text) => text.toLowerCase().includes(value)))
+    : sessions;
+  return visible.slice().sort((a, b) => groupOrder(a.group, b.group) || statusRank[a.status] - statusRank[b.status] || a.title.localeCompare(b.title));
 }
 
 function basename(path: string): string {
