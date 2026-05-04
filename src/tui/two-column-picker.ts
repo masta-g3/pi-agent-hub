@@ -10,6 +10,7 @@ export interface PickerState {
   items: PickerItem[];
   selected: number;
   filter?: string;
+  filterCursor?: number;
 }
 
 export function togglePickerItem(state: PickerState): PickerState {
@@ -39,7 +40,7 @@ export function renderTwoColumnPicker(state: PickerState, width: number, theme?:
   const col = Math.floor((inner - 3) / 2);
   const lines = [
     styles.accent(state.title),
-    `search: ${state.filter ?? ""}`,
+    `search: ${renderSearch(state)}`,
     "",
     `${pad("Enabled", col)}   Available`,
   ];
@@ -47,12 +48,19 @@ export function renderTwoColumnPicker(state: PickerState, width: number, theme?:
   else for (let i = 0; i < rows; i += 1) {
     lines.push(`${pad(formatItem(state, enabled[i]), col)}   ${formatItem(state, available[i])}`);
   }
-  lines.push("", styles.muted("type search • space toggle • enter apply/restart • esc cancel"));
+  lines.push("", styles.muted("type search • ←→ edit • space toggle • enter apply/restart • esc cancel"));
   return [
     `${styles.border("┌")}${styles.border("─".repeat(inner))}${styles.border("┐")}`,
     ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
     `${styles.border("└")}${styles.border("─".repeat(inner))}${styles.border("┘")}`,
   ];
+}
+
+function renderSearch(state: PickerState): string {
+  const value = state.filter ?? "";
+  const chars = [...value];
+  const cursor = Math.max(0, Math.min(state.filterCursor ?? chars.length, chars.length));
+  return `${chars.slice(0, cursor).join("")}█${chars.slice(cursor).join("")}`;
 }
 
 function formatItem(state: PickerState, item: PickerItem | undefined): string {

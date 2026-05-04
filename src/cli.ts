@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
+import { configPath, effectiveMcpCatalogPath, effectiveSkillPoolDirs } from "./core/config.js";
 import { extensionPath } from "./core/extension-path.js";
 import { registryPath, sessionsStateDir } from "./core/paths.js";
 import { loadRegistry } from "./core/registry.js";
@@ -154,6 +155,9 @@ async function doctor() {
   const ext = extensionPath();
   console.log(`sessions dir: ${dir}`);
   console.log(`registry:   ${registryPath()}`);
+  console.log(`config:     ${configPath()}`);
+  console.log(`skill dirs: ${(await effectiveSkillPoolDirs()).join(", ")}`);
+  console.log(`mcp:        ${await effectiveMcpCatalogPath()}`);
   console.log(`writable:   ok`);
   console.log(`tmux:       ${(await hasTmux()) ? "ok" : "missing"}`);
   console.log(`extension:  ${ext}`);

@@ -5,7 +5,7 @@ import { buildPiArgs } from "../core/pi-process.js";
 import { extensionPath } from "../core/extension-path.js";
 import { sessionsStateDir } from "../core/paths.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "../core/registry.js";
-import { killSession, newSession, sessionExists } from "../core/tmux.js";
+import { configureManagedSessionStatusBar, killSession, newSession, sessionExists } from "../core/tmux.js";
 import { resolveSession } from "./delete-session.js";
 import type { ManagedSession } from "../core/types.js";
 
@@ -32,7 +32,10 @@ export async function addManagedSession(input: SessionInput): Promise<ManagedSes
 export async function startManagedSession(id: string): Promise<void> {
   const registry = await loadRegistry();
   const session = findSession(registry, id);
-  if (await sessionExists(session.tmuxSession)) return;
+  if (await sessionExists(session.tmuxSession)) {
+    await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
+    return;
+  }
   const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile });
   await newSession({
     name: session.tmuxSession,
@@ -40,6 +43,7 @@ export async function startManagedSession(id: string): Promise<void> {
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
     env: { PI_SESSIONS_SESSION_ID: session.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
+  await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
 }
 
 export async function stopManagedSession(id: string): Promise<void> {
@@ -79,6 +83,7 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
     env: { PI_SESSIONS_SESSION_ID: record.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
+  await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd });
   return record;
 }
 

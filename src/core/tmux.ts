@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
+import { TMUX_CHROME_HINT_COLOR, TMUX_CHROME_STATUS_STYLE } from "./chrome.js";
 import { sessionsStateDir } from "./paths.js";
 import type { CommandResult } from "./types.js";
 
@@ -64,11 +65,48 @@ export async function capturePane(name: string, lines = 160, exec: TmuxExec = re
   return result.stdout;
 }
 
+export async function configureManagedSessionStatusBar(options: {
+  name: string;
+  title: string;
+  cwd: string;
+}, exec: TmuxExec = realTmuxExec): Promise<void> {
+  const statusRight = `#[fg=${TMUX_CHROME_HINT_COLOR}]ctrl+q return#[default] │ 📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  await exec.exec("tmux", [
+    "set-option", "-t", options.name, "status", "on",
+    ";", "set-option", "-t", options.name, "status-style", TMUX_CHROME_STATUS_STYLE,
+    ";", "set-option", "-t", options.name, "status-right", statusRight,
+    ";", "set-option", "-t", options.name, "status-right-length", "100",
+    ";", "set-option", "-t", options.name, "status-left-length", "120",
+  ]);
+}
+
+export async function configureDashboardStatusBar(options: {
+  name: string;
+  cwd: string;
+}, exec: TmuxExec = realTmuxExec): Promise<void> {
+  const statusRight = `#[fg=${TMUX_CHROME_HINT_COLOR}]dashboard#[default] │ 📁 ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  await exec.exec("tmux", [
+    "set-option", "-t", options.name, "status", "on",
+    ";", "set-option", "-t", options.name, "status-style", TMUX_CHROME_STATUS_STYLE,
+    ";", "set-option", "-t", options.name, "status-left", "",
+    ";", "set-option", "-t", options.name, "status-right", statusRight,
+    ";", "set-option", "-t", options.name, "status-right-length", "100",
+    ";", "set-option", "-t", options.name, "window-status-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", options.name, "window-status-current-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", options.name, "window-status-format", " #I:#W#F ",
+    ";", "set-option", "-t", options.name, "window-status-current-format", " #I:#W#F ",
+  ]);
+}
+
 export interface SwitchClientOptions {
   targetSession: string;
   returnKey?: string;
   managedPrefix?: string;
   stateDir?: string;
+  returnSession?: {
+    cwd: string;
+    command: string;
+  };
 }
 
 interface ActiveReturnBinding {
@@ -127,6 +165,7 @@ export async function switchClientWithReturn(
       activePath,
       managedPrefix,
       returnKey,
+      returnSession: options.returnSession,
     })]);
     await exec.exec("tmux", ["switch-client", "-c", controlClient, "-t", options.targetSession]);
   } catch (error) {
@@ -186,14 +225,22 @@ function returnBindingScript(input: {
   activePath: string;
   managedPrefix: string;
   returnKey: string;
+  returnSession?: {
+    cwd: string;
+    command: string;
+  };
 }): string {
   const prefixPattern = shellCasePrefix(input.managedPrefix);
-  return `S=$(tmux display-message -p '#{session_name}'); case "$S" in ${prefixPattern}*) ` + [
-    `tmux switch-client -t ${shellQuote(input.controlSession)} 2>/dev/null || true`,
+  const restore = [
     `tmux unbind-key -T root ${shellQuote(input.returnKey)} 2>/dev/null || true`,
     `test -s ${shellQuote(input.restorePath)} && tmux source-file ${shellQuote(input.restorePath)}`,
     `rm -f ${shellQuote(input.restorePath)} ${shellQuote(input.activePath)}`,
-  ].join("; ") + ";; esac";
+  ].join("; ");
+  const ensureReturnSession = input.returnSession
+    ? `tmux has-session -t ${shellQuote(input.controlSession)} 2>/dev/null || tmux new-session -d -s ${shellQuote(input.controlSession)} -c ${shellQuote(input.returnSession.cwd)} ${shellQuote(input.returnSession.command)} 2>/dev/null || true; `
+    : "";
+  return `S=$(tmux display-message -p '#{session_name}'); case "$S" in ${prefixPattern}*) `
+    + `${ensureReturnSession}if tmux switch-client -t ${shellQuote(input.controlSession)} 2>/dev/null; then ${restore}; fi;; esac`;
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -204,6 +251,14 @@ function isProcessAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+function projectDisplayName(cwd: string): string {
+  return basename(cwd) || "~";
+}
+
+function tmuxFormatText(value: string): string {
+  return value.replaceAll("#", "##");
 }
 
 function shellCasePrefix(value: string): string {

@@ -1,4 +1,5 @@
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
+import { effectiveMcpCatalogPath } from "../core/config.js";
 import { sessionsStateDir, projectMcpStatePath } from "../core/paths.js";
 import { join } from "node:path";
 
@@ -20,8 +21,8 @@ export function mcpCatalogPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "mcp.json");
 }
 
-export async function loadMcpCatalog(path = mcpCatalogPath()): Promise<McpCatalog> {
-  const catalog = await readJsonOr<McpCatalog>(path, { version: 1, servers: {} });
+export async function loadMcpCatalog(path?: string, env: NodeJS.ProcessEnv = process.env): Promise<McpCatalog> {
+  const catalog = await readJsonOr<McpCatalog>(path ?? await effectiveMcpCatalogPath(env), { version: 1, servers: {} });
   validateMcpCatalog(catalog);
   return catalog;
 }

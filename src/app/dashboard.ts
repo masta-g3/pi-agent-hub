@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { newSession, sessionExists, type TmuxExec, realTmuxExec } from "../core/tmux.js";
+import { configureDashboardStatusBar, newSession, sessionExists, type TmuxExec, realTmuxExec } from "../core/tmux.js";
 
 export const DASHBOARD_SESSION = "pi-sessions-dashboard";
 
@@ -32,32 +32,22 @@ export async function openDashboard(
 ): Promise<void> {
   const exists = await sessionExists(DASHBOARD_SESSION, exec);
 
+  if (!exists) {
+    await newSession({
+      name: DASHBOARD_SESSION,
+      cwd: options.cwd,
+      command: options.command,
+      env: compactEnv(options.env),
+    }, exec);
+  }
+  await configureDashboardStatusBar({ name: DASHBOARD_SESSION, cwd: options.cwd }, exec);
+
   if (options.insideTmux) {
-    if (!exists) {
-      await newSession({
-        name: DASHBOARD_SESSION,
-        cwd: options.cwd,
-        command: options.command,
-        env: compactEnv(options.env),
-      }, exec);
-    }
     await exec.exec("tmux", ["switch-client", "-t", DASHBOARD_SESSION]);
     return;
   }
 
-  if (exists) {
-    await runner.run("tmux", ["attach-session", "-t", DASHBOARD_SESSION]);
-    return;
-  }
-
-  await runner.run("tmux", [
-    "new-session",
-    "-s",
-    DASHBOARD_SESSION,
-    "-c",
-    options.cwd,
-    commandWithEnv(options.command, options.env),
-  ]);
+  await runner.run("tmux", ["attach-session", "-t", DASHBOARD_SESSION]);
 }
 
 export function dashboardEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
@@ -67,15 +57,6 @@ export function dashboardEnv(env: NodeJS.ProcessEnv = process.env): Record<strin
   });
 }
 
-function commandWithEnv(command: string, env: Record<string, string | undefined> | undefined): string {
-  const assignments = Object.entries(compactEnv(env)).map(([key, value]) => `${key}=${shellQuote(value)}`);
-  return [...assignments, command].join(" ");
-}
-
 function compactEnv(env: Record<string, string | undefined> | undefined): Record<string, string> {
   return Object.fromEntries(Object.entries(env ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }

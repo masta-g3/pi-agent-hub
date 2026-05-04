@@ -55,9 +55,9 @@ function emptyLines(width: number, styles: LayoutStyles): string[] {
     "",
     styles.accent("No managed Pi sessions yet."),
     "",
-    "n  create a session here",
-    "?  show help",
-    "q  quit",
+    `${styles.accent("▶")} n  create a session here`,
+    `${styles.dim(" ")} ?  show help`,
+    `${styles.dim(" ")} q  quit`,
     "",
   ].map((line) => truncate(line, inner));
 }
@@ -68,7 +68,7 @@ function noMatchLines(width: number, filter: string, styles: LayoutStyles): stri
     "",
     styles.warning(`No sessions match ${JSON.stringify(filter)}.`),
     "",
-    "Use the footer controls below.",
+    `${styles.warning("▶")} Use the footer controls below.`,
     "",
   ].map((line) => truncate(line, inner));
 }
@@ -114,6 +114,7 @@ export interface FormField {
   key: string;
   label: string;
   value: string;
+  cursor?: number;
   hint?: string;
   error?: string;
   truncate?: "end" | "start";
@@ -138,9 +139,7 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     const focused = field.key === spec.focus;
     const caret = focused ? styles.accent("▎") : " ";
     const label = focused ? field.label : styles.muted(field.label);
-    const truncated = truncateValue(field.value, valueWidth - (focused ? 1 : 0), field.truncate);
-    const cursor = focused ? styles.accent("█") : "";
-    const value = focused ? `${styles.accent(truncated)}${cursor}` : truncated;
+    const value = focused ? styles.accent(renderCursorValue(field.value, field.cursor, valueWidth, field.truncate)) : truncateValue(field.value, valueWidth, field.truncate);
     body.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
     if (showHints || field.error) {
       const hintText = field.error ? styles.error(field.error) : (field.hint ? styles.dim(field.hint) : "");
@@ -156,6 +155,20 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     ...body.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
     `${styles.border("└")}${styles.border("─".repeat(inner))}${styles.border("┘")}`,
   ];
+}
+
+function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined): string {
+  if (width <= 0) return "";
+  const chars = [...value];
+  const pos = Math.max(0, Math.min(cursor ?? chars.length, chars.length));
+  const rendered = `${chars.slice(0, pos).join("")}█${chars.slice(pos).join("")}`;
+  if ([...rendered].length <= width) return rendered;
+  if (mode === "start" || pos >= width - 1) {
+    const tailWidth = Math.max(0, width - 1);
+    const tail = `${chars.slice(Math.max(0, pos - tailWidth + 1), pos).join("")}█${chars.slice(pos, pos + Math.max(0, tailWidth - Math.min(pos, tailWidth - 1))).join("")}`;
+    return `…${[...tail].slice(-tailWidth).join("")}`;
+  }
+  return truncate(rendered, width);
 }
 
 function truncateValue(value: string, width: number, mode: "end" | "start" | undefined): string {

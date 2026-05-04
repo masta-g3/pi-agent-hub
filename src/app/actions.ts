@@ -13,5 +13,5 @@ export function attachPlan(session: ManagedSession, env: NodeJS.ProcessEnv = pro
 }
 
 export function restartConfirmMessage(title: string): string {
-  return `press r again to restart ${title}`;
+  return `press R again to restart ${title}`;
 }

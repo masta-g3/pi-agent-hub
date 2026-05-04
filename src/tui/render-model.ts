@@ -100,7 +100,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       ? input.filterEditing
         ? `filter: ${input.filter || ""}  • esc clear • enter done`
         : `filter: ${input.filter || ""}  • esc clear`
-      : compactFooter ? "? help • / filter • enter • e rename • g group • d delete • q" : "↑↓/jk • enter attach • n new • e rename • f fork • g move • G rename group • r restart • d delete • s skills • m mcp • q",
+      : compactFooter ? "? help • / filter • enter • r rename • g group • d delete • q" : "↑↓/jk • enter attach • n new • r rename • f fork • g move • G rename group • R restart • d delete • s skills • m mcp • q",
     filter: input.filter,
     preview: input.preview ?? "",
   };

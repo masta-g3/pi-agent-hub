@@ -20,8 +20,8 @@ function session(id: string, group: string, status: SessionStatus, title = id): 
 test("empty state rendering includes first-run prompts", () => {
   const lines = renderSessions(buildRenderModel({ sessions: [], width: 64 }));
   assert.match(lines.join("\n"), /No managed Pi sessions yet/);
-  assert.match(lines.join("\n"), /n  create a session/);
-  assert.match(lines.join("\n"), /q  quit/);
+  assert.match(lines.join("\n"), /▶ n  create a session/);
+  assert.match(lines.join("\n"), /  q  quit/);
 });
 
 test("grouping order and status counts", () => {
@@ -80,7 +80,9 @@ test("filter matches across title group cwd basename and status", () => {
 test("filter with zero matches renders no-match state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
   assert.equal(model.noMatches, true);
-  assert.match(renderSessions(model).join("\n"), /No sessions match/);
+  const rendered = renderSessions(model).join("\n");
+  assert.match(rendered, /No sessions match/);
+  assert.match(rendered, /▶ Use the footer controls below/);
 });
 
 test("starting displays as running", () => {

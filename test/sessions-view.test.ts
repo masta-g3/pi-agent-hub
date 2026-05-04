@@ -33,6 +33,19 @@ test("filter mode filters live and escape clears", () => {
   assert.equal(controller.snapshot().filter, undefined);
 });
 
+test("filter input supports cursor movement", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {});
+
+  view.handleInput("/");
+  for (const char of "api") view.handleInput(char);
+  view.handleInput("\u001b[D");
+  view.handleInput("X");
+
+  assert.match(view.render(100).join("\n"), /filter: apX█i/);
+  assert.equal(controller.snapshot().filter, "apXi");
+});
+
 test("committed filter footer uses esc clear and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {});
@@ -228,8 +241,10 @@ test("delete dialog requires confirmation and escape cancels", () => {
   const view = new SessionsView(controller, () => {}, { deleteSession: (id) => { deleted = id; } });
 
   view.handleInput("d");
-  assert.match(view.render(100).join("\n"), /Delete session/);
-  assert.match(view.render(100).join("\n"), /api/);
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Delete session/);
+  assert.match(rendered, /api/);
+  assert.match(rendered, /▶ press d again to delete/);
   view.handleInput("\u001b");
   assert.equal(deleted, undefined);
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
@@ -289,8 +304,10 @@ test("group dialog moves selected session to typed group", () => {
   const view = new SessionsView(controller, () => {}, { changeGroup: (id, group) => { moved = { id, group }; } });
 
   view.handleInput("g");
-  assert.match(view.render(100).join("\n"), /Move to group/);
-  for (let i = 0; i < "default".length; i += 1) view.handleInput("\u007f");
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Move to group/);
+  assert.match(rendered, /▎ group\s+█/);
+  assert.match(rendered, /existing or new group label/);
   for (const char of "backend") view.handleInput(char);
   view.handleInput("\r");
 
@@ -304,7 +321,6 @@ test("group dialog validates blank group and escape cancels", () => {
   const view = new SessionsView(controller, () => {}, { changeGroup: (id, group) => { moved = { id, group }; } });
 
   view.handleInput("g");
-  for (let i = 0; i < "default".length; i += 1) view.handleInput("\u007f");
   view.handleInput("\r");
   assert.equal(moved, undefined);
   assert.match(view.render(100).join("\n"), /group is required/);
@@ -313,13 +329,16 @@ test("group dialog validates blank group and escape cancels", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Move to group/);
 });
 
-test("edit dialog renames selected session title", () => {
+test("r opens rename dialog for selected session title", () => {
   let renamed: { id: string; title: string } | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
 
-  view.handleInput("e");
-  assert.match(view.render(100).join("\n"), /Rename session/);
+  view.handleInput("r");
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Rename session/);
+  assert.match(rendered, /▎ title\s+api█/);
+  assert.match(rendered, /session display title/);
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "backend") view.handleInput(char);
   view.handleInput("\r");
@@ -328,17 +347,53 @@ test("edit dialog renames selected session title", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Rename session/);
 });
 
-test("edit dialog validates blank title", () => {
+test("rename dialog supports cursor movement and mid-line editing", () => {
   let renamed: { id: string; title: string } | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
 
-  view.handleInput("e");
+  view.handleInput("r");
+  view.handleInput("\u001b[D");
+  view.handleInput("X");
+  assert.match(view.render(100).join("\n"), /apX█i/);
+  view.handleInput("\r");
+
+  assert.deepEqual(renamed, { id: "api", title: "apXi" });
+});
+
+test("rename dialog supports word movement and word backspace", () => {
+  let renamed: { id: string; title: string } | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "alpha beta gamma")] });
+  const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
+
+  view.handleInput("r");
+  view.handleInput("\u001b[1;5D");
+  view.handleInput("\u0017");
+  view.handleInput("\r");
+
+  assert.deepEqual(renamed, { id: "api", title: "alpha gamma" });
+});
+
+test("rename dialog validates blank title", () => {
+  let renamed: { id: string; title: string } | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
+
+  view.handleInput("r");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   view.handleInput("\r");
 
   assert.equal(renamed, undefined);
   assert.match(view.render(100).join("\n"), /title is required/);
+});
+
+test("e remains a rename alias", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {});
+
+  view.handleInput("e");
+
+  assert.match(view.render(100).join("\n"), /Rename session/);
 });
 
 test("group rename dialog renames selected session current group", () => {
@@ -347,7 +402,10 @@ test("group rename dialog renames selected session current group", () => {
   const view = new SessionsView(controller, () => {}, { renameGroup: (from, to) => { renamed = { from, to }; } });
 
   view.handleInput("G");
-  assert.match(view.render(100).join("\n"), /Rename group/);
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Rename group/);
+  assert.match(rendered, /▎ to\s+backend█/);
+  assert.match(rendered, /renames all sessions currently in backend/);
   for (let i = 0; i < "backend".length; i += 1) view.handleInput("\u007f");
   for (const char of "api") view.handleInput(char);
   view.handleInput("\r");
@@ -374,9 +432,24 @@ test("fork dialog submits selected session defaults", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { forkSession: (source, input) => { forked = { source, ...input }; } });
   view.handleInput("f");
-  assert.match(view.render(120).join("\n"), /Fork session/);
+  const rendered = view.render(120).join("\n");
+  assert.match(rendered, /Fork session/);
+  assert.match(rendered, /▎ group\s+default█/);
+  assert.match(rendered, /title\s+api fork/);
   view.handleInput("\r");
   assert.deepEqual(forked, { source: "api", group: "default", title: "api fork" });
+});
+
+test("fork dialog tab cycles and edits title field", () => {
+  let forked: { source: string; group: string; title: string } | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { forkSession: (source, input) => { forked = { source, ...input }; } });
+  view.handleInput("f");
+  view.handleInput("\t");
+  for (let i = 0; i < "api fork".length; i += 1) view.handleInput("\u007f");
+  for (const char of "api-copy") view.handleInput(char);
+  view.handleInput("\r");
+  assert.deepEqual(forked, { source: "api", group: "default", title: "api-copy" });
 });
 
 test("fork dialog reports async action errors", async () => {
@@ -423,6 +496,19 @@ test("picker apply reports async errors instead of success", async () => {
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(view.render(100).join("\n"), /write failed/);
   assert.doesNotMatch(view.render(100).join("\n"), /restart session to reload skills/);
+});
+
+test("picker search supports cursor movement", () => {
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: () => [{ name: "api-tools", enabled: false }, { name: "docs-tools", enabled: false }],
+  });
+
+  view.handleInput("s");
+  for (const char of "api") view.handleInput(char);
+  view.handleInput("\u001b[D");
+  view.handleInput("X");
+
+  assert.match(view.render(100).join("\n"), /search: apX█i/);
 });
 
 test("picker search filters visible items before toggling", () => {
@@ -483,18 +569,18 @@ test("themed footer messages keep terminal width", () => {
   for (const line of view.render(80)) assert.ok(stripAnsi(line).length <= 80, stripAnsi(line));
 });
 
-test("restart requires double press", () => {
+test("restart requires double uppercase R press", () => {
   const restarted: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => now });
-  view.handleInput("r");
+  view.handleInput("R");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Restart session/);
-  assert.match(rendered, /press r again to restart api/);
+  assert.match(rendered, /▶ press R again to restart api/);
   assert.deepEqual(restarted, []);
   now = 200;
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, ["api"]);
 });
 
@@ -502,18 +588,18 @@ test("stale restart confirmation clears on render", () => {
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { now: () => now });
-  view.handleInput("r");
+  view.handleInput("R");
   now = 2_200;
-  assert.doesNotMatch(view.render(100).join("\n"), /press r again/);
+  assert.doesNotMatch(view.render(100).join("\n"), /press R again/);
 });
 
 test("escape cancels pending restart", () => {
   const restarted: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => 100 });
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("\u001b");
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 
@@ -524,9 +610,9 @@ test("escape clearing filter also cancels hidden pending restart", () => {
   view.handleInput("/");
   view.handleInput("a");
   view.handleInput("\r");
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("\u001b");
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 
@@ -534,22 +620,22 @@ test("help, empty picker, and attach cancel pending restart", () => {
   const restarted: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => 100, skills: () => [] });
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("?");
   view.handleInput("\u001b");
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 
   view.handleInput("\u001b");
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("s");
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 
   view.handleInput("\u001b");
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("\r");
-  view.handleInput("r");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 
@@ -562,8 +648,8 @@ test("zero-match filter blocks selected actions", async () => {
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
   await controller.refresh();
-  view.handleInput("r");
-  view.handleInput("r");
+  view.handleInput("R");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 
@@ -576,8 +662,8 @@ test("filter matching ignores parent cwd directories for action selection", asyn
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
   await controller.refresh();
-  view.handleInput("r");
-  view.handleInput("r");
+  view.handleInput("R");
+  view.handleInput("R");
   assert.deepEqual(restarted, []);
 });
 

@@ -28,5 +28,5 @@ test("attach inside tmux gives switch-client instruction", () => {
 });
 
 test("restart confirmation copy is explicit", () => {
-  assert.equal(restartConfirmMessage("api"), "press r again to restart api");
+  assert.equal(restartConfirmMessage("api"), "press R again to restart api");
 });

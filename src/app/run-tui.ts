@@ -7,7 +7,7 @@ import { loadSessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
+import { configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
 import { deleteManagedSession } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession } from "./session-commands.js";
 
@@ -53,8 +53,13 @@ export async function runTui(): Promise<void> {
       stop();
       spawn("tmux", ["attach-session", "-t", tmuxSession], { stdio: "inherit" });
     },
-    switchInsideTmux(tmuxSession) {
-      return switchClientWithReturn({ targetSession: tmuxSession });
+    async switchInsideTmux(tmuxSession) {
+      const session = controller.snapshot().registry.sessions.find((item) => item.tmuxSession === tmuxSession);
+      if (session) await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
+      return switchClientWithReturn({
+        targetSession: tmuxSession,
+        returnSession: { cwd, command: "pi-sessions tui" },
+      });
     },
     restart(sessionId) {
       return mutateRegistry(() => restartManagedSession(sessionId));

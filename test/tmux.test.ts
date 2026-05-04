@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { currentTmuxClient, currentTmuxSession, restoreSwitchReturnBinding, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, restoreSwitchReturnBinding, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -23,6 +23,46 @@ function fakeTmux(handler: (call: Call) => CommandResult | Promise<CommandResult
     },
   };
 }
+
+test("configureManagedSessionStatusBar sets a Pi-native right footer", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureManagedSessionStatusBar({ name: "pi-sessions-api", title: "package", cwd: "/repo/pi-command-center" }, exec);
+
+  assert.deepEqual(exec.calls.map((call) => call.args), [[
+    "set-option", "-t", "pi-sessions-api", "status", "on",
+    ";", "set-option", "-t", "pi-sessions-api", "status-style", "bg=#1a1b26,fg=#a9b1d6",
+    ";", "set-option", "-t", "pi-sessions-api", "status-right", "#[fg=#565f89]ctrl+q return#[default] │ 📁 package | pi-command-center ",
+    ";", "set-option", "-t", "pi-sessions-api", "status-right-length", "100",
+    ";", "set-option", "-t", "pi-sessions-api", "status-left-length", "120",
+  ]]);
+});
+
+test("configureManagedSessionStatusBar escapes tmux format markers in labels", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureManagedSessionStatusBar({ name: "pi-sessions-api", title: "api #1", cwd: "/repo/proj#ect" }, exec);
+
+  assert.match(exec.calls[0]?.args.join("\n"), /api ##1 \| proj##ect/);
+});
+
+test("configureDashboardStatusBar overrides inherited colored window formats", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureDashboardStatusBar({ name: "pi-sessions-dashboard", cwd: "/repo/pi-command-center" }, exec);
+
+  assert.deepEqual(exec.calls.map((call) => call.args), [[
+    "set-option", "-t", "pi-sessions-dashboard", "status", "on",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "status-style", "bg=#1a1b26,fg=#a9b1d6",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "status-left", "",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "status-right", "#[fg=#565f89]dashboard#[default] │ 📁 pi-command-center ",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "status-right-length", "100",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-current-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-format", " #I:#W#F ",
+    ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-current-format", " #I:#W#F ",
+  ]]);
+});
 
 test("currentTmuxSession reads and trims the current tmux session", async () => {
   const exec = fakeTmux(() => ({ stdout: "control\n", stderr: "" }));
@@ -65,6 +105,28 @@ test("switchClientWithReturn installs return binding then switches client", asyn
   assert.match(script, /active\.json/);
   assert.match(script, /source-file/);
   assert.match(script, /unbind-key/);
+});
+
+test("switchClientWithReturn can self-heal a missing return session before cleanup", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-sessions-return-"));
+  const exec = fakeTmux((call) => {
+    if (call.args[0] === "display-message" && call.args[2] === "#{session_name}") return { stdout: "pi-sessions-dashboard\n", stderr: "" };
+    if (call.args[0] === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
+    if (call.args[0] === "list-keys") return { stdout: "", stderr: "" };
+    return { stdout: "", stderr: "" };
+  });
+
+  await switchClientWithReturn({
+    targetSession: "pi-sessions-target",
+    stateDir,
+    returnSession: { cwd: "/repo/pi-command-center", command: "pi-sessions tui" },
+  }, exec);
+
+  const script = exec.calls.find((call) => call.args[0] === "bind-key")?.args[4] ?? "";
+  assert.match(script, /tmux has-session -t 'pi-sessions-dashboard'/);
+  assert.match(script, /tmux new-session -d -s 'pi-sessions-dashboard' -c '\/repo\/pi-command-center' 'pi-sessions tui'/);
+  assert.match(script, /if tmux switch-client -t 'pi-sessions-dashboard'/);
+  assert.match(script, /then tmux unbind-key/);
 });
 
 test("switchClientWithReturn handles absent previous binding", async () => {

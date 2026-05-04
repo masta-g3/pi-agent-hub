@@ -5,7 +5,42 @@ import { buildRenderModel } from "./render-model.js";
 import { renderSessions, renderDialog, renderForm } from "./layout.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import { movePickerSelection, renderTwoColumnPicker, togglePickerItem, type PickerState, type PickerItem } from "./two-column-picker.js";
-import { appendChar, backspace, createNewForm, cycleCwdSuggestion, moveFocus, submission, validateNewForm, type NewFormContext, type NewFormState } from "./new-form.js";
+import {
+  appendChar,
+  backspace,
+  backspaceWord,
+  createNewForm,
+  cycleCwdSuggestion,
+  deleteForward,
+  deleteWord,
+  moveCursor,
+  moveCursorEnd,
+  moveCursorHome,
+  moveCursorWordLeft,
+  moveCursorWordRight,
+  moveFocus,
+  submission,
+  validateNewForm,
+  type NewFormContext,
+  type NewFormState,
+} from "./new-form.js";
+import {
+  appendChar as appendFormChar,
+  backspace as backspaceForm,
+  backspaceFieldWord,
+  createForm,
+  deleteFieldWord,
+  deleteForward as deleteFormForward,
+  moveFieldCursor,
+  moveFieldCursorEnd,
+  moveFieldCursorHome,
+  moveFieldCursorWordLeft,
+  moveFieldCursorWordRight,
+  moveFocus as moveFormFocus,
+  validateRequired,
+  type FormState,
+} from "./form.js";
+import { backspaceText, backspaceWord as backspaceTextWord, createTextInput, deleteText, deleteWord as deleteTextWord, insertText, moveCursor as moveTextCursor, moveCursorEnd as moveTextCursorEnd, moveCursorHome as moveTextCursorHome, moveCursorWordLeft as moveTextCursorWordLeft, moveCursorWordRight as moveTextCursorWordRight, type TextInputState } from "./text-input.js";
 
 export interface SessionDialogInput {
   title: string;
@@ -35,14 +70,17 @@ export interface SessionsViewActions {
 
 export class SessionsView implements Component {
   private mode: "normal" | "filter" | "help" | "new" | "fork" | "group" | "rename" | "groupRename" | "skills" | "mcp" | "delete" = "normal";
-  private filterDraft = "";
-  private dialogDraft = "";
+  private filterDraft: TextInputState = createTextInput();
   private newForm: NewFormState | undefined;
+  private forkForm: FormState<"group" | "title"> | undefined;
+  private moveGroupForm: FormState<"group"> | undefined;
+  private renameSessionForm: FormState<"title"> | undefined;
+  private renameGroupForm: FormState<"to"> | undefined;
   private picker: PickerState | undefined;
   private message: string | undefined;
   private pendingRestart: { sessionId: string; expiresAt: number } | undefined;
   private deleteTargetId: string | undefined;
-  private groupRenameFrom: string | undefined;
+  private renameGroupFrom: string | undefined;
   private busy = false;
   private deleting = false;
 
@@ -60,17 +98,22 @@ export class SessionsView implements Component {
     }
 
     if (this.mode === "fork") {
-      this.handleDialogInput(data);
+      this.handleFormInput(data, this.forkForm, (state) => { this.forkForm = state; }, () => this.submitForkDialog());
       return;
     }
 
     if (this.mode === "group") {
-      this.handleGroupInput(data);
+      this.handleFormInput(data, this.moveGroupForm, (state) => { this.moveGroupForm = state; }, () => this.submitGroupDialog());
       return;
     }
 
-    if (this.mode === "rename" || this.mode === "groupRename") {
-      this.handleRenameInput(data);
+    if (this.mode === "rename") {
+      this.handleFormInput(data, this.renameSessionForm, (state) => { this.renameSessionForm = state; }, () => this.submitRenameSessionDialog());
+      return;
+    }
+
+    if (this.mode === "groupRename") {
+      this.handleFormInput(data, this.renameGroupForm, (state) => { this.renameGroupForm = state; }, () => this.submitRenameGroupDialog());
       return;
     }
 
@@ -115,9 +158,9 @@ export class SessionsView implements Component {
     else if (data === "n") this.startNewDialog();
     else if (data === "f") this.startForkDialog();
     else if (data === "g") this.startGroupDialog();
-    else if (data === "e") this.startRenameSessionDialog();
+    else if (data === "e" || data === "r") this.startRenameSessionDialog();
     else if (data === "G") this.startRenameGroupDialog();
-    else if (data === "r") this.restartSelected();
+    else if (data === "R") this.restartSelected();
     else if (data === "d") this.startDeleteDialog();
     else if (data === "s") this.startPicker("skills");
     else if (data === "m") this.startPicker("mcp");
@@ -142,17 +185,18 @@ export class SessionsView implements Component {
     if (this.mode === "rename") return this.renderRenameSessionDialog(width);
     if (this.mode === "groupRename") return this.renderRenameGroupDialog(width);
     if (this.mode === "delete") return this.renderDeleteDialog(width);
-    if (this.pendingRestart && this.message?.startsWith("press r again")) return this.renderRestartDialog(width);
+    if (this.pendingRestart && this.message?.startsWith("press R again")) return this.renderRestartDialog(width);
     const snapshot = this.controller.snapshot();
     const lines = renderSessions(buildRenderModel({
       sessions: snapshot.registry.sessions,
       selectedId: snapshot.selectedId,
       width,
-      filter: this.mode === "filter" ? this.filterDraft : snapshot.filter,
+      filter: this.mode === "filter" ? this.filterDraft.value : snapshot.filter,
       filterEditing: this.mode === "filter",
       preview: snapshot.preview,
     }), this.theme);
-    return this.message ? replaceFooter(lines, this.message, this.theme) : lines;
+    const withFooter = this.mode === "filter" ? replaceFooter(lines, filterFooter(this.filterDraft, this.theme), this.theme) : lines;
+    return this.message ? replaceFooter(withFooter, this.message, this.theme) : withFooter;
   }
 
   invalidate(): void {}
@@ -162,8 +206,8 @@ export class SessionsView implements Component {
     this.clearPendingRestart();
     this.message = undefined;
     this.mode = "filter";
-    this.filterDraft = this.controller.snapshot().filter ?? "";
-    this.controller.setFilter(this.filterDraft);
+    this.filterDraft = createTextInput(this.controller.snapshot().filter ?? "");
+    this.controller.setFilter(this.filterDraft.value);
   }
 
   private startNewDialog() {
@@ -179,7 +223,10 @@ export class SessionsView implements Component {
     if (!selected) return;
     this.clearPendingRestart();
     this.mode = "fork";
-    this.dialogDraft = `${selected.group}|${selected.title} fork`;
+    this.forkForm = createForm<"group" | "title">([
+      { key: "group", label: "group", value: selected.group, hint: "session group label" },
+      { key: "title", label: "title", value: `${selected.title} fork`, hint: "display title for the fork" },
+    ]);
     this.message = undefined;
   }
 
@@ -188,7 +235,9 @@ export class SessionsView implements Component {
     if (!selected) return;
     this.clearPendingRestart();
     this.mode = "group";
-    this.dialogDraft = selected.group;
+    this.moveGroupForm = createForm<"group">([
+      { key: "group", label: "group", value: "", hint: "existing or new group label" },
+    ]);
     this.message = undefined;
   }
 
@@ -197,7 +246,9 @@ export class SessionsView implements Component {
     if (!selected) return;
     this.clearPendingRestart();
     this.mode = "rename";
-    this.dialogDraft = selected.title;
+    this.renameSessionForm = createForm<"title">([
+      { key: "title", label: "title", value: selected.title, hint: "session display title" },
+    ]);
     this.message = undefined;
   }
 
@@ -206,8 +257,10 @@ export class SessionsView implements Component {
     if (!selected) return;
     this.clearPendingRestart();
     this.mode = "groupRename";
-    this.dialogDraft = selected.group;
-    this.groupRenameFrom = selected.group;
+    this.renameGroupFrom = selected.group;
+    this.renameGroupForm = createForm<"to">([
+      { key: "to", label: "to", value: selected.group, hint: `renames all sessions currently in ${selected.group}` },
+    ]);
     this.message = undefined;
   }
 
@@ -315,7 +368,7 @@ export class SessionsView implements Component {
 
   private clearPendingRestart() {
     this.pendingRestart = undefined;
-    if (this.message?.startsWith("press r again")) this.message = undefined;
+    if (this.message?.startsWith("press R again")) this.message = undefined;
   }
 
   private clearExpiredConfirmation() {
@@ -337,89 +390,57 @@ export class SessionsView implements Component {
     if (matchesKey(data, Key.down)) this.picker = movePickerSelection(this.picker, 1);
     else if (matchesKey(data, Key.up)) this.picker = movePickerSelection(this.picker, -1);
     else if (matchesKey(data, Key.space) || data === " ") this.picker = togglePickerItem(this.picker);
-    else if (matchesKey(data, Key.backspace)) this.picker = { ...this.picker, filter: (this.picker.filter ?? "").slice(0, -1) };
-    else if (isPrintable(data)) this.picker = { ...this.picker, filter: `${this.picker.filter ?? ""}${data}`, selected: 0 };
-    else if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
-      const items = this.picker.items;
-      const apply = this.mode === "skills" ? this.actions.applySkills : this.actions.applyMcpServers;
-      const success = this.mode === "skills" ? "restart session to reload skills" : "restart session to reload MCP tools";
-      this.mode = "normal";
-      this.picker = undefined;
-      try {
-        const result = apply?.(items);
-        if (isPromise(result)) void result.then(() => { this.message = success; }).catch((error: unknown) => { this.message = errorMessage(error); });
-        else this.message = success;
-      } catch (error) {
-        this.message = errorMessage(error);
-      }
+    else if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") this.applyPickerSelection();
+    else {
+      const edited = editPickerSearch(data, this.picker);
+      if (edited) this.picker = edited;
     }
   }
 
-  private handleDialogInput(data: string) {
+  private applyPickerSelection() {
+    if (!this.picker) return;
+    const items = this.picker.items;
+    const apply = this.mode === "skills" ? this.actions.applySkills : this.actions.applyMcpServers;
+    const success = this.mode === "skills" ? "restart session to reload skills" : "restart session to reload MCP tools";
+    this.mode = "normal";
+    this.picker = undefined;
+    try {
+      const result = apply?.(items);
+      if (isPromise(result)) void result.then(() => { this.message = success; }).catch((error: unknown) => { this.message = errorMessage(error); });
+      else this.message = success;
+    } catch (error) {
+      this.message = errorMessage(error);
+    }
+  }
+
+  private handleFormInput<K extends string>(data: string, state: FormState<K> | undefined, setState: (state: FormState<K> | undefined) => void, submit: () => void) {
+    if (!state) {
+      this.mode = "normal";
+      return;
+    }
     if (matchesKey(data, Key.escape)) {
       this.mode = "normal";
-      this.dialogDraft = "";
+      setState(undefined);
+      this.renameGroupFrom = undefined;
       this.message = undefined;
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
-      this.submitForkDialog();
+      submit();
       return;
     }
-    if (matchesKey(data, Key.backspace)) {
-      this.message = undefined;
-      this.dialogDraft = this.dialogDraft.slice(0, -1);
+    if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) {
+      setState(moveFormFocus(state, 1));
       return;
     }
-    if (isPrintable(data)) {
-      this.message = undefined;
-      this.dialogDraft += data;
-    }
-  }
-
-  private handleGroupInput(data: string) {
-    if (matchesKey(data, Key.escape)) {
-      this.mode = "normal";
-      this.dialogDraft = "";
-      this.message = undefined;
+    if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) {
+      setState(moveFormFocus(state, -1));
       return;
     }
-    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
-      this.submitGroupDialog();
-      return;
-    }
-    if (matchesKey(data, Key.backspace)) {
+    const edited = editFormState(data, state);
+    if (edited) {
       this.message = undefined;
-      this.dialogDraft = this.dialogDraft.slice(0, -1);
-      return;
-    }
-    if (isPrintable(data)) {
-      this.message = undefined;
-      this.dialogDraft += data;
-    }
-  }
-
-  private handleRenameInput(data: string) {
-    if (matchesKey(data, Key.escape)) {
-      this.mode = "normal";
-      this.dialogDraft = "";
-      this.groupRenameFrom = undefined;
-      this.message = undefined;
-      return;
-    }
-    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
-      if (this.mode === "rename") this.submitRenameSessionDialog();
-      else this.submitRenameGroupDialog();
-      return;
-    }
-    if (matchesKey(data, Key.backspace)) {
-      this.message = undefined;
-      this.dialogDraft = this.dialogDraft.slice(0, -1);
-      return;
-    }
-    if (isPrintable(data)) {
-      this.message = undefined;
-      this.dialogDraft += data;
+      setState(edited);
     }
   }
 
@@ -459,67 +480,62 @@ export class SessionsView implements Component {
       this.newForm = cycleCwdSuggestion(this.newForm, -1);
       return;
     }
-    if (matchesKey(data, Key.backspace)) {
-      this.newForm = backspace(this.newForm);
-      return;
-    }
-    if (isPrintable(data)) this.newForm = appendChar(this.newForm, data);
+    const edited = editNewFormState(data, this.newForm);
+    if (edited) this.newForm = edited;
   }
 
   private submitForkDialog() {
     const selected = this.controller.selected();
-    if (!selected) return;
-    const [group, title] = this.dialogDraft.split("|");
-    if (!group?.trim() || !title?.trim()) {
-      this.message = "Required: group and title";
-      return;
-    }
-    this.runAction(() => this.actions.forkSession?.(selected.id, { group: group.trim(), title: title.trim() }), "forking session...");
+    if (!selected || !this.forkForm) return;
+    const result = validateRequired(this.forkForm);
+    this.forkForm = result.state;
+    if (!result.ok) return;
+    const group = result.state.fields.group.value;
+    const title = result.state.fields.title.value;
+    this.runAction(() => this.actions.forkSession?.(selected.id, { group, title }), "forking session...");
     this.mode = "normal";
-    this.dialogDraft = "";
+    this.forkForm = undefined;
   }
 
   private submitGroupDialog() {
     const selected = this.controller.selected();
-    if (!selected) return;
-    const group = this.dialogDraft.trim();
-    if (!group) {
-      this.message = "group is required";
-      return;
-    }
+    if (!selected || !this.moveGroupForm) return;
+    const result = validateRequired(this.moveGroupForm);
+    this.moveGroupForm = result.state;
+    if (!result.ok) return;
+    const group = result.state.fields.group.value;
     this.runAction(() => this.actions.changeGroup?.(selected.id, group) ?? this.controller.moveSessionToGroup(selected.id, group), "moving session...");
     this.mode = "normal";
-    this.dialogDraft = "";
+    this.moveGroupForm = undefined;
   }
 
   private submitRenameSessionDialog() {
     const selected = this.controller.selected();
-    if (!selected) return;
-    const title = this.dialogDraft.trim();
-    if (!title) {
-      this.message = "title is required";
-      return;
-    }
+    if (!selected || !this.renameSessionForm) return;
+    const result = validateRequired(this.renameSessionForm);
+    this.renameSessionForm = result.state;
+    if (!result.ok) return;
+    const title = result.state.fields.title.value;
     this.runAction(() => this.actions.renameSession?.(selected.id, title) ?? this.controller.renameSession(selected.id, title), "renaming session...");
     this.mode = "normal";
-    this.dialogDraft = "";
+    this.renameSessionForm = undefined;
   }
 
   private submitRenameGroupDialog() {
-    const from = this.groupRenameFrom;
-    if (!from) {
+    const from = this.renameGroupFrom;
+    if (!from || !this.renameGroupForm) {
       this.mode = "normal";
       return;
     }
-    const to = this.dialogDraft.trim();
+    const to = this.renameGroupForm.fields.to.value.trim();
     if (!to) {
-      this.message = "group is required";
+      this.renameGroupForm = setFieldError(this.renameGroupForm, "to", "group is required");
       return;
     }
     this.runAction(() => this.actions.renameGroup?.(from, to) ?? this.controller.renameGroup(from, to), "renaming group...");
     this.mode = "normal";
-    this.groupRenameFrom = undefined;
-    this.dialogDraft = "";
+    this.renameGroupFrom = undefined;
+    this.renameGroupForm = undefined;
   }
 
   private runAction(action: () => unknown, pendingMessage: string): void {
@@ -545,20 +561,22 @@ export class SessionsView implements Component {
     return renderDialog("Restart session", [
       selected ? `target  ${selected.title}` : "target  none",
       "",
-      this.message ?? "press r again to confirm",
-      "esc cancel",
+      confirmLine("warning", this.message ?? "press R again to confirm", this.theme),
+      "  esc cancel",
     ], width, this.theme);
   }
 
   private renderDeleteDialog(width: number): string[] {
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
+    const action = this.deleting ? "deleting..." : this.message ?? "press d again to delete";
     return renderDialog("Delete session", [
       target ? `target  ${target.title}` : "target  none",
       "",
       "Removes this session from pi-sessions.",
       "Pi conversation files are kept.",
       "",
-      this.deleting ? "deleting..." : this.message ?? "press d again to delete · esc cancel",
+      this.deleting || this.message ? action : confirmLine("error", action, this.theme),
+      "  esc cancel",
     ], width, this.theme);
   }
 
@@ -574,72 +592,158 @@ export class SessionsView implements Component {
   }
 
   private renderSessionDialog(width: number): string[] {
-    const [group = "", title = ""] = this.dialogDraft.split("|");
-    return renderDialog("Fork session", [
-      "Type: group|title, then enter",
-      "",
-      `group  ${group}`,
-      `title  ${title}`,
-      "",
-      this.message ?? "esc cancel",
-    ], width, this.theme);
+    if (!this.forkForm) return [];
+    return renderForm({
+      title: "Fork session",
+      fields: this.forkForm.order.map((key) => this.forkForm!.fields[key]),
+      focus: this.forkForm.focus,
+      footer: "tab next · ←→ edit · enter fork · esc cancel",
+      narrowFooter: "tab · enter · esc",
+    }, width, this.theme);
   }
 
   private renderGroupDialog(width: number): string[] {
-    const selected = this.controller.selected();
-    return renderDialog("Move to group", [
-      selected ? `target  ${selected.title}` : "target  none",
-      "",
-      `group  ${this.dialogDraft}`,
-      "",
-      this.message ?? "type existing or new group · enter move · esc cancel",
-    ], width, this.theme);
+    if (!this.moveGroupForm) return [];
+    return renderForm({
+      title: "Move to group",
+      fields: this.moveGroupForm.order.map((key) => this.moveGroupForm!.fields[key]),
+      focus: this.moveGroupForm.focus,
+      footer: "←→ edit · enter move · esc cancel",
+      narrowFooter: "enter · esc",
+    }, width, this.theme);
   }
 
   private renderRenameSessionDialog(width: number): string[] {
-    const selected = this.controller.selected();
-    return renderDialog("Rename session", [
-      selected ? `target  ${selected.title}` : "target  none",
-      "",
-      `title  ${this.dialogDraft}`,
-      "",
-      this.message ?? "enter rename · esc cancel",
-    ], width, this.theme);
+    if (!this.renameSessionForm) return [];
+    return renderForm({
+      title: "Rename session",
+      fields: this.renameSessionForm.order.map((key) => this.renameSessionForm!.fields[key]),
+      focus: this.renameSessionForm.focus,
+      footer: "←→ edit · enter rename · esc cancel",
+      narrowFooter: "enter · esc",
+    }, width, this.theme);
   }
 
   private renderRenameGroupDialog(width: number): string[] {
-    return renderDialog("Rename group", [
-      `from   ${this.groupRenameFrom ?? ""}`,
-      `to     ${this.dialogDraft}`,
-      "",
-      "Renames this group label for all sessions in the group.",
-      "",
-      this.message ?? "enter rename · esc cancel",
-    ], width, this.theme);
+    if (!this.renameGroupForm) return [];
+    return renderForm({
+      title: "Rename group",
+      fields: this.renameGroupForm.order.map((key) => this.renameGroupForm!.fields[key]),
+      focus: this.renameGroupForm.focus,
+      footer: "←→ edit · enter rename · esc cancel",
+      narrowFooter: "enter · esc",
+    }, width, this.theme);
   }
 
   private handleFilterInput(data: string) {
     if (matchesKey(data, Key.escape)) {
       this.mode = "normal";
-      this.filterDraft = "";
+      this.filterDraft = createTextInput();
       this.controller.setFilter(undefined);
       return;
     }
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
       this.mode = "normal";
-      this.controller.setFilter(this.filterDraft);
+      this.controller.setFilter(this.filterDraft.value);
       return;
     }
-    if (matchesKey(data, Key.backspace)) {
-      this.filterDraft = this.filterDraft.slice(0, -1);
-      this.controller.setFilter(this.filterDraft);
-      return;
-    }
-    if (isPrintable(data)) {
-      this.filterDraft += data;
-      this.controller.setFilter(this.filterDraft);
+    const edited = editTextInput(data, this.filterDraft);
+    if (edited) {
+      this.filterDraft = edited;
+      this.controller.setFilter(this.filterDraft.value);
     }
   }
+}
+
+function editPickerSearch(data: string, picker: PickerState): PickerState | undefined {
+  const edited = editTextInput(data, createTextInput(picker.filter ?? "", picker.filterCursor));
+  if (!edited) return undefined;
+  return { ...picker, filter: edited.value, filterCursor: edited.cursor, selected: 0 };
+}
+
+function editNewFormState(data: string, state: NewFormState): NewFormState | undefined {
+  if (matchesKey(data, Key.left)) return moveCursor(state, -1);
+  if (matchesKey(data, Key.right)) return moveCursor(state, 1);
+  if (matchesKey(data, Key.home) || matchesKey(data, Key.ctrl("a"))) return moveCursorHome(state);
+  if (matchesKey(data, Key.end) || matchesKey(data, Key.ctrl("e"))) return moveCursorEnd(state);
+  if (wordLeft(data)) return moveCursorWordLeft(state);
+  if (wordRight(data)) return moveCursorWordRight(state);
+  if (matchesKey(data, Key.backspace)) return backspace(state);
+  if (matchesKey(data, Key.delete)) return deleteForward(state);
+  if (wordBackspace(data)) return backspaceWord(state);
+  if (wordDelete(data)) return deleteWord(state);
+  if (isPrintable(data)) return appendChar(state, data);
+  return undefined;
+}
+
+function editFormState<K extends string>(data: string, state: FormState<K>): FormState<K> | undefined {
+  if (matchesKey(data, Key.left)) return moveFieldCursor(state, -1);
+  if (matchesKey(data, Key.right)) return moveFieldCursor(state, 1);
+  if (matchesKey(data, Key.home) || matchesKey(data, Key.ctrl("a"))) return moveFieldCursorHome(state);
+  if (matchesKey(data, Key.end) || matchesKey(data, Key.ctrl("e"))) return moveFieldCursorEnd(state);
+  if (wordLeft(data)) return moveFieldCursorWordLeft(state);
+  if (wordRight(data)) return moveFieldCursorWordRight(state);
+  if (matchesKey(data, Key.backspace)) return backspaceForm(state);
+  if (matchesKey(data, Key.delete)) return deleteFormForward(state);
+  if (wordBackspace(data)) return backspaceFieldWord(state);
+  if (wordDelete(data)) return deleteFieldWord(state);
+  if (isPrintable(data)) return appendFormChar(state, data);
+  return undefined;
+}
+
+function editTextInput(data: string, state: TextInputState): TextInputState | undefined {
+  if (matchesKey(data, Key.left)) return moveTextCursor(state, -1);
+  if (matchesKey(data, Key.right)) return moveTextCursor(state, 1);
+  if (matchesKey(data, Key.home) || matchesKey(data, Key.ctrl("a"))) return moveTextCursorHome(state);
+  if (matchesKey(data, Key.end) || matchesKey(data, Key.ctrl("e"))) return moveTextCursorEnd(state);
+  if (wordLeft(data)) return moveTextCursorWordLeft(state);
+  if (wordRight(data)) return moveTextCursorWordRight(state);
+  if (matchesKey(data, Key.backspace)) return backspaceText(state);
+  if (matchesKey(data, Key.delete)) return deleteText(state);
+  if (wordBackspace(data)) return backspaceTextWord(state);
+  if (wordDelete(data)) return deleteTextWord(state);
+  if (isPrintable(data)) return insertText(state, data);
+  return undefined;
+}
+
+function wordLeft(data: string): boolean {
+  return matchesKey(data, Key.ctrl("left")) || matchesKey(data, Key.alt("left"));
+}
+
+function wordRight(data: string): boolean {
+  return matchesKey(data, Key.ctrl("right")) || matchesKey(data, Key.alt("right"));
+}
+
+function wordBackspace(data: string): boolean {
+  return matchesKey(data, Key.ctrl("backspace")) || matchesKey(data, Key.alt("backspace")) || matchesKey(data, Key.ctrl("w"));
+}
+
+function wordDelete(data: string): boolean {
+  return matchesKey(data, Key.ctrl("delete")) || matchesKey(data, Key.alt("delete")) || matchesKey(data, Key.alt("d"));
+}
+
+function filterFooter(input: TextInputState, theme?: SessionsTheme): string {
+  const text = `filter: ${renderInlineInput(input)}  • ←→ edit • esc clear • enter done`;
+  return theme ? styleToken(theme, "dim", text) : text;
+}
+
+function renderInlineInput(input: TextInputState): string {
+  const chars = [...input.value];
+  const cursor = Math.max(0, Math.min(input.cursor, chars.length));
+  return `${chars.slice(0, cursor).join("")}█${chars.slice(cursor).join("")}`;
+}
+
+function confirmLine(token: "warning" | "error", text: string, theme?: SessionsTheme): string {
+  const line = `▶ ${text}`;
+  return theme ? styleToken(theme, token, line) : line;
+}
+
+function setFieldError<K extends string>(state: FormState<K>, key: K, error: string): FormState<K> {
+  return {
+    ...state,
+    fields: { ...state.fields, [key]: { ...state.fields[key], error } },
+    focus: key,
+  };
 }
 
 function isPrintable(data: string): boolean {
@@ -649,7 +753,7 @@ function isPrintable(data: string): boolean {
 function newFormFooter(state: NewFormState): string {
   const focus = state.fields[state.focus];
   const cwdHasSuggestions = state.focus === "cwd" && (focus.suggestions?.length ?? 0) > 1;
-  const parts = ["tab/↓ next", "shift-tab/↑ prev"];
+  const parts = ["tab/↓ next", "shift-tab/↑ prev", "←→ edit"];
   if (cwdHasSuggestions) parts.push("ctrl-n/p cycle");
   parts.push("enter create", "esc cancel");
   return parts.join(" · ");
@@ -668,7 +772,7 @@ function renderHelp(width: number): string[] {
     "pi sessions help",
     "",
     "navigation   ↑↓/j/k move   / filter",
-    "sessions     enter attach   n new   e rename   f fork   g/G group   r restart   d delete   a mark read",
+    "sessions     enter attach   n new   r rename   f fork   g/G group   R restart   d delete   a mark read",
     "config       s skills       m mcp",
     "system       q quit         esc cancel",
   ];

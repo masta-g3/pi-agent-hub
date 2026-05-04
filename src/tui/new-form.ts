@@ -1,22 +1,32 @@
 import { basename } from "node:path";
+import { charLength } from "./text-input.js";
+import {
+  appendChar as appendFieldChar,
+  backspace as backspaceField,
+  backspaceFieldWord,
+  createForm,
+  deleteFieldWord,
+  deleteForward as deleteFieldForward,
+  moveFieldCursor,
+  moveFieldCursorEnd,
+  moveFieldCursorHome,
+  moveFieldCursorWordLeft,
+  moveFieldCursorWordRight,
+  moveFocus as moveFormFocus,
+  setFocus as setFormFocus,
+  setValue,
+  type FormField,
+  type FormState,
+} from "./form.js";
 
 export type FieldKey = "cwd" | "group" | "title";
 
-export interface Field {
-  key: FieldKey;
-  label: string;
-  value: string;
-  hint?: string;
-  error?: string;
+export interface Field extends FormField<FieldKey> {
   suggestions?: string[];
   cycleIndex?: number;
-  truncate?: "end" | "start";
 }
 
-export interface NewFormState {
-  fields: Record<FieldKey, Field>;
-  focus: FieldKey;
-  order: FieldKey[];
+export interface NewFormState extends FormState<FieldKey, Field> {
   titleTouched: boolean;
 }
 
@@ -28,13 +38,61 @@ export interface NewFormContext {
 
 const ORDER: FieldKey[] = ["cwd", "group", "title"];
 
+export function moveFocus(state: NewFormState, delta: number): NewFormState {
+  return { ...state, focus: moveFormFocus(state, delta).focus };
+}
+
+export function setFocus(state: NewFormState, key: FieldKey): NewFormState {
+  return { ...state, focus: setFormFocus(state, key).focus };
+}
+
+export function appendChar(state: NewFormState, char: string): NewFormState {
+  return afterFocusedEdit(state, appendFieldChar(state, char) as NewFormState);
+}
+
+export function backspace(state: NewFormState): NewFormState {
+  return afterFocusedEdit(state, backspaceField(state) as NewFormState);
+}
+
+export function deleteForward(state: NewFormState): NewFormState {
+  return afterFocusedEdit(state, deleteFieldForward(state) as NewFormState);
+}
+
+export function moveCursor(state: NewFormState, delta: number): NewFormState {
+  return moveFieldCursor(state, delta) as NewFormState;
+}
+
+export function moveCursorHome(state: NewFormState): NewFormState {
+  return moveFieldCursorHome(state) as NewFormState;
+}
+
+export function moveCursorEnd(state: NewFormState): NewFormState {
+  return moveFieldCursorEnd(state) as NewFormState;
+}
+
+export function moveCursorWordLeft(state: NewFormState): NewFormState {
+  return moveFieldCursorWordLeft(state) as NewFormState;
+}
+
+export function moveCursorWordRight(state: NewFormState): NewFormState {
+  return moveFieldCursorWordRight(state) as NewFormState;
+}
+
+export function backspaceWord(state: NewFormState): NewFormState {
+  return afterFocusedEdit(state, backspaceFieldWord(state) as NewFormState);
+}
+
+export function deleteWord(state: NewFormState): NewFormState {
+  return afterFocusedEdit(state, deleteFieldWord(state) as NewFormState);
+}
+
 export function createNewForm(ctx: NewFormContext): NewFormState {
   const cwd = ctx.cwd;
   const suggestions = uniqueWithFirst(cwd, ctx.knownCwds ?? []);
   const group = ctx.groupForCwd?.(cwd) ?? "default";
   return {
-    fields: {
-      cwd: {
+    ...createForm<FieldKey, Field>([
+      {
         key: "cwd",
         label: "cwd",
         value: cwd,
@@ -43,37 +101,12 @@ export function createNewForm(ctx: NewFormContext): NewFormState {
         cycleIndex: 0,
         truncate: "start",
       },
-      group: { key: "group", label: "group", value: group, hint: "session group label" },
-      title: { key: "title", label: "title", value: basename(cwd) || "session", hint: "defaults to cwd basename" },
-    },
-    focus: "cwd",
+      { key: "group", label: "group", value: group, hint: "session group label" },
+      { key: "title", label: "title", value: basename(cwd) || "session", hint: "defaults to cwd basename" },
+    ], ORDER[0]),
     order: ORDER,
     titleTouched: false,
   };
-}
-
-export function moveFocus(state: NewFormState, delta: number): NewFormState {
-  const idx = state.order.indexOf(state.focus);
-  const next = state.order[(idx + delta + state.order.length) % state.order.length];
-  return { ...state, focus: next ?? state.focus };
-}
-
-export function setFocus(state: NewFormState, key: FieldKey): NewFormState {
-  return { ...state, focus: key };
-}
-
-export function appendChar(state: NewFormState, char: string): NewFormState {
-  const focus = state.focus;
-  const field = state.fields[focus];
-  const value = `${field.value}${char}`;
-  return applyEdit(state, focus, value);
-}
-
-export function backspace(state: NewFormState): NewFormState {
-  const focus = state.focus;
-  const field = state.fields[focus];
-  if (!field.value) return state;
-  return applyEdit(state, focus, field.value.slice(0, -1));
 }
 
 export function cycleCwdSuggestion(state: NewFormState, delta: number): NewFormState {
@@ -83,11 +116,11 @@ export function cycleCwdSuggestion(state: NewFormState, delta: number): NewFormS
   if (suggestions.length === 0) return state;
   const current = cwd.cycleIndex ?? 0;
   const next = (current + delta + suggestions.length) % suggestions.length;
-  const value = suggestions[next] ?? cwd.value;
+  const nextValue = suggestions[next] ?? cwd.value;
   return applyEdit({
     ...state,
     fields: { ...state.fields, cwd: { ...cwd, cycleIndex: next } },
-  }, "cwd", value);
+  }, "cwd", nextValue);
 }
 
 export interface ValidationResult {
@@ -104,7 +137,7 @@ export function validateNewForm(state: NewFormState): ValidationResult {
       fields[key] = { ...fields[key], error: `${fields[key].label} is required` };
       firstInvalid ??= key;
     } else {
-      fields[key] = { ...fields[key], error: undefined, value: trimmed };
+      fields[key] = { ...fields[key], error: undefined, value: trimmed, cursor: Math.min(fields[key].cursor ?? charLength(trimmed), charLength(trimmed)) };
     }
   }
   if (firstInvalid) return { ok: false, state: { ...state, fields, focus: firstInvalid } };
@@ -119,16 +152,27 @@ export function submission(state: NewFormState): { cwd: string; group: string; t
   };
 }
 
-function applyEdit(state: NewFormState, key: FieldKey, value: string): NewFormState {
-  const field = { ...state.fields[key], value, error: undefined };
-  if (key === "cwd") field.cycleIndex = matchSuggestionIndex(value, field.suggestions);
-  const fields = { ...state.fields, [key]: field };
-  let titleTouched = state.titleTouched;
+function applyEdit(state: NewFormState, key: FieldKey, nextValue: string): NewFormState {
+  return afterFieldEdit(state, setValue(state, key, nextValue) as NewFormState, key);
+}
+
+function afterFocusedEdit(previous: NewFormState, next: NewFormState): NewFormState {
+  return afterFieldEdit(previous, next, previous.focus);
+}
+
+function afterFieldEdit(previous: NewFormState, next: NewFormState, key: FieldKey): NewFormState {
+  const fields = { ...next.fields };
+  if (key === "cwd") {
+    const cwd = fields.cwd;
+    fields.cwd = { ...cwd, cycleIndex: matchSuggestionIndex(cwd.value, cwd.suggestions) };
+  }
+  let titleTouched = previous.titleTouched;
   if (key === "title") titleTouched = true;
   else if (key === "cwd" && !titleTouched) {
-    fields.title = { ...fields.title, value: basename(value) || fields.title.value };
+    const title = basename(fields.cwd.value) || fields.title.value;
+    fields.title = { ...fields.title, value: title, cursor: charLength(title) };
   }
-  return { ...state, fields, titleTouched };
+  return { ...next, fields, titleTouched };
 }
 
 function matchSuggestionIndex(value: string, suggestions: string[] | undefined): number | undefined {
