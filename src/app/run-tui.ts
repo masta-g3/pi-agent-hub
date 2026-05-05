@@ -8,6 +8,7 @@ import { loadSessionsTheme, type SessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
+import { projectStateCwd } from "../core/multi-repo.js";
 import { configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { deleteManagedSession } from "./delete-session.js";
@@ -63,10 +64,7 @@ export async function runTui(): Promise<void> {
   const tui = new TUI(terminal, false);
   const controller = new SessionsController();
   const skillPool = await listSkillPool();
-  const skillState = await loadProjectSkillsState(cwd);
-  let enabledSkillNames = new Set(skillState.attached.map((skill) => skill.name));
   const mcpCatalog = await loadMcpCatalog();
-  let mcpState = await loadProjectMcpState(cwd);
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
   let stopped = false;
@@ -145,22 +143,24 @@ export async function runTui(): Promise<void> {
         selected: controller.selected(),
       });
     },
-    skills() {
+    async skills() {
+      const state = await loadProjectSkillsState(selectedProjectCwd(controller.selected(), cwd));
+      const enabledSkillNames = new Set(state.attached.map((skill) => skill.name));
       return skillPool.map((skill) => ({ name: skill.name, enabled: enabledSkillNames.has(skill.name) }));
     },
     async applySkills(items) {
-      await setProjectSkills(cwd, items.flatMap((item) => {
+      await setProjectSkills(selectedProjectCwd(controller.selected(), cwd), items.flatMap((item) => {
         const skill = skillPool.find((entry) => entry.name === item.name);
         return skill ? [{ name: item.name, sourcePath: skill.path, enabled: item.enabled }] : [];
       }));
-      enabledSkillNames = new Set(items.filter((item) => item.enabled).map((item) => item.name));
     },
-    mcpServers() {
-      const enabled = new Set(mcpState.enabledServers);
+    async mcpServers() {
+      const state = await loadProjectMcpState(selectedProjectCwd(controller.selected(), cwd));
+      const enabled = new Set(state.enabledServers);
       return Object.keys(mcpCatalog.servers).sort().map((name) => ({ name, enabled: enabled.has(name) }));
     },
     async applyMcpServers(items) {
-      mcpState = await setProjectMcpServers(cwd, items.filter((item) => item.enabled).map((item) => item.name));
+      await setProjectMcpServers(selectedProjectCwd(controller.selected(), cwd), items.filter((item) => item.enabled).map((item) => item.name));
     },
     copy(text) {
       if (process.platform !== "darwin") return;
@@ -183,4 +183,8 @@ export async function runTui(): Promise<void> {
   tui.setFocus(view);
   tui.start();
   stopLoop = startRefreshLoop(controller, tui);
+}
+
+function selectedProjectCwd(selected: ManagedSession | undefined, fallback: string): string {
+  return selected ? projectStateCwd(selected) : fallback;
 }

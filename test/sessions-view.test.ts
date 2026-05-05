@@ -221,6 +221,22 @@ test("new form uses a random two-word title when generator is absent", () => {
   assert.notEqual(created?.title, "api");
 });
 
+test("new form submits comma-separated additional cwd paths", () => {
+  let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    createSession: (input) => { created = input; },
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "black-aleph" }),
+  });
+  view.handleInput("n");
+  view.handleInput("\t");
+  view.handleInput("\t");
+  view.handleInput("\t");
+  for (const char of "/tmp/web, /tmp/shared") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "black-aleph", additionalCwds: ["/tmp/web", "/tmp/shared"] });
+});
+
 test("new form can default to selected session cwd and group", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const controller = new SessionsController({
@@ -289,6 +305,7 @@ test("new form preserves user-edited title across cwd changes", () => {
   for (let i = 0; i < "black-aleph".length; i += 1) view.handleInput("\u007f");
   for (const char of "manual") view.handleInput(char);
   view.handleInput("\t");
+  view.handleInput("\t");
   view.handleInput("\u000e");
   view.handleInput("\r");
   assert.deepEqual(created, { cwd: "/tmp/web", group: "web", title: "manual" });
@@ -304,6 +321,7 @@ test("new form preserves user-edited group across cwd changes", () => {
   view.handleInput("\t");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "backend") view.handleInput(char);
+  view.handleInput("\t");
   view.handleInput("\t");
   view.handleInput("\t");
   view.handleInput("\u000e");
@@ -546,6 +564,19 @@ test("fork dialog blocks other registry writes while async action is pending", (
   view.handleInput("a");
   assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, undefined);
   resolveFork?.();
+});
+
+test("async skills picker loads before rendering", async () => {
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: async () => [{ name: "repo-rules", enabled: false }],
+  });
+  view.handleInput("s");
+  assert.match(view.render(100).join("\n"), /loading skills/);
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(view.render(100).join("\n"), /Skills/);
+  assert.match(view.render(100).join("\n"), /repo-rules/);
 });
 
 test("skills picker toggles and applies with restart prompt", () => {

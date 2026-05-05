@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename, resolve } from "node:path";
 import { readJsonOr, writeJsonAtomic } from "./atomic-json.js";
+import { multiRepoWorkspaceDir, normalizeAdditionalCwds } from "./multi-repo.js";
 import { registryPath } from "./paths.js";
 import type { SessionsRegistry, ManagedSession } from "./types.js";
 
@@ -32,6 +33,7 @@ export interface NewSessionInput {
   cwd: string;
   title?: string;
   group?: string;
+  additionalCwds?: string[];
   now?: number;
 }
 
@@ -40,10 +42,12 @@ export function createSessionRecord(input: NewSessionInput): ManagedSession {
   const cwd = resolve(input.cwd);
   const id = randomUUID();
   const title = input.title?.trim() || basename(cwd) || "pi-session";
+  const additionalCwds = normalizeAdditionalCwds(cwd, input.additionalCwds);
   return {
     id,
     title,
     cwd,
+    ...(additionalCwds.length ? { additionalCwds, workspaceCwd: multiRepoWorkspaceDir(id) } : {}),
     group: normalizeGroup(input.group),
     tmuxSession: tmuxSessionName(id),
     status: "starting",

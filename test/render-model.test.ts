@@ -89,6 +89,23 @@ test("filter matches across title group cwd basename and status", () => {
   assert.equal(model.groups[0]?.sessions[0]?.id, "b");
 });
 
+test("multi-repo sessions render repo badge and details", () => {
+  const multi = {
+    ...session("a", "default", "idle", "api"),
+    cwd: "/repo/api",
+    additionalCwds: ["/repo/web", "/repo/shared"],
+    workspaceCwd: "/state/workspaces/a",
+  };
+  const model = buildRenderModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared" });
+
+  assert.equal(model.selected?.repoCount, 3);
+  const rendered = renderSessions(model).join("\n");
+  assert.match(rendered, /\[3 repos\]/);
+  assert.match(rendered, /extra\s+\/repo\/web/);
+  assert.match(rendered, /extra\s+\/repo\/shared/);
+  assert.match(rendered, /runtime\s+\/state\/workspaces\/a/);
+});
+
 test("filter with zero matches renders no-match state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
   assert.equal(model.noMatches, true);

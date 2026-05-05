@@ -5,6 +5,9 @@ export interface RenderSession {
   id: string;
   title: string;
   cwd: string;
+  additionalCwds: string[];
+  workspaceCwd?: string;
+  repoCount: number;
   group: string;
   status: SessionStatus;
   displayStatus: "running" | "waiting" | "idle" | "error" | "stopped";
@@ -109,7 +112,7 @@ function pickSelectedId(sessions: ManagedSession[], selectedId: string | undefin
 }
 
 function matchesFilter(session: ManagedSession, filter: string): boolean {
-  return [session.title, session.group, session.cwd.split(/[\\/]/).pop() ?? "", session.status]
+  return [session.title, session.group, basename(session.cwd), ...(session.additionalCwds ?? []).map(basename), session.status]
     .some((value) => value.toLowerCase().includes(filter));
 }
 
@@ -119,6 +122,9 @@ function toRenderSession(session: ManagedSession, selected: boolean): RenderSess
     id: session.id,
     title: session.title,
     cwd: session.cwd,
+    additionalCwds: session.additionalCwds ?? [],
+    workspaceCwd: session.workspaceCwd,
+    repoCount: 1 + (session.additionalCwds?.length ?? 0),
     group: session.group,
     status: session.status,
     displayStatus,
@@ -133,6 +139,10 @@ function toRenderSession(session: ManagedSession, selected: boolean): RenderSess
 function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"] {
   if (status === "starting") return "running";
   return status;
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
 }
 
 function symbolFor(status: RenderSession["displayStatus"]): string {

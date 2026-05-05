@@ -25,6 +25,14 @@ export function heartbeatPath(sessionId: string, env: NodeJS.ProcessEnv = proces
   return join(heartbeatDir(env), `${sessionId}.json`);
 }
 
+export function multiRepoWorkspacesDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "workspaces");
+}
+
+export function multiRepoWorkspacePath(sessionId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(multiRepoWorkspacesDir(env), sessionId);
+}
+
 export function projectSessionsDir(cwd: string): string {
   return join(resolve(cwd), ".pi", "sessions");
 }

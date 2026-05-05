@@ -49,6 +49,20 @@ test("movement follows stable registry order within groups", () => {
   assert.equal(controller.snapshot().selectedId, "a");
 });
 
+test("filter matches additional repo basenames", () => {
+  const controller = new SessionsController({
+    version: 1,
+    sessions: [
+      session("idle", { id: "api", title: "api", cwd: "/repo/api", additionalCwds: ["/repo/web-client"] }),
+      session("idle", { id: "docs", title: "docs", cwd: "/repo/docs" }),
+    ],
+  });
+
+  controller.setFilter("web-client");
+
+  assert.equal(controller.snapshot().selectedId, "api");
+});
+
 test("moveSessionToGroup appends only when changing groups", async () => {
   await withTempSessionsDir(async () => {
     const controller = new SessionsController({

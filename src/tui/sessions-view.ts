@@ -46,6 +46,7 @@ export interface SessionDialogInput {
   title: string;
   cwd?: string;
   group: string;
+  additionalCwds?: string[];
 }
 
 export interface SessionsViewActions {
@@ -53,7 +54,7 @@ export interface SessionsViewActions {
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
-  createSession?: (input: Required<SessionDialogInput>) => unknown;
+  createSession?: (input: SessionDialogInput & { cwd: string }) => unknown;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
@@ -61,9 +62,9 @@ export interface SessionsViewActions {
   reorderSelected?: (delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
   newFormContext?: () => NewFormContext;
-  skills?: () => PickerItem[];
+  skills?: () => PickerItem[] | Promise<PickerItem[]>;
   applySkills?: (items: PickerItem[]) => void | Promise<void>;
-  mcpServers?: () => PickerItem[];
+  mcpServers?: () => PickerItem[] | Promise<PickerItem[]>;
   applyMcpServers?: (items: PickerItem[]) => void | Promise<void>;
   copy?: (text: string) => void;
   now?: () => number;
@@ -273,17 +274,34 @@ export class SessionsView implements Component {
 
   private startPicker(mode: "skills" | "mcp") {
     this.clearPendingRestart();
-    const items = mode === "skills" ? this.actions.skills?.() : this.actions.mcpServers?.();
-    if (!items) {
+    const result = mode === "skills" ? this.actions.skills?.() : this.actions.mcpServers?.();
+    if (!result) {
       this.message = `${mode}: no catalog loaded`;
       return;
     }
+    if (isPromise<PickerItem[]>(result)) {
+      this.busy = true;
+      this.message = `loading ${mode}...`;
+      void result.then((items) => {
+        this.busy = false;
+        this.openPicker(mode, items);
+      }).catch((error: unknown) => {
+        this.busy = false;
+        this.message = errorMessage(error);
+      });
+      return;
+    }
+    this.openPicker(mode, result);
+  }
+
+  private openPicker(mode: "skills" | "mcp", items: PickerItem[]) {
     if (!items.length) {
       this.message = `${mode}: nothing available`;
       return;
     }
     this.mode = mode;
     this.picker = { title: mode === "skills" ? "Skills" : "MCP — [project]", items, selected: 0 };
+    this.message = undefined;
   }
 
   private attachSelected() {
@@ -777,7 +795,7 @@ function newFormFooter(state: NewFormState): string {
   return parts.join(" · ");
 }
 
-function isPromise(value: unknown): value is Promise<void> {
+function isPromise<T = unknown>(value: unknown): value is Promise<T> {
   return typeof value === "object" && value !== null && typeof (value as { then?: unknown }).then === "function";
 }
 

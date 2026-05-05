@@ -1,0 +1,19 @@
+- id: multi-repo-001
+  epic: multi-repo
+  status: pending
+  title: Improve multi-repo session creation UX
+  description: User can launch a session with 2-3 repos at once using a clearer multi-repo
+    creation flow than a comma-separated extra cwd line.
+  steps:
+  - Treat 2-3 repos as a common creation path, not an edge case.
+  - Evaluate a lightweight TUI path-list interaction inspired by Agent Deck without
+    copying its full mode/editor complexity.
+  - Keep first path as primary repo and additional paths as extras; avoid worktrees
+    or broader Agent Deck features.
+  priority: 2
+  depends_on: []
+  discovered_from: null
+  plan_file: null
+  references:
+  - ../agent-deck/internal/ui/newdialog.go
+  created_at: '2026-05-04'

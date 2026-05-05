@@ -88,8 +88,11 @@ function renderDetails(session: RenderSession | undefined, width: number, previe
   const lines = [
     twoColumn(styles.accent(session.title), styles.status(session.displayStatus, `${session.displayStatus} ${session.symbol}`), width),
     `cwd       ${session.cwd}`,
+    `repos     ${session.repoCount}`,
     `group     ${session.group}`,
   ];
+  for (const cwd of session.additionalCwds) lines.push(`extra     ${cwd}`);
+  if (session.workspaceCwd) lines.push(`runtime   ${session.workspaceCwd}`);
   if (session.sessionFile) lines.push(`session   ${session.sessionFile}`);
   if (session.enabledMcpServers.length) lines.push(`mcp       ${session.enabledMcpServers.join(", ")}`);
   if (session.error) lines.push(styles.error(`error     ${session.error}`));
@@ -103,7 +106,8 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const prefix = session.selected ? styles.accent("▶") : session.status === "stopped" ? styles.dim("·") : " ";
   const symbol = styles.status(session.displayStatus, session.symbol);
   const title = session.status === "stopped" ? styles.dim(session.title) : session.title;
-  return truncate(`${prefix} ${symbol} ${title}`, width);
+  const repoBadge = session.repoCount > 1 ? styles.dim(` [${session.repoCount} repos]`) : "";
+  return truncate(`${prefix} ${symbol} ${title}${repoBadge}`, width);
 }
 
 export interface FormField {

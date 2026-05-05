@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -41,6 +41,26 @@ test("registerMcpTools registers enabled project tools and cleanup closes client
   });
   await cleanup();
   assert.equal(closed, true);
+});
+
+test("registerMcpTools resolves project MCP state through workspace .pi symlink", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-sessions-mcp-register-"));
+  const primary = join(root, "api");
+  const workspace = join(root, "workspace");
+  const catalogPath = join(root, "mcp.json");
+  await writeFile(catalogPath, JSON.stringify({ version: 1, servers: { fake: { type: "stdio", command: "fake" } } }), "utf8");
+  await mkdir(dirname(projectMcpStatePath(primary)), { recursive: true });
+  await writeFile(projectMcpStatePath(primary), JSON.stringify({ version: 1, enabledServers: ["fake"] }), "utf8");
+  await mkdir(workspace, { recursive: true });
+  await symlink(join(primary, ".pi"), join(workspace, ".pi"), "dir");
+
+  const tools: Parameters<PiToolApi["registerTool"]>[0][] = [];
+  await registerMcpTools({ registerTool: (tool) => tools.push(tool) }, workspace, {
+    catalogPath,
+    createClient: async () => fakeClient(),
+  });
+
+  assert.equal(tools[0]?.name, "mcp_fake_echo");
 });
 
 test("registerMcpTools errors clearly when enabled server is missing", async () => {

@@ -1,4 +1,5 @@
 import { unlink } from "node:fs/promises";
+import { removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath, registryPath } from "../core/paths.js";
 import { loadRegistry, removeSession, saveRegistry } from "../core/registry.js";
 import { killSession, sessionExists } from "../core/tmux.js";
@@ -19,6 +20,7 @@ export async function deleteManagedSession(id: string, options: DeleteManagedSes
   const registry = await loadRegistry(path);
   const session = resolveSession(registry, id);
   if (await sessionExists(session.tmuxSession)) await killSession(session.tmuxSession);
+  await removeMultiRepoWorkspace(session, env);
   const result = removeSession(registry, session.id);
   await saveRegistry(result.registry, path);
   await unlink(heartbeatPath(session.id, env)).catch((error: unknown) => {

@@ -4,6 +4,8 @@ export interface ManagedSession {
   id: string;
   title: string;
   cwd: string;
+  additionalCwds?: string[];
+  workspaceCwd?: string;
   group: string;
   tmuxSession: string;
   status: SessionStatus;

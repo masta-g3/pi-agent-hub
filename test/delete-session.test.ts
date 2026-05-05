@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deleteManagedSession } from "../src/app/delete-session.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "../src/core/registry.js";
-import { heartbeatPath, registryPath } from "../src/core/paths.js";
+import { heartbeatPath, multiRepoWorkspacePath, registryPath } from "../src/core/paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +32,25 @@ test("deleteManagedSession accepts id prefix and removes full-id heartbeat", asy
   assert.deepEqual(deleted, { id: session.id, title: "api" });
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
   await assert.rejects(readFile(heartbeatPath(session.id, env), "utf8"), /ENOENT/);
+});
+
+test("deleteManagedSession removes owned multi-repo workspace", async () => {
+  const env = await tempEnv();
+  const workspaceCwd = multiRepoWorkspacePath("multi-session", env);
+  const session = {
+    ...createSessionRecord({ cwd: "/tmp/api", title: "api", now: 1 }),
+    id: "multi-session",
+    tmuxSession: "pi-sessions-multi",
+    additionalCwds: ["/tmp/web"],
+    workspaceCwd,
+  };
+  await saveRegistry({ version: 1, sessions: [session] }, registryPath(env));
+  await mkdir(workspaceCwd, { recursive: true });
+
+  await deleteManagedSession(session.id, { env });
+
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  await assert.rejects(lstat(workspaceCwd), /ENOENT/);
 });
 
 test("pi-sessions delete removes registry row and heartbeat file", async () => {

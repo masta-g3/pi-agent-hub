@@ -145,7 +145,7 @@ function keepSelection(sessions: ManagedSession[], selectedId: string | undefine
 function visibleSessions(sessions: ManagedSession[], filter: string | undefined): ManagedSession[] {
   const value = filter?.toLowerCase();
   const visible = value
-    ? sessions.filter((session) => [session.title, session.group, basename(session.cwd), session.status].some((text) => text.toLowerCase().includes(value)))
+    ? sessions.filter((session) => [session.title, session.group, basename(session.cwd), ...(session.additionalCwds ?? []).map(basename), session.status].some((text) => text.toLowerCase().includes(value)))
     : sessions;
   return orderedSessions(visible);
 }

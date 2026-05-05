@@ -55,11 +55,12 @@ pi-sessions tui          # run the TUI directly in the current terminal
 pi-sessions doctor
 pi-sessions list
 pi-sessions add . -t api -g default
+pi-sessions add ./api -t fullstack --add-cwd ../web --add-cwd ../shared
 pi-sessions delete <session-id>
 pi-sessions mcp-pool       # run the pooled MCP socket daemon
 ```
 
-`delete` stops the tmux session if it is still alive, removes the registry row, and removes the heartbeat file. Pi conversation/session files are kept.
+`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files and source repos are kept.
 
 ## Dashboard tmux behavior
 
@@ -74,7 +75,7 @@ The dashboard runs `pi-sessions tui` inside tmux so it does not recursively crea
 
 When the dashboard is running inside tmux, pressing `enter` on a managed session switches the current tmux client to that session and shows the equivalent `tmux switch-client -t <session>` command. Press `Ctrl+Q` from a managed `pi-sessions-*` session to return to the sessions dashboard; if the dashboard tmux session is missing, the temporary return binding recreates it before switching back. Managed tmux sessions get a Pi-native status footer with `ctrl+q return │ 📁 <session title> | <project>`. Outside tmux direct TUI mode, attach uses normal `tmux attach-session`; return with tmux's standard detach keys.
 
-Groups are implicit flat labels. Use `n` to create a session; when a session is selected, the form defaults cwd and group to that session's context, otherwise cwd defaults to the dashboard cwd and group to the cwd basename. The title defaults to a random two-word slug. Cycling known cwd suggestions updates the group until the group field is edited. Use `g` on a selected session to move it to an existing or new group, and `G` to rename the selected session's current group for every session in that group. Use `K`/`J` or Shift-Up/Shift-Down to reorder the selected session within its current group; reordering is disabled while a filter is active. Use `r` to rename the selected session and `R` to restart it. Editable dialogs share the same form UI with a visible focused field/cursor; rename dialogs are pre-filled with the current value, and `f` opens separate group/title fields with Tab cycling. Text inputs support left/right, Home/End, Ctrl/Alt-left/right word jumps, Ctrl-W or Ctrl/Alt-Backspace word delete, and Delete/Ctrl/Alt-Delete forward delete where the terminal sends those keys.
+Groups are implicit flat labels. Use `n` to create a session; when a session is selected, the form defaults cwd and group to that session's context, otherwise cwd defaults to the dashboard cwd and group to the cwd basename. The title defaults to a random two-word slug. Add optional comma-separated `extra cwd(s)` to create a multi-repo session with those repos symlinked into one runtime workspace. Cycling known cwd suggestions updates the group until the group field is edited. Use `g` on a selected session to move it to an existing or new group, and `G` to rename the selected session's current group for every session in that group. Use `K`/`J` or Shift-Up/Shift-Down to reorder the selected session within its current group; reordering is disabled while a filter is active. Use `r` to rename the selected session and `R` to restart it. Editable dialogs share the same form UI with a visible focused field/cursor; rename dialogs are pre-filled with the current value, and `f` opens separate group/title fields with Tab cycling. Text inputs support left/right, Home/End, Ctrl/Alt-left/right word jumps, Ctrl-W or Ctrl/Alt-Backspace word delete, and Delete/Ctrl/Alt-Delete forward delete where the terminal sends those keys.
 
 ## Pi package
 
@@ -115,6 +116,7 @@ Built-in Pi theme names `light` and `dark` map to compact `pi-sessions` token ma
 - Config: `config.json`
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
+- Multi-repo workspaces: `workspaces/<session-id>`
 - Dashboard tmux session: `pi-sessions-dashboard`
 - Managed Pi tmux sessions: `pi-sessions-<first-12-session-id-chars>`
 - Project skills: `<project>/.pi/skills`
@@ -143,7 +145,7 @@ Optional global config lives at `config.json` under the global state directory:
 }
 ```
 
-If `skills.poolDirs` is omitted, `pi-sessions` keeps the legacy default of `<global-state>/skills/pool`. The `s` picker lists skills from these directories and writes the final project selection to `<project>/.pi/sessions/skills.json`, where `<project>` is the TUI/dashboard current working directory.
+If `skills.poolDirs` is omitted, `pi-sessions` keeps the legacy default of `<global-state>/skills/pool`. The `s` picker lists skills from these directories and writes the final project selection to `<project>/.pi/sessions/skills.json`, where `<project>` is the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected.
 
 ## MCP catalog example
 
@@ -170,7 +172,7 @@ Enable per project:
 }
 ```
 
-The `m` picker writes this project state for the TUI/dashboard current working directory. Servers with `pool: true` require `pi-sessions mcp-pool`; they are not started automatically.
+The `m` picker writes this project state for the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected. In multi-repo sessions, Skills/MCP state applies to the primary repo only; the runtime workspace exposes that state through its `.pi` symlink. Servers with `pool: true` require `pi-sessions mcp-pool`; they are not started automatically.
 
 ## Smoke test with temp state
 

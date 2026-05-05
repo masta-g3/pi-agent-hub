@@ -67,7 +67,7 @@ Usage:
   pi-sessions              open dashboard tmux session
   pi-sessions tui          run TUI directly
   pi-sessions list
-  pi-sessions add <cwd> [-t title] [-g group]
+  pi-sessions add <cwd> [-t title] [-g group] [--add-cwd path ...]
   pi-sessions start <session-id>
   pi-sessions stop <session-id>
   pi-sessions restart <session-id>
@@ -101,10 +101,11 @@ async function list() {
 
 async function add(argv: string[]) {
   const cwdArg = argv[0];
-  if (!cwdArg) throw new Error("Usage: pi-sessions add <cwd> [-t title] [-g group]");
+  if (!cwdArg) throw new Error("Usage: pi-sessions add <cwd> [-t title] [-g group] [--add-cwd path ...]");
   const title = flag(argv, "-t") ?? flag(argv, "--title");
   const group = flag(argv, "-g") ?? flag(argv, "--group");
-  const record = await addManagedSession({ cwd: cwdArg, title, group });
+  const additionalCwds = flags(argv, "--add-cwd");
+  const record = await addManagedSession({ cwd: cwdArg, title, group, additionalCwds });
   console.log(record.id);
 }
 
@@ -171,6 +172,14 @@ async function doctor() {
 function flag(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
   return index === -1 ? undefined : argv[index + 1];
+}
+
+function flags(argv: string[], name: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === name && argv[i + 1]) values.push(argv[i + 1]!);
+  }
+  return values;
 }
 
 main().catch((error: unknown) => {
