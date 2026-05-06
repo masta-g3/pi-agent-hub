@@ -27,3 +27,16 @@ test("refresh loop stop waits for in-flight tick", async () => {
   await stopping;
   assert.equal(stopResolved, true);
 });
+
+test("refresh loop keeps running when preview refresh fails", async () => {
+  const controller = {
+    refresh: async () => {},
+    snapshot: () => ({ selectedId: "missing" }),
+    refreshPreview: async () => { throw new Error("capture failed"); },
+  };
+  const tui = { requestRender: () => {} };
+
+  const loop = startRefreshLoop(controller as never, tui as never);
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.doesNotReject(() => loop.stop());
+});

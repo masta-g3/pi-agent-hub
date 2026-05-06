@@ -24,13 +24,19 @@ function session(): ManagedSession {
 
 test("themeFromPiTheme resolves vars for sessions tokens", () => {
   const theme = themeFromPiTheme({
-    vars: { blue: "#00aaff", gray: 242 },
-    colors: { accent: "blue", success: "#00ff00", muted: "gray" },
+    vars: { blue: "#00aaff", gray: 242, crust: "#dce0e8" },
+    colors: { accent: "blue", success: "#00ff00", muted: "gray", statusLineBg: "crust" },
   });
   assert.equal(theme.accent, "#00aaff");
   assert.equal(theme.success, "#00ff00");
   assert.equal(theme.muted, 242);
+  assert.equal(theme.statusLineBg, "#dce0e8");
   assert.equal(theme.error, darkTheme.error);
+});
+
+test("themeFromPiTheme leaves missing statusLineBg empty so tmux chrome can fall back", () => {
+  const theme = themeFromPiTheme({ colors: { accent: "#00aaff", border: "#ccd0da" } });
+  assert.equal(theme.statusLineBg, "");
 });
 
 test("loadSessionsTheme reads project settings before global settings", async () => {

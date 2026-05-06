@@ -34,8 +34,29 @@ test("configureManagedSessionStatusBar sets a Pi-native right footer", async () 
     ";", "set-option", "-t", "pi-sessions-api", "status-style", "bg=#1a1b26,fg=#a9b1d6",
     ";", "set-option", "-t", "pi-sessions-api", "status-right", "#[fg=#565f89]ctrl+q return#[default] │ 📁 package | example-service ",
     ";", "set-option", "-t", "pi-sessions-api", "status-right-length", "100",
+    ";", "set-option", "-t", "pi-sessions-api", "status-left", "",
     ";", "set-option", "-t", "pi-sessions-api", "status-left-length", "120",
+    ";", "set-option", "-t", "pi-sessions-api", "window-status-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", "pi-sessions-api", "window-status-current-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", "pi-sessions-api", "window-status-format", " #I:#W#F ",
+    ";", "set-option", "-t", "pi-sessions-api", "window-status-current-format", " #I:#W#F ",
   ]]);
+});
+
+test("configureManagedSessionStatusBar applies theme-derived chrome", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureManagedSessionStatusBar({
+    name: "pi-sessions-api",
+    title: "package",
+    cwd: "/repo/example-service",
+    theme: { accent: "#010203", border: 240, dim: "445566" },
+  }, exec);
+
+  const args = exec.calls[0]?.args.join("\n") ?? "";
+  assert.match(args, /status-style\nbg=colour240,fg=#010203/);
+  assert.match(args, /#\[fg=#445566\]ctrl\+q return#\[default\]/);
+  assert.match(args, /window-status-style\nfg=#010203,bg=colour240/);
 });
 
 test("configureManagedSessionStatusBar escapes tmux format markers in labels", async () => {
@@ -62,6 +83,16 @@ test("configureDashboardStatusBar overrides inherited colored window formats", a
     ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-format", " #I:#W#F ",
     ";", "set-option", "-t", "pi-sessions-dashboard", "window-status-current-format", " #I:#W#F ",
   ]]);
+});
+
+test("configureDashboardStatusBar applies theme-derived chrome", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureDashboardStatusBar({ name: "pi-sessions-dashboard", cwd: "/repo/example-service", theme: { text: "#111111", accent: "#222222", border: "#333333", dim: 244 } }, exec);
+
+  assert.match(exec.calls[0]?.args.join("\n"), /status-style\nbg=#333333,fg=#111111/);
+  assert.match(exec.calls[0]?.args.join("\n"), /#\[fg=colour244\]dashboard#\[default\]/);
+  assert.match(exec.calls[0]?.args.join("\n"), /window-status-current-style\nfg=#111111,bg=#333333/);
 });
 
 test("currentTmuxSession reads and trims the current tmux session", async () => {

@@ -9,10 +9,10 @@ import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
 import { projectStateCwd } from "../core/multi-repo.js";
-import { configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
+import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { deleteManagedSession } from "./delete-session.js";
-import { addManagedSession, forkManagedSession, restartManagedSession } from "./session-commands.js";
+import { addManagedSession, forkManagedSession, restartManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
 import type { ManagedSession } from "../core/types.js";
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession }): NewFormContext {
@@ -65,6 +65,12 @@ function themeKey(theme: SessionsTheme): string {
 export async function runTui(): Promise<void> {
   const cwd = process.cwd();
   const theme = await loadSessionsTheme({ cwd });
+  const syncDashboardChrome = (nextTheme: SessionsTheme) => {
+    if (!process.env.TMUX) return;
+    void configureDashboardStatusBar({ name: DASHBOARD_SESSION, cwd, theme: nextTheme }).catch(() => {});
+  };
+  syncDashboardChrome(theme);
+  void syncManagedSessionStatusBars().catch(() => {});
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
   const controller = new SessionsController();
@@ -105,7 +111,7 @@ export async function runTui(): Promise<void> {
     },
     async switchInsideTmux(tmuxSession) {
       const session = controller.snapshot().registry.sessions.find((item) => item.tmuxSession === tmuxSession);
-      if (session) await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
+      if (session) await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await loadSessionsTheme({ cwd: session.cwd }) });
       return switchClientWithReturn({
         targetSession: tmuxSession,
         returnSession: { name: DASHBOARD_SESSION, cwd, command: "pi-sessions tui", env: dashboardEnv() },
@@ -180,6 +186,8 @@ export async function runTui(): Promise<void> {
     load: () => loadSessionsTheme({ cwd }),
     apply(nextTheme) {
       view.setTheme(nextTheme);
+      syncDashboardChrome(nextTheme);
+      void syncManagedSessionStatusBars().catch(() => {});
       tui.invalidate();
       tui.requestRender();
     },

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { agentDir } from "../core/paths.js";
 
-export type ThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border";
+export type ThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border" | "statusLineBg";
 
 export type SessionsTheme = Record<ThemeToken, string | number>;
 
@@ -17,6 +17,7 @@ export const darkTheme: SessionsTheme = {
   dim: 240,
   text: "",
   border: 240,
+  statusLineBg: "#1a1b26",
 };
 
 export const lightTheme: SessionsTheme = {
@@ -28,6 +29,7 @@ export const lightTheme: SessionsTheme = {
   dim: "#767676",
   text: "",
   border: "#547da7",
+  statusLineBg: "#dce0e8",
 };
 
 interface PiSettings {
@@ -69,6 +71,11 @@ export function themeFromPiTheme(theme: PiThemeFile): SessionsTheme {
     if (typeof value === "string" && value in vars) return vars[value] ?? darkTheme[token];
     return value ?? darkTheme[token];
   };
+  const resolveOptionalToken = (token: ThemeToken): string | number => {
+    const value = colors[token];
+    if (typeof value === "string" && value in vars) return vars[value] ?? "";
+    return value ?? "";
+  };
   return {
     accent: resolveToken("accent"),
     success: resolveToken("success"),
@@ -78,6 +85,7 @@ export function themeFromPiTheme(theme: PiThemeFile): SessionsTheme {
     dim: resolveToken("dim"),
     text: resolveToken("text"),
     border: resolveToken("border"),
+    statusLineBg: resolveOptionalToken("statusLineBg"),
   };
 }
 

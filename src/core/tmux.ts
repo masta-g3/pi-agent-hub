@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
-import { TMUX_CHROME_HINT_COLOR, TMUX_CHROME_STATUS_STYLE } from "./chrome.js";
+import { tmuxChromeFromTheme, type ChromeThemeTokens } from "./chrome.js";
 import { sessionsStateDir } from "./paths.js";
 import type { CommandResult } from "./types.js";
 
@@ -69,30 +69,39 @@ export async function configureManagedSessionStatusBar(options: {
   name: string;
   title: string;
   cwd: string;
+  theme?: ChromeThemeTokens;
 }, exec: TmuxExec = realTmuxExec): Promise<void> {
-  const statusRight = `#[fg=${TMUX_CHROME_HINT_COLOR}]ctrl+q return#[default] │ 📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  const chrome = tmuxChromeFromTheme(options.theme);
+  const statusRight = `#[fg=${chrome.hintColor}]ctrl+q return#[default] │ 📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
   await exec.exec("tmux", [
     "set-option", "-t", options.name, "status", "on",
-    ";", "set-option", "-t", options.name, "status-style", TMUX_CHROME_STATUS_STYLE,
+    ";", "set-option", "-t", options.name, "status-style", chrome.statusStyle,
     ";", "set-option", "-t", options.name, "status-right", statusRight,
     ";", "set-option", "-t", options.name, "status-right-length", "100",
+    ";", "set-option", "-t", options.name, "status-left", "",
     ";", "set-option", "-t", options.name, "status-left-length", "120",
+    ";", "set-option", "-t", options.name, "window-status-style", chrome.windowStatusStyle,
+    ";", "set-option", "-t", options.name, "window-status-current-style", chrome.windowStatusCurrentStyle,
+    ";", "set-option", "-t", options.name, "window-status-format", " #I:#W#F ",
+    ";", "set-option", "-t", options.name, "window-status-current-format", " #I:#W#F ",
   ]);
 }
 
 export async function configureDashboardStatusBar(options: {
   name: string;
   cwd: string;
+  theme?: ChromeThemeTokens;
 }, exec: TmuxExec = realTmuxExec): Promise<void> {
-  const statusRight = `#[fg=${TMUX_CHROME_HINT_COLOR}]dashboard#[default] │ 📁 ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  const chrome = tmuxChromeFromTheme(options.theme);
+  const statusRight = `#[fg=${chrome.hintColor}]dashboard#[default] │ 📁 ${tmuxFormatText(projectDisplayName(options.cwd))} `;
   await exec.exec("tmux", [
     "set-option", "-t", options.name, "status", "on",
-    ";", "set-option", "-t", options.name, "status-style", TMUX_CHROME_STATUS_STYLE,
+    ";", "set-option", "-t", options.name, "status-style", chrome.statusStyle,
     ";", "set-option", "-t", options.name, "status-left", "",
     ";", "set-option", "-t", options.name, "status-right", statusRight,
     ";", "set-option", "-t", options.name, "status-right-length", "100",
-    ";", "set-option", "-t", options.name, "window-status-style", "fg=#a9b1d6,bg=#1a1b26",
-    ";", "set-option", "-t", options.name, "window-status-current-style", "fg=#a9b1d6,bg=#1a1b26",
+    ";", "set-option", "-t", options.name, "window-status-style", chrome.windowStatusStyle,
+    ";", "set-option", "-t", options.name, "window-status-current-style", chrome.windowStatusCurrentStyle,
     ";", "set-option", "-t", options.name, "window-status-format", " #I:#W#F ",
     ";", "set-option", "-t", options.name, "window-status-current-format", " #I:#W#F ",
   ]);

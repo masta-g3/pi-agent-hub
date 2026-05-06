@@ -15,9 +15,13 @@ export function startRefreshLoop(controller: SessionsController, tui: TUI): Refr
     const selectedId = controller.snapshot().selectedId;
     const now = Date.now();
     if (selectedId !== lastPreviewId || now - lastPreviewAt > 2_000) {
-      await controller.refreshPreview();
-      lastPreviewId = selectedId;
-      lastPreviewAt = now;
+      try {
+        await controller.refreshPreview();
+        lastPreviewId = selectedId;
+        lastPreviewAt = now;
+      } catch {
+        tui.requestRender();
+      }
     }
     tui.requestRender();
   };

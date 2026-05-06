@@ -8,6 +8,7 @@ import { sessionsStateDir } from "../core/paths.js";
 import { createSessionRecord, loadRegistry, saveRegistry, upsertSession } from "../core/registry.js";
 import { nextOrderInGroup } from "../core/session-order.js";
 import { configureManagedSessionStatusBar, killSession, newSession, sessionExists } from "../core/tmux.js";
+import { loadSessionsTheme } from "../tui/theme.js";
 import { resolveSession } from "./delete-session.js";
 import type { ManagedSession } from "../core/types.js";
 
@@ -38,7 +39,7 @@ export async function startManagedSession(id: string): Promise<void> {
   const registry = await loadRegistry();
   let session = findSession(registry, id);
   if (await sessionExists(session.tmuxSession)) {
-    await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
+    await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await sessionTheme(session) });
     return;
   }
   session = await ensureMultiRepoWorkspace(session);
@@ -50,7 +51,7 @@ export async function startManagedSession(id: string): Promise<void> {
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
     env: { PI_SESSIONS_SESSION_ID: session.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
-  await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd });
+  await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await sessionTheme(session) });
 }
 
 export async function stopManagedSession(id: string): Promise<void> {
@@ -70,6 +71,15 @@ export async function restartManagedSession(id: string): Promise<void> {
   session.updatedAt = Date.now();
   await saveRegistry(registry);
   await startManagedSession(id);
+}
+
+export async function syncManagedSessionStatusBars(): Promise<void> {
+  const registry = await loadRegistry();
+  for (const session of registry.sessions) {
+    if (await sessionExists(session.tmuxSession)) {
+      await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await sessionTheme(session) });
+    }
+  }
 }
 
 export async function forkManagedSession(sourceId: string, input: ForkInput = {}): Promise<ManagedSession> {
@@ -93,8 +103,12 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
     command: `pi ${piArgs.map(shellQuote).join(" ")}`,
     env: { PI_SESSIONS_SESSION_ID: record.id, PI_SESSIONS_DIR: sessionsStateDir() },
   });
-  await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd });
+  await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await sessionTheme(record) });
   return record;
+}
+
+async function sessionTheme(session: ManagedSession) {
+  return loadSessionsTheme({ cwd: session.cwd });
 }
 
 async function savedSessionFile(source: ManagedSession): Promise<string> {

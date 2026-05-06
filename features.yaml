@@ -18,3 +18,14 @@
   - ../agent-deck/internal/ui/newdialog.go
   created_at: '2026-05-04'
   completed_at: '2026-05-04'
+
+- id: tmux-chrome-001
+  status: done
+  description: Theme-sync pi-sessions tmux status/footer chrome with the dashboard
+    Pi theme while keeping chrome app-owned.
+  priority: 2
+  depends_on: []
+  created_at: '2026-05-05'
+  completed_at: '2026-05-05'
+  epic: tmux-chrome
+  plan_file: docs/history/20260505_tmux-chrome-001_theme_sync_chrome.md
