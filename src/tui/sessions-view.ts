@@ -153,6 +153,15 @@ export class SessionsView implements Component {
       return;
     }
 
+    if (this.pendingRestart) {
+      const now = this.actions.now?.() ?? Date.now();
+      if (this.pendingRestart.expiresAt <= now) this.clearPendingRestart();
+      else {
+        if (data === "R") this.restartSelected();
+        return;
+      }
+    }
+
     if (data === "J" || matchesKey(data, Key.shift("down"))) this.reorderSelected(1);
     else if (data === "K" || matchesKey(data, Key.shift("up"))) this.reorderSelected(-1);
     else if (matchesKey(data, Key.down) || data === "j") {
@@ -327,9 +336,13 @@ export class SessionsView implements Component {
     this.message = undefined;
     const selected = this.controller.selected();
     if (!selected) return;
+    if (selected.status === "stopped") {
+      if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting stopped session...");
+      else this.message = "session stopped; press R twice to restart";
+      return;
+    }
     const plan = attachPlan(selected);
     if (plan.type === "inside-tmux") {
-      this.actions.copy?.(plan.command);
       const switchInsideTmux = this.actions.switchInsideTmux;
       if (!switchInsideTmux) {
         this.message = plan.message;

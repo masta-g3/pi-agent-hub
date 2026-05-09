@@ -135,7 +135,7 @@ test("enter triggers attach action outside tmux", () => {
   }
 });
 
-test("enter inside tmux switches client and keeps command visible", () => {
+test("enter inside tmux switches client and keeps command visible without touching clipboard", () => {
   const oldTmux = process.env.TMUX;
   process.env.TMUX = "/tmp/tmux";
   try {
@@ -151,7 +151,7 @@ test("enter inside tmux switches client and keeps command visible", () => {
     view.handleInput("\r");
 
     assert.equal(switched, "pi-sessions-api");
-    assert.equal(copied, "tmux switch-client -t pi-sessions-api");
+    assert.equal(copied, undefined);
     assert.match(view.render(100).join("\n"), /tmux switch-client -t pi-sessions-api/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
@@ -176,6 +176,39 @@ test("inside tmux switch action errors show in footer", async () => {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
   }
+});
+
+test("enter on stopped session restarts instead of switching to missing tmux session", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const stopped = { ...session("api", "api"), status: "stopped" as const };
+    const restarted: string[] = [];
+    const switched: string[] = [];
+    const controller = new SessionsController({ version: 1, sessions: [stopped] });
+    const view = new SessionsView(controller, () => {}, {
+      restart: async (id) => { restarted.push(id); },
+      switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(restarted, ["api"]);
+    assert.deepEqual(switched, []);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("enter on stopped session without restart action explains the recovery key", () => {
+  const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
+  const view = new SessionsView(controller, () => {});
+
+  view.handleInput("\r");
+
+  assert.match(view.render(100).join("\n"), /session stopped; press R twice to restart/);
 });
 
 test("new form submits with basename defaults on enter", () => {
@@ -801,27 +834,30 @@ test("escape clearing filter also cancels hidden pending restart", () => {
   assert.deepEqual(restarted, []);
 });
 
-test("help, empty picker, and attach cancel pending restart", () => {
+test("restart confirmation ignores non-confirmation keys", () => {
   const restarted: string[] = [];
+  const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => 100, skills: () => [] });
-  view.handleInput("R");
-  view.handleInput("?");
-  view.handleInput("\u001b");
-  view.handleInput("R");
-  assert.deepEqual(restarted, []);
+  const view = new SessionsView(controller, () => {}, {
+    restart: (id) => restarted.push(id),
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+    now: () => 100,
+    skills: () => [],
+  });
 
-  view.handleInput("\u001b");
-  view.handleInput("R");
-  view.handleInput("s");
-  view.handleInput("R");
-  assert.deepEqual(restarted, []);
-
-  view.handleInput("\u001b");
   view.handleInput("R");
   view.handleInput("\r");
+  assert.deepEqual(switched, []);
+  assert.match(view.render(100).join("\n"), /Restart session/);
+
+  view.handleInput("?");
+  assert.match(view.render(100).join("\n"), /Restart session/);
+
+  view.handleInput("s");
+  assert.match(view.render(100).join("\n"), /Restart session/);
+
   view.handleInput("R");
-  assert.deepEqual(restarted, []);
+  assert.deepEqual(restarted, ["api"]);
 });
 
 test("zero-match filter blocks selected actions", () => {
