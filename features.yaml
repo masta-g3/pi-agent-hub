@@ -49,3 +49,14 @@
   completed_at: '2026-05-11'
   epic: new-session-ux
   plan_file: docs/history/20260511_new-session-ux-002_recent_repo_picker.md
+- id: ctrl-q-dashboard-001
+  status: abandoned
+  description: Adopt unmanaged Pi tmux sessions into the pi-sessions dashboard through
+    a Pi-native Ctrl+Q shortcut.
+  priority: 3
+  depends_on: []
+  created_at: '2026-05-09'
+  completed_at: '2026-05-09'
+  epic: ctrl-q-dashboard
+  plan_file: docs/history/20260509_ctrl-q-dashboard-001_adoption_deferred.md
+  abandoned_reason: Deferred; keep existing managed-session return behavior for now.
