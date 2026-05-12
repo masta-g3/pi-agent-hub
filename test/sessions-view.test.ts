@@ -286,11 +286,11 @@ test("enter on stopped session without restart action explains the recovery key"
   assert.match(view.render(100).join("\n"), /session stopped; press R twice to restart/);
 });
 
-test("new form submits with basename defaults on enter", () => {
+test("new form submits with basename group and random title on enter", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "black-aleph" }),
   });
   view.handleInput("n");
   const rendered = view.render(120).join("\n");
@@ -301,15 +301,16 @@ test("new form submits with basename defaults on enter", () => {
   assert.doesNotMatch(rendered, /repo 3/);
   assert.match(rendered, /group/);
   assert.match(rendered, /title/);
+  assert.match(rendered, /black-aleph/);
   view.handleInput("\r");
-  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api" });
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "black-aleph" });
 });
 
 test("new form tab cycles focus and edits title", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\t");
@@ -323,7 +324,7 @@ test("new form add repo shortcut submits one additional cwd", () => {
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u001ba");
@@ -338,7 +339,7 @@ test("new form add repo shortcut supports more than two additional cwds", () => 
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   for (const repo of ["/tmp/web", "/tmp/shared", "/tmp/docs"]) {
@@ -354,7 +355,7 @@ test("new form remove shortcut removes focused extra repo and omits blank rows",
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u001ba");
@@ -370,7 +371,7 @@ test("new form remove shortcut is a no-op on primary repo", () => {
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u001bx");
@@ -394,6 +395,7 @@ test("new form can default to selected session cwd, group, and all additional re
         group: selected?.group,
         knownCwds: ["/dashboard", "/repo/api", "/repo/web", "/repo/shared", "/repo/docs"],
         additionalCwds: selected?.additionalCwds,
+        titleGenerator: () => "api",
       };
     },
   });
@@ -410,7 +412,7 @@ test("new form can default to selected session cwd, group, and all additional re
 
 test("new form per-field validation focuses first invalid field on enter", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   for (let i = 0; i < "/tmp/api".length; i += 1) view.handleInput("\u007f");
@@ -422,11 +424,11 @@ test("new form per-field validation focuses first invalid field on enter", () =>
   assert.doesNotMatch(view.render(120).join("\n"), /primary is required/);
 });
 
-test("new form ctrl-n cycles primary cwd suggestions and updates group and title until touched", () => {
+test("new form ctrl-n cycles primary cwd suggestions and updates group only", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/web", "/tmp/api"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/web", "/tmp/api"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u000e");
@@ -434,14 +436,14 @@ test("new form ctrl-n cycles primary cwd suggestions and updates group and title
   assert.match(rendered, /\/tmp\/web/);
   assert.match(rendered, /web/);
   view.handleInput("\r");
-  assert.deepEqual(created, { cwd: "/tmp/web", group: "web", title: "web" });
+  assert.deepEqual(created, { cwd: "/tmp/web", group: "web", title: "api" });
 });
 
 test("new form ctrl-n cycles cwd suggestions on extra repo fields", () => {
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u001ba");
@@ -452,11 +454,11 @@ test("new form ctrl-n cycles cwd suggestions on extra repo fields", () => {
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api", additionalCwds: ["/tmp/web"] });
 });
 
-test("new form repo picker selects primary cwd and updates group and title", () => {
+test("new form repo picker selects primary cwd and updates group", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web-client"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web-client"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u000f");
@@ -467,14 +469,14 @@ test("new form repo picker selects primary cwd and updates group and title", () 
   assert.match(view.render(120).join("\n"), /web-client/);
   view.handleInput("\r");
 
-  assert.deepEqual(created, { cwd: "/tmp/web-client", group: "web-client", title: "web-client" });
+  assert.deepEqual(created, { cwd: "/tmp/web-client", group: "web-client", title: "api" });
 });
 
 test("new form repo picker selects extra repo without changing group", () => {
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u001ba");
@@ -490,7 +492,7 @@ test("new form repo picker escape preserves form state", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u000f");
@@ -504,7 +506,7 @@ test("new form repo picker escape preserves form state", () => {
 
 test("new form repo picker enter with no match stays open", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\u000f");
@@ -518,7 +520,7 @@ test("new form repo picker enter with no match stays open", () => {
 
 test("new form ctrl-o outside repo fields is a no-op", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\t");
@@ -532,7 +534,7 @@ test("new form printable a and x edit text instead of adding or removing repos",
   let created: { cwd: string; group: string; title: string; additionalCwds?: string[] } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api" }),
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\t");
@@ -548,7 +550,7 @@ test("new form preserves user-edited title across cwd changes", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\t");
@@ -565,7 +567,7 @@ test("new form preserves user-edited group across cwd changes", () => {
   let created: { cwd: string; group: string; title: string } | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
-    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
+    newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"], titleGenerator: () => "api" }),
   });
   view.handleInput("n");
   view.handleInput("\t");
@@ -575,7 +577,7 @@ test("new form preserves user-edited group across cwd changes", () => {
   view.handleInput("\t");
   view.handleInput("\u000e");
   view.handleInput("\r");
-  assert.deepEqual(created, { cwd: "/tmp/web", group: "backend", title: "web" });
+  assert.deepEqual(created, { cwd: "/tmp/web", group: "backend", title: "api" });
 });
 
 test("delete dialog requires confirmation and escape cancels", () => {
@@ -602,6 +604,61 @@ test("delete dialog confirms with second d", () => {
   view.handleInput("d");
   assert.equal(deleted, "api");
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
+});
+
+test("delete dialog offers subagent-only cleanup for parent sessions", () => {
+  let closed: string | undefined;
+  let deleted: string | undefined;
+  const parent = session("api", "api");
+  const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, {
+    closeSubagents: (id) => { closed = id; },
+    deleteSession: (id) => { deleted = id; },
+  });
+
+  view.handleInput("d");
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /1 subagent/);
+  assert.match(rendered, /s\s+close subagents only/);
+  assert.match(rendered, /d\s+delete session \+ subagents/);
+  view.handleInput("s");
+
+  assert.equal(closed, "api");
+  assert.equal(deleted, undefined);
+  assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
+});
+
+test("delete dialog keeps full delete on d confirmation", () => {
+  let closed: string | undefined;
+  let deleted: string | undefined;
+  const parent = session("api", "api");
+  const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, {
+    closeSubagents: (id) => { closed = id; },
+    deleteSession: (id) => { deleted = id; },
+  });
+
+  view.handleInput("d");
+  view.handleInput("d");
+
+  assert.equal(deleted, "api");
+  assert.equal(closed, undefined);
+});
+
+test("delete dialog does not offer subagent-only cleanup for selected subagent", () => {
+  const parent = session("api", "api");
+  const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, { closeSubagents: () => {} });
+
+  controller.move(1);
+  view.handleInput("d");
+  const rendered = view.render(100).join("\n");
+
+  assert.match(rendered, /target\s+smoke/);
+  assert.doesNotMatch(rendered, /close subagents only/);
 });
 
 test("delete dialog ignores repeated confirm while async delete is pending", async () => {

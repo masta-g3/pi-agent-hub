@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { basename } from "node:path";
 import { charLength } from "./text-input.js";
 import {
@@ -29,7 +30,6 @@ export interface Field extends FormField<FieldKey> {
 
 export interface NewFormState extends FormState<FieldKey, Field> {
   groupTouched: boolean;
-  titleTouched: boolean;
   knownCwds: string[];
 }
 
@@ -38,7 +38,11 @@ export interface NewFormContext {
   group?: string;
   knownCwds?: string[];
   additionalCwds?: string[];
+  titleGenerator?: () => string;
 }
+
+const SESSION_ADJECTIVES = ["amber", "black", "blue", "bright", "calm", "crimson", "dark", "gold", "green", "quiet", "red", "silver", "swift", "violet", "white"] as const;
+const SESSION_NOUNS = ["aleph", "atlas", "beacon", "cipher", "comet", "delta", "ember", "falcon", "lambda", "nova", "orbit", "pixel", "quartz", "vector", "zenith"] as const;
 
 export function moveFocus(state: NewFormState, delta: number): NewFormState {
   return { ...state, focus: moveFormFocus(state, delta).focus };
@@ -93,12 +97,11 @@ export function createNewForm(ctx: NewFormContext): NewFormState {
   const knownCwds = uniqueWithFirst(cwd, ctx.knownCwds ?? []);
   const contextGroup = ctx.group?.trim();
   const group = contextGroup || projectBasename(cwd) || "default";
-  const title = projectBasename(cwd) || "pi-session";
+  const title = ctx.titleGenerator?.() ?? randomSessionTitle();
   const fields = buildFields([cwd, ...(ctx.additionalCwds ?? [])], group, title, knownCwds);
   return {
     ...createForm<FieldKey, Field>(fields, "repo:0"),
     groupTouched: false,
-    titleTouched: false,
     knownCwds,
   };
 }
@@ -194,23 +197,14 @@ function afterFieldEdit(previous: NewFormState, next: NewFormState, key: FieldKe
   }
 
   let groupTouched = previous.groupTouched;
-  let titleTouched = previous.titleTouched;
   if (key === "group") groupTouched = true;
-  if (key === "title") titleTouched = true;
 
-  if (isPrimaryRepoKey(key)) {
-    const primary = fields["repo:0"].value;
-    if (!groupTouched) {
-      const group = projectBasename(primary) || "default";
-      fields.group = { ...fields.group, value: group, cursor: charLength(group) };
-    }
-    if (!titleTouched) {
-      const title = projectBasename(primary) || "pi-session";
-      fields.title = { ...fields.title, value: title, cursor: charLength(title) };
-    }
+  if (isPrimaryRepoKey(key) && !groupTouched) {
+    const group = projectBasename(fields["repo:0"].value) || "default";
+    fields.group = { ...fields.group, value: group, cursor: charLength(group) };
   }
 
-  return { ...next, fields, groupTouched, titleTouched };
+  return { ...next, fields, groupTouched };
 }
 
 function rebuildRepoFields(state: NewFormState, repoValues: string[], focus: FieldKey): NewFormState {
@@ -227,8 +221,8 @@ function buildFields(repoValues: string[], group: string, title: string, suggest
   const repos = repoValues.length ? repoValues : [""];
   return [
     ...repos.map((value, index) => repoField(index, value, suggestions)),
-    { key: "group" as const, label: "group", value: group, hint: "defaults to primary cwd basename" },
-    { key: "title" as const, label: "title", value: title, hint: "defaults to primary cwd basename" },
+    { key: "group" as const, label: "group", value: group },
+    { key: "title" as const, label: "title", value: title },
   ];
 }
 
@@ -276,6 +270,12 @@ function uniqueWithFirst(first: string, items: string[]): string[] {
 
 function projectBasename(path: string): string {
   return basename(path.trim());
+}
+
+function randomSessionTitle(): string {
+  const adjective = SESSION_ADJECTIVES[randomInt(SESSION_ADJECTIVES.length)];
+  const noun = SESSION_NOUNS[randomInt(SESSION_NOUNS.length)];
+  return `${adjective}-${noun}`;
 }
 
 function cwdHint(suggestionCount: number): string {

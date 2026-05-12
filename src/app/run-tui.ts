@@ -13,7 +13,7 @@ import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-his
 import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreSwitchReturnBinding, switchClientWithReturn } from "../core/tmux.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
-import { deleteManagedSession } from "./delete-session.js";
+import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
 import type { ManagedSession } from "../core/types.js";
 
@@ -139,6 +139,9 @@ export async function runTui(): Promise<void> {
         const deleted = await deleteManagedSession(sessionId);
         controller.removeSession(deleted.id);
       });
+    },
+    closeSubagents(sessionId) {
+      return mutateRegistry(async () => { await deleteManagedSubagentSessions(sessionId); });
     },
     createSession(input) {
       return mutateRegistry(async () => {

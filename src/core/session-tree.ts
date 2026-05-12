@@ -10,6 +10,21 @@ export function sessionDepth(session: ManagedSession, sessions: ManagedSession[]
   return sessions.some((candidate) => candidate.id === session.parentId) ? 1 : 0;
 }
 
+export function sessionCascadeIds(sessions: ManagedSession[], id: string): Set<string> {
+  const ids = new Set([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const session of sessions) {
+      if (session.parentId && ids.has(session.parentId) && !ids.has(session.id)) {
+        ids.add(session.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 export function orderedSessionRows(sessions: ManagedSession[], filter?: string): ManagedSession[] {
   const visible = filter?.trim() ? treeFilteredSessions(sessions, filter.trim().toLowerCase()) : sessions;
   const visibleIds = new Set(visible.map((session) => session.id));

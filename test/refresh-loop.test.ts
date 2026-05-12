@@ -40,3 +40,18 @@ test("refresh loop keeps running when preview refresh fails", async () => {
   await new Promise((resolve) => setImmediate(resolve));
   await assert.doesNotReject(() => loop.stop());
 });
+
+test("refresh loop keeps running when registry refresh fails", async () => {
+  const controller = {
+    refresh: async () => { throw new Error("registry temporarily unavailable"); },
+    snapshot: () => ({ selectedId: undefined }),
+    refreshPreview: async () => {},
+  };
+  let renderRequests = 0;
+  const tui = { requestRender: () => { renderRequests += 1; } };
+
+  const loop = startRefreshLoop(controller as never, tui as never);
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.doesNotReject(() => loop.stop());
+  assert.equal(renderRequests, 1);
+});

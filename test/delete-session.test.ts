@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deleteManagedSession } from "../src/app/delete-session.js";
+import { deleteManagedSession, deleteManagedSubagentSessions } from "../src/app/delete-session.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "../src/core/registry.js";
 import { heartbeatPath, multiRepoWorkspacePath, registryPath } from "../src/core/paths.js";
 
@@ -32,6 +32,53 @@ test("deleteManagedSession accepts id prefix and removes full-id heartbeat", asy
   assert.deepEqual(deleted, { id: session.id, title: "api" });
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
   await assert.rejects(readFile(heartbeatPath(session.id, env), "utf8"), /ENOENT/);
+});
+
+test("deleteManagedSession cascades mirrored subagent rows", async () => {
+  const env = await tempEnv();
+  const parent = createSessionRecord({ cwd: "/tmp/api", title: "api", now: 1 });
+  const child = {
+    ...createSessionRecord({ cwd: "/tmp/api", title: "smoke", now: 2 }),
+    id: "child-session",
+    tmuxSession: "pi-sessions-child",
+    kind: "subagent" as const,
+    parentId: parent.id,
+    agentName: "smoke",
+  };
+  await saveRegistry({ version: 1, sessions: [parent, child] }, registryPath(env));
+  await mkdir(join(env.PI_SESSIONS_DIR, "heartbeats"), { recursive: true });
+  await writeFile(heartbeatPath(parent.id, env), JSON.stringify({ ok: true }), "utf8");
+  await writeFile(heartbeatPath(child.id, env), JSON.stringify({ ok: true }), "utf8");
+
+  await deleteManagedSession(parent.id, { env });
+
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  await assert.rejects(readFile(heartbeatPath(parent.id, env), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(heartbeatPath(child.id, env), "utf8"), /ENOENT/);
+});
+
+test("deleteManagedSubagentSessions removes child rows without deleting parent", async () => {
+  const env = await tempEnv();
+  const parent = createSessionRecord({ cwd: "/tmp/api", title: "api", now: 1 });
+  const child = {
+    ...createSessionRecord({ cwd: "/tmp/api", title: "smoke", now: 2 }),
+    id: "child-session",
+    tmuxSession: "pi-sessions-child",
+    kind: "subagent" as const,
+    parentId: parent.id,
+    agentName: "smoke",
+  };
+  await saveRegistry({ version: 1, sessions: [parent, child] }, registryPath(env));
+  await mkdir(join(env.PI_SESSIONS_DIR, "heartbeats"), { recursive: true });
+  await writeFile(heartbeatPath(parent.id, env), JSON.stringify({ ok: true }), "utf8");
+  await writeFile(heartbeatPath(child.id, env), JSON.stringify({ ok: true }), "utf8");
+
+  const deleted = await deleteManagedSubagentSessions(parent.id, { env });
+
+  assert.deepEqual(deleted, { id: parent.id, title: "api", count: 1 });
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [parent] });
+  assert.equal(await readFile(heartbeatPath(parent.id, env), "utf8"), JSON.stringify({ ok: true }));
+  await assert.rejects(readFile(heartbeatPath(child.id, env), "utf8"), /ENOENT/);
 });
 
 test("deleteManagedSession removes owned multi-repo workspace", async () => {

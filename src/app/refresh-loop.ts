@@ -28,7 +28,9 @@ export function startRefreshLoop(controller: SessionsController, tui: TUI): Refr
 
   const runTick = () => {
     if (inFlight) return;
-    inFlight = tick().finally(() => { inFlight = undefined; });
+    inFlight = tick()
+      .catch(() => { tui.requestRender(); })
+      .finally(() => { inFlight = undefined; });
   };
 
   const timer = setInterval(runTick, 1_000);

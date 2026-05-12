@@ -4,9 +4,9 @@
 
 Updated the `n` → New session TUI so session creation is predictable and compact:
 
-- Removed random two-word title generation.
-- Defaulted both `group` and `title` to the primary cwd basename.
-- Kept `group` and `title` auto-updating from the primary cwd until each field is edited independently.
+- Restored random two-word title generation without showing explanatory sublabels under the title field.
+- Defaulted `group` to the primary cwd basename.
+- Kept `group` auto-updating from the primary cwd until edited.
 - Replaced fixed `repo 2` / `repo 3` fields with dynamic repo rows:
   - `★ primary` is the required primary cwd and cannot be removed.
   - `+ repo` rows are optional extras.
@@ -19,7 +19,7 @@ Updated the `n` → New session TUI so session creation is predictable and compa
 
 ## Files Changed
 
-- `src/tui/new-form.ts` — dynamic repo field model, basename defaults, touched-state handling, validation, submission.
+- `src/tui/new-form.ts` — dynamic repo field model, group basename default, random title generation, validation, submission.
 - `src/tui/sessions-view.ts` — new-session key handling and footer copy for add/remove/cycle actions.
 - `src/tui/form.ts` — shared form field `section` metadata.
 - `src/tui/layout.ts` — section rendering and compact hint rendering.

@@ -1,6 +1,7 @@
 import { Key, matchesKey, type Component } from "@mariozechner/pi-tui";
 import { attachPlan, restartConfirmMessage } from "../app/actions.js";
 import type { SessionsController } from "../app/controller.js";
+import { sessionCascadeIds } from "../core/session-tree.js";
 import type { ManagedSession } from "../core/types.js";
 import { buildRenderModel } from "./render-model.js";
 import { renderSessions, renderDialog, renderForm } from "./layout.js";
@@ -61,6 +62,7 @@ export interface SessionsViewActions {
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
+  closeSubagents?: (sessionId: string) => void | Promise<void>;
   createSession?: (input: SessionDialogInput & { cwd: string }) => unknown;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
@@ -94,7 +96,7 @@ export class SessionsView implements Component {
   private renameGroupFrom: string | undefined;
   private returnAfterRenameTmuxSession: string | undefined;
   private busy = false;
-  private deleting = false;
+  private deleting: false | "session" | "subagents" = false;
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {}
 
@@ -461,21 +463,24 @@ export class SessionsView implements Component {
       this.message = undefined;
       return;
     }
-    if (data !== "d" || this.deleting) return;
+    const closeSubagents = data === "s" && this.subagentTargets(this.deleteTargetId).length > 0;
+    if ((data !== "d" && !closeSubagents) || this.deleting) return;
     const id = this.deleteTargetId;
     if (!id) {
       this.mode = "normal";
       return;
     }
+    const action = closeSubagents ? this.actions.closeSubagents : this.actions.deleteSession;
+    const successMessage = closeSubagents ? "subagents closed" : "session deleted";
     try {
-      this.deleting = true;
-      const result = this.actions.deleteSession?.(id);
+      this.deleting = closeSubagents ? "subagents" : "session";
+      const result = action?.(id);
       if (isPromise(result)) {
         void result.then(() => {
           this.deleting = false;
           this.mode = "normal";
           this.deleteTargetId = undefined;
-          this.message = "session deleted";
+          this.message = successMessage;
         }).catch((error: unknown) => {
           this.deleting = false;
           this.message = errorMessage(error);
@@ -484,7 +489,7 @@ export class SessionsView implements Component {
         this.deleting = false;
         this.mode = "normal";
         this.deleteTargetId = undefined;
-        this.message = "session deleted";
+        this.message = successMessage;
       }
     } catch (error) {
       this.deleting = false;
@@ -755,16 +760,35 @@ export class SessionsView implements Component {
 
   private renderDeleteDialog(width: number): string[] {
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
-    const action = this.deleting ? "deleting..." : this.message ?? "press d again to delete";
+    const subagents = this.subagentTargets(target?.id);
+    const action = this.deleting === "subagents" ? "closing subagents..." : this.deleting ? "deleting..." : this.message ?? "press d again to delete";
+    const choices = subagents.length && target?.kind !== "subagent"
+      ? [
+        `This session has ${subagents.length} ${subagents.length === 1 ? "subagent" : "subagents"}.`,
+        "",
+        this.deleting || this.message ? action : confirmLine("warning", "s close subagents only", this.theme),
+        this.deleting || this.message ? "" : confirmLine("error", "d delete session + subagents", this.theme),
+      ]
+      : [this.deleting || this.message ? action : confirmLine("error", action, this.theme)];
     return renderDialog("Delete session", [
       target ? `target  ${target.title}` : "target  none",
       "",
       "Removes this session from pi-sessions.",
       "Pi conversation files are kept.",
       "",
-      this.deleting || this.message ? action : confirmLine("error", action, this.theme),
+      ...choices.filter(Boolean),
       "  esc cancel",
     ], width, this.theme);
+  }
+
+  private subagentTargets(parentId: string | undefined): ManagedSession[] {
+    if (!parentId) return [];
+    const sessions = this.controller.snapshot().registry.sessions;
+    const target = sessions.find((session) => session.id === parentId);
+    if (!target || target.kind === "subagent") return [];
+    const ids = sessionCascadeIds(sessions, parentId);
+    ids.delete(parentId);
+    return sessions.filter((session) => ids.has(session.id));
   }
 
   private renderNewForm(width: number): string[] {

@@ -122,6 +122,22 @@ async function withTempSessionsDir(fn: () => Promise<void>): Promise<void> {
   }
 }
 
+test("removeSession removes child rows with their parent", () => {
+  const controller = new SessionsController({
+    version: 1,
+    sessions: [
+      session("idle", { id: "parent", title: "parent", order: 0 }),
+      session("running", { id: "child", title: "child", kind: "subagent", parentId: "parent", agentName: "scout" }),
+      session("idle", { id: "sibling", title: "sibling", order: 1 }),
+    ],
+  });
+
+  controller.removeSession("parent");
+
+  assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["sibling"]);
+  assert.equal(controller.snapshot().selectedId, "sibling");
+});
+
 test("moving parent group moves direct child rows too", async () => {
   await withTempSessionsDir(async () => {
     const controller = new SessionsController({

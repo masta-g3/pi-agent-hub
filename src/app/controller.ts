@@ -1,6 +1,6 @@
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, saveRegistry, updateRegistry } from "../core/registry.js";
 import { assignGroupOrder, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
-import { orderedSessionRows, isSubagentSession } from "../core/session-tree.js";
+import { orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { applyComputedStatus, computeStatus, markAcknowledged, readHeartbeat } from "../core/status.js";
 import { capturePane, sessionExists } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession } from "../core/types.js";
@@ -132,7 +132,8 @@ export class SessionsController {
     const before = visibleSessions(this.registry.sessions, this.filter);
     const oldIndex = before.findIndex((session) => session.id === id);
     const wasSelected = this.selectedId === id;
-    this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => session.id !== id) };
+    const ids = sessionCascadeIds(this.registry.sessions, id);
+    this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
     const after = visibleSessions(this.registry.sessions, this.filter);
     this.selectedId = wasSelected ? after[Math.min(oldIndex, after.length - 1)]?.id : keepSelection(after, this.selectedId);
     if (wasSelected) this.preview = "";
