@@ -22,8 +22,16 @@
     "session-manager",
     "coding-agent"
   ],
-  "author": "",
+  "author": "masta-g3",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/masta-g3/pi-agent-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/masta-g3/pi-agent-hub/issues"
+  },
+  "homepage": "https://github.com/masta-g3/pi-agent-hub#readme",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"
