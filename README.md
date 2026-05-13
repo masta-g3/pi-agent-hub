@@ -4,17 +4,40 @@ Tmux session hub for Pi coding agent sessions and subagents.
 
 `pi-agent-hub` is a small Pi-native port of [Agent Deck](https://github.com/asheshgoplani/agent-deck), pared down to Pi as the only agent runtime and tmux as the process substrate.
 
-- Pi is the only agent runtime.
-- tmux owns long-running sessions.
-- `pi-agent-hub` opens one stable dashboard tmux session for the control center.
-- The standalone TUI shows managed sessions, status, preview metadata, filters, and simple actions.
-- A tiny Pi extension writes heartbeats and registers enabled MCP tools.
+Use it to keep multiple Pi sessions visible, grouped, restartable, and easy to jump between from one terminal dashboard.
+
+- `pi-agent-hub` opens one stable dashboard tmux session.
+- Press `n` to create a managed Pi session.
+- Press `Enter` to jump into the selected session.
+- Press `Ctrl+Q` inside a managed session to return to the dashboard.
+- Optional skills and MCP pickers write project state for the selected session's primary repo.
 
 ![pi-agent-hub dashboard](assets/pi-agent-hub-dashboard.png)
 
-## Acknowledgements
+## Quick start
 
-Thanks to [Ashesh Goplani](https://github.com/asheshgoplani) for [Agent Deck](https://github.com/asheshgoplani/agent-deck). This project ports its core session-dashboard idea into a smaller Pi-native extension. It is not affiliated with Agent Deck. See `LICENSE` for the Agent Deck MIT notice.
+Requirements: Pi and tmux.
+
+```bash
+pi install npm:pi-agent-hub
+pi-agent-hub doctor
+pi-agent-hub
+```
+
+Inside the dashboard:
+
+| Key | Action |
+| --- | --- |
+| `n` | Create a new Pi session |
+| `Enter` | Open or switch to the selected session |
+| `Ctrl+Q` | Return from a managed session to the dashboard |
+| `r` | Rename the selected session |
+| `R` | Restart the selected session |
+| `g` | Move the selected session to a group |
+| `G` | Rename the selected session's group |
+| `K` / `J` | Move the selected session up/down within its group |
+| `s` | Pick project skills |
+| `m` | Pick project MCP servers |
 
 ## Install
 
@@ -83,11 +106,57 @@ The dashboard runs `pi-agent-hub tui` inside tmux so it does not recursively cre
 
 ## TUI behavior
 
-When the dashboard is running inside tmux, pressing `enter` on a managed session switches the current tmux client to that session and shows the equivalent `tmux switch-client -t <session>` command. Opening a `waiting` session marks it read before attaching, so it can show `idle` after you return; `a` remains the manual mark-read shortcut. Press `Ctrl+Q` from a managed `pi-agent-hub-*` session to return to the dashboard, or `Alt+R` to return directly into the rename dialog for that session and switch back after saving. If the dashboard tmux session is missing, the temporary return binding recreates it before switching back.
+When the dashboard is running inside tmux, `Enter` switches the current tmux client to the selected managed session and shows the equivalent `tmux switch-client -t <session>` command. Opening a `waiting` session marks it read before attaching, so it can show `idle` after you return; `a` remains the manual mark-read shortcut.
 
-Groups are implicit flat labels. Use `n` to create a session; when a session is selected, the form defaults primary cwd, existing extra repos, and group to that session's context, otherwise primary cwd defaults to the dashboard cwd. Group defaults to the primary cwd basename and keeps auto-updating when the primary cwd changes until edited. Title defaults to a random two-word slug. Use `alt-a` to add extra repo rows and `alt-x` to remove the focused extra repo row; extra repos are symlinked into one runtime workspace. Cycling known cwd suggestions with `ctrl-n`/`ctrl-p` works on any repo row, and `ctrl-o` opens a searchable recent-repo chooser for the focused repo field. Use `g` on a selected session to move it to an existing or new group, and `G` to rename the selected session's current group for every session in that group. Use `K`/`J` or Shift-Up/Shift-Down to reorder the selected session within its current group; reordering is disabled while a filter is active. Use `r` to rename the selected session and `R` to restart it.
+Return shortcuts from a managed `pi-agent-hub-*` session:
 
-## Pi package
+| Key | Action |
+| --- | --- |
+| `Ctrl+Q` | Return to the dashboard |
+| `Alt+R` | Return to the dashboard rename dialog for the current session, then switch back after saving |
+
+If the dashboard tmux session is missing, the temporary return binding recreates it before switching back.
+
+### New session form
+
+Press `n` to create a session.
+
+| Field | Default |
+| --- | --- |
+| Primary cwd | Selected session's cwd, or the dashboard cwd if nothing is selected |
+| Extra repos | Selected session's extra repos, if any |
+| Group | Primary cwd folder name |
+| Title | Random two-word slug |
+
+While editing the form:
+
+| Key | Action |
+| --- | --- |
+| `Alt+A` | Add another repo row |
+| `Alt+X` | Remove the focused extra repo row |
+| `Ctrl+N` / `Ctrl+P` | Cycle known cwd suggestions |
+| `Ctrl+O` | Open the recent-repo picker |
+
+Extra repos are symlinked into one runtime workspace. The primary cwd remains the main project for skills and MCP state.
+
+### Groups and session actions
+
+Groups are simple labels on sessions.
+
+| Key | Action |
+| --- | --- |
+| `g` | Move the selected session to a group |
+| `G` | Rename the selected session's group everywhere |
+| `K` / `J` | Move the selected session up/down within its group |
+| `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
+| `r` | Rename the selected session |
+| `R` | Restart the selected session |
+
+Reordering is disabled while a filter is active.
+
+## Advanced
+
+### Pi package
 
 The package declares its extension in `package.json`:
 
@@ -106,13 +175,13 @@ npm run package:check
 npm publish --dry-run
 ```
 
-## Theme behavior
+### Theme behavior
 
 The standalone TUI reads Pi settings from the current project first (`.pi/settings.json`), then global Pi settings (`~/.pi/agent/settings.json` or `PI_CODING_AGENT_DIR/settings.json`). Custom themes are loaded from `.pi/themes/<name>.json` or `<agent-dir>/themes/<name>.json`. While open, the dashboard periodically reloads that same Pi theme state and updates its ANSI colors when tokens change, so Pi theme changes from tools such as `pi-theme-sync` are reflected without restarting the dashboard.
 
 Built-in Pi theme names `light` and `dark` map to compact theme token maps. Missing or invalid custom themes fall back to the built-in dark token map. Dashboard tmux status/footer chrome is configured separately; dashboard and managed-session tmux status bars are refreshed from the same loaded theme while the dashboard is running.
 
-## Runtime state
+### Runtime state
 
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
 - Config: `config.json`
@@ -129,7 +198,7 @@ Built-in Pi theme names `light` and `dark` map to compact theme token maps. Miss
 - MCP pool socket: `<global-state>/pool/pool.sock`
 - Temporary tmux return binding state: `return-key/active.json` and `return-key/previous.tmux`
 
-## Global config
+### Global config
 
 Optional global config lives at `config.json` under the global state directory:
 
@@ -150,7 +219,7 @@ Optional global config lives at `config.json` under the global state directory:
 
 If `skills.poolDirs` is omitted, `pi-agent-hub` uses `<global-state>/skills/pool`. The `s` picker lists skills from these directories and writes the final project selection to `<project>/.pi/sessions/skills.json`, where `<project>` is the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected.
 
-## MCP catalog example
+### MCP catalog example
 
 ```json
 {
@@ -177,10 +246,14 @@ Enable per project:
 
 The `m` picker writes this project state for the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected. In multi-repo sessions, Skills/MCP state applies to the primary repo only; the runtime workspace exposes that state through its `.pi` symlink. Servers with `pool: true` require `pi-agent-hub mcp-pool`; they are not started automatically.
 
-## Smoke test with temp state
+### Smoke test with temp state
 
 ```bash
 TMP=$(mktemp -d)
 PI_CODING_AGENT_DIR="$TMP/agent" PI_AGENT_HUB_DIR="$TMP/sessions" node dist/cli.js doctor
 PI_CODING_AGENT_DIR="$TMP/agent" PI_AGENT_HUB_DIR="$TMP/sessions" node dist/cli.js list
 ```
+
+## Acknowledgements
+
+Thanks to [Ashesh Goplani](https://github.com/asheshgoplani) for [Agent Deck](https://github.com/asheshgoplani/agent-deck). This project ports its core session-dashboard idea into a smaller Pi-native extension. It is not affiliated with Agent Deck. See `LICENSE` for the Agent Deck MIT notice.

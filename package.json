@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-hub",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tmux session hub for Pi coding agent sessions and subagents",
   "main": "dist/src/index.js",
   "scripts": {
