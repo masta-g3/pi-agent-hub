@@ -10,6 +10,8 @@ Tmux session hub for Pi coding agent sessions and subagents.
 - The standalone TUI shows managed sessions, status, preview metadata, filters, and simple actions.
 - A tiny Pi extension writes heartbeats and registers enabled MCP tools.
 
+![pi-agent-hub dashboard](assets/pi-agent-hub-dashboard.png)
+
 ## Acknowledgements
 
 Thanks to [Ashesh Goplani](https://github.com/asheshgoplani) for [Agent Deck](https://github.com/asheshgoplani/agent-deck). This project ports its core session-dashboard idea into a smaller Pi-native extension. It is not affiliated with Agent Deck. See `LICENSE` for the Agent Deck MIT notice.
