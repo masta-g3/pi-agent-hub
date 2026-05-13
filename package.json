@@ -19,6 +19,10 @@
     "sessions",
     "subagents",
     "tmux",
+    "cli",
+    "tui",
+    "dashboard",
+    "mcp",
     "session-manager",
     "coding-agent"
   ],
@@ -33,17 +37,19 @@
   },
   "homepage": "https://github.com/masta-g3/pi-agent-hub#readme",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@earendil-works/pi-tui": "^0.74.0",
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.74.0",
-    "@earendil-works/pi-tui": "^0.74.0",
-    "@types/node": "^25.6.0",
+    "@types/node": "^20.19.0",
     "typescript": "^6.0.3"
   },
   "bin": {
