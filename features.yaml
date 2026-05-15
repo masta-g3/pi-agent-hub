@@ -72,3 +72,13 @@
   completed_at: '2026-05-12'
   epic: package-rename
   plan_file: docs/history/20260512_package-rename-001_package_rename.md
+- id: session-prelude-001
+  status: done
+  description: Persist and apply a reusable per-session launch prelude before managed
+    Pi sessions start.
+  priority: 2
+  depends_on: []
+  created_at: '2026-05-14'
+  completed_at: '2026-05-14'
+  epic: session-prelude
+  plan_file: docs/history/20260514_session-prelude-001_session_prelude.md

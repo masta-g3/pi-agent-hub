@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { SESSION_ID_ENV, STATE_ENV } from "../core/names.js";
 import { resolve } from "node:path";
+import { effectiveSessionPrelude } from "../core/config.js";
 import { buildPiArgs } from "../core/pi-process.js";
 import { extensionPath } from "../core/extension-path.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace } from "../core/multi-repo.js";
@@ -25,6 +26,20 @@ export interface SessionInput {
 export interface ForkInput {
   title?: string;
   group?: string;
+}
+
+export function managedPiCommand(input: { piArgs: string[]; prelude?: string; shell?: string }): string {
+  const piCommand = `pi ${input.piArgs.map(shellQuote).join(" ")}`;
+  const prelude = input.prelude?.trim();
+  if (!prelude) return piCommand;
+  const shell = input.shell || process.env.SHELL || "/bin/sh";
+  const script = [
+    prelude,
+    "__pi_agent_hub_prelude_status=$?",
+    "if [ $__pi_agent_hub_prelude_status -ne 0 ]; then exit $__pi_agent_hub_prelude_status; fi",
+    `exec ${piCommand}`,
+  ].join("\n");
+  return `${shellQuote(shell)} -lc ${shellQuote(script)}`;
 }
 
 export async function addManagedSession(input: SessionInput): Promise<ManagedSession> {
@@ -57,7 +72,7 @@ export async function startManagedSession(id: string): Promise<void> {
   await newSession({
     name: session.tmuxSession,
     cwd: effectiveSessionCwd(session),
-    command: `pi ${piArgs.map(shellQuote).join(" ")}`,
+    command: managedPiCommand({ piArgs, prelude: await effectiveSessionPrelude() }),
     env: { [SESSION_ID_ENV]: session.id, [STATE_ENV]: sessionsStateDir() },
   });
   await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await sessionTheme(session) });
@@ -115,7 +130,7 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
   await newSession({
     name: record.tmuxSession,
     cwd: effectiveSessionCwd(record),
-    command: `pi ${piArgs.map(shellQuote).join(" ")}`,
+    command: managedPiCommand({ piArgs, prelude: await effectiveSessionPrelude() }),
     env: { [SESSION_ID_ENV]: record.id, [STATE_ENV]: sessionsStateDir() },
   });
   await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await sessionTheme(record) });

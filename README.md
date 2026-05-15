@@ -99,6 +99,9 @@ pi-hub add . -t api -g default
 pi-hub add ./api -t fullstack --add-cwd ../web --add-cwd ../shared
 pi-hub delete <session-id>
 pi-hub mcp-pool     # run the pooled MCP socket daemon
+pi-hub config get
+pi-hub config set session-prelude '<shell snippet>'
+pi-hub config unset session-prelude
 ```
 
 `add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files and source repos are kept.
@@ -192,7 +195,7 @@ Built-in Pi theme names `light` and `dark` map to compact theme token maps. Miss
 ### Runtime state
 
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
-- Config: `config.json`
+- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Multi-repo workspaces: `workspaces/<session-id>`
@@ -221,8 +224,18 @@ Optional global config lives at `config.json` under the global state directory:
   },
   "mcp": {
     "catalogPath": "~/.pi/agent/pi-agent-hub/mcp.json"
+  },
+  "session": {
+    "prelude": "security show-keychain-info ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || security unlock-keychain ~/Library/Keychains/login.keychain-db"
   }
 }
+```
+
+`session.prelude` is an optional shell snippet that runs before `pi` starts in every new, restarted, or forked managed session. It is useful for machine-local setup such as unlocking the macOS login keychain, starting an SSH agent, or loading `direnv`; do not store raw secrets in it. Configure it without editing JSON manually:
+
+```bash
+pi-hub config set session-prelude 'security show-keychain-info ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || security unlock-keychain ~/Library/Keychains/login.keychain-db'
+pi-hub config unset session-prelude
 ```
 
 If `skills.poolDirs` is omitted, `pi-agent-hub` uses `<global-state>/skills/pool`. The `s` picker lists skills from these directories and writes the final project selection to `<project>/.pi/sessions/skills.json`, where `<project>` is the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected.

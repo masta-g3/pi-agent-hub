@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveMcpCatalogPath, effectiveSkillPoolDirs } from "../src/core/config.js";
+import { configPath, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, setSessionPrelude, unsetSessionPrelude } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -21,6 +21,54 @@ test("config defaults to the built-in skill pool and MCP catalog", async () => {
   assert.equal(configPath(env), join(root, "config.json"));
   assert.deepEqual(await effectiveSkillPoolDirs(env), [join(root, "skills", "pool")]);
   assert.equal(await effectiveMcpCatalogPath(env), join(root, "mcp.json"));
+  assert.equal(await effectiveSessionPrelude(env), undefined);
+});
+
+test("session prelude config is trimmed and validated", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    session: { prelude: "  echo setup  " },
+  }), "utf8");
+
+  assert.equal(await effectiveSessionPrelude(env), "echo setup");
+
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    session: { prelude: 42 },
+  }), "utf8");
+
+  await assert.rejects(() => effectiveSessionPrelude(env), /Invalid session\.prelude/);
+});
+
+test("session prelude setters preserve unrelated config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  const shared = join(root, "shared-skills");
+  const catalogPath = join(root, "mcp.json");
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    skills: { poolDirs: [shared] },
+    mcp: { catalogPath },
+  }), "utf8");
+
+  await setSessionPrelude("  echo setup  ", env);
+  assert.equal(await effectiveSessionPrelude(env), "echo setup");
+  assert.deepEqual(await effectiveSkillPoolDirs(env), [shared]);
+  assert.equal(await effectiveMcpCatalogPath(env), catalogPath);
+
+  await unsetSessionPrelude(env);
+  assert.equal(await effectiveSessionPrelude(env), undefined);
+  assert.deepEqual(await effectiveSkillPoolDirs(env), [shared]);
+  assert.equal(await effectiveMcpCatalogPath(env), catalogPath);
+});
+
+test("setSessionPrelude rejects blank commands", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+
+  await assert.rejects(() => setSessionPrelude("   ", env), /session-prelude cannot be blank/);
 });
 
 test("listSkillPool reads configured skill directories", async () => {

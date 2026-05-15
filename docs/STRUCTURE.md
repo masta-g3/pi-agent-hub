@@ -21,12 +21,12 @@ docs/STRUCTURE.md        this onboarding guide
 ## Runtime state
 
 - Global state lives under `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub`.
-- Optional global config lives at `config.json`; it can set skill pool directories and the MCP catalog path.
+- Optional global config lives at `config.json`; it can set skill pool directories, the MCP catalog path, and a managed-session `session.prelude` shell snippet.
 - The session registry is `registry.json`.
 - `pi-hub` opens a stable dashboard tmux session named `pi-agent-hub`; use `pi-hub tui` to run the TUI directly without the dashboard wrapper. The `pi-agent-hub` command remains available as a compatibility alias.
 - Managed Pi sessions write heartbeat files under `heartbeats/<session-id>.json` through the extension.
 - Optional `pi-tmux-subagents` compatibility uses flat registry rows with `kind: "subagent"`, `parentId`, `agentName`, `taskPreview`, and `resultPath`; the dashboard renders those rows nested under their parent with a short agent-name row label, while task preview belongs in details/filtering. Standalone subagent state remains owned by `pi-tmux-subagents`.
-- Managed tmux sessions use the `pi-agent-hub-<first-12-session-id-chars>` name.
+- Managed tmux sessions use the `pi-agent-hub-<first-12-session-id-chars>` name. If `session.prelude` is configured, it runs inside the managed tmux shell before `exec pi`; dashboard launch and direct `pi-hub tui` do not run it.
 - Multi-repo sessions keep `ManagedSession.cwd` as the primary repo and start Pi from `<global-state>/workspaces/<session-id>`, a symlink workspace containing the primary repo, each additional repo, and `.pi -> <primary>/.pi`.
 - Recent repo choices for the new-session picker live in `<global-state>/repo-history.json`; current registry paths are merged with this bounded history at TUI startup.
 - Project skill state lives in `<project>/.pi/sessions/skills.json`; available skills come from `skills.poolDirs` in global config or `<global-state>/skills/pool`.

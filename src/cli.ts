@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
-import { configPath, effectiveMcpCatalogPath, effectiveSkillPoolDirs } from "./core/config.js";
+import { configPath, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, loadSessionsConfig, setSessionPrelude, unsetSessionPrelude } from "./core/config.js";
 import { extensionPath } from "./core/extension-path.js";
 import { CLI_COMMAND } from "./core/names.js";
 import { registryPath, sessionsStateDir } from "./core/paths.js";
@@ -56,6 +56,9 @@ async function main() {
     case "doctor":
       await doctor();
       return;
+    case "config":
+      await configCommand(args);
+      return;
     default:
       throw new Error(`Unknown command: ${command}`);
   }
@@ -76,6 +79,9 @@ Usage:
   ${CLI_COMMAND} fork <session-id> [-t title] [-g group]
   ${CLI_COMMAND} mcp-pool
   ${CLI_COMMAND} doctor
+  ${CLI_COMMAND} config get
+  ${CLI_COMMAND} config set session-prelude <shell snippet>
+  ${CLI_COMMAND} config unset session-prelude
 `);
 }
 
@@ -150,6 +156,27 @@ async function mcpPool() {
   await pool.close();
 }
 
+async function configCommand(argv: string[]) {
+  const action = argv[0];
+  if (action === "get") {
+    console.log(JSON.stringify(await loadSessionsConfig(), null, 2));
+    return;
+  }
+  if (action === "set" && argv[1] === "session-prelude") {
+    const prelude = argv.slice(2).join(" ").trim();
+    if (!prelude) throw new Error(`Usage: ${CLI_COMMAND} config set session-prelude <shell snippet>`);
+    await setSessionPrelude(prelude);
+    console.log("updated session-prelude");
+    return;
+  }
+  if (action === "unset" && argv[1] === "session-prelude") {
+    await unsetSessionPrelude();
+    console.log("unset session-prelude");
+    return;
+  }
+  throw new Error(`Usage: ${CLI_COMMAND} config get|set|unset ...`);
+}
+
 async function doctor() {
   const dir = sessionsStateDir();
   await mkdir(dir, { recursive: true });
@@ -158,6 +185,7 @@ async function doctor() {
   console.log(`sessions dir: ${dir}`);
   console.log(`registry:   ${registryPath()}`);
   console.log(`config:     ${configPath()}`);
+  console.log(`session prelude: ${(await effectiveSessionPrelude()) ? "configured" : "none"}`);
   console.log(`skill dirs: ${(await effectiveSkillPoolDirs()).join(", ")}`);
   console.log(`mcp:        ${await effectiveMcpCatalogPath()}`);
   console.log(`writable:   ok`);
