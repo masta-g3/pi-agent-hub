@@ -5,8 +5,9 @@ const pkg = JSON.parse(await readFile("package.json", "utf8"));
 const failures = [];
 
 if (pkg.name !== "pi-agent-hub") failures.push(`package name must be pi-agent-hub, got ${pkg.name}`);
-if (JSON.stringify(pkg.bin ?? {}) !== JSON.stringify({ "pi-agent-hub": "dist/cli.js" })) {
-  failures.push("package bin must expose only pi-agent-hub -> dist/cli.js");
+const expectedBin = { "pi-agent-hub": "dist/cli.js", "pi-hub": "dist/cli.js" };
+if (JSON.stringify(pkg.bin ?? {}) !== JSON.stringify(expectedBin)) {
+  failures.push("package bin must expose pi-agent-hub and pi-hub -> dist/cli.js");
 }
 
 await requireFile("dist/cli.js");

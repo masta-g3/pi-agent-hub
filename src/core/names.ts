@@ -1,5 +1,5 @@
 export const APP_NAME = "pi-agent-hub";
-export const CLI_COMMAND = APP_NAME;
+export const CLI_COMMAND = "pi-hub";
 export const STATE_ENV = "PI_AGENT_HUB_DIR";
 export const SESSION_ID_ENV = "PI_AGENT_HUB_SESSION_ID";
 export const KIND_ENV = "PI_AGENT_HUB_KIND";

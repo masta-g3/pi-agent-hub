@@ -6,7 +6,7 @@ Tmux session hub for Pi coding agent sessions and subagents.
 
 Use it to keep multiple Pi sessions visible, grouped, restartable, and easy to jump between from one terminal dashboard.
 
-- `pi-agent-hub` opens one stable dashboard tmux session.
+- `pi-hub` opens one stable dashboard tmux session.
 - Press `n` to create a managed Pi session.
 - Press `Enter` to jump into the selected session.
 - Press `Ctrl+Q` inside a managed session to return to the dashboard.
@@ -20,8 +20,8 @@ Requirements: Pi and tmux.
 
 ```bash
 pi install npm:pi-agent-hub
-pi-agent-hub doctor
-pi-agent-hub
+pi-hub doctor
+pi-hub
 ```
 
 Inside the dashboard:
@@ -45,9 +45,11 @@ Install from npm:
 
 ```bash
 pi install npm:pi-agent-hub
-pi-agent-hub doctor
-pi-agent-hub
+pi-hub doctor
+pi-hub
 ```
+
+The npm package is still `pi-agent-hub`; it exposes both commands, with `pi-hub` as the shorter daily-use command and `pi-agent-hub` kept for compatibility.
 
 Local development install:
 
@@ -58,11 +60,11 @@ npm install
 npm run build
 npm link
 pi install "$PWD"
-pi-agent-hub doctor
-pi-agent-hub
+pi-hub doctor
+pi-hub
 ```
 
-- `npm link` provides the `pi-agent-hub` shell command.
+- `npm link` provides the `pi-hub` and `pi-agent-hub` shell commands.
 - `pi install "$PWD"` lets Pi discover the package extension through `package.json#pi.extensions`.
 - Re-run `npm run build` after pulling updates.
 
@@ -83,26 +85,26 @@ npm run package:check
 ## CLI
 
 ```bash
-pi-agent-hub              # create/attach/switch to the dashboard tmux session
-pi-agent-hub tui          # run the TUI directly in the current terminal
-pi-agent-hub doctor
-pi-agent-hub list
-pi-agent-hub add . -t api -g default
-pi-agent-hub add ./api -t fullstack --add-cwd ../web --add-cwd ../shared
-pi-agent-hub delete <session-id>
-pi-agent-hub mcp-pool     # run the pooled MCP socket daemon
+pi-hub              # create/attach/switch to the dashboard tmux session
+pi-hub tui          # run the TUI directly in the current terminal
+pi-hub doctor
+pi-hub list
+pi-hub add . -t api -g default
+pi-hub add ./api -t fullstack --add-cwd ../web --add-cwd ../shared
+pi-hub delete <session-id>
+pi-hub mcp-pool     # run the pooled MCP socket daemon
 ```
 
 `add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files and source repos are kept.
 
 ## Dashboard tmux behavior
 
-Running `pi-agent-hub` uses one stable tmux session named `pi-agent-hub`:
+Running `pi-hub` uses one stable tmux session named `pi-agent-hub`:
 
 - outside tmux: create or attach `pi-agent-hub`;
 - inside tmux: create it detached if needed, then switch the current client to it.
 
-The dashboard runs `pi-agent-hub tui` inside tmux so it does not recursively create dashboards. It also applies its own tmux status bar instead of inheriting global tmux theme chrome.
+The dashboard runs `pi-hub tui` inside tmux so it does not recursively create dashboards. It also applies its own tmux status bar instead of inheriting global tmux theme chrome.
 
 ## TUI behavior
 
@@ -244,7 +246,7 @@ Enable per project:
 }
 ```
 
-The `m` picker writes this project state for the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected. In multi-repo sessions, Skills/MCP state applies to the primary repo only; the runtime workspace exposes that state through its `.pi` symlink. Servers with `pool: true` require `pi-agent-hub mcp-pool`; they are not started automatically.
+The `m` picker writes this project state for the selected session's primary cwd, or the TUI/dashboard current working directory when no session is selected. In multi-repo sessions, Skills/MCP state applies to the primary repo only; the runtime workspace exposes that state through its `.pi` symlink. Servers with `pool: true` require `pi-hub mcp-pool`; they are not started automatically.
 
 ### Smoke test with temp state
 
