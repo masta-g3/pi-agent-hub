@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-hub",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Pi-native tmux hub for long-running coding-agent sessions, skills, and MCP",
   "main": "dist/src/index.js",
   "scripts": {
