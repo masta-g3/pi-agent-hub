@@ -47,7 +47,7 @@ Inside the dashboard:
 | `K` / `J` | Move the selected session up/down within its group |
 | `s` / `m` | Pick project skills or MCP servers |
 
-## Install notes
+## Install
 
 The npm package is still `pi-agent-hub`; it exposes both commands, with `pi-hub` as the shorter daily-use command and `pi-agent-hub` kept for compatibility.
 
