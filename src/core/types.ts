@@ -1,5 +1,13 @@
 export type SessionStatus = "starting" | "running" | "waiting" | "idle" | "error" | "stopped";
 
+export type ActiveThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border" | "statusLineBg";
+
+export interface ActiveThemeSnapshot {
+  name?: string;
+  sourcePath?: string;
+  tokens?: Partial<Record<ActiveThemeToken, string | number>>;
+}
+
 export interface ManagedSession {
   id: string;
   title: string;
@@ -23,6 +31,7 @@ export interface ManagedSession {
   taskPreview?: string;
   resultPath?: string;
   resultSummary?: string;
+  activeTheme?: ActiveThemeSnapshot;
 }
 
 export interface SessionsRegistry {
@@ -44,6 +53,7 @@ export interface Heartbeat {
   agentName?: string;
   taskPreview?: string;
   resultPath?: string;
+  activeTheme?: ActiveThemeSnapshot;
 }
 
 export interface TmuxState {

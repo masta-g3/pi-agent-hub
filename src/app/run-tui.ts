@@ -4,10 +4,11 @@ import { SessionsController } from "./controller.js";
 import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
 import type { NewFormContext } from "../tui/new-form.js";
-import { loadSessionsTheme, type SessionsTheme } from "../tui/theme.js";
+import { loadActiveTheme, loadSessionsTheme, type SessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
+import { effectiveDashboardThemeSessionId, setDashboardThemeSessionId } from "../core/config.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreSwitchReturnBinding, sendTextToSession, switchClientWithReturn } from "../core/tmux.js";
@@ -74,7 +75,14 @@ function themeKey(theme: SessionsTheme): string {
 
 export async function runTui(): Promise<void> {
   const cwd = process.cwd();
-  const theme = await loadSessionsTheme({ cwd });
+  const controller = new SessionsController();
+  await controller.refresh();
+  let dashboardThemeSessionId = resolveDashboardThemeSessionId(controller.snapshot().registry.sessions, await effectiveDashboardThemeSessionId(), controller.selected()?.id);
+  const pinDashboardThemeSession = (session: ManagedSession) => {
+    dashboardThemeSessionId = session.id;
+    void setDashboardThemeSessionId(session.id).catch(() => {});
+  };
+  const theme = await loadDashboardTheme(cwd, controller.snapshot().registry.sessions, dashboardThemeSessionId);
   const syncDashboardChrome = (nextTheme: SessionsTheme) => {
     if (!process.env.TMUX) return;
     void configureDashboardStatusBar({ name: DASHBOARD_SESSION, cwd, theme: nextTheme }).catch(() => {});
@@ -83,7 +91,6 @@ export async function runTui(): Promise<void> {
   void syncManagedSessionStatusBars().catch(() => {});
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
-  const controller = new SessionsController();
   const skillPool = await listSkillPool();
   const mcpCatalog = await loadMcpCatalog();
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
@@ -134,12 +141,22 @@ export async function runTui(): Promise<void> {
   };
   const view = new SessionsView(controller, stop, {
     attachOutsideTmux(tmuxSession) {
+      const session = controller.snapshot().registry.sessions.find((item) => item.tmuxSession === tmuxSession);
+      if (session) pinDashboardThemeSession(session);
       stop();
       spawn("tmux", ["attach-session", "-t", tmuxSession], { stdio: "inherit" });
     },
     async switchInsideTmux(tmuxSession) {
       const session = controller.snapshot().registry.sessions.find((item) => item.tmuxSession === tmuxSession);
-      if (session) await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await loadSessionsTheme({ cwd: session.cwd }) });
+      if (session) {
+        pinDashboardThemeSession(session);
+        const sessionTheme = await loadManagedTheme(session);
+        view.setTheme(sessionTheme);
+        syncDashboardChrome(sessionTheme);
+        tui.invalidate();
+        tui.requestRender();
+        await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: sessionTheme });
+      }
       return switchClientWithReturn({
         targetSession: tmuxSession,
         renameKey: "M-r",
@@ -226,7 +243,7 @@ export async function runTui(): Promise<void> {
   }, theme);
   stopThemeLoop = startThemeRefreshLoop({
     initialTheme: theme,
-    load: () => loadSessionsTheme({ cwd }),
+    load: () => loadDashboardTheme(cwd, controller.snapshot().registry.sessions, dashboardThemeSessionId),
     apply(nextTheme) {
       view.setTheme(nextTheme);
       syncDashboardChrome(nextTheme);
@@ -246,6 +263,21 @@ export async function runTui(): Promise<void> {
   tui.setFocus(view);
   tui.start();
   stopLoop = startRefreshLoop(controller, tui);
+}
+
+export function resolveDashboardThemeSessionId(sessions: ManagedSession[], configuredId: string | undefined, selectedId: string | undefined): string | undefined {
+  if (configuredId && sessions.some((session) => session.id === configuredId)) return configuredId;
+  return selectedId;
+}
+
+export async function loadDashboardTheme(cwd: string, sessions: ManagedSession[], sessionId: string | undefined): Promise<SessionsTheme> {
+  const session = sessions.find((item) => item.id === sessionId);
+  if (session) return loadManagedTheme(session);
+  return loadSessionsTheme({ cwd });
+}
+
+async function loadManagedTheme(session: ManagedSession): Promise<SessionsTheme> {
+  return (await loadActiveTheme(session.activeTheme, { cwd: session.cwd })) ?? loadSessionsTheme({ cwd: session.cwd });
 }
 
 function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => void {

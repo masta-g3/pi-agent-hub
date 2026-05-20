@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentDir } from "../core/paths.js";
+import type { ActiveThemeSnapshot } from "../core/types.js";
 
 export type ThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border" | "statusLineBg";
 
@@ -65,14 +66,26 @@ export async function loadSessionsTheme(options: { cwd?: string; env?: NodeJS.Pr
   const env = options.env ?? process.env;
   const scopes = await loadThemeScopes(options.cwd, env);
   const name = scopes.find((scope) => scope.settings.theme)?.settings.theme;
-  if (name === "light") return lightTheme;
-  if (!name || name === "dark") return darkTheme;
+  return (await loadNamedTheme(name, scopes)) ?? darkTheme;
+}
 
-  for (const candidate of await themeCandidates(scopes)) {
-    const theme = await readCandidateTheme(candidate, name);
-    if (theme) return themeFromPiTheme(theme);
+export async function loadActiveTheme(activeTheme: ActiveThemeSnapshot | undefined, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<SessionsTheme | undefined> {
+  if (!activeTheme) return undefined;
+
+  let resolved: SessionsTheme | undefined;
+  if (activeTheme.sourcePath) {
+    const theme = await readThemeJson(activeTheme.sourcePath);
+    if (theme) resolved = themeFromPiTheme(theme);
   }
-  return darkTheme;
+
+  const name = activeTheme.name;
+  if (!resolved && name && name !== "<in-memory>") {
+    const scopes = await loadThemeScopes(options.cwd, options.env ?? process.env);
+    resolved = await loadNamedTheme(name, scopes);
+  }
+
+  if (activeTheme.tokens && Object.keys(activeTheme.tokens).length) return { ...(resolved ?? darkTheme), ...activeTheme.tokens };
+  return resolved;
 }
 
 export function styleToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
@@ -134,6 +147,17 @@ export function themeFromPiTheme(theme: PiThemeFile): SessionsTheme {
     border: resolveToken("border"),
     statusLineBg: resolveOptionalToken("statusLineBg"),
   };
+}
+
+async function loadNamedTheme(name: string | undefined, scopes: ThemeScope[]): Promise<SessionsTheme | undefined> {
+  if (name === "light") return lightTheme;
+  if (!name || name === "dark") return name === "dark" ? darkTheme : undefined;
+
+  for (const candidate of await themeCandidates(scopes)) {
+    const theme = await readCandidateTheme(candidate, name);
+    if (theme) return themeFromPiTheme(theme);
+  }
+  return undefined;
 }
 
 async function loadThemeScopes(cwd: string | undefined, env: NodeJS.ProcessEnv): Promise<ThemeScope[]> {

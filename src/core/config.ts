@@ -14,6 +14,9 @@ export interface SessionsConfig {
   session?: {
     prelude?: string;
   };
+  dashboard?: {
+    themeSessionId?: string;
+  };
 }
 
 export function configPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -42,6 +45,11 @@ export async function effectiveSessionPrelude(env: NodeJS.ProcessEnv = process.e
   return prelude || undefined;
 }
 
+export async function effectiveDashboardThemeSessionId(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const id = (await loadSessionsConfig(env)).dashboard?.themeSessionId?.trim();
+  return id || undefined;
+}
+
 export async function setSessionPrelude(prelude: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const trimmed = prelude.trim();
   if (!trimmed) throw new Error("session-prelude cannot be blank");
@@ -59,6 +67,13 @@ export async function unsetSessionPrelude(env: NodeJS.ProcessEnv = process.env):
   await writeJsonAtomic(configPath(env), next);
 }
 
+export async function setDashboardThemeSessionId(sessionId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const trimmed = sessionId.trim();
+  if (!trimmed) throw new Error("theme session id cannot be blank");
+  const config = await loadSessionsConfig(env);
+  await writeJsonAtomic(configPath(env), { ...config, dashboard: { ...config.dashboard, themeSessionId: trimmed } });
+}
+
 function validateConfig(config: SessionsConfig): void {
   if (config.version !== 1) throw new Error("Invalid pi-agent-hub config version");
   if (config.skills?.poolDirs && !Array.isArray(config.skills.poolDirs)) throw new Error("Invalid skills.poolDirs in pi-agent-hub config");
@@ -66,6 +81,8 @@ function validateConfig(config: SessionsConfig): void {
   if (config.mcp?.catalogPath !== undefined && typeof config.mcp.catalogPath !== "string") throw new Error("Invalid mcp.catalogPath in pi-agent-hub config");
   if (config.session !== undefined && !isPlainObject(config.session)) throw new Error("Invalid session config in pi-agent-hub config");
   if (config.session?.prelude !== undefined && typeof config.session.prelude !== "string") throw new Error("Invalid session.prelude in pi-agent-hub config");
+  if (config.dashboard !== undefined && !isPlainObject(config.dashboard)) throw new Error("Invalid dashboard config in pi-agent-hub config");
+  if (config.dashboard?.themeSessionId !== undefined && typeof config.dashboard.themeSessionId !== "string") throw new Error("Invalid dashboard.themeSessionId in pi-agent-hub config");
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { renderSessions, renderForm } from "../src/tui/layout.js";
-import { darkTheme, lightTheme, loadSessionsTheme, stripAnsi, stripAnsiExceptItalics, styleToken, themeFromPiTheme } from "../src/tui/theme.js";
+import { darkTheme, lightTheme, loadActiveTheme, loadSessionsTheme, stripAnsi, stripAnsiExceptItalics, styleToken, themeFromPiTheme } from "../src/tui/theme.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function session(): ManagedSession {
@@ -136,6 +136,54 @@ test("loadSessionsTheme supports relative local package paths", async () => {
 
   const theme = await loadSessionsTheme({ env: { PI_CODING_AGENT_DIR: agent } });
   assert.equal(theme.accent, "#fedcba");
+});
+
+test("loadActiveTheme loads active source path before persisted settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-active-theme-"));
+  const agent = join(root, "agent");
+  const project = join(root, "project");
+  await mkdir(join(agent, "themes"), { recursive: true });
+  await mkdir(project, { recursive: true });
+  const activePath = join(agent, "themes", "active.json");
+  await writeFile(join(agent, "settings.json"), JSON.stringify({ theme: "dark" }), "utf8");
+  await writeFile(activePath, JSON.stringify({ colors: { accent: "#123456", border: "#654321", statusLineBg: "#010203" } }), "utf8");
+
+  const theme = await loadActiveTheme({ name: "active", sourcePath: activePath }, { cwd: project, env: { PI_CODING_AGENT_DIR: agent } });
+
+  assert.equal(theme?.accent, "#123456");
+  assert.equal(theme?.statusLineBg, "#010203");
+});
+
+test("loadActiveTheme overlays live tokens onto resolved active source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-active-theme-"));
+  const agent = join(root, "agent");
+  await mkdir(join(agent, "themes"), { recursive: true });
+  const activePath = join(agent, "themes", "active.json");
+  await writeFile(activePath, JSON.stringify({ colors: { accent: "#123456", border: "#654321", statusLineBg: "#010203" } }), "utf8");
+
+  const theme = await loadActiveTheme({ sourcePath: activePath, tokens: { accent: "#abcdef" } }, { env: { PI_CODING_AGENT_DIR: agent } });
+
+  assert.equal(theme?.accent, "#abcdef");
+  assert.equal(theme?.statusLineBg, "#010203");
+});
+
+test("loadActiveTheme resolves active name without changing settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-active-theme-"));
+  const agent = join(root, "agent");
+  await mkdir(join(agent, "themes"), { recursive: true });
+  await writeFile(join(agent, "settings.json"), JSON.stringify({ theme: "dark" }), "utf8");
+  await writeFile(join(agent, "themes", "active.json"), JSON.stringify({ colors: { accent: "#abcdef" } }), "utf8");
+
+  const theme = await loadActiveTheme({ name: "active" }, { env: { PI_CODING_AGENT_DIR: agent } });
+
+  assert.equal(theme?.accent, "#abcdef");
+});
+
+test("loadActiveTheme uses in-memory token snapshots", async () => {
+  const theme = await loadActiveTheme({ name: "<in-memory>", tokens: { accent: "#111111", muted: 244 } });
+
+  assert.equal(theme?.accent, "#111111");
+  assert.equal(theme?.muted, 244);
 });
 
 test("loadSessionsTheme returns built-in light theme for Pi light", async () => {

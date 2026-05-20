@@ -12,7 +12,7 @@ import { createSessionRecord, loadRegistry, updateRegistry, upsertSession } from
 import { nextOrderInGroup } from "../core/session-order.js";
 import { isSubagentSession } from "../core/session-tree.js";
 import { configureManagedSessionStatusBar, killSession, newSession, sessionExists } from "../core/tmux.js";
-import { loadSessionsTheme } from "../tui/theme.js";
+import { loadActiveTheme, loadSessionsTheme } from "../tui/theme.js";
 import { resolveSession } from "./delete-session.js";
 import type { ManagedSession } from "../core/types.js";
 
@@ -138,7 +138,7 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
 }
 
 async function sessionTheme(session: ManagedSession) {
-  return loadSessionsTheme({ cwd: session.cwd });
+  return (await loadActiveTheme(session.activeTheme, { cwd: session.cwd })) ?? loadSessionsTheme({ cwd: session.cwd });
 }
 
 async function savedSessionFile(source: ManagedSession): Promise<string> {

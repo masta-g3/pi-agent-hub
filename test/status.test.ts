@@ -78,6 +78,15 @@ test("apply computed status persists Pi session metadata from heartbeat", () => 
   assert.equal(updated.piSessionId, "abc123");
 });
 
+test("apply computed status keeps fresh active theme and drops stale theme", () => {
+  const activeTheme = { name: "solarized-dark", sourcePath: "/themes/solarized-dark.json" };
+  const fresh = applyComputedStatus(session(), { status: "waiting" }, now, heartbeat({ activeTheme }));
+  const stale = applyComputedStatus(session(), { status: "waiting", note: "stale heartbeat" }, now, heartbeat({ activeTheme, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
+
+  assert.deepEqual(fresh.activeTheme, activeTheme);
+  assert.equal(stale.activeTheme, undefined);
+});
+
 test("mark acknowledged turns waiting into idle", () => {
   assert.equal(markAcknowledged(session({ status: "waiting" }), now).status, "idle");
 });

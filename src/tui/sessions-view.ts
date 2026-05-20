@@ -58,7 +58,7 @@ export interface SessionDialogInput {
 }
 
 export interface SessionsViewActions {
-  attachOutsideTmux?: (tmuxSession: string) => void;
+  attachOutsideTmux?: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
@@ -492,7 +492,12 @@ export class SessionsView implements Component {
       }
       return;
     }
-    this.actions.attachOutsideTmux?.(selected.tmuxSession);
+    try {
+      const result = this.actions.attachOutsideTmux?.(selected.tmuxSession);
+      if (isPromise(result)) void result.catch((error: unknown) => { this.message = `attach failed: ${errorMessage(error)}`; });
+    } catch (error) {
+      this.message = `attach failed: ${errorMessage(error)}`;
+    }
   }
 
   private reorderSelected(delta: -1 | 1) {

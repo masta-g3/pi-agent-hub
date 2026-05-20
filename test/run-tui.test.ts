@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNewFormContext } from "../src/app/run-tui.js";
+import { buildNewFormContext, loadDashboardTheme, resolveDashboardThemeSessionId } from "../src/app/run-tui.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function session(id: string, cwd: string, group: string, additionalCwds?: string[]): ManagedSession {
@@ -16,6 +16,23 @@ function session(id: string, cwd: string, group: string, additionalCwds?: string
     updatedAt: 1,
   };
 }
+
+test("resolveDashboardThemeSessionId prefers persisted existing session", () => {
+  const first = session("first", "/repo/first", "one");
+  const second = session("second", "/repo/second", "two");
+
+  assert.equal(resolveDashboardThemeSessionId([first, second], "second", "first"), "second");
+  assert.equal(resolveDashboardThemeSessionId([first, second], "missing", "first"), "first");
+});
+
+test("loadDashboardTheme follows the pinned session instead of selection movement", async () => {
+  const first = { ...session("first", "/repo/first", "one"), activeTheme: { tokens: { accent: "#111111" } } };
+  const second = { ...session("second", "/repo/second", "two"), activeTheme: { tokens: { accent: "#222222" } } };
+
+  const theme = await loadDashboardTheme("/dashboard", [first, second], "first");
+
+  assert.equal(theme.accent, "#111111");
+});
 
 test("buildNewFormContext defaults to selected session cwd, group, and additional repos", () => {
   const selected = session("api", "/repo/api", "backend", ["/repo/web", "/repo/shared", "/repo/docs"]);

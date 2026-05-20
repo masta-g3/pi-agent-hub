@@ -5,7 +5,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 ## Runtime state
 
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
-- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`)
+- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, dashboard theme anchor)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Multi-repo workspaces: `workspaces/<session-id>`
@@ -37,6 +37,9 @@ Optional global config lives at `config.json` under the global state directory:
   },
   "session": {
     "prelude": "security show-keychain-info ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || security unlock-keychain ~/Library/Keychains/login.keychain-db"
+  },
+  "dashboard": {
+    "themeSessionId": "last-entered-session-id"
   }
 }
 ```
@@ -119,8 +122,10 @@ pi-hub mcp-pool
 
 ## Theme behavior
 
-The standalone TUI reads Pi settings from the current project first (`.pi/settings.json`), then global Pi settings (`~/.pi/agent/settings.json` or `PI_CODING_AGENT_DIR/settings.json`). Custom themes are loaded from `.pi/themes/<name>.json` or `<agent-dir>/themes/<name>.json`.
+The dashboard uses the last-entered managed session as its theme anchor when that session still exists, falling back to the initially selected session. Managed sessions publish the active `ctx.ui.theme` name/path and resolved color tokens through the heartbeat, so manual theme changes and theme-sync extensions are reflected without package-specific integration. The last-entered theme anchor is stored as `dashboard.themeSessionId` in hub config.
 
-While open, the dashboard periodically reloads that same Pi theme state and updates its ANSI colors when tokens change, so Pi theme changes from tools such as `pi-theme-sync` are reflected without restarting the dashboard.
+For the anchored session, a fresh live theme wins. When no fresh live theme is available, the standalone TUI reads Pi settings from that session project or dashboard project first (`.pi/settings.json`), then global Pi settings (`~/.pi/agent/settings.json` or `PI_CODING_AGENT_DIR/settings.json`). Custom themes are loaded from `.pi/themes/<name>.json`, `<agent-dir>/themes/<name>.json`, configured theme paths, or package theme resources.
 
-Built-in Pi theme names `light` and `dark` map to compact theme token maps. Missing or invalid custom themes fall back to the built-in dark token map. Dashboard tmux status/footer chrome is configured separately; dashboard and managed-session tmux status bars are refreshed from the same loaded theme while the dashboard is running.
+While open, the dashboard periodically reloads the effective theme state and updates its ANSI colors when tokens change.
+
+Built-in Pi theme names `light` and `dark` map to compact theme token maps. Missing or invalid custom themes fall back to the built-in dark token map. Dashboard tmux status/footer chrome is configured separately; dashboard and managed-session tmux status bars are refreshed from the same effective theme while the dashboard is running.
