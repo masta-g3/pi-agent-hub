@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { movePickerSelection, renderTwoColumnPicker, togglePickerItem } from "../src/tui/two-column-picker.js";
+import { createTextInput } from "../src/tui/text-input.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 
 test("picker toggles selected item", () => {
@@ -20,7 +21,21 @@ test("picker renders enabled and available columns", () => {
   assert.match(lines.join("\n"), /b/);
 });
 
+test("picker renders skill pool path and edit hint", () => {
+  const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, poolDir: "/tmp/skills", items: [{ name: "a", enabled: true }] }, 80);
+  const rendered = lines.join("\n");
+  assert.match(rendered, /pool: \/tmp\/skills/);
+  assert.match(rendered, /Alt\+E edit/);
+  assert.match(rendered, /Alt\+E edit pool/);
+});
+
+test("picker renders skill pool input cursor while editing", () => {
+  const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, poolInput: createTextInput("/tmp/skills", 4), items: [] }, 80);
+  assert.match(lines.join("\n"), /pool: \/tmp█\/skills/);
+  assert.match(lines.join("\n"), /enter save\/reload/);
+});
+
 test("themed picker keeps narrow terminal width", () => {
-  const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, items: [{ name: "long-name".repeat(4), enabled: true }] }, 50, darkTheme);
+  const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, poolDir: "/tmp/" + "long-name".repeat(8), items: [{ name: "long-name".repeat(4), enabled: true }] }, 50, darkTheme);
   for (const line of lines) assert.ok(stripAnsi(line).length <= 50, stripAnsi(line));
 });

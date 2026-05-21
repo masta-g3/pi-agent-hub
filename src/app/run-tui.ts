@@ -8,7 +8,7 @@ import { loadActiveTheme, loadSessionsTheme, type SessionsTheme } from "../tui/t
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardThemeSessionId, setDashboardThemeSessionId } from "../core/config.js";
+import { effectiveDashboardThemeSessionId, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSkillPoolDir } from "../core/config.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreSwitchReturnBinding, sendTextToSession, switchClientWithReturn } from "../core/tmux.js";
@@ -91,7 +91,8 @@ export async function runTui(): Promise<void> {
   void syncManagedSessionStatusBars().catch(() => {});
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
-  const skillPool = await listSkillPool();
+  let skillPoolDirs = await effectiveSkillPoolDirs();
+  let skillPool = await listSkillPool();
   const mcpCatalog = await loadMcpCatalog();
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
   const skillCountCache = new Map<string, number>();
@@ -138,6 +139,11 @@ export async function runTui(): Promise<void> {
     const result = mutationQueue.then(run, run);
     mutationQueue = result.catch(() => {});
     return result;
+  };
+  const skillPickerItems = async (projectCwd: string) => {
+    const state = await loadProjectSkillsState(projectCwd);
+    const enabledSkillNames = new Set(state.attached.map((skill) => skill.name));
+    return skillPool.map((skill) => ({ name: skill.name, enabled: enabledSkillNames.has(skill.name) }));
   };
   const view = new SessionsView(controller, stop, {
     attachOutsideTmux(tmuxSession) {
@@ -211,9 +217,19 @@ export async function runTui(): Promise<void> {
       });
     },
     async skills() {
-      const state = await loadProjectSkillsState(selectedProjectCwd(controller.selected(), cwd));
-      const enabledSkillNames = new Set(state.attached.map((skill) => skill.name));
-      return skillPool.map((skill) => ({ name: skill.name, enabled: enabledSkillNames.has(skill.name) }));
+      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
+    },
+    skillPoolDir() {
+      return skillPoolDirs[0];
+    },
+    skillPoolDirExtraCount() {
+      return Math.max(0, skillPoolDirs.length - 1);
+    },
+    async saveSkillPoolDir(dir) {
+      await setSkillPoolDir(dir);
+      skillPoolDirs = await effectiveSkillPoolDirs();
+      skillPool = await listSkillPool();
+      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
     },
     async applySkills(items) {
       const projectCwd = selectedProjectCwd(controller.selected(), cwd);

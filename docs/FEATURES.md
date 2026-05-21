@@ -48,6 +48,7 @@ Ctrl+Q returns to the dashboard
 | `K` / `J` | Move the selected session up/down within its group |
 | `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
 | `s` | Pick project skills |
+| `Alt+E` | Edit the Skill pool path while the `s` picker is open |
 | `m` | Pick project MCP servers |
 
 ## Status vocabulary
@@ -133,7 +134,7 @@ Skills and MCP state attach to the selected session's primary repo:
 <project>/.pi/sessions/mcp.json
 ```
 
-The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
+The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. It also shows the active Skill pool path; press `Alt+E` in the picker to edit that path and reload the available Skills. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
 
 For multi-repo sessions, extra repos are available in the runtime workspace, but Skills/MCP still belong to the primary repo. Restart the session after changing Skills or MCP so Pi reloads tools.
 

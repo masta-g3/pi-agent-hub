@@ -50,6 +50,17 @@ export async function effectiveDashboardThemeSessionId(env: NodeJS.ProcessEnv = 
   return id || undefined;
 }
 
+export async function setSkillPoolDirs(poolDirs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const cleaned = poolDirs.map((dir) => dir.trim()).filter(Boolean);
+  if (!cleaned.length) throw new Error("skill pool dir cannot be blank");
+  const config = await loadSessionsConfig(env);
+  await writeJsonAtomic(configPath(env), { ...config, skills: { ...config.skills, poolDirs: cleaned } });
+}
+
+export async function setSkillPoolDir(poolDir: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  await setSkillPoolDirs([poolDir], env);
+}
+
 export async function setSessionPrelude(prelude: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const trimmed = prelude.trim();
   if (!trimmed) throw new Error("session-prelude cannot be blank");

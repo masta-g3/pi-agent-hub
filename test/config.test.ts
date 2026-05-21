@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardThemeSessionId, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSessionPrelude, unsetSessionPrelude } from "../src/core/config.js";
+import { configPath, effectiveDashboardThemeSessionId, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSessionPrelude, setSkillPoolDir, unsetSessionPrelude } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -99,6 +99,34 @@ test("setSessionPrelude rejects blank commands", async () => {
   const env = { PI_AGENT_HUB_DIR: root };
 
   await assert.rejects(() => setSessionPrelude("   ", env), /session-prelude cannot be blank/);
+});
+
+test("skill pool setter trims validates expands and preserves unrelated config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  const pool = join(root, "shared-skills");
+  const catalogPath = join(root, "mcp.json");
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    skills: { poolDirs: [join(root, "old-skills")] },
+    mcp: { catalogPath },
+    session: { prelude: "echo setup" },
+    dashboard: { themeSessionId: "session-1" },
+  }), "utf8");
+
+  await setSkillPoolDir(`  ${pool}  `, env);
+
+  assert.deepEqual(await effectiveSkillPoolDirs(env), [pool]);
+  assert.equal(await effectiveMcpCatalogPath(env), catalogPath);
+  assert.equal(await effectiveSessionPrelude(env), "echo setup");
+  assert.equal(await effectiveDashboardThemeSessionId(env), "session-1");
+});
+
+test("skill pool setter rejects blank paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+
+  await assert.rejects(() => setSkillPoolDir("   ", env), /skill pool dir cannot be blank/);
 });
 
 test("listSkillPool reads configured skill directories", async () => {

@@ -73,6 +73,9 @@ export interface SessionsViewActions {
   newFormContext?: () => NewFormContext;
   skills?: () => PickerItem[] | Promise<PickerItem[]>;
   applySkills?: (items: PickerItem[]) => void | Promise<void>;
+  skillPoolDir?: () => string | undefined;
+  skillPoolDirExtraCount?: () => number;
+  saveSkillPoolDir?: (dir: string) => PickerItem[] | Promise<PickerItem[]>;
   mcpServers?: () => PickerItem[] | Promise<PickerItem[]>;
   applyMcpServers?: (items: PickerItem[]) => void | Promise<void>;
   sendMessage?: (tmuxSession: string, message: string) => unknown;
@@ -101,6 +104,7 @@ export class SessionsView implements Component {
   private flash: { text: string; expiresAt: number } | undefined;
   private detailsExpanded = false;
   private pendingRestart: { sessionId: string; expiresAt: number } | undefined;
+  private pickerSaveId = 0;
   private deleteTargetId: string | undefined;
   private sendTargetId: string | undefined;
   private renameGroupFrom: string | undefined;
@@ -431,12 +435,18 @@ export class SessionsView implements Component {
   }
 
   private openPicker(mode: "skills" | "mcp", items: PickerItem[]) {
-    if (!items.length) {
+    const poolDir = mode === "skills" ? this.actions.skillPoolDir?.() : undefined;
+    if (!items.length && !(mode === "skills" && poolDir !== undefined)) {
       this.message = `${mode}: nothing available`;
       return;
     }
     this.mode = mode;
-    this.picker = { title: mode === "skills" ? "Skills" : "MCP — [project]", items, selected: 0 };
+    this.picker = {
+      title: mode === "skills" ? "Skills" : "MCP — [project]",
+      items,
+      selected: 0,
+      ...(mode === "skills" && poolDir !== undefined ? { poolDir, poolDirExtraCount: this.actions.skillPoolDirExtraCount?.() ?? 0 } : {}),
+    };
     this.message = undefined;
   }
 
@@ -618,19 +628,75 @@ export class SessionsView implements Component {
       this.mode = "normal";
       return;
     }
+    if (this.picker.poolPending) return;
+    if (this.mode === "skills" && this.picker.poolInput) {
+      this.handleSkillPoolInput(data);
+      return;
+    }
     if (matchesKey(data, Key.escape)) {
       this.mode = "normal";
       this.picker = undefined;
       return;
     }
-    if (matchesKey(data, Key.down)) this.picker = movePickerSelection(this.picker, 1);
+    if (this.mode === "skills" && matchesKey(data, Key.alt("e"))) this.picker = { ...this.picker, poolInput: createTextInput(this.picker.poolDir ?? ""), poolError: undefined, poolMessage: undefined };
+    else if (matchesKey(data, Key.down)) this.picker = movePickerSelection(this.picker, 1);
     else if (matchesKey(data, Key.up)) this.picker = movePickerSelection(this.picker, -1);
     else if (matchesKey(data, Key.space) || data === " ") this.picker = togglePickerItem(this.picker);
     else if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") this.applyPickerSelection();
     else {
       const edited = editPickerSearch(data, this.picker);
-      if (edited) this.picker = edited;
+      if (edited) this.picker = { ...edited, poolError: undefined, poolMessage: undefined };
     }
+  }
+
+  private handleSkillPoolInput(data: string) {
+    if (!this.picker?.poolInput) return;
+    if (matchesKey(data, Key.escape)) {
+      this.picker = { ...this.picker, poolInput: undefined, poolError: undefined, poolMessage: undefined };
+      return;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r") {
+      const dir = this.picker.poolInput.value.trim();
+      if (!dir) {
+        this.picker = { ...this.picker, poolError: "skill pool dir cannot be blank", poolMessage: undefined };
+        return;
+      }
+      const save = this.actions.saveSkillPoolDir;
+      if (!save) {
+        this.picker = { ...this.picker, poolError: "skill pool editing unavailable", poolMessage: undefined };
+        return;
+      }
+      const saveId = ++this.pickerSaveId;
+      this.picker = { ...this.picker, poolPending: true, poolMessage: "saving skill pool...", poolError: undefined };
+      const applySaved = (items: PickerItem[]) => {
+        if (this.mode !== "skills" || !this.picker || this.pickerSaveId !== saveId) return;
+        this.picker = {
+          ...this.picker,
+          items,
+          selected: 0,
+          poolDir: this.actions.skillPoolDir?.() || dir,
+          poolDirExtraCount: this.actions.skillPoolDirExtraCount?.() ?? 0,
+          poolInput: undefined,
+          poolPending: false,
+          poolMessage: "skill pool saved; press enter to apply selected skills",
+          poolError: undefined,
+        };
+      };
+      const applyError = (error: unknown) => {
+        if (this.mode !== "skills" || !this.picker || this.pickerSaveId !== saveId) return;
+        this.picker = { ...this.picker, poolPending: false, poolError: errorMessage(error), poolMessage: undefined };
+      };
+      try {
+        const result = save(dir);
+        if (isPromise<PickerItem[]>(result)) void result.then(applySaved).catch(applyError);
+        else applySaved(result);
+      } catch (error) {
+        applyError(error);
+      }
+      return;
+    }
+    const edited = editTextInput(data, this.picker.poolInput);
+    if (edited) this.picker = { ...this.picker, poolInput: edited, poolError: undefined, poolMessage: undefined };
   }
 
   private applyPickerSelection() {

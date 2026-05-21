@@ -1134,7 +1134,7 @@ test("picker search filters visible items before toggling", () => {
   assert.equal(applied?.find((item) => item.name === "api-tools")?.enabled, false);
 });
 
-test("picker search accepts j and k as text", () => {
+test("picker search accepts j k and e as text", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
     skills: () => [{ name: "jekyll", enabled: false }, { name: "docs", enabled: false }],
   });
@@ -1144,6 +1144,91 @@ test("picker search accepts j and k as text", () => {
   assert.match(rendered, /search: jek/);
   assert.match(rendered, /jekyll/);
   assert.doesNotMatch(rendered, /docs/);
+});
+
+test("skills picker displays pool dir and saves edited pool", async () => {
+  let saved: string | undefined;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: () => [{ name: "old-skill", enabled: false }],
+    skillPoolDir: () => "",
+    saveSkillPoolDir: async (dir) => {
+      saved = dir;
+      return [{ name: "new-skill", enabled: false }];
+    },
+  });
+
+  view.handleInput("s");
+  view.handleInput("\x1be");
+  for (const char of "/tmp/new-skills") view.handleInput(char);
+  view.handleInput("\r");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const rendered = view.render(100).join("\n");
+  assert.equal(saved, "/tmp/new-skills");
+  assert.match(rendered, /pool: \/tmp\/new-skills/);
+  assert.match(rendered, /new-skill/);
+  assert.match(rendered, /skill pool saved/);
+  assert.doesNotMatch(rendered, /old-skill/);
+});
+
+test("skills picker rejects blank pool dir without saving", () => {
+  let called = false;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: () => [{ name: "repo-rules", enabled: false }],
+    skillPoolDir: () => "   ",
+    saveSkillPoolDir: () => { called = true; return []; },
+  });
+
+  view.handleInput("s");
+  view.handleInput("\x1be");
+  view.handleInput("\r");
+
+  assert.equal(called, false);
+  assert.match(view.render(100).join("\n"), /skill pool dir cannot be blank/);
+});
+
+test("escape during skill pool edit keeps picker open", () => {
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: () => [{ name: "repo-rules", enabled: false }],
+    skillPoolDir: () => "/tmp/skills",
+  });
+
+  view.handleInput("s");
+  view.handleInput("\x1be");
+  view.handleInput("\u001b");
+
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Skills/);
+  assert.match(rendered, /pool: \/tmp\/skills/);
+});
+
+test("empty skills picker still opens when pool dir can be edited", () => {
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    skills: () => [],
+    skillPoolDir: () => "/tmp/skills",
+  });
+
+  view.handleInput("s");
+
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Skills/);
+  assert.match(rendered, /pool: \/tmp\/skills/);
+  assert.match(rendered, /No items match/);
+});
+
+test("mcp picker does not edit skill pool", () => {
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    mcpServers: () => [{ name: "filesystem", enabled: false }],
+    skillPoolDir: () => "/tmp/skills",
+  });
+
+  view.handleInput("m");
+  view.handleInput("\x1be");
+
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /MCP/);
+  assert.doesNotMatch(rendered, /pool:/);
+  assert.doesNotMatch(rendered, /Alt\+E edit pool/);
 });
 
 test("mcp picker toggles and applies with restart prompt", () => {

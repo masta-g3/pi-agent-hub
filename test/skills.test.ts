@@ -45,6 +45,44 @@ test("bulk skill selection writes final state and preserves unrelated attachment
   await assert.rejects(readFile(join(project, ".pi", "skills", "drop", "SKILL.md"), "utf8"));
 });
 
+test("bulk skill selection reuses same-source attachments", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-skills-"));
+  const project = join(root, "project");
+  const docs = await makeSkill(root, "docs");
+
+  await setProjectSkills(project, [{ name: "docs", sourcePath: docs, enabled: true }]);
+  const state = await setProjectSkills(project, [{ name: "docs", sourcePath: docs, enabled: true }]);
+
+  assert.deepEqual(state.attached.map((skill) => skill.name), ["docs"]);
+  assert.match(await readFile(join(project, ".pi", "skills", "docs", "SKILL.md"), "utf8"), /docs/);
+});
+
+test("bulk skill selection replaces same-name attachments from a new source", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-skills-"));
+  const project = join(root, "project");
+  const poolA = await makeSkill(join(root, "pool-a"), "docs");
+  const poolB = await makeSkill(join(root, "pool-b"), "docs");
+  await writeFile(join(poolA, "SKILL.md"), "pool a", "utf8");
+  await writeFile(join(poolB, "SKILL.md"), "pool b", "utf8");
+
+  await setProjectSkills(project, [{ name: "docs", sourcePath: poolA, enabled: true }]);
+  const state = await setProjectSkills(project, [{ name: "docs", sourcePath: poolB, enabled: true }]);
+
+  assert.deepEqual(state.attached.map((skill) => skill.sourcePath), [poolB]);
+  assert.match(await readFile(join(project, ".pi", "skills", "docs", "SKILL.md"), "utf8"), /pool b/);
+});
+
+test("bulk skill selection refuses to overwrite unmanaged existing skill paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-skills-"));
+  const project = join(root, "project");
+  const docs = await makeSkill(root, "docs");
+  await mkdir(join(project, ".pi", "skills", "docs"), { recursive: true });
+  await writeFile(join(project, ".pi", "skills", "docs", "SKILL.md"), "manual", "utf8");
+
+  await assert.rejects(() => setProjectSkills(project, [{ name: "docs", sourcePath: docs, enabled: true }]), /EEXIST/);
+  assert.match(await readFile(join(project, ".pi", "skills", "docs", "SKILL.md"), "utf8"), /manual/);
+});
+
 test("detach removes only managed attachment", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-skills-"));
   const project = join(root, "project");

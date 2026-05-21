@@ -47,12 +47,23 @@ export async function setProjectSkills(projectCwd: string, skills: ProjectSkillS
   const attached = state.attached.filter((attachment) => !disabled.has(attachment.name));
 
   for (const skill of skills) {
-    if (skill.enabled) {
-      const attachment = await materializeSkill(projectCwd, skill.name, skill.sourcePath, true);
-      const index = attached.findIndex((item) => item.name === skill.name);
-      if (index !== -1) attached.splice(index, 1);
-      attached.push(attachment);
+    if (!skill.enabled) continue;
+    const sourcePath = resolve(skill.sourcePath);
+    const index = attached.findIndex((item) => item.name === skill.name);
+    const existing = index === -1 ? undefined : attached[index];
+    let attachment: SkillAttachment;
+    if (existing && resolve(existing.sourcePath) === sourcePath) {
+      await assertManagedMaterialization(existing);
+      attachment = existing;
+    } else {
+      if (existing) {
+        await assertManagedMaterialization(existing);
+        await rm(existing.materializedPath, { recursive: true, force: false });
+      }
+      attachment = await materializeSkill(projectCwd, skill.name, sourcePath, true);
     }
+    if (index !== -1) attached.splice(index, 1);
+    attached.push(attachment);
   }
 
   for (const attachment of state.attached) {
@@ -91,7 +102,8 @@ async function materializeSkill(projectCwd: string, name: string, inputPath: str
     try {
       await symlink(sourcePath, materializedPath, "dir");
     } catch (error) {
-      if (!isAlreadyExists(error)) await cp(sourcePath, materializedPath, { recursive: true });
+      if (isAlreadyExists(error)) throw error;
+      await cp(sourcePath, materializedPath, { recursive: true });
     }
   } else {
     await cp(sourcePath, materializedPath, { recursive: true });

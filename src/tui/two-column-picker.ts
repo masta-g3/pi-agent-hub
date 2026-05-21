@@ -1,4 +1,5 @@
 import { darkTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
+import type { TextInputState } from "./text-input.js";
 
 export interface PickerItem {
   name: string;
@@ -11,6 +12,12 @@ export interface PickerState {
   selected: number;
   filter?: string;
   filterCursor?: number;
+  poolDir?: string;
+  poolDirExtraCount?: number;
+  poolInput?: TextInputState;
+  poolMessage?: string;
+  poolError?: string;
+  poolPending?: boolean;
 }
 
 export function togglePickerItem(state: PickerState): PickerState {
@@ -38,17 +45,18 @@ export function renderTwoColumnPicker(state: PickerState, width: number, theme?:
   const available = visible.filter((item) => !item.enabled);
   const rows = Math.max(enabled.length, available.length, 1);
   const col = Math.floor((inner - 3) / 2);
-  const lines = [
-    styles.accent(state.title),
+  const lines = [styles.accent(state.title)];
+  if (state.poolDir !== undefined || state.poolInput) lines.push(renderPoolLine(state, inner), ...renderPoolMessages(state, styles));
+  lines.push(
     `search: ${renderSearch(state)}`,
     "",
     `${pad("Enabled", col)}   Available`,
-  ];
+  );
   if (!visible.length) lines.push(styles.muted("No items match the current search."));
   else for (let i = 0; i < rows; i += 1) {
     lines.push(`${pad(formatItem(state, enabled[i]), col)}   ${formatItem(state, available[i])}`);
   }
-  lines.push("", styles.muted("type search • ←→ edit • space toggle • enter apply/restart • esc cancel"));
+  lines.push("", styles.muted(pickerFooter(state)));
   return [
     `${styles.border("┌")}${styles.border("─".repeat(inner))}${styles.border("┐")}`,
     ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
@@ -63,6 +71,39 @@ function renderSearch(state: PickerState): string {
   return `${chars.slice(0, cursor).join("")}█${chars.slice(cursor).join("")}`;
 }
 
+function renderPoolLine(state: PickerState, width: number): string {
+  const label = "pool: ";
+  if (state.poolInput) return `${label}${renderInput(state.poolInput)}`;
+  const extra = state.poolDirExtraCount && state.poolDirExtraCount > 0 ? ` (+${state.poolDirExtraCount})` : "";
+  const hint = "Alt+E edit";
+  const available = Math.max(0, width - visibleWidth(label) - visibleWidth(hint) - 1);
+  const path = truncate(`${state.poolDir ?? ""}${extra}`, available);
+  const gap = " ".repeat(Math.max(1, width - visibleWidth(label) - visibleWidth(path) - visibleWidth(hint)));
+  return `${label}${path}${gap}${hint}`;
+}
+
+function renderPoolMessages(state: PickerState, styles: ReturnType<typeof createStyles>): string[] {
+  if (state.poolError) return [styles.error(state.poolError)];
+  if (state.poolMessage) return [styles.muted(state.poolMessage)];
+  return [];
+}
+
+function renderInput(input: TextInputState): string {
+  const chars = [...input.value];
+  const cursor = Math.max(0, Math.min(input.cursor, chars.length));
+  return `${chars.slice(0, cursor).join("")}█${chars.slice(cursor).join("")}`;
+}
+
+function pickerFooter(state: PickerState): string {
+  if (state.poolInput) return "←→ edit path • enter save/reload • esc cancel path edit";
+  if (state.poolDir !== undefined) return "type search • ←→ edit • space toggle • Alt+E edit pool • enter apply/restart • esc cancel";
+  return "type search • ←→ edit • space toggle • enter apply/restart • esc cancel";
+}
+
+function visibleWidth(value: string): number {
+  return [...stripAnsi(value)].length;
+}
+
 function formatItem(state: PickerState, item: PickerItem | undefined): string {
   if (!item) return "";
   const selected = state.items[selectedIndex(state) ?? -1]?.name === item.name;
@@ -74,6 +115,7 @@ function createStyles(theme: SessionsTheme) {
     accent: (text: string) => styleToken(theme, "accent", text),
     border: (text: string) => styleToken(theme, "border", text),
     muted: (text: string) => styleToken(theme, "muted", text),
+    error: (text: string) => styleToken(theme, "error", text),
   };
 }
 

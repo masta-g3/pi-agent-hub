@@ -67,9 +67,11 @@ The dashboard itself and direct `pi-hub tui` runs do not run `session.prelude`.
 
 ## Skills configuration
 
-If `skills.poolDirs` is omitted, `pi-agent-hub` uses `<global-state>/skills/pool`.
+If `skills.poolDirs` is omitted, `pi-agent-hub` uses `<global-state>/skills/pool`. Each pool directory contains skill folders, for example `my-skills/prime/SKILL.md`.
 
-The `s` picker lists skills from these directories and writes the final project selection to:
+The `s` picker lists skills from these directories, shows the active pool path, and lets you edit it with `Alt+E`. The picker edits one pool directory for simplicity; saving replaces `skills.poolDirs` with that single path. Missing or empty directories are allowed and show an empty picker so you can create or populate the pool later.
+
+Applying the picker writes the final project selection to:
 
 ```text
 <project>/.pi/sessions/skills.json
