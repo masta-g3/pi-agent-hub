@@ -12,6 +12,12 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Fixed
 
+## 1.1.1 - 2026-05-21
+
+### Fixed
+
+- Clarify README and feature docs so multi-repo workspaces and hub-owned worktrees are presented as separate features.
+
 ## 1.1.0 - 2026-05-21
 
 ### Added

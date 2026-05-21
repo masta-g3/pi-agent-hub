@@ -25,8 +25,8 @@ Ctrl+Q returns to the dashboard
 | In-session rename | `Alt+R` inside a managed session | Open the dashboard rename dialog for the current session, then return to it after saving. |
 | Direct send | `p` in the dashboard | Paste and submit a one-line message into the selected live session without opening it. |
 | Stable grouping/order | `g`, `G`, `K`, `J` | Keep sessions organized without status/title resorting. |
-| Multi-repo sessions | `Alt+A` in the new-session form | Work across repos through a symlink workspace without creating worktrees. |
-| Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create one-repo Git worktrees under hub state and explicitly merge/remove them when done. |
+| Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
+| Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create one-repo Git worktrees under hub state and explicitly finish, forget, or discard them. |
 | Project Skills | `s` picker | Attach Pi skills to the selected session's primary repo. |
 | Project MCP servers | `m` picker | Enable MCP tools for the selected session's primary repo. |
 | Subagent rows | Automatic when `pi-tmux-subagents` reports them | See child agent work nested under the parent session. |
