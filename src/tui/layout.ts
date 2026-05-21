@@ -134,6 +134,7 @@ function compactDetails(session: RenderSession, width: number, styles: LayoutSty
     lines.push(truncate([`agent ${session.agentName ?? "subagent"}`, session.taskPreview ? `task ${session.taskPreview}` : ""].filter(Boolean).join(" · "), width));
   } else {
     const parts = [truncatePath(session.cwd, Math.max(8, Math.floor(width * 0.6)))];
+    if (session.worktreeBranch) parts.push(`wt ${session.worktreeBranch}`);
     if (session.repoCount > 1) parts.push(`${session.repoCount} repos`);
     lines.push(truncate(parts.join(" · "), width));
   }
@@ -161,6 +162,8 @@ function expandedDetails(session: RenderSession, width: number, styles: LayoutSt
     `group     ${session.group}`,
   ].filter((line): line is string => Boolean(line));
   for (const cwd of session.additionalCwds) lines.push(`extra     ${truncatePath(cwd, Math.max(0, width - 10))}`);
+  if (session.worktreeBranch) lines.push(`worktree  ${session.worktreeBranch} → ${session.worktreeBaseBranch ?? "unknown"}`);
+  if (session.worktreePath) lines.push(`wt path   ${truncatePath(session.worktreePath, Math.max(0, width - 10))}`);
   if (session.workspaceCwd) lines.push(`runtime   ${truncatePath(session.workspaceCwd, Math.max(0, width - 10))}`);
   if (session.sessionFile) lines.push(`session   ${truncatePath(session.sessionFile, Math.max(0, width - 10))}`);
   if (session.enabledMcpServers.length) lines.push(`mcp       ${session.enabledMcpServers.join(", ")}`);
@@ -185,8 +188,9 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const titleText = session.kind === "subagent" ? (session.agentName ?? "subagent") : session.title;
   const title = session.status === "stopped" ? styles.dim(titleText) : titleText;
   const repoBadge = session.repoCount > 1 && session.kind !== "subagent" ? styles.dim(` [${session.repoCount} repos]`) : "";
+  const worktreeBadge = session.worktreeBranch && session.kind !== "subagent" ? styles.dim(" [wt]") : "";
   const indent = session.depth > 0 ? styles.dim("  ↳ ") : "";
-  return truncate(`${prefix} ${indent}${symbol} ${title}${repoBadge}`, width);
+  return truncate(`${prefix} ${indent}${symbol} ${title}${repoBadge}${worktreeBadge}`, width);
 }
 
 export interface FormField {
@@ -198,6 +202,7 @@ export interface FormField {
   error?: string;
   section?: string;
   truncate?: "end" | "start";
+  readonly?: boolean;
 }
 
 export interface FormSpec {
@@ -221,10 +226,11 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
       body.push(styles.muted(field.section));
       previousSection = field.section;
     }
-    const focused = field.key === spec.focus;
+    const focused = field.key === spec.focus && !field.readonly;
     const caret = focused ? styles.accent("▎") : " ";
     const label = focused ? field.label : styles.muted(field.label);
-    const value = focused ? styles.accent(renderCursorValue(field.value, field.cursor, valueWidth, field.truncate)) : truncateValue(field.value, valueWidth, field.truncate);
+    const rawValue = focused ? styles.accent(renderCursorValue(field.value, field.cursor, valueWidth, field.truncate)) : truncateValue(field.value, valueWidth, field.truncate);
+    const value = field.readonly && !focused ? styles.dim(rawValue) : rawValue;
     body.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
     const hintText = field.error ? styles.error(field.error) : (showHints && field.hint ? styles.dim(field.hint) : "");
     if (hintText) body.push(`  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`);

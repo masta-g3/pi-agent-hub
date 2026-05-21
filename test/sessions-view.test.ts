@@ -362,6 +362,7 @@ test("new form submits with basename group and random title on enter", () => {
   assert.match(rendered, /★ primary/);
   assert.doesNotMatch(rendered, /repo 2/);
   assert.doesNotMatch(rendered, /repo 3/);
+  assert.match(rendered, /worktree\s+off · ctrl-t to enable/);
   assert.match(rendered, /group/);
   assert.match(rendered, /title/);
   assert.match(rendered, /black-aleph/);
@@ -381,6 +382,72 @@ test("new form tab cycles focus and edits title", () => {
   for (const char of "-prod") view.handleInput(char);
   view.handleInput("\r");
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api-prod" });
+});
+
+test("new form worktree toggle uses branch as session title", () => {
+  let created: { cwd: string; group: string; title: string; worktree?: { branch: string } } | undefined;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    createSession: (input) => { created = input; },
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
+  });
+  view.handleInput("n");
+  view.handleInput("\u0014");
+  const rendered = view.render(120).join("\n");
+  assert.match(rendered, /worktree\s+on · ctrl-t to disable/);
+  assert.match(rendered, /branch/);
+  assert.doesNotMatch(rendered, /title/);
+  for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
+  for (const char of "feature/api") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "feature/api", worktree: { branch: "feature/api" } });
+});
+
+test("new form worktree toggle can turn off without crashing", () => {
+  let created: { cwd: string; group: string; title: string; worktree?: { branch: string } } | undefined;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    createSession: (input) => { created = input; },
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
+  });
+  view.handleInput("n");
+  view.handleInput("\u0014");
+  view.handleInput("\u0014");
+  const rendered = view.render(120).join("\n");
+  assert.match(rendered, /worktree\s+off · ctrl-t to enable/);
+  assert.match(rendered, /title/);
+  view.handleInput("\r");
+
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api" });
+});
+
+test("new form worktree mode defaults branch from generated title", () => {
+  let created: { cwd: string; group: string; title: string; worktree?: { branch: string } } | undefined;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    createSession: (input) => { created = input; },
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api-work" }),
+  });
+  view.handleInput("n");
+  view.handleInput("\u0014");
+  view.handleInput("\r");
+
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api-work", worktree: { branch: "api-work" } });
+});
+
+test("new form worktree mode rejects additional repos", () => {
+  let created: unknown;
+  const view = new SessionsView(new SessionsController(), () => {}, {
+    createSession: (input) => { created = input; },
+    newFormContext: () => ({ cwd: "/tmp/api", titleGenerator: () => "api" }),
+  });
+  view.handleInput("n");
+  view.handleInput("\u001ba");
+  for (const char of "/tmp/web") view.handleInput(char);
+  view.handleInput("\u0014");
+  for (const char of "feature/api") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.equal(created, undefined);
+  assert.match(view.render(120).join("\n"), /one primary repo/);
 });
 
 test("new form add repo shortcut submits one additional cwd", () => {
@@ -757,6 +824,94 @@ test("delete dialog does not offer subagent-only cleanup for selected subagent",
 
   assert.match(rendered, /target\s+smoke/);
   assert.doesNotMatch(rendered, /close subagents only/);
+});
+
+test("delete dialog distinguishes forgetting and discarding worktree sessions", () => {
+  let deleted: string | undefined;
+  let discarded: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [{
+    ...session("api", "api"),
+    worktreePath: "/hub/worktrees/api/api-feature",
+    worktreeRepoRoot: "/repo/api",
+    worktreeBranch: "feature/api",
+    worktreeBaseBranch: "main",
+    worktreeOwnedByHub: true,
+  }] });
+  const view = new SessionsView(controller, () => {}, {
+    deleteSession: (id) => { deleted = id; },
+    discardWorktree: (id) => { discarded = id; },
+  });
+
+  view.handleInput("d");
+  const rendered = view.render(100).join("\n");
+
+  assert.match(rendered, /d\s+forget dashboard row only/);
+  assert.match(rendered, /keeps worktree and branch/);
+  assert.match(rendered, /D\s+discard worktree and branch/);
+  assert.match(rendered, /w\s+finish instead/);
+
+  view.handleInput("d");
+  assert.equal(deleted, "api");
+  assert.equal(discarded, undefined);
+});
+
+test("delete dialog shift D discards worktree session", () => {
+  let deleted: string | undefined;
+  let discarded: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [{
+    ...session("api", "api"),
+    worktreePath: "/hub/worktrees/api/api-feature",
+    worktreeRepoRoot: "/repo/api",
+    worktreeBranch: "feature/api",
+    worktreeBaseBranch: "main",
+    worktreeOwnedByHub: true,
+  }] });
+  const view = new SessionsView(controller, () => {}, {
+    deleteSession: (id) => { deleted = id; },
+    discardWorktree: (id) => { discarded = id; },
+  });
+
+  view.handleInput("d");
+  view.handleInput("D");
+
+  assert.equal(deleted, undefined);
+  assert.equal(discarded, "api");
+  assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
+});
+
+test("finish worktree dialog confirms with second w", () => {
+  let finished: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [{
+    ...session("api", "api"),
+    worktreePath: "/hub/worktrees/api/api-feature",
+    worktreeRepoRoot: "/repo/api",
+    worktreeBranch: "feature/api",
+    worktreeBaseBranch: "main",
+    worktreeOwnedByHub: true,
+  }] });
+  const view = new SessionsView(controller, () => {}, { finishWorktree: (id) => { finished = id; } });
+
+  view.handleInput("w");
+  const rendered = view.render(100).join("\n");
+  assert.match(rendered, /Finish worktree/);
+  assert.match(rendered, /feature\/api → main/);
+  assert.match(rendered, /press w again to finish/);
+  view.handleInput("w");
+
+  assert.equal(finished, "api");
+  assert.doesNotMatch(view.render(100).join("\n"), /Finish worktree/);
+});
+
+test("finish worktree key ignores non-worktree sessions", () => {
+  let finished: string | undefined;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    finishWorktree: (id) => { finished = id; },
+  });
+
+  view.handleInput("w");
+
+  assert.equal(finished, undefined);
+  assert.match(view.render(100).join("\n"), /selected session is not a worktree/);
 });
 
 test("delete dialog ignores repeated confirm while async delete is pending", async () => {

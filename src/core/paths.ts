@@ -38,6 +38,14 @@ export function multiRepoWorkspacePath(sessionId: string, env: NodeJS.ProcessEnv
   return join(multiRepoWorkspacesDir(env), sessionId);
 }
 
+export function worktreesDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "worktrees");
+}
+
+export function worktreePath(repoName: string, sessionId: string, branchSlug: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(worktreesDir(env), repoName, `${sessionId.slice(0, 12)}-${branchSlug}`);
+}
+
 export function projectSessionsDir(cwd: string): string {
   return join(resolve(cwd), ".pi", "sessions");
 }

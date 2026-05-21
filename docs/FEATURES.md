@@ -26,6 +26,7 @@ Ctrl+Q returns to the dashboard
 | Direct send | `p` in the dashboard | Paste and submit a one-line message into the selected live session without opening it. |
 | Stable grouping/order | `g`, `G`, `K`, `J` | Keep sessions organized without status/title resorting. |
 | Multi-repo sessions | `Alt+A` in the new-session form | Work across repos through a symlink workspace without creating worktrees. |
+| Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create one-repo Git worktrees under hub state and explicitly merge/remove them when done. |
 | Project Skills | `s` picker | Attach Pi skills to the selected session's primary repo. |
 | Project MCP servers | `m` picker | Enable MCP tools for the selected session's primary repo. |
 | Subagent rows | Automatic when `pi-tmux-subagents` reports them | See child agent work nested under the parent session. |
@@ -43,6 +44,7 @@ Ctrl+Q returns to the dashboard
 | `Ctrl+Q` | Return from a managed session to the dashboard |
 | `r` | Rename the selected session in the dashboard footer |
 | `R` | Restart the selected session |
+| `w` | Finish the selected hub-owned worktree session |
 | `Shift+N` | Sync the selected hub title from Pi's `/name` |
 | `g` | Move the selected session to a group |
 | `G` | Rename the selected session's group |
@@ -107,8 +109,11 @@ While editing the form:
 | `Alt+X` | Remove the focused extra repo row |
 | `Ctrl+N` / `Ctrl+P` | Cycle known cwd suggestions |
 | `Ctrl+O` | Open the recent-repo picker |
+| `Ctrl+T` | Toggle hub-owned worktree mode |
 
 Extra repos are symlinked into one runtime workspace. The primary cwd remains the main project for skills and MCP state.
+
+When worktree mode is enabled, the form supports one primary repo only. The `branch` field creates a new local branch and also becomes the session title shown in the dashboard.
 
 ## Groups and session actions
 
@@ -123,6 +128,7 @@ Groups are simple labels on sessions.
 | `p` | Send a one-line message to the selected live session without opening it |
 | `r` | Rename the selected session in the dashboard footer |
 | `R` | Restart the selected session |
+| `w` | Finish the selected hub-owned worktree session |
 | `Shift+N` | Sync the selected hub title from Pi's `/name` |
 
 Reordering is disabled while a filter is active.
@@ -153,6 +159,18 @@ Extra repos are symlinked into a per-session runtime workspace:
 
 Source repos are not moved, cloned, or owned by `pi-agent-hub`.
 
+## Worktree model
+
+Worktree sessions are opt-in and hub-owned:
+
+```text
+<PI_AGENT_HUB_DIR>/worktrees/<repo-name>/<session-id-prefix>-<branch-slug>/
+```
+
+Press `Ctrl+T` in the new-session form to enable worktree mode, then enter the branch name. The branch name is also the session title. Worktree mode supports one primary repo in v1 and cannot be combined with extra repos.
+
+Normal `d` delete is conservative: it removes the dashboard row and heartbeat, but keeps hub-owned worktree files. From the delete dialog, `Shift+D` discards a clean hub-owned worktree and branch without merging. Press `w` on a clean hub-owned worktree session to stop its session/subagent tmux processes, merge the worktree branch into the recorded base branch, remove the worktree, prune Git metadata, delete the merged local branch, and remove the dashboard row. Dirty worktrees or dirty base repos block finish so files are preserved.
+
 ## Non-goals
 
 `pi-agent-hub` intentionally stays small:
@@ -160,7 +178,7 @@ Source repos are not moved, cloned, or owned by `pi-agent-hub`.
 - no cloud service;
 - no custom agent runtime;
 - no repo filesystem scanning;
-- no worktree management;
+- no broad Git/worktree manager beyond the explicit hub-owned create/finish flow;
 - no Agent Deck remotes/tools registry clone.
 
 Pi runs the agents. tmux keeps them alive. The hub gives you one stable place to see and steer them.

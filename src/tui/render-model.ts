@@ -24,6 +24,10 @@ export interface RenderSession {
   agentName?: string;
   taskPreview?: string;
   resultSummary?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  worktreeBaseBranch?: string;
+  worktreeOwnedByHub?: boolean;
 }
 
 export interface StatusCounts {
@@ -108,7 +112,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     },
     ...(input.height ? { height: input.height } : {}),
     selected: mapped.find((session) => session.selected),
-    footer: compactFooter ? "Enter · n · /  │  i · r · R  │  ?" : "Enter Open · n New · / Filter  │  i Info · r Rename · R Restart  │  ? Help",
+    footer: compactFooter ? "Enter · n · /  │  i · r · R · w  │  ?" : "Enter Open · n New · / Filter  │  i Info · r Rename · R Restart · w Finish WT  │  ? Help",
     filter: input.filter,
     preview: input.preview ?? "",
     detailsExpanded: input.detailsExpanded ?? false,
@@ -163,6 +167,10 @@ function toRenderSession(session: ManagedSession, selected: boolean, sessions: M
     agentName: session.agentName,
     taskPreview: session.taskPreview,
     resultSummary: session.resultSummary,
+    worktreePath: session.worktreePath,
+    worktreeBranch: session.worktreeBranch,
+    worktreeBaseBranch: session.worktreeBaseBranch,
+    worktreeOwnedByHub: session.worktreeOwnedByHub,
   };
 }
 

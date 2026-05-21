@@ -20,6 +20,7 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 | Return shortcuts | `Ctrl+Q` jumps from a managed session back to the dashboard; `Alt+R` opens rename from inside a session. |
 | Project-scoped skills/MCP | Pick skills and MCP servers for the selected session's primary repo. |
 | Multi-repo without worktrees | Extra repos are symlinked into a runtime workspace; source repos are not moved or owned. |
+| Hub-owned worktrees | Create a one-repo worktree session from the new-session form and finish it explicitly from the dashboard. |
 | Small surface area | No cloud service, no custom agent runtime, no hidden repo scanning. |
 
 ## Quick start
@@ -43,6 +44,7 @@ Inside the dashboard:
 | `?` | Show help and status legend |
 | `Ctrl+Q` | Return from a managed session to the dashboard |
 | `r` / `R` | Rename or restart the selected session |
+| `w` | Finish a hub-owned worktree session |
 | `Shift+N` | Sync the selected hub title from Pi's `/name` |
 | `g` / `G` | Move a session to a group or rename its group |
 | `K` / `J` | Move the selected session up/down within its group |
@@ -70,7 +72,7 @@ pi-hub config set session-prelude '<shell snippet>'
 pi-hub config unset session-prelude
 ```
 
-`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files and source repos are kept.
+`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form with `Ctrl+T`; the branch name is also the session title. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
 
 ## Documentation
 

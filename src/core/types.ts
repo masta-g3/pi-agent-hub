@@ -32,6 +32,11 @@ export interface ManagedSession {
   resultPath?: string;
   resultSummary?: string;
   activeTheme?: ActiveThemeSnapshot;
+  worktreePath?: string;
+  worktreeRepoRoot?: string;
+  worktreeBranch?: string;
+  worktreeBaseBranch?: string;
+  worktreeOwnedByHub?: boolean;
 }
 
 export interface SessionsRegistry {

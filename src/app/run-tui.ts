@@ -16,24 +16,36 @@ import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
+import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import type { ManagedSession } from "../core/types.js";
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession; historyCwds?: string[] }): NewFormContext {
-  const selectedExtraCwds = input.selected?.additionalCwds ?? [];
-  const registryCwds = input.sessions.flatMap((session) => [session.cwd, ...(session.additionalCwds ?? [])]);
+  const selectedCwd = input.selected ? newSessionCwd(input.selected) : input.cwd;
+  const selectedExtraCwds = input.selected && !isHubWorktree(input.selected) ? input.selected.additionalCwds ?? [] : [];
+  const worktreePaths = new Set(input.sessions.flatMap((session) => isHubWorktree(session) && session.worktreePath ? [session.worktreePath] : []));
+  const registryCwds = input.sessions.flatMap((session) => [newSessionCwd(session), ...(isHubWorktree(session) ? [] : session.additionalCwds ?? [])]);
+  const historyCwds = (input.historyCwds ?? []).filter((cwd) => !worktreePaths.has(cwd));
   const knownCwds = mergeRepoCwds(
-    input.selected ? [input.selected.cwd] : [],
+    [selectedCwd],
     [input.cwd],
     selectedExtraCwds,
     registryCwds,
-    input.historyCwds ?? [],
+    historyCwds,
   );
   return {
-    cwd: input.selected?.cwd ?? input.cwd,
+    cwd: selectedCwd,
     group: input.selected?.group,
     knownCwds,
     ...(selectedExtraCwds.length ? { additionalCwds: selectedExtraCwds } : {}),
   };
+}
+
+function newSessionCwd(session: ManagedSession): string {
+  return isHubWorktree(session) && session.worktreeRepoRoot ? session.worktreeRepoRoot : session.cwd;
+}
+
+function isHubWorktree(session: ManagedSession): boolean {
+  return session.worktreeOwnedByHub === true && Boolean(session.worktreePath);
 }
 
 export interface ThemeRefreshLoopOptions {
@@ -181,10 +193,23 @@ export async function runTui(): Promise<void> {
     closeSubagents(sessionId) {
       return mutateRegistry(async () => { await deleteManagedSubagentSessions(sessionId); });
     },
+    discardWorktree(sessionId) {
+      return mutateRegistry(async () => {
+        const discarded = await discardWorktreeSession(sessionId);
+        controller.removeSession(discarded.id);
+      });
+    },
     createSession(input) {
       return mutateRegistry(async () => {
         const created = await addManagedSession(input);
-        historyCwds = mergeRepoCwds([created.cwd, ...(created.additionalCwds ?? [])], historyCwds);
+        const createdHistory = input.worktree ? [input.cwd] : [created.cwd, ...(created.additionalCwds ?? [])];
+        historyCwds = mergeRepoCwds(createdHistory, historyCwds);
+      });
+    },
+    finishWorktree(sessionId) {
+      return mutateRegistry(async () => {
+        const finished = await finishWorktreeSession(sessionId);
+        controller.removeSession(finished.id);
       });
     },
     forkSession(sourceSessionId, input) {

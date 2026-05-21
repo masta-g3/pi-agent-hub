@@ -9,6 +9,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Multi-repo workspaces: `workspaces/<session-id>`
+- Hub-owned Git worktrees: `worktrees/<repo-name>/<session-id-prefix>-<branch-slug>`
 - Recent repo history: `repo-history.json`
 - Dashboard tmux session: `pi-agent-hub`
 - Managed Pi tmux sessions: `pi-agent-hub-<first-12-session-id-chars>`

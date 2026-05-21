@@ -21,7 +21,7 @@ import {
 } from "./form.js";
 
 export type RepoFieldKey = `repo:${number}`;
-export type FieldKey = RepoFieldKey | "group" | "title";
+export type FieldKey = RepoFieldKey | "branch" | "group" | "title";
 
 export interface Field extends FormField<FieldKey> {
   suggestions?: string[];
@@ -31,6 +31,7 @@ export interface Field extends FormField<FieldKey> {
 export interface NewFormState extends FormState<FieldKey, Field> {
   groupTouched: boolean;
   knownCwds: string[];
+  worktreeEnabled: boolean;
 }
 
 export interface NewFormContext {
@@ -98,11 +99,12 @@ export function createNewForm(ctx: NewFormContext): NewFormState {
   const contextGroup = ctx.group?.trim();
   const group = contextGroup || projectBasename(cwd) || "default";
   const title = ctx.titleGenerator?.() ?? randomSessionTitle();
-  const fields = buildFields([cwd, ...(ctx.additionalCwds ?? [])], group, title, knownCwds);
+  const fields = buildFields([cwd, ...(ctx.additionalCwds ?? [])], group, title, knownCwds, false);
   return {
     ...createForm<FieldKey, Field>(fields, "repo:0"),
     groupTouched: false,
     knownCwds,
+    worktreeEnabled: false,
   };
 }
 
@@ -140,6 +142,18 @@ export function setRepoValue(state: NewFormState, key: RepoFieldKey, cwd: string
   return applyEdit(state, key, cwd);
 }
 
+export function toggleWorktree(state: NewFormState): NewFormState {
+  const repos = repoKeys(state).map((key) => state.fields[key].value);
+  const branch = state.fields.branch?.value ?? "";
+  const title = state.fields.title?.value ?? branch;
+  const nextEnabled = !state.worktreeEnabled;
+  return {
+    ...state,
+    ...createForm<FieldKey, Field>(buildFields(repos, state.fields.group.value, title, state.knownCwds, nextEnabled, branch), nextEnabled ? "branch" : "repo:0"),
+    worktreeEnabled: nextEnabled,
+  };
+}
+
 export interface ValidationResult {
   ok: boolean;
   state: NewFormState;
@@ -158,18 +172,34 @@ export function validateNewForm(state: NewFormState): ValidationResult {
       fields[key] = { ...field, error: undefined, value: trimmed, cursor: Math.min(field.cursor ?? charLength(trimmed), charLength(trimmed)) };
     }
   }
+  if (state.worktreeEnabled) {
+    const extraRepo = repoKeys(state).find((key) => !isPrimaryRepoKey(key) && fields[key].value.trim());
+    if (extraRepo) {
+      fields[extraRepo] = { ...fields[extraRepo], error: "Worktree sessions support one primary repo in v1" };
+      firstInvalid ??= extraRepo;
+    }
+  }
   if (firstInvalid) return { ok: false, state: { ...state, fields, focus: firstInvalid } };
   return { ok: true, state: { ...state, fields } };
 }
 
-export function submission(state: NewFormState): { cwd: string; group: string; title: string; additionalCwds?: string[] } {
+export interface NewFormSubmission {
+  cwd: string;
+  group: string;
+  title: string;
+  additionalCwds?: string[];
+  worktree?: { branch: string };
+}
+
+export function submission(state: NewFormState): NewFormSubmission {
   const repos = repoKeys(state).map((key) => state.fields[key].value.trim());
   const additionalCwds = repos.slice(1).filter(Boolean);
   return {
     cwd: repos[0] ?? "",
     group: state.fields.group.value.trim(),
-    title: state.fields.title.value.trim(),
+    title: state.worktreeEnabled ? state.fields.branch.value.trim() : state.fields.title.value.trim(),
     ...(additionalCwds.length ? { additionalCwds } : {}),
+    ...(state.worktreeEnabled ? { worktree: { branch: state.fields.branch.value.trim() } } : {}),
   };
 }
 
@@ -209,20 +239,22 @@ function afterFieldEdit(previous: NewFormState, next: NewFormState, key: FieldKe
 
 function rebuildRepoFields(state: NewFormState, repoValues: string[], focus: FieldKey): NewFormState {
   const group = state.fields.group.value;
-  const title = state.fields.title.value;
-  const fields = buildFields(repoValues, group, title, state.knownCwds);
+  const branch = state.fields.branch?.value ?? "";
+  const title = state.fields.title?.value ?? branch;
+  const fields = buildFields(repoValues, group, title, state.knownCwds, state.worktreeEnabled, branch);
   return {
     ...state,
     ...createForm<FieldKey, Field>(fields, focus),
   };
 }
 
-function buildFields(repoValues: string[], group: string, title: string, suggestions: string[]): Field[] {
+function buildFields(repoValues: string[], group: string, title: string, suggestions: string[], worktreeEnabled: boolean, branch = ""): Field[] {
   const repos = repoValues.length ? repoValues : [""];
   return [
     ...repos.map((value, index) => repoField(index, value, suggestions)),
+    ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch || title, hint: "new local branch and session name" }] : []),
     { key: "group" as const, label: "group", value: group },
-    { key: "title" as const, label: "title", value: title },
+    ...(worktreeEnabled ? [] : [{ key: "title" as const, label: "title", value: title }]),
   ];
 }
 

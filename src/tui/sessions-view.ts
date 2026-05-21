@@ -2,6 +2,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "
 import { attachPlan, restartConfirmMessage } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
+import { isWorktreeSession } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
 import { buildRenderModel } from "./render-model.js";
 import { renderSessions, renderDialog, renderForm } from "./layout.js";
@@ -25,10 +26,12 @@ import {
   removeFocusedRepo,
   setRepoValue,
   submission,
+  toggleWorktree,
   validateNewForm,
   isRepoKey,
   type NewFormContext,
   type NewFormState,
+  type NewFormSubmission,
   type RepoFieldKey,
 } from "./new-form.js";
 import {
@@ -55,6 +58,7 @@ export interface SessionDialogInput {
   cwd?: string;
   group: string;
   additionalCwds?: string[];
+  worktree?: { branch: string };
 }
 
 export interface SessionsViewActions {
@@ -63,7 +67,9 @@ export interface SessionsViewActions {
   restart?: (sessionId: string) => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
   closeSubagents?: (sessionId: string) => void | Promise<void>;
-  createSession?: (input: SessionDialogInput & { cwd: string }) => unknown;
+  discardWorktree?: (sessionId: string) => void | Promise<void>;
+  finishWorktree?: (sessionId: string) => void | Promise<void>;
+  createSession?: (input: NewFormSubmission) => unknown;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
@@ -87,7 +93,7 @@ export interface SessionsViewActions {
 }
 
 export class SessionsView implements Component {
-  private mode: "normal" | "filter" | "help" | "new" | "repoPicker" | "fork" | "group" | "rename" | "renameDialog" | "groupRename" | "send" | "skills" | "mcp" | "delete" = "normal";
+  private mode: "normal" | "filter" | "help" | "new" | "repoPicker" | "fork" | "group" | "rename" | "renameDialog" | "groupRename" | "send" | "skills" | "mcp" | "delete" | "finish" = "normal";
   private filterDraft: TextInputState = createTextInput();
   private newForm: NewFormState | undefined;
   private repoPicker: RepoPickerState | undefined;
@@ -111,7 +117,9 @@ export class SessionsView implements Component {
   private renameGroupFrom: string | undefined;
   private returnAfterRenameTmuxSession: string | undefined;
   private busy = false;
-  private deleting: false | "session" | "subagents" = false;
+  private deleting: false | "session" | "subagents" | "worktree" = false;
+  private finishTargetId: string | undefined;
+  private finishing = false;
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {}
 
@@ -175,6 +183,11 @@ export class SessionsView implements Component {
       return;
     }
 
+    if (this.mode === "finish") {
+      this.handleFinishInput(data);
+      return;
+    }
+
     if (this.mode === "help") {
       if (data === "q") this.stop();
       else if (matchesKey(data, Key.escape) || data === "?") this.mode = "normal";
@@ -224,6 +237,7 @@ export class SessionsView implements Component {
     else if (data === "p") this.startSendDialog();
     else if (data === "R") this.restartSelected();
     else if (data === "d") this.startDeleteDialog();
+    else if (data === "w") this.startFinishDialog();
     else if (data === "s") this.startPicker("skills");
     else if (data === "m") this.startPicker("mcp");
     else if (data === "i") {
@@ -256,6 +270,7 @@ export class SessionsView implements Component {
     if (this.mode === "renameDialog") return this.renderRenameSessionDialog(width);
     if (this.mode === "groupRename") return this.renderRenameGroupDialog(width);
     if (this.mode === "delete") return this.renderDeleteDialog(width);
+    if (this.mode === "finish") return this.renderFinishDialog(width);
     if (this.pendingRestart && this.message?.startsWith("press R again")) return this.renderRestartDialog(width);
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
@@ -321,6 +336,10 @@ export class SessionsView implements Component {
     if (!selected) return;
     if (selected.kind === "subagent") {
       this.message = "subagent rows cannot be forked";
+      return;
+    }
+    if (isWorktreeSession(selected)) {
+      this.message = "worktree sessions cannot be forked in v1";
       return;
     }
     this.clearPendingRestart();
@@ -588,6 +607,28 @@ export class SessionsView implements Component {
     this.message = undefined;
   }
 
+  private startFinishDialog() {
+    const selected = this.controller.selected();
+    if (!selected) return;
+    if (selected.kind === "subagent") {
+      this.message = "subagent rows cannot be finished";
+      return;
+    }
+    if (!isWorktreeSession(selected) || selected.worktreeOwnedByHub !== true) {
+      this.message = "selected session is not a worktree";
+      return;
+    }
+    if (!this.actions.finishWorktree) {
+      this.message = "finish worktree unavailable";
+      return;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.mode = "finish";
+    this.finishTargetId = selected.id;
+    this.message = undefined;
+  }
+
   private handleDeleteInput(data: string) {
     if (matchesKey(data, Key.escape)) {
       if (this.deleting) return;
@@ -596,17 +637,19 @@ export class SessionsView implements Component {
       this.message = undefined;
       return;
     }
+    const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
     const closeSubagents = data === "s" && this.subagentTargets(this.deleteTargetId).length > 0;
-    if ((data !== "d" && !closeSubagents) || this.deleting) return;
+    const discardWorktree = data === "D" && Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
+    if ((data !== "d" && !closeSubagents && !discardWorktree) || this.deleting) return;
     const id = this.deleteTargetId;
     if (!id) {
       this.mode = "normal";
       return;
     }
-    const action = closeSubagents ? this.actions.closeSubagents : this.actions.deleteSession;
-    const successMessage = closeSubagents ? "subagents closed" : "session deleted";
+    const action = closeSubagents ? this.actions.closeSubagents : discardWorktree ? this.actions.discardWorktree : this.actions.deleteSession;
+    const successMessage = closeSubagents ? "subagents closed" : discardWorktree ? "worktree discarded" : "session deleted";
     try {
-      this.deleting = closeSubagents ? "subagents" : "session";
+      this.deleting = closeSubagents ? "subagents" : discardWorktree ? "worktree" : "session";
       const result = action?.(id);
       if (isPromise(result)) {
         void result.then(() => {
@@ -626,6 +669,45 @@ export class SessionsView implements Component {
       }
     } catch (error) {
       this.deleting = false;
+      this.message = errorMessage(error);
+    }
+  }
+
+  private handleFinishInput(data: string) {
+    if (matchesKey(data, Key.escape)) {
+      if (this.finishing) return;
+      this.mode = "normal";
+      this.finishTargetId = undefined;
+      this.message = undefined;
+      return;
+    }
+    if (data !== "w" || this.finishing) return;
+    const id = this.finishTargetId;
+    if (!id) {
+      this.mode = "normal";
+      return;
+    }
+    try {
+      this.finishing = true;
+      const result = this.actions.finishWorktree?.(id);
+      if (isPromise(result)) {
+        void result.then(() => {
+          this.finishing = false;
+          this.mode = "normal";
+          this.finishTargetId = undefined;
+          this.message = "worktree finished";
+        }).catch((error: unknown) => {
+          this.finishing = false;
+          this.message = errorMessage(error);
+        });
+      } else {
+        this.finishing = false;
+        this.mode = "normal";
+        this.finishTargetId = undefined;
+        this.message = "worktree finished";
+      }
+    } catch (error) {
+      this.finishing = false;
       this.message = errorMessage(error);
     }
   }
@@ -798,6 +880,11 @@ export class SessionsView implements Component {
       this.runAction(() => this.actions.createSession?.(submission(result.state)), "creating session...");
       this.mode = "normal";
       this.newForm = undefined;
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("t"))) {
+      this.newForm = toggleWorktree(this.newForm);
+      this.message = undefined;
       return;
     }
     if (matchesKey(data, Key.alt("a"))) {
@@ -995,22 +1082,32 @@ export class SessionsView implements Component {
   private renderDeleteDialog(width: number): string[] {
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
     const subagents = this.subagentTargets(target?.id);
-    const action = this.deleting === "subagents" ? "closing subagents..." : this.deleting ? "deleting..." : this.message ?? "press d again to delete";
-    const choices = subagents.length && target?.kind !== "subagent"
-      ? [
-        `This session has ${subagents.length} ${subagents.length === 1 ? "subagent" : "subagents"}.`,
-        "",
-        this.deleting || this.message ? action : confirmLine("warning", "s close subagents only", this.theme),
-        this.deleting || this.message ? "" : confirmLine("error", "d delete session + subagents", this.theme),
-      ]
-      : [this.deleting || this.message ? action : confirmLine("error", action, this.theme)];
+    const action = this.deleting === "subagents" ? "closing subagents..." : this.deleting === "worktree" ? "discarding worktree..." : this.deleting ? "deleting..." : this.message ?? "press d again to delete";
+    const worktree = Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
+    const choices = deleteChoices({ action, busy: Boolean(this.deleting || this.message), subagentCount: subagents.length, targetIsSubagent: target?.kind === "subagent", worktree, theme: this.theme });
     return renderDialog("Delete session", [
       target ? `target  ${target.title}` : "target  none",
       "",
-      "Removes this session from pi-agent-hub.",
+      worktree ? "Worktree session: choose whether to only forget it or discard the clean worktree." : "Removes this session from pi-agent-hub.",
       "Pi conversation files are kept.",
+      ...(worktree ? ["d keeps worktree and branch; D deletes the clean worktree and branch; w merges instead."] : []),
       "",
       ...choices.filter(Boolean),
+      "  esc cancel",
+    ], width, this.theme);
+  }
+
+  private renderFinishDialog(width: number): string[] {
+    const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.finishTargetId);
+    const branch = target?.worktreeBranch ?? "unknown";
+    const base = target?.worktreeBaseBranch ?? "unknown";
+    return renderDialog("Finish worktree", [
+      target ? `target   ${target.title}` : "target   none",
+      `branch   ${branch}`,
+      `merge    ${branch} → ${base}`,
+      "cleanup  remove hub-owned worktree, prune, delete merged branch",
+      "",
+      this.finishing || this.message ? (this.message ?? "finishing worktree...") : confirmLine("warning", "press w again to finish", this.theme),
       "  esc cancel",
     ], width, this.theme);
   }
@@ -1029,7 +1126,7 @@ export class SessionsView implements Component {
     if (!this.newForm) return [];
     return renderForm({
       title: "New session",
-      fields: this.newForm.order.map((key) => this.newForm!.fields[key]),
+      fields: newFormFields(this.newForm),
       focus: this.newForm.focus,
       footer: newFormFooter(this.newForm),
       narrowFooter: "tab · alt-a · enter · esc",
@@ -1261,6 +1358,26 @@ function confirmLine(token: "warning" | "error", text: string, theme?: SessionsT
   return theme ? styleToken(theme, token, line) : line;
 }
 
+function deleteChoices(input: { action: string; busy: boolean; subagentCount: number; targetIsSubagent: boolean; worktree: boolean; theme?: SessionsTheme }): string[] {
+  if (input.busy) return [input.action];
+  const choices = [];
+  if (input.subagentCount && !input.targetIsSubagent) {
+    choices.push(`This session has ${input.subagentCount} ${input.subagentCount === 1 ? "subagent" : "subagents"}.`, "", confirmLine("warning", "s close subagents only", input.theme));
+  }
+  if (!input.worktree) {
+    choices.push(confirmLine("error", input.subagentCount && !input.targetIsSubagent ? "d delete session + subagents" : input.action, input.theme));
+    return choices;
+  }
+  choices.push(
+    confirmLine("warning", input.subagentCount && !input.targetIsSubagent ? "d forget dashboard row + subagents only" : "d forget dashboard row only", input.theme),
+    "  keeps worktree and branch",
+    confirmLine("error", "D discard worktree and branch", input.theme),
+    "  requires a clean worktree; does not merge",
+    confirmLine("warning", "w finish instead — merge and remove", input.theme),
+  );
+  return choices;
+}
+
 function setFieldError<K extends string>(state: FormState<K>, key: K, error: string): FormState<K> {
   return {
     ...state,
@@ -1271,6 +1388,25 @@ function setFieldError<K extends string>(state: FormState<K>, key: K, error: str
 
 function isPrintable(data: string): boolean {
   return [...data].length === 1 && data >= " " && data !== "\u007f";
+}
+
+function newFormFields(state: NewFormState) {
+  const fields = [];
+  for (const key of state.order) {
+    if (key === "branch") fields.push(worktreeStatusField(state));
+    if (key === "group" && !state.worktreeEnabled) fields.push(worktreeStatusField(state));
+    fields.push(state.fields[key]);
+  }
+  return fields;
+}
+
+function worktreeStatusField(state: NewFormState) {
+  return {
+    key: "worktree",
+    label: "worktree",
+    value: state.worktreeEnabled ? "on · ctrl-t to disable" : "off · ctrl-t to enable",
+    readonly: true,
+  };
 }
 
 function newFormFooter(state: NewFormState): string {
@@ -1311,7 +1447,7 @@ function renderHelp(width: number): string[] {
     "  K/J reorder in group      q quit                Esc cancel/clear",
     "",
     "Sessions",
-    "  n new     p send     r rename     N sync Pi name     f fork",
+    "  n new     p send     r rename     N sync Pi name     f fork     w finish worktree",
     "  g move group     G rename group     R restart (press R again)     d delete     a mark read",
     "",
     "Project state",

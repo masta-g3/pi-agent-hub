@@ -81,6 +81,26 @@ test("deleteManagedSubagentSessions removes child rows without deleting parent",
   await assert.rejects(readFile(heartbeatPath(child.id, env), "utf8"), /ENOENT/);
 });
 
+test("deleteManagedSession keeps hub-owned worktree directories", async () => {
+  const env = await tempEnv();
+  const worktreePath = join(env.PI_AGENT_HUB_DIR, "worktrees", "api", "session-feature");
+  const session = {
+    ...createSessionRecord({ cwd: worktreePath, title: "api", now: 1 }),
+    worktreePath,
+    worktreeRepoRoot: "/repo/api",
+    worktreeBranch: "feature/api",
+    worktreeBaseBranch: "main",
+    worktreeOwnedByHub: true,
+  };
+  await saveRegistry({ version: 1, sessions: [session] }, registryPath(env));
+  await mkdir(worktreePath, { recursive: true });
+
+  await deleteManagedSession(session.id, { env });
+
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  assert.equal((await lstat(worktreePath)).isDirectory(), true);
+});
+
 test("deleteManagedSession removes owned multi-repo workspace", async () => {
   const env = await tempEnv();
   const workspaceCwd = multiRepoWorkspacePath("multi-session", env);

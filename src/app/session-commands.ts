@@ -5,8 +5,9 @@ import { resolve } from "node:path";
 import { effectiveSessionPrelude } from "../core/config.js";
 import { buildPiArgs } from "../core/pi-process.js";
 import { extensionPath } from "../core/extension-path.js";
-import { effectiveSessionCwd, ensureMultiRepoWorkspace } from "../core/multi-repo.js";
+import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { sessionsStateDir } from "../core/paths.js";
+import { createOwnedWorktree, isWorktreeSession, removeOwnedWorktree } from "../core/worktree.js";
 import { recordRepoUsage } from "../core/repo-history.js";
 import { createSessionRecord, loadRegistry, updateRegistry, upsertSession } from "../core/registry.js";
 import { nextOrderInGroup } from "../core/session-order.js";
@@ -21,6 +22,7 @@ export interface SessionInput {
   title?: string;
   group?: string;
   additionalCwds?: string[];
+  worktree?: { branch: string };
 }
 
 export interface ForkInput {
@@ -43,15 +45,37 @@ export function managedPiCommand(input: { piArgs: string[]; prelude?: string; sh
 }
 
 export async function addManagedSession(input: SessionInput): Promise<ManagedSession> {
-  let record = createSessionRecord({ cwd: resolve(input.cwd), title: input.title, group: input.group, additionalCwds: input.additionalCwds });
-  record = await ensureMultiRepoWorkspace(record);
+  if (input.worktree && input.additionalCwds?.length) throw new Error("Worktree sessions support one primary repo in v1");
+  const originalCwd = resolve(input.cwd);
+  let record = createSessionRecord({ cwd: originalCwd, title: input.title, group: input.group, additionalCwds: input.additionalCwds });
+  if (input.worktree) {
+    const created = await createOwnedWorktree({ cwd: record.cwd, sessionId: record.id, branch: input.worktree.branch });
+    record = {
+      ...record,
+      cwd: created.worktreePath,
+      worktreePath: created.worktreePath,
+      worktreeRepoRoot: created.worktreeRepoRoot,
+      worktreeBranch: created.worktreeBranch,
+      worktreeBaseBranch: created.worktreeBaseBranch,
+      worktreeOwnedByHub: true,
+    };
+  } else {
+    record = await ensureMultiRepoWorkspace(record);
+  }
   await updateRegistry((registry) => {
     record.order = nextOrderInGroup(registry.sessions, record.group);
     return { ...registry, sessions: [...registry.sessions, record] };
   });
-  await startManagedSession(record.id);
   try {
-    await recordRepoUsage([record.cwd, ...(record.additionalCwds ?? [])]);
+    await startManagedSession(record.id);
+  } catch (error) {
+    const rollbackError = await rollbackStartedRecord(record).catch((cleanupError: unknown) => cleanupError);
+    if (rollbackError) throw new Error(`${errorMessage(error)}; rollback failed: ${errorMessage(rollbackError)}`);
+    throw error;
+  }
+  try {
+    const historyCwds = input.worktree ? [originalCwd] : [record.cwd, ...(record.additionalCwds ?? [])];
+    await recordRepoUsage(historyCwds);
   } catch {
     // Repo history is a convenience cache; session creation already succeeded.
   }
@@ -112,6 +136,7 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
   const registry = await loadRegistry();
   const source = findSession(registry, sourceId);
   if (isSubagentSession(source)) throw new Error(`Cannot fork subagent row: ${source.title}`);
+  if (isWorktreeSession(source)) throw new Error("Cannot fork worktree sessions in v1");
   const sourceFile = await savedSessionFile(source);
   let record = createSessionRecord({
     cwd: source.cwd,
@@ -137,6 +162,33 @@ export async function forkManagedSession(sourceId: string, input: ForkInput = {}
   return record;
 }
 
+async function rollbackStartedRecord(record: ManagedSession): Promise<void> {
+  const errors: unknown[] = [];
+  try {
+    if (await sessionExists(record.tmuxSession)) await killSession(record.tmuxSession);
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await updateRegistry((registry) => ({ ...registry, sessions: registry.sessions.filter((session) => session.id !== record.id) }));
+  } catch (error) {
+    errors.push(error);
+  }
+  try {
+    await removeMultiRepoWorkspace(record);
+  } catch (error) {
+    errors.push(error);
+  }
+  if (isWorktreeSession(record) && record.worktreeOwnedByHub) {
+    try {
+      await removeOwnedWorktree(record);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new Error(errors.map(errorMessage).join("; "));
+}
+
 async function sessionTheme(session: ManagedSession) {
   return (await loadActiveTheme(session.activeTheme, { cwd: session.cwd })) ?? loadSessionsTheme({ cwd: session.cwd });
 }
@@ -157,4 +209,8 @@ function findSession(registry: Parameters<typeof resolveSession>[0], id: string 
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

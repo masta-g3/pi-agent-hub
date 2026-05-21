@@ -49,7 +49,7 @@ export function resolveSession(registry: SessionsRegistry, id: string | undefine
   return session;
 }
 
-async function removeSessions(registry: SessionsRegistry, sessions: ManagedSession[], path: string, env: NodeJS.ProcessEnv): Promise<void> {
+export async function removeSessions(registry: SessionsRegistry, sessions: ManagedSession[], path: string, env: NodeJS.ProcessEnv): Promise<void> {
   const ids = new Set(sessions.map((session) => session.id));
   for (const item of sessions) if (await sessionExists(item.tmuxSession)) await killSession(item.tmuxSession);
   for (const item of sessions) await removeMultiRepoWorkspace(item, env);
