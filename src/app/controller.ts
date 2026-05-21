@@ -1,6 +1,7 @@
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, saveRegistry, updateRegistry } from "../core/registry.js";
 import { assignGroupOrder, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
+import { readPiSessionName } from "../core/pi-session-name.js";
 import { applyComputedStatus, computeStatus, markAcknowledged, readHeartbeat } from "../core/status.js";
 import { capturePane, sessionExists } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession } from "../core/types.js";
@@ -11,6 +12,11 @@ export interface SessionsSnapshot {
   preview: string;
   filter?: string;
 }
+
+export type SyncPiNameResult =
+  | { status: "synced"; name: string }
+  | { status: "unavailable" }
+  | { status: "unnamed" };
 
 export class SessionsController {
   private registry: SessionsRegistry;
@@ -121,6 +127,25 @@ export class SessionsController {
       sessions: this.registry.sessions.map((session) => session.id === id ? { ...session, title: trimmed, updatedAt: now } : session),
     };
     await saveRegistry(this.registry);
+  }
+
+  async syncPiName(id: string, now = Date.now()): Promise<SyncPiNameResult> {
+    const selected = this.registry.sessions.find((session) => session.id === id);
+    if (!selected?.sessionFile) return { status: "unavailable" };
+    let name: string | undefined;
+    try {
+      name = await readPiSessionName(selected.sessionFile);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "unavailable" };
+      throw error;
+    }
+    if (!name) return { status: "unnamed" };
+    this.registry = {
+      ...this.registry,
+      sessions: this.registry.sessions.map((session) => session.id === id ? { ...session, title: name, updatedAt: now } : session),
+    };
+    await saveRegistry(this.registry);
+    return { status: "synced", name };
   }
 
   async renameGroup(from: string, to: string): Promise<void> {

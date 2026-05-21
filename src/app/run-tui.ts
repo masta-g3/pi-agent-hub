@@ -196,6 +196,10 @@ export async function runTui(): Promise<void> {
     renameSession(sessionId, title) {
       return mutateRegistry(() => controller.renameSession(sessionId, title));
     },
+    syncPiName(sessionId) {
+      let result: Awaited<ReturnType<SessionsController["syncPiName"]>> | undefined;
+      return mutateRegistry(async () => { result = await controller.syncPiName(sessionId); }).then(() => result ?? { status: "unavailable" });
+    },
     renameGroup(from, to) {
       return mutateRegistry(() => controller.renameGroup(from, to));
     },

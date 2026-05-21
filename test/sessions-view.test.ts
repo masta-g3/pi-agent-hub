@@ -127,6 +127,33 @@ test("J K and shift arrows reorder selected session", () => {
   assert.deepEqual(deltas, [1, -1, 1, -1]);
 });
 
+test("shift N syncs selected session title from Pi name", async () => {
+  const synced: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    syncPiName: (sessionId) => {
+      synced.push(sessionId);
+      return Promise.resolve({ status: "synced", name: "Pi Name" });
+    },
+  });
+
+  view.handleInput("N");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(synced, ["api"]);
+  assert.match(stripAnsi(view.render(100).join("\n")), /renamed from Pi name: Pi Name/);
+});
+
+test("shift N reports when the selected session has no Pi name", async () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    syncPiName: () => Promise.resolve({ status: "unnamed" }),
+  });
+
+  view.handleInput("N");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(stripAnsi(view.render(100).join("\n")), /no Pi name set/);
+});
+
 test("reorder is disabled while filter is active", () => {
   const deltas: number[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });

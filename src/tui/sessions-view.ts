@@ -1,6 +1,6 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan, restartConfirmMessage } from "../app/actions.js";
-import type { SessionsController } from "../app/controller.js";
+import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import type { ManagedSession } from "../core/types.js";
 import { buildRenderModel } from "./render-model.js";
@@ -67,6 +67,7 @@ export interface SessionsViewActions {
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
+  syncPiName?: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup?: (from: string, to: string) => unknown;
   reorderSelected?: (delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
@@ -204,6 +205,7 @@ export class SessionsView implements Component {
 
     if (data === "J" || matchesKey(data, Key.shift("down"))) this.reorderSelected(1);
     else if (data === "K" || matchesKey(data, Key.shift("up"))) this.reorderSelected(-1);
+    else if (data === "N") this.syncPiNameSelected();
     else if (matchesKey(data, Key.down) || data === "j") {
       this.clearPendingRestart();
       this.controller.move(1);
@@ -524,6 +526,37 @@ export class SessionsView implements Component {
     }
     const reorder = this.actions.reorderSelected;
     this.runAction(() => reorder ? reorder(delta) : this.controller.reorderSelected(delta), "reordering session...");
+  }
+
+  private syncPiNameSelected() {
+    const selected = this.controller.selected();
+    if (!selected) return;
+    if (selected.kind === "subagent") {
+      this.message = "subagent rows cannot sync Pi names";
+      return;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    const sync = this.actions.syncPiName ?? ((sessionId: string) => this.controller.syncPiName(sessionId));
+    try {
+      const result = sync(selected.id);
+      const apply = (syncResult: SyncPiNameResult) => { this.message = syncPiNameMessage(syncResult); };
+      if (isPromise(result)) {
+        this.busy = true;
+        this.message = "syncing Pi name...";
+        void result.then((syncResult) => {
+          this.busy = false;
+          apply(syncResult);
+        }).catch((error: unknown) => {
+          this.busy = false;
+          this.message = errorMessage(error);
+        });
+      } else {
+        apply(result);
+      }
+    } catch (error) {
+      this.message = errorMessage(error);
+    }
   }
 
   private restartSelected() {
@@ -1261,6 +1294,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function syncPiNameMessage(result: SyncPiNameResult): string {
+  switch (result.status) {
+    case "synced": return `renamed from Pi name: ${result.name}`;
+    case "unavailable": return "Pi session file not available yet";
+    case "unnamed": return "no Pi name set";
+  }
+}
+
 function renderHelp(width: number): string[] {
   const lines = [
     "pi agent hub help",
@@ -1270,8 +1311,8 @@ function renderHelp(width: number): string[] {
     "  K/J reorder in group      q quit                Esc cancel/clear",
     "",
     "Sessions",
-    "  n new     p send     r rename     f fork     g move group     G rename group",
-    "  R restart (press R again)     d delete     a mark read",
+    "  n new     p send     r rename     N sync Pi name     f fork",
+    "  g move group     G rename group     R restart (press R again)     d delete     a mark read",
     "",
     "Project state",
     "  s skills picker     m MCP picker",

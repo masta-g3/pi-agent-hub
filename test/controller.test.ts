@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
@@ -171,5 +171,36 @@ test("reorderSelected ignores subagent rows", async () => {
     await controller.reorderSelected(1);
 
     assert.deepEqual(controller.snapshot().registry.sessions.filter((item) => item.kind !== "subagent").map((item) => [item.id, item.order]), [["parent", 0], ["sibling", 1]]);
+  });
+});
+
+test("syncPiName renames a session from latest Pi session_info", async () => {
+  await withTempSessionsDir(async () => {
+    const file = join(process.env.PI_AGENT_HUB_DIR!, "session.jsonl");
+    await writeFile(file, `${JSON.stringify({ type: "session_info", name: " Old " })}\n${JSON.stringify({ type: "session_info", name: "Pi Name" })}\n`, "utf8");
+    const controller = new SessionsController({ version: 1, sessions: [session("idle", { id: "api", title: "hub", sessionFile: file })] });
+
+    const result = await controller.syncPiName("api");
+
+    assert.deepEqual(result, { status: "synced", name: "Pi Name" });
+    assert.equal(controller.snapshot().registry.sessions[0]?.title, "Pi Name");
+  });
+});
+
+test("syncPiName reports unavailable and unnamed sessions without renaming", async () => {
+  await withTempSessionsDir(async () => {
+    const file = join(process.env.PI_AGENT_HUB_DIR!, "session.jsonl");
+    await writeFile(file, `${JSON.stringify({ type: "session_info", name: "" })}\n`, "utf8");
+    const controller = new SessionsController({
+      version: 1,
+      sessions: [
+        session("idle", { id: "missing", title: "missing" }),
+        session("idle", { id: "unnamed", title: "unnamed", sessionFile: file }),
+      ],
+    });
+
+    assert.deepEqual(await controller.syncPiName("missing"), { status: "unavailable" });
+    assert.deepEqual(await controller.syncPiName("unnamed"), { status: "unnamed" });
+    assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.title), ["missing", "unnamed"]);
   });
 });

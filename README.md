@@ -43,6 +43,7 @@ Inside the dashboard:
 | `?` | Show help and status legend |
 | `Ctrl+Q` | Return from a managed session to the dashboard |
 | `r` / `R` | Rename or restart the selected session |
+| `Shift+N` | Sync the selected hub title from Pi's `/name` |
 | `g` / `G` | Move a session to a group or rename its group |
 | `K` / `J` | Move the selected session up/down within its group |
 | `s` / `m` | Pick project skills or MCP servers |

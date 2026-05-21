@@ -43,6 +43,7 @@ Ctrl+Q returns to the dashboard
 | `Ctrl+Q` | Return from a managed session to the dashboard |
 | `r` | Rename the selected session in the dashboard footer |
 | `R` | Restart the selected session |
+| `Shift+N` | Sync the selected hub title from Pi's `/name` |
 | `g` | Move the selected session to a group |
 | `G` | Rename the selected session's group |
 | `K` / `J` | Move the selected session up/down within its group |
@@ -122,6 +123,7 @@ Groups are simple labels on sessions.
 | `p` | Send a one-line message to the selected live session without opening it |
 | `r` | Rename the selected session in the dashboard footer |
 | `R` | Restart the selected session |
+| `Shift+N` | Sync the selected hub title from Pi's `/name` |
 
 Reordering is disabled while a filter is active.
 
