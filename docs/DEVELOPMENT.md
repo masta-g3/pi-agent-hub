@@ -47,6 +47,24 @@ The package declares its extension in `package.json`:
 }
 ```
 
+## Release/versioning
+
+Use lightweight manual SemVer for npm and GitHub releases:
+
+- `patch` for fixes and polish, for example `1.0.4` → `1.0.5`
+- `minor` for new user-facing features, for example `1.0.4` → `1.1.0`
+- `major` for breaking behavior or config changes, for example `1.0.4` → `2.0.0`
+
+Before publishing, move `CHANGELOG.md#Unreleased` entries into a dated version section. Then release with:
+
+```bash
+npm version patch   # or minor/major
+npm publish
+git push --follow-tags
+```
+
+Create the matching GitHub Release from the generated `vX.Y.Z` tag and copy the changelog entry into the release notes.
+
 ## Package smoke before publishing
 
 ```bash

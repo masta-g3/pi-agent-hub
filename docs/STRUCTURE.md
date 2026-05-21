@@ -15,10 +15,12 @@ src/
   skills/                project skill attach/detach and pool discovery
   tui/                   pure render model, terminal layout, shared text/form primitives, picker, and theme helpers
 test/                    Node test-runner tests compiled by TypeScript
+package.json             npm package metadata, SemVer version, CLI bins, and Pi extension declaration
+CHANGELOG.md             npm/GitHub release notes, maintained per published version
 docs/STRUCTURE.md        this developer onboarding guide
 docs/FEATURES.md         user-facing feature map and dashboard workflow
 docs/CONFIG.md           runtime state, global config, themes, Skills/MCP setup
-docs/DEVELOPMENT.md      local setup, tests, package checks, smoke testing
+docs/DEVELOPMENT.md      local setup, tests, package checks, smoke testing, release workflow
 ```
 
 ## Runtime state
