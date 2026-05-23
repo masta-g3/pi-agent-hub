@@ -43,7 +43,7 @@ Ctrl+Q returns to the dashboard
 | `i` | Toggle compact/full selected-session info |
 | `Ctrl+Q` | Return from a managed session to the dashboard |
 | `r` | Rename the selected session in the dashboard footer |
-| `R` | Restart the selected session |
+| `R` | Open restart confirmation: `R` resumes current conversation, `N` starts a new one |
 | `w` | Finish the selected hub-owned worktree session |
 | `Shift+N` | Sync the selected hub title from Pi's `/name` |
 | `g` | Move the selected session to a group |
@@ -127,7 +127,7 @@ Groups are simple labels on sessions.
 | `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `r` | Rename the selected session in the dashboard footer |
-| `R` | Restart the selected session |
+| `R` | Open restart confirmation: `R` resumes current conversation, `N` starts a new one |
 | `w` | Finish the selected hub-owned worktree session |
 | `Shift+N` | Sync the selected hub title from Pi's `/name` |
 
@@ -142,7 +142,7 @@ Skills and MCP state attach to the selected session's primary repo:
 <project>/.pi/sessions/mcp.json
 ```
 
-The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. It also shows the active Skill pool path; press `Alt+E` in the picker to edit that path and reload the available Skills. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
+The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. It also shows the active Skill pool path; press `Alt+E` in the picker to edit that path and reload the available Skills. In Skills/MCP pickers, `↑`/`↓` moves within the current column, `Tab` switches between Enabled and Available, and `Space` toggles the selected item. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
 
 For multi-repo sessions, extra repos are available in the runtime workspace, but Skills/MCP still belong to the primary repo. Restart the session after changing Skills or MCP so Pi reloads tools.
 

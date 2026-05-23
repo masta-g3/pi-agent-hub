@@ -1454,17 +1454,23 @@ test("setTheme updates rendered ANSI without changing visible width", () => {
   for (const line of after) assert.ok(stripAnsi(line).length <= 80, stripAnsi(line));
 });
 
-test("restart requires double uppercase R press", () => {
+test("restart requires confirmation and supports new conversation", () => {
   const restarted: string[] = [];
+  const fresh: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => now });
+  const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), restartNew: (id) => fresh.push(id), now: () => now });
   view.handleInput("R");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Restart session/);
-  assert.match(rendered, /▶ press R again to restart api/);
+  assert.match(rendered, /▶ press R to restart api, N for new conversation/);
   assert.deepEqual(restarted, []);
   now = 200;
+  view.handleInput("N");
+  assert.deepEqual(fresh, ["api"]);
+  assert.deepEqual(restarted, []);
+
+  view.handleInput("R");
   view.handleInput("R");
   assert.deepEqual(restarted, ["api"]);
 });
@@ -1475,7 +1481,7 @@ test("stale restart confirmation clears on render", () => {
   const view = new SessionsView(controller, () => {}, { now: () => now });
   view.handleInput("R");
   now = 2_200;
-  assert.doesNotMatch(view.render(100).join("\n"), /press R again/);
+  assert.doesNotMatch(view.render(100).join("\n"), /Restart session/);
 });
 
 test("escape cancels pending restart", () => {

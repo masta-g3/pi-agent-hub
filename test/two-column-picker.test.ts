@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { movePickerSelection, renderTwoColumnPicker, togglePickerItem } from "../src/tui/two-column-picker.js";
+import { movePickerSelection, renderTwoColumnPicker, switchPickerColumn, togglePickerItem } from "../src/tui/two-column-picker.js";
 import { createTextInput } from "../src/tui/text-input.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 
@@ -12,6 +12,26 @@ test("picker toggles selected item", () => {
 test("picker moves selection with wraparound", () => {
   const state = { title: "Skills", selected: 0, items: [{ name: "a", enabled: false }, { name: "b", enabled: false }] };
   assert.equal(movePickerSelection(state, -1).selected, 1);
+});
+
+test("picker switches between enabled and available columns", () => {
+  let state = {
+    title: "Skills",
+    selected: 0,
+    items: [
+      { name: "available-a", enabled: false },
+      { name: "enabled-a", enabled: true },
+      { name: "enabled-b", enabled: true },
+      { name: "available-b", enabled: false },
+    ],
+  };
+
+  state = switchPickerColumn(state);
+  assert.equal(state.selected, 1);
+  state = movePickerSelection(state, 1);
+  assert.equal(state.selected, 2);
+  state = switchPickerColumn(state);
+  assert.equal(state.selected, 3);
 });
 
 test("picker renders enabled and available columns", () => {

@@ -30,11 +30,25 @@ export function togglePickerItem(state: PickerState): PickerState {
 }
 
 export function movePickerSelection(state: PickerState, delta: number): PickerState {
-  const indexes = visibleIndexes(state);
+  const selected = selectedIndex(state);
+  const selectedItem = selected === undefined ? undefined : state.items[selected];
+  const indexes = selectedItem ? visibleColumnIndexes(state, selectedItem.enabled) : visibleIndexes(state);
   if (!indexes.length) return state;
-  const current = selectedIndex(state) ?? indexes[0] ?? 0;
+  const current = selected !== undefined && indexes.includes(selected) ? selected : indexes[0] ?? 0;
   const visiblePosition = Math.max(0, indexes.indexOf(current));
   return { ...state, selected: indexes[(visiblePosition + delta + indexes.length) % indexes.length] ?? current };
+}
+
+export function switchPickerColumn(state: PickerState): PickerState {
+  const selected = selectedIndex(state);
+  if (selected === undefined) return state;
+  const selectedItem = state.items[selected];
+  if (!selectedItem) return state;
+  const source = visibleColumnIndexes(state, selectedItem.enabled);
+  const target = visibleColumnIndexes(state, !selectedItem.enabled);
+  if (!target.length) return state;
+  const row = Math.max(0, source.indexOf(selected));
+  return { ...state, selected: target[Math.min(row, target.length - 1)] ?? selected };
 }
 
 export function renderTwoColumnPicker(state: PickerState, width: number, theme?: SessionsTheme): string[] {
@@ -96,8 +110,8 @@ function renderInput(input: TextInputState): string {
 
 function pickerFooter(state: PickerState): string {
   if (state.poolInput) return "←→ edit path • enter save/reload • esc cancel path edit";
-  if (state.poolDir !== undefined) return "type search • ←→ edit • space toggle • Alt+E edit pool • enter apply/restart • esc cancel";
-  return "type search • ←→ edit • space toggle • enter apply/restart • esc cancel";
+  if (state.poolDir !== undefined) return "search/←→ • ↑↓ • tab column • space • Alt+E edit pool • enter apply • esc";
+  return "search/←→ • ↑↓ • tab column • space toggle • enter apply • esc";
 }
 
 function visibleWidth(value: string): number {
@@ -125,10 +139,14 @@ function visibleItems(state: PickerState): PickerItem[] {
 }
 
 function visibleIndexes(state: PickerState): number[] {
+  return [...visibleColumnIndexes(state, true), ...visibleColumnIndexes(state, false)];
+}
+
+function visibleColumnIndexes(state: PickerState, enabled: boolean): number[] {
   const filter = state.filter?.trim().toLowerCase();
   return state.items
     .map((item, index) => ({ item, index }))
-    .filter(({ item }) => !filter || item.name.toLowerCase().includes(filter))
+    .filter(({ item }) => item.enabled === enabled && (!filter || item.name.toLowerCase().includes(filter)))
     .map(({ index }) => index);
 }
 

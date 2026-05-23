@@ -1,12 +1,12 @@
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { SESSION_ID_ENV, STATE_ENV } from "../core/names.js";
 import { resolve } from "node:path";
 import { effectiveSessionPrelude } from "../core/config.js";
 import { buildPiArgs } from "../core/pi-process.js";
 import { extensionPath } from "../core/extension-path.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
-import { sessionsStateDir } from "../core/paths.js";
+import { heartbeatPath, sessionsStateDir } from "../core/paths.js";
 import { createOwnedWorktree, isWorktreeSession, removeOwnedWorktree } from "../core/worktree.js";
 import { recordRepoUsage } from "../core/repo-history.js";
 import { createSessionRecord, loadRegistry, updateRegistry, upsertSession } from "../core/registry.js";
@@ -119,6 +119,28 @@ export async function restartManagedSession(id: string): Promise<void> {
   await updateRegistry((registry) => {
     const session = findSession(registry, id);
     return { ...registry, sessions: registry.sessions.map((item) => item.id === session.id ? { ...item, status: "starting", updatedAt: Date.now() } : item) };
+  });
+  await startManagedSession(id);
+}
+
+export async function restartManagedSessionFresh(id: string): Promise<void> {
+  await stopManagedSession(id);
+  await rm(heartbeatPath(id), { force: true });
+  await updateRegistry((registry) => {
+    const session = findSession(registry, id);
+    return {
+      ...registry,
+      sessions: registry.sessions.map((item) => item.id === session.id ? {
+        ...item,
+        status: "starting",
+        sessionFile: undefined,
+        piSessionId: undefined,
+        acknowledgedAt: undefined,
+        error: undefined,
+        activeTheme: undefined,
+        updatedAt: Date.now(),
+      } : item),
+    };
   });
   await startManagedSession(id);
 }

@@ -7,7 +7,7 @@ import type { ManagedSession } from "../core/types.js";
 import { buildRenderModel } from "./render-model.js";
 import { renderSessions, renderDialog, renderForm } from "./layout.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
-import { movePickerSelection, renderTwoColumnPicker, togglePickerItem, type PickerState, type PickerItem } from "./two-column-picker.js";
+import { movePickerSelection, renderTwoColumnPicker, switchPickerColumn, togglePickerItem, type PickerState, type PickerItem } from "./two-column-picker.js";
 import {
   addRepo,
   appendChar,
@@ -65,6 +65,7 @@ export interface SessionsViewActions {
   attachOutsideTmux?: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
+  restartNew?: (sessionId: string) => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
   closeSubagents?: (sessionId: string) => void | Promise<void>;
   discardWorktree?: (sessionId: string) => void | Promise<void>;
@@ -211,7 +212,8 @@ export class SessionsView implements Component {
       const now = this.actions.now?.() ?? Date.now();
       if (this.pendingRestart.expiresAt <= now) this.clearPendingRestart();
       else {
-        if (data === "R") this.restartSelected();
+        if (data === "R") this.confirmRestartSelected(false);
+        else if (data === "N") this.confirmRestartSelected(true);
         return;
       }
     }
@@ -271,7 +273,7 @@ export class SessionsView implements Component {
     if (this.mode === "groupRename") return this.renderRenameGroupDialog(width);
     if (this.mode === "delete") return this.renderDeleteDialog(width);
     if (this.mode === "finish") return this.renderFinishDialog(width);
-    if (this.pendingRestart && this.message?.startsWith("press R again")) return this.renderRestartDialog(width);
+    if (this.pendingRestart) return this.renderRestartDialog(width);
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
     const lines = renderSessions(buildRenderModel({
@@ -588,13 +590,27 @@ export class SessionsView implements Component {
     }
     const now = this.actions.now?.() ?? Date.now();
     if (this.pendingRestart?.sessionId === selected.id && this.pendingRestart.expiresAt > now) {
-      this.pendingRestart = undefined;
-      this.message = undefined;
-      this.runAction(() => this.actions.restart?.(selected.id), "restarting session...");
+      this.confirmRestartSelected(false);
       return;
     }
     this.pendingRestart = { sessionId: selected.id, expiresAt: now + 2_000 };
     this.message = restartConfirmMessage(selected.title);
+  }
+
+  private confirmRestartSelected(newConversation: boolean) {
+    const selected = this.controller.selected();
+    if (!selected || this.pendingRestart?.sessionId !== selected.id) return;
+    this.pendingRestart = undefined;
+    this.message = undefined;
+    if (newConversation) {
+      if (!this.actions.restartNew) {
+        this.message = "new conversation restart unavailable";
+        return;
+      }
+      this.runAction(() => this.actions.restartNew?.(selected.id), "restarting new conversation...");
+      return;
+    }
+    this.runAction(() => this.actions.restart?.(selected.id), "restarting session...");
   }
 
   private startDeleteDialog() {
@@ -713,8 +729,9 @@ export class SessionsView implements Component {
   }
 
   private clearPendingRestart() {
+    const hadPendingRestart = Boolean(this.pendingRestart);
     this.pendingRestart = undefined;
-    if (this.message?.startsWith("press R again")) this.message = undefined;
+    if (hadPendingRestart && this.message?.startsWith("press R")) this.message = undefined;
   }
 
   private flashMessage(text: string, ttlMs = 1_500): void {
@@ -754,6 +771,7 @@ export class SessionsView implements Component {
       return;
     }
     if (this.mode === "skills" && matchesKey(data, Key.alt("e"))) this.picker = { ...this.picker, poolInput: createTextInput(this.picker.poolDir ?? ""), poolError: undefined, poolMessage: undefined };
+    else if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) this.picker = switchPickerColumn(this.picker);
     else if (matchesKey(data, Key.down)) this.picker = movePickerSelection(this.picker, 1);
     else if (matchesKey(data, Key.up)) this.picker = movePickerSelection(this.picker, -1);
     else if (matchesKey(data, Key.space) || data === " ") this.picker = togglePickerItem(this.picker);
@@ -1074,7 +1092,7 @@ export class SessionsView implements Component {
     return renderDialog("Restart session", [
       selected ? `target  ${selected.title}` : "target  none",
       "",
-      confirmLine("warning", this.message ?? "press R again to confirm", this.theme),
+      confirmLine("warning", this.message ?? "press R to restart, N for new conversation", this.theme),
       "  esc cancel",
     ], width, this.theme);
   }
@@ -1448,7 +1466,7 @@ function renderHelp(width: number): string[] {
     "",
     "Sessions",
     "  n new     p send     r rename     N sync Pi name     f fork     w finish worktree",
-    "  g move group     G rename group     R restart (press R again)     d delete     a mark read",
+    "  g move group     G rename group     R restart (R resume, N new)     d delete     a mark read",
     "",
     "Project state",
     "  s skills picker     m MCP picker",

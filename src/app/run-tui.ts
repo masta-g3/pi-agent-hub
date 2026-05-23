@@ -15,7 +15,7 @@ import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreS
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
-import { addManagedSession, forkManagedSession, restartManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
+import { addManagedSession, forkManagedSession, restartManagedSession, restartManagedSessionFresh, syncManagedSessionStatusBars } from "./session-commands.js";
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import type { ManagedSession } from "../core/types.js";
 
@@ -183,6 +183,9 @@ export async function runTui(): Promise<void> {
     },
     restart(sessionId) {
       return mutateRegistry(() => restartManagedSession(sessionId));
+    },
+    restartNew(sessionId) {
+      return mutateRegistry(() => restartManagedSessionFresh(sessionId));
     },
     deleteSession(sessionId) {
       return mutateRegistry(async () => {
