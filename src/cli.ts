@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import { constants } from "node:fs";
 import { access, mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { cliTuiCommand } from "./core/cli-command.js";
 import { configPath, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, loadSessionsConfig, setSessionPrelude, unsetSessionPrelude } from "./core/config.js";
 import { extensionPath } from "./core/extension-path.js";
+import { formatCliInstallDoctor, formatCliInstallWarning, inspectCliInstall, shouldWarnForCommand } from "./core/install-diagnostics.js";
 import { CLI_COMMAND } from "./core/names.js";
 import { registryPath, sessionsStateDir } from "./core/paths.js";
 import { loadRegistry } from "./core/registry.js";
@@ -19,9 +22,11 @@ const args = process.argv.slice(3);
 async function main() {
   switch (command) {
     case "dashboard":
+      await warnIfStaleCli(command);
       await dashboard();
       return;
     case "tui":
+      await warnIfStaleCli(command);
       await runTui();
       return;
     case "help":
@@ -89,7 +94,7 @@ async function dashboard() {
   if (!(await hasTmux())) throw new Error(`tmux is required for the dashboard session; use \`${CLI_COMMAND} tui\` to run directly`);
   await openDashboard({
     cwd: process.cwd(),
-    command: `${CLI_COMMAND} tui`,
+    command: cliTuiCommand({ nodePath: process.execPath, cliPath: currentCliFile() }),
     insideTmux: Boolean(process.env.TMUX),
     env: dashboardEnv(),
   });
@@ -190,12 +195,23 @@ async function doctor() {
   console.log(`mcp:        ${await effectiveMcpCatalogPath()}`);
   console.log(`writable:   ok`);
   console.log(`tmux:       ${(await hasTmux()) ? "ok" : "missing"}`);
+  for (const line of formatCliInstallDoctor(await inspectCliInstall({ currentFile: currentCliFile() }))) console.log(line);
   const returnKey = await inspectSwitchReturnBinding();
   if (returnKey.active) {
     const state = returnKey.stale ? "stale" : "active";
     console.log(`return key: ${state} ${returnKey.returnKey} ${returnKey.targetSession} -> ${returnKey.controlSession}`);
   }
   console.log(`extension:  ${ext}`);
+}
+
+async function warnIfStaleCli(activeCommand: string) {
+  if (!shouldWarnForCommand(activeCommand)) return;
+  const warning = formatCliInstallWarning(await inspectCliInstall({ currentFile: currentCliFile() }));
+  if (warning) process.stderr.write(`${warning}\n`);
+}
+
+function currentCliFile(): string {
+  return fileURLToPath(import.meta.url);
 }
 
 function flag(argv: string[], name: string): string | undefined {

@@ -28,7 +28,7 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 Requirements: Pi and tmux.
 
 ```bash
-pi install npm:pi-agent-hub
+npm install -g pi-agent-hub
 pi-hub doctor
 pi-hub
 ```
@@ -57,7 +57,29 @@ Inside the dashboard:
 
 ## Install
 
-The npm package is still `pi-agent-hub`; it exposes both commands, with `pi-hub` as the shorter daily-use command and `pi-agent-hub` kept for compatibility.
+The npm package is `pi-agent-hub`; it exposes both commands, with `pi-hub` as the shorter daily-use command and `pi-agent-hub` kept for compatibility. Most users install the CLI with npm:
+
+```bash
+npm install -g pi-agent-hub
+```
+
+If you also install or update the package through Pi (`pi install npm:pi-agent-hub`), Pi updates its package copy under `~/.pi/agent/npm/node_modules/pi-agent-hub`. If an older global npm `pi-hub` appears earlier on `PATH`, your shell can still run the stale dashboard. Run `pi-hub doctor` after install/update and follow any `cli package` warning.
+
+POSIX shell fix:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf ~/.pi/agent/npm/node_modules/.bin/pi-hub ~/.local/bin/pi-hub
+# ensure ~/.local/bin appears before the global npm bin in PATH
+```
+
+Windows PowerShell fix:
+
+```powershell
+$PiBin = "$env:USERPROFILE\.pi\agent\npm\node_modules\.bin"
+# Add $PiBin before the global npm prefix in your user PATH, then reopen the terminal.
+# Or run: & "$PiBin\pi-hub.cmd" doctor
+```
 
 For local development, see [Development](docs/DEVELOPMENT.md).
 

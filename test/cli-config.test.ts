@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,6 +35,7 @@ test("pi-hub config manages session-prelude", async () => {
   const doctor = await runCli(["doctor"], env);
   assert.equal(doctor.code, 0, doctor.stderr);
   assert.match(doctor.stdout, /session prelude: configured/);
+  assert.match(doctor.stdout, /cli package: pi-package-missing/);
   assert.doesNotMatch(doctor.stdout, /echo setup/);
 
   const unset = await runCli(["config", "unset", "session-prelude"], env);
@@ -44,4 +45,21 @@ test("pi-hub config manages session-prelude", async () => {
   const after = await runCli(["doctor"], env);
   assert.equal(after.code, 0, after.stderr);
   assert.match(after.stdout, /session prelude: none/);
+});
+
+
+test("pi-hub doctor reports Pi package CLI drift", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-cli-install-"));
+  const agent = join(root, "agent");
+  const state = join(root, "state");
+  const piPackage = join(agent, "npm", "node_modules", "pi-agent-hub");
+  await mkdir(piPackage, { recursive: true });
+  await writeFile(join(piPackage, "package.json"), JSON.stringify({ name: "pi-agent-hub", version: "999.0.0" }));
+
+  const doctor = await runCli(["doctor"], { PI_CODING_AGENT_DIR: agent, PI_AGENT_HUB_DIR: state });
+
+  assert.equal(doctor.code, 0, doctor.stderr);
+  assert.match(doctor.stdout, /cli package: version-mismatch/);
+  assert.match(doctor.stdout, /pi package: .*999\.0\.0/);
+  assert.match(doctor.stdout, /cli warning: PATH may resolve a stale global dashboard CLI/);
 });

@@ -15,7 +15,7 @@ pi-hub doctor
 pi-hub
 ```
 
-- `npm link` provides the `pi-hub` and `pi-agent-hub` shell commands.
+- `npm link` provides the `pi-hub` and `pi-agent-hub` shell commands for local development only; release users normally install the CLI from npm, with Pi-package PATH/shim diagnostics documented in `README.md`.
 - `pi install "$PWD"` lets Pi discover the package extension through `package.json#pi.extensions`.
 - Re-run `npm run build` after pulling updates.
 
