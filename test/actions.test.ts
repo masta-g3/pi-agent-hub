@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachPlan, restartConfirmMessage } from "../src/app/actions.js";
+import { attachPlan } from "../src/app/actions.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 const session: ManagedSession = {
@@ -25,8 +25,4 @@ test("attach inside tmux gives switch-client instruction", () => {
     command: "tmux switch-client -t pi-agent-hub-s1",
     message: "inside tmux: tmux switch-client -t pi-agent-hub-s1",
   });
-});
-
-test("restart confirmation copy is explicit", () => {
-  assert.equal(restartConfirmMessage("api"), "press R to restart api, N for new conversation");
 });

@@ -98,6 +98,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     } satisfies RenderGroup));
 
   const compactFooter = input.width < 80;
+  const selected = mapped.find((session) => session.selected);
+  const worktreeFooter = selected?.worktreeOwnedByHub ? " · w Finish WT" : "";
   return {
     width: input.width,
     empty: input.sessions.length === 0,
@@ -111,8 +113,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       statusCounts: countRenderSessions(mapped),
     },
     ...(input.height ? { height: input.height } : {}),
-    selected: mapped.find((session) => session.selected),
-    footer: compactFooter ? "Enter · n · /  │  i · r · R · w  │  ?" : "Enter Open · n New · / Filter  │  i Info · r Rename · R Restart · w Finish WT  │  ? Help",
+    selected,
+    footer: compactFooter ? `Enter · n · /  │  p · i · r · R · d${selected?.worktreeOwnedByHub ? " · w" : ""}  │  ?` : `Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete${worktreeFooter}  │  ? Help`,
     filter: input.filter,
     preview: input.preview ?? "",
     detailsExpanded: input.detailsExpanded ?? false,

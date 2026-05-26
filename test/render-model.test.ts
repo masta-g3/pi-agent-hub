@@ -63,7 +63,15 @@ test("narrow layout hides preview and uses compact footer", () => {
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "Enter Open · n New · / Filter  │  i Info · r Rename · R Restart · w Finish WT  │  ? Help");
+  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete  │  ? Help");
+});
+
+test("wide footer shows worktree finish only for worktree sessions", () => {
+  const model = buildRenderModel({
+    sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
+    width: 120,
+  });
+  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · w Finish WT  │  ? Help");
 });
 
 test("long titles/cwd truncate without exceeding width", () => {

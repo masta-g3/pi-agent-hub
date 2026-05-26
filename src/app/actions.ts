@@ -11,7 +11,3 @@ export function attachPlan(session: ManagedSession, env: NodeJS.ProcessEnv = pro
   }
   return { type: "attach", command: "tmux", args: ["attach-session", "-t", session.tmuxSession] };
 }
-
-export function restartConfirmMessage(title: string): string {
-  return `press R to restart ${title}, N for new conversation`;
-}

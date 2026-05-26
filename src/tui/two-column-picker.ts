@@ -109,9 +109,9 @@ function renderInput(input: TextInputState): string {
 }
 
 function pickerFooter(state: PickerState): string {
-  if (state.poolInput) return "←→ edit path • enter save/reload • esc cancel path edit";
-  if (state.poolDir !== undefined) return "search/←→ • ↑↓ • tab column • space • Alt+E edit pool • enter apply • esc";
-  return "search/←→ • ↑↓ • tab column • space toggle • enter apply • esc";
+  if (state.poolInput) return "←→ edit path · enter save/reload · esc cancel";
+  if (state.poolDir !== undefined) return "type search · ↑↓ move · ←→/Tab column · space toggle · Alt+E edit pool · enter apply · esc cancel";
+  return "type search · ↑↓ move · ←→/Tab column · space toggle · enter apply · esc cancel";
 }
 
 function visibleWidth(value: string): number {

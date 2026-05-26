@@ -127,7 +127,7 @@ test("J K and shift arrows reorder selected session", () => {
   assert.deepEqual(deltas, [1, -1, 1, -1]);
 });
 
-test("shift N syncs selected session title from Pi name", async () => {
+test("N syncs selected session title from Pi name", async () => {
   const synced: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
     syncPiName: (sessionId) => {
@@ -143,7 +143,22 @@ test("shift N syncs selected session title from Pi name", async () => {
   assert.match(stripAnsi(view.render(100).join("\n")), /renamed from Pi name: Pi Name/);
 });
 
-test("shift N reports when the selected session has no Pi name", async () => {
+test("Alt+N remains a sync compatibility alias", async () => {
+  const synced: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    syncPiName: (sessionId) => {
+      synced.push(sessionId);
+      return Promise.resolve({ status: "synced", name: "Pi Name" });
+    },
+  });
+
+  view.handleInput("\u001bn");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(synced, ["api"]);
+});
+
+test("N reports when the selected session has no Pi name", async () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
     syncPiName: () => Promise.resolve({ status: "unnamed" }),
   });
@@ -346,7 +361,7 @@ test("enter on stopped session without restart action explains the recovery key"
 
   view.handleInput("\r");
 
-  assert.match(view.render(100).join("\n"), /session stopped; press R twice to restart/);
+  assert.match(view.render(100).join("\n"), /session stopped; press r twice to restart/);
 });
 
 test("new form submits with basename group and random title on enter", () => {
@@ -362,7 +377,7 @@ test("new form submits with basename group and random title on enter", () => {
   assert.match(rendered, /★ primary/);
   assert.doesNotMatch(rendered, /repo 2/);
   assert.doesNotMatch(rendered, /repo 3/);
-  assert.match(rendered, /worktree\s+off · ctrl-t to enable/);
+  assert.match(rendered, /worktree\s+off/);
   assert.match(rendered, /group/);
   assert.match(rendered, /title/);
   assert.match(rendered, /black-aleph/);
@@ -393,9 +408,9 @@ test("new form worktree toggle uses branch as session title", () => {
   view.handleInput("n");
   view.handleInput("\u0014");
   const rendered = view.render(120).join("\n");
-  assert.match(rendered, /worktree\s+on · ctrl-t to disable/);
+  assert.match(rendered, /worktree\s+on/);
   assert.match(rendered, /branch/);
-  assert.doesNotMatch(rendered, /title/);
+  assert.doesNotMatch(rendered, /\n│▎?\s+title\s/);
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "feature/api") view.handleInput(char);
   view.handleInput("\r");
@@ -413,7 +428,7 @@ test("new form worktree toggle can turn off without crashing", () => {
   view.handleInput("\u0014");
   view.handleInput("\u0014");
   const rendered = view.render(120).join("\n");
-  assert.match(rendered, /worktree\s+off · ctrl-t to enable/);
+  assert.match(rendered, /worktree\s+off/);
   assert.match(rendered, /title/);
   view.handleInput("\r");
 
@@ -754,7 +769,7 @@ test("delete dialog requires confirmation and escape cancels", () => {
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Delete session/);
   assert.match(rendered, /api/);
-  assert.match(rendered, /▶ press d again to delete/);
+  assert.match(rendered, /▶ d delete session/);
   view.handleInput("\u001b");
   assert.equal(deleted, undefined);
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
@@ -840,6 +855,7 @@ test("delete dialog distinguishes forgetting and discarding worktree sessions", 
   const view = new SessionsView(controller, () => {}, {
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
+    finishWorktree: () => {},
   });
 
   view.handleInput("d");
@@ -879,6 +895,33 @@ test("delete dialog shift D discards worktree session", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
 });
 
+test("delete dialog w finishes worktree session", () => {
+  let deleted: string | undefined;
+  let discarded: string | undefined;
+  let finished: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [{
+    ...session("api", "api"),
+    worktreePath: "/hub/worktrees/api/api-feature",
+    worktreeRepoRoot: "/repo/api",
+    worktreeBranch: "feature/api",
+    worktreeBaseBranch: "main",
+    worktreeOwnedByHub: true,
+  }] });
+  const view = new SessionsView(controller, () => {}, {
+    deleteSession: (id) => { deleted = id; },
+    discardWorktree: (id) => { discarded = id; },
+    finishWorktree: (id) => { finished = id; },
+  });
+
+  view.handleInput("d");
+  view.handleInput("w");
+
+  assert.equal(deleted, undefined);
+  assert.equal(discarded, undefined);
+  assert.equal(finished, "api");
+  assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
+});
+
 test("finish worktree dialog confirms with second w", () => {
   let finished: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [{
@@ -895,7 +938,7 @@ test("finish worktree dialog confirms with second w", () => {
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Finish worktree/);
   assert.match(rendered, /feature\/api → main/);
-  assert.match(rendered, /press w again to finish/);
+  assert.match(rendered, /w finish and merge/);
   view.handleInput("w");
 
   assert.equal(finished, "api");
@@ -982,7 +1025,7 @@ test("group dialog validates blank group and escape cancels", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Move to group/);
 });
 
-test("r opens footer rename prompt for selected session title", () => {
+test("R opens footer rename prompt for selected session title", () => {
   let renamed: { id: string; title: string } | undefined;
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
@@ -991,7 +1034,7 @@ test("r opens footer rename prompt for selected session title", () => {
     now: () => now,
   });
 
-  view.handleInput("r");
+  view.handleInput("R");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /\u001b\[5m█\u001b\[25m/);
   assert.match(stripAnsi(rendered), /rename api: api█/);
@@ -1011,7 +1054,7 @@ test("footer rename prompt supports cursor movement and mid-line editing", () =>
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
 
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("\u001b[D");
   view.handleInput("X");
   assert.match(stripAnsi(view.render(100).join("\n")), /apX[█▌]i/);
@@ -1025,7 +1068,7 @@ test("footer rename prompt supports word movement and word backspace", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "alpha beta gamma")] });
   const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
 
-  view.handleInput("r");
+  view.handleInput("R");
   view.handleInput("\u001b[1;5D");
   view.handleInput("\u0017");
   view.handleInput("\r");
@@ -1038,7 +1081,7 @@ test("footer rename prompt validates blank title", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { renameSession: (id, title) => { renamed = { id, title }; } });
 
-  view.handleInput("r");
+  view.handleInput("R");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   view.handleInput("\r");
 
@@ -1077,7 +1120,7 @@ test("p opens footer send prompt and submits message to selected live session", 
 test("themed footer text remains styled when input is truncated", () => {
   const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
   const cases = [
-    { key: "r", expected: "rename api:" },
+    { key: "R", expected: "rename api:" },
     { key: "p", expected: "send to api:" },
   ];
 
@@ -1285,17 +1328,19 @@ test("picker apply reports async errors instead of success", async () => {
   assert.doesNotMatch(view.render(100).join("\n"), /restart session to reload skills/);
 });
 
-test("picker search supports cursor movement", () => {
+test("picker left and right arrows switch columns", () => {
+  let applied: Array<{ name: string; enabled: boolean }> | undefined;
   const view = new SessionsView(new SessionsController(), () => {}, {
-    skills: () => [{ name: "api-tools", enabled: false }, { name: "docs-tools", enabled: false }],
+    skills: () => [{ name: "api-tools", enabled: false }, { name: "repo-rules", enabled: true }],
+    applySkills: (items) => { applied = items; },
   });
 
   view.handleInput("s");
-  for (const char of "api") view.handleInput(char);
-  view.handleInput("\u001b[D");
-  view.handleInput("X");
+  view.handleInput("\u001b[C");
+  view.handleInput(" ");
+  view.handleInput("\r");
 
-  assert.match(view.render(100).join("\n"), /search: apX█i/);
+  assert.equal(applied?.find((item) => item.name === "repo-rules")?.enabled, false);
 });
 
 test("picker search filters visible items before toggling", () => {
@@ -1457,30 +1502,42 @@ test("setTheme updates rendered ANSI without changing visible width", () => {
 test("restart requires confirmation and supports new conversation", () => {
   const restarted: string[] = [];
   const fresh: string[] = [];
-  let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), restartNew: (id) => fresh.push(id), now: () => now });
-  view.handleInput("R");
+  const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), restartNew: (id) => fresh.push(id) });
+  view.handleInput("r");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Restart session/);
-  assert.match(rendered, /▶ press R to restart api, N for new conversation/);
+  assert.match(rendered, /▶ r restart selected/);
+  assert.match(rendered, /▶ n new conversation/);
+  assert.match(rendered, /▶ a restart all/);
   assert.deepEqual(restarted, []);
-  now = 200;
-  view.handleInput("N");
+  view.handleInput("n");
   assert.deepEqual(fresh, ["api"]);
   assert.deepEqual(restarted, []);
 
-  view.handleInput("R");
-  view.handleInput("R");
+  view.handleInput("r");
+  view.handleInput("r");
   assert.deepEqual(restarted, ["api"]);
 });
 
-test("stale restart confirmation clears on render", () => {
+test("restart dialog stays open until answered", () => {
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { now: () => now });
-  view.handleInput("R");
+  view.handleInput("r");
   now = 2_200;
+  assert.match(view.render(100).join("\n"), /Restart session/);
+});
+
+test("restart dialog supports restart all", () => {
+  let restartedAll = false;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, { restartAll: () => { restartedAll = true; } });
+
+  view.handleInput("r");
+  view.handleInput("a");
+
+  assert.equal(restartedAll, true);
   assert.doesNotMatch(view.render(100).join("\n"), /Restart session/);
 });
 
@@ -1488,9 +1545,9 @@ test("escape cancels pending restart", () => {
   const restarted: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { restart: (id) => restarted.push(id), now: () => 100 });
-  view.handleInput("R");
+  view.handleInput("r");
   view.handleInput("\u001b");
-  view.handleInput("R");
+  view.handleInput("r");
   assert.deepEqual(restarted, []);
 });
 
@@ -1501,9 +1558,9 @@ test("escape clearing filter also cancels hidden pending restart", () => {
   view.handleInput("/");
   view.handleInput("a");
   view.handleInput("\r");
-  view.handleInput("R");
+  view.handleInput("r");
   view.handleInput("\u001b");
-  view.handleInput("R");
+  view.handleInput("r");
   assert.deepEqual(restarted, []);
 });
 
@@ -1518,7 +1575,7 @@ test("restart confirmation ignores non-confirmation keys", () => {
     skills: () => [],
   });
 
-  view.handleInput("R");
+  view.handleInput("r");
   view.handleInput("\r");
   assert.deepEqual(switched, []);
   assert.match(view.render(100).join("\n"), /Restart session/);
@@ -1529,7 +1586,7 @@ test("restart confirmation ignores non-confirmation keys", () => {
   view.handleInput("s");
   assert.match(view.render(100).join("\n"), /Restart session/);
 
-  view.handleInput("R");
+  view.handleInput("r");
   assert.deepEqual(restarted, ["api"]);
 });
 
@@ -1541,8 +1598,8 @@ test("zero-match filter blocks selected actions", () => {
   for (const char of "zzz") view.handleInput(char);
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
-  view.handleInput("R");
-  view.handleInput("R");
+  view.handleInput("r");
+  view.handleInput("r");
   assert.deepEqual(restarted, []);
 });
 
@@ -1554,8 +1611,8 @@ test("filter matching ignores parent cwd directories for action selection", () =
   for (const char of "hidden") view.handleInput(char);
   assert.match(view.render(100).join("\n"), /No sessions match/);
   view.handleInput("\r");
-  view.handleInput("R");
-  view.handleInput("R");
+  view.handleInput("r");
+  view.handleInput("r");
   assert.deepEqual(restarted, []);
 });
 

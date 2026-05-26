@@ -1,5 +1,5 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import { attachPlan, restartConfirmMessage } from "../app/actions.js";
+import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession } from "../core/worktree.js";
@@ -66,6 +66,7 @@ export interface SessionsViewActions {
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   restartNew?: (sessionId: string) => unknown;
+  restartAll?: () => unknown;
   deleteSession?: (sessionId: string) => void | Promise<void>;
   closeSubagents?: (sessionId: string) => void | Promise<void>;
   discardWorktree?: (sessionId: string) => void | Promise<void>;
@@ -111,14 +112,14 @@ export class SessionsView implements Component {
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
   private detailsExpanded = false;
-  private pendingRestart: { sessionId: string; expiresAt: number } | undefined;
+  private pendingRestart: { sessionId: string } | undefined;
   private pickerSaveId = 0;
   private deleteTargetId: string | undefined;
   private sendTargetId: string | undefined;
   private renameGroupFrom: string | undefined;
   private returnAfterRenameTmuxSession: string | undefined;
   private busy = false;
-  private deleting: false | "session" | "subagents" | "worktree" = false;
+  private deleting: false | "session" | "subagents" | "worktree" | "finish" = false;
   private finishTargetId: string | undefined;
   private finishing = false;
 
@@ -209,18 +210,15 @@ export class SessionsView implements Component {
     }
 
     if (this.pendingRestart) {
-      const now = this.actions.now?.() ?? Date.now();
-      if (this.pendingRestart.expiresAt <= now) this.clearPendingRestart();
-      else {
-        if (data === "R") this.confirmRestartSelected(false);
-        else if (data === "N") this.confirmRestartSelected(true);
-        return;
-      }
+      if (data === "r" || data === "R") this.confirmRestartSelected(false);
+      else if (data === "n" || data === "N") this.confirmRestartSelected(true);
+      else if (data === "a") this.confirmRestartAll();
+      return;
     }
 
     if (data === "J" || matchesKey(data, Key.shift("down"))) this.reorderSelected(1);
     else if (data === "K" || matchesKey(data, Key.shift("up"))) this.reorderSelected(-1);
-    else if (data === "N") this.syncPiNameSelected();
+    else if (data === "N" || matchesKey(data, Key.alt("n"))) this.syncPiNameSelected();
     else if (matchesKey(data, Key.down) || data === "j") {
       this.clearPendingRestart();
       this.controller.move(1);
@@ -234,10 +232,10 @@ export class SessionsView implements Component {
     else if (data === "n") this.startNewDialog();
     else if (data === "f") this.startForkDialog();
     else if (data === "g") this.startGroupDialog();
-    else if (data === "e" || data === "r") this.startRenameSessionDialog();
+    else if (data === "e" || data === "R") this.startRenameSessionDialog();
     else if (data === "G") this.startRenameGroupDialog();
     else if (data === "p") this.startSendDialog();
-    else if (data === "R") this.restartSelected();
+    else if (data === "r") this.restartSelected();
     else if (data === "d") this.startDeleteDialog();
     else if (data === "w") this.startFinishDialog();
     else if (data === "s") this.startPicker("skills");
@@ -261,7 +259,6 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
-    this.clearExpiredConfirmation();
     this.clearExpiredFlash();
     if (this.mode === "help") return renderHelp(width);
     if ((this.mode === "skills" || this.mode === "mcp") && this.picker) return renderTwoColumnPicker(this.picker, width, this.theme);
@@ -418,7 +415,7 @@ export class SessionsView implements Component {
       return;
     }
     if (selected.status === "stopped" || selected.status === "error") {
-      this.message = "session is not live; press R to restart";
+      this.message = "session is not live; press r to restart";
       return;
     }
     if (!this.actions.sendMessage) {
@@ -481,7 +478,7 @@ export class SessionsView implements Component {
     if (!selected) return;
     if (selected.status === "stopped") {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting stopped session...");
-      else this.message = "session stopped; press R twice to restart";
+      else this.message = "session stopped; press r twice to restart";
       return;
     }
     if (selected.status === "waiting") {
@@ -588,13 +585,8 @@ export class SessionsView implements Component {
       this.message = "subagent rows cannot be restarted here";
       return;
     }
-    const now = this.actions.now?.() ?? Date.now();
-    if (this.pendingRestart?.sessionId === selected.id && this.pendingRestart.expiresAt > now) {
-      this.confirmRestartSelected(false);
-      return;
-    }
-    this.pendingRestart = { sessionId: selected.id, expiresAt: now + 2_000 };
-    this.message = restartConfirmMessage(selected.title);
+    this.pendingRestart = { sessionId: selected.id };
+    this.message = undefined;
   }
 
   private confirmRestartSelected(newConversation: boolean) {
@@ -611,6 +603,17 @@ export class SessionsView implements Component {
       return;
     }
     this.runAction(() => this.actions.restart?.(selected.id), "restarting session...");
+  }
+
+  private confirmRestartAll() {
+    if (!this.pendingRestart) return;
+    this.pendingRestart = undefined;
+    this.message = undefined;
+    if (!this.actions.restartAll) {
+      this.message = "restart all unavailable";
+      return;
+    }
+    this.runAction(() => this.actions.restartAll?.(), "restarting all sessions...");
   }
 
   private startDeleteDialog() {
@@ -655,17 +658,18 @@ export class SessionsView implements Component {
     }
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
     const closeSubagents = data === "s" && this.subagentTargets(this.deleteTargetId).length > 0;
+    const finishWorktree = data === "w" && Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true && this.actions.finishWorktree);
     const discardWorktree = data === "D" && Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
-    if ((data !== "d" && !closeSubagents && !discardWorktree) || this.deleting) return;
+    if ((data !== "d" && !closeSubagents && !discardWorktree && !finishWorktree) || this.deleting) return;
     const id = this.deleteTargetId;
     if (!id) {
       this.mode = "normal";
       return;
     }
-    const action = closeSubagents ? this.actions.closeSubagents : discardWorktree ? this.actions.discardWorktree : this.actions.deleteSession;
-    const successMessage = closeSubagents ? "subagents closed" : discardWorktree ? "worktree discarded" : "session deleted";
+    const action = closeSubagents ? this.actions.closeSubagents : finishWorktree ? this.actions.finishWorktree : discardWorktree ? this.actions.discardWorktree : this.actions.deleteSession;
+    const successMessage = closeSubagents ? "subagents closed" : finishWorktree ? "worktree finished" : discardWorktree ? "worktree discarded" : "session deleted";
     try {
-      this.deleting = closeSubagents ? "subagents" : discardWorktree ? "worktree" : "session";
+      this.deleting = closeSubagents ? "subagents" : finishWorktree ? "finish" : discardWorktree ? "worktree" : "session";
       const result = action?.(id);
       if (isPromise(result)) {
         void result.then(() => {
@@ -731,7 +735,7 @@ export class SessionsView implements Component {
   private clearPendingRestart() {
     const hadPendingRestart = Boolean(this.pendingRestart);
     this.pendingRestart = undefined;
-    if (hadPendingRestart && this.message?.startsWith("press R")) this.message = undefined;
+    if (hadPendingRestart) this.message = undefined;
   }
 
   private flashMessage(text: string, ttlMs = 1_500): void {
@@ -747,12 +751,6 @@ export class SessionsView implements Component {
     if (!this.flash) return;
     const now = this.actions.now?.() ?? Date.now();
     if (this.flash.expiresAt <= now) this.flash = undefined;
-  }
-
-  private clearExpiredConfirmation() {
-    if (!this.pendingRestart) return;
-    const now = this.actions.now?.() ?? Date.now();
-    if (this.pendingRestart.expiresAt <= now) this.clearPendingRestart();
   }
 
   private handlePickerInput(data: string) {
@@ -771,7 +769,7 @@ export class SessionsView implements Component {
       return;
     }
     if (this.mode === "skills" && matchesKey(data, Key.alt("e"))) this.picker = { ...this.picker, poolInput: createTextInput(this.picker.poolDir ?? ""), poolError: undefined, poolMessage: undefined };
-    else if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) this.picker = switchPickerColumn(this.picker);
+    else if (matchesKey(data, Key.left) || matchesKey(data, Key.right) || matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) this.picker = switchPickerColumn(this.picker);
     else if (matchesKey(data, Key.down)) this.picker = movePickerSelection(this.picker, 1);
     else if (matchesKey(data, Key.up)) this.picker = movePickerSelection(this.picker, -1);
     else if (matchesKey(data, Key.space) || data === " ") this.picker = togglePickerItem(this.picker);
@@ -1092,26 +1090,28 @@ export class SessionsView implements Component {
     return renderDialog("Restart session", [
       selected ? `target  ${selected.title}` : "target  none",
       "",
-      confirmLine("warning", this.message ?? "press R to restart, N for new conversation", this.theme),
-      "  esc cancel",
+      confirmLine("warning", "r restart selected", this.theme),
+      confirmLine("warning", "n new conversation", this.theme),
+      confirmLine("warning", "a restart all", this.theme),
+      hintLine("Esc cancel", this.theme),
     ], width, this.theme);
   }
 
   private renderDeleteDialog(width: number): string[] {
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.deleteTargetId);
     const subagents = this.subagentTargets(target?.id);
-    const action = this.deleting === "subagents" ? "closing subagents..." : this.deleting === "worktree" ? "discarding worktree..." : this.deleting ? "deleting..." : this.message ?? "press d again to delete";
+    const action = this.deleting === "subagents" ? "closing subagents..." : this.deleting === "finish" ? "finishing worktree..." : this.deleting === "worktree" ? "discarding worktree..." : this.deleting ? "deleting..." : this.message ?? "d delete session";
     const worktree = Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
-    const choices = deleteChoices({ action, busy: Boolean(this.deleting || this.message), subagentCount: subagents.length, targetIsSubagent: target?.kind === "subagent", worktree, theme: this.theme });
+    const choices = deleteChoices({ action, busy: Boolean(this.deleting || this.message), subagentCount: subagents.length, targetIsSubagent: target?.kind === "subagent", worktree, canFinishWorktree: worktree && Boolean(this.actions.finishWorktree), theme: this.theme });
     return renderDialog("Delete session", [
       target ? `target  ${target.title}` : "target  none",
       "",
       worktree ? "Worktree session: choose whether to only forget it or discard the clean worktree." : "Removes this session from pi-agent-hub.",
       "Pi conversation files are kept.",
-      ...(worktree ? ["d keeps worktree and branch; D deletes the clean worktree and branch; w merges instead."] : []),
+      ...(worktree ? [this.actions.finishWorktree ? "d keeps worktree and branch; D deletes the clean worktree and branch; w merges instead." : "d keeps worktree and branch; D deletes the clean worktree and branch."] : []),
       "",
       ...choices.filter(Boolean),
-      "  esc cancel",
+      hintLine("Esc cancel", this.theme),
     ], width, this.theme);
   }
 
@@ -1125,8 +1125,8 @@ export class SessionsView implements Component {
       `merge    ${branch} → ${base}`,
       "cleanup  remove hub-owned worktree, prune, delete merged branch",
       "",
-      this.finishing || this.message ? (this.message ?? "finishing worktree...") : confirmLine("warning", "press w again to finish", this.theme),
-      "  esc cancel",
+      this.finishing || this.message ? (this.message ?? "finishing worktree...") : confirmLine("warning", "w finish and merge", this.theme),
+      hintLine("Esc cancel", this.theme),
     ], width, this.theme);
   }
 
@@ -1376,7 +1376,12 @@ function confirmLine(token: "warning" | "error", text: string, theme?: SessionsT
   return theme ? styleToken(theme, token, line) : line;
 }
 
-function deleteChoices(input: { action: string; busy: boolean; subagentCount: number; targetIsSubagent: boolean; worktree: boolean; theme?: SessionsTheme }): string[] {
+function hintLine(text: string, theme?: SessionsTheme): string {
+  const line = `  ${text}`;
+  return theme ? styleToken(theme, "dim", line) : line;
+}
+
+function deleteChoices(input: { action: string; busy: boolean; subagentCount: number; targetIsSubagent: boolean; worktree: boolean; canFinishWorktree: boolean; theme?: SessionsTheme }): string[] {
   if (input.busy) return [input.action];
   const choices = [];
   if (input.subagentCount && !input.targetIsSubagent) {
@@ -1391,7 +1396,7 @@ function deleteChoices(input: { action: string; busy: boolean; subagentCount: nu
     "  keeps worktree and branch",
     confirmLine("error", "D discard worktree and branch", input.theme),
     "  requires a clean worktree; does not merge",
-    confirmLine("warning", "w finish instead — merge and remove", input.theme),
+    ...(input.canFinishWorktree ? [confirmLine("warning", "w finish instead — merge and remove", input.theme)] : []),
   );
   return choices;
 }
@@ -1422,21 +1427,20 @@ function worktreeStatusField(state: NewFormState) {
   return {
     key: "worktree",
     label: "worktree",
-    value: state.worktreeEnabled ? "on · ctrl-t to disable" : "off · ctrl-t to enable",
+    value: state.worktreeEnabled ? "on" : "off",
     readonly: true,
   };
 }
 
 function newFormFooter(state: NewFormState): string {
   const focus = state.fields[state.focus];
-  const repoHasSuggestions = state.focus.startsWith("repo:") && (focus.suggestions?.length ?? 0) > 1;
-  const repoCanChoose = state.focus.startsWith("repo:") && (focus.suggestions?.length ?? 0) > 0;
-  const removableRepo = state.focus.startsWith("repo:") && state.focus !== "repo:0";
-  const parts = ["tab/↓ next", "shift-tab/↑ prev", "←→ edit", "alt-a add repo"];
-  if (removableRepo) parts.push("alt-x remove extra");
-  if (repoCanChoose) parts.push("ctrl-o choose");
-  if (repoHasSuggestions) parts.push("ctrl-n/p cycle");
-  parts.push("enter create", "esc cancel");
+  const parts = ["tab/↑↓ move"];
+  if (state.focus.startsWith("repo:")) {
+    if ((focus.suggestions?.length ?? 0) > 0) parts.push("ctrl-o choose repo");
+    parts.push("alt-a add repo");
+    if (state.focus !== "repo:0") parts.push("alt-x remove");
+  }
+  parts.push("ctrl-t worktree", "enter create", "esc cancel");
   return parts.join(" · ");
 }
 
@@ -1465,11 +1469,16 @@ function renderHelp(width: number): string[] {
     "  K/J reorder in group      q quit                Esc cancel/clear",
     "",
     "Sessions",
-    "  n new     p send     r rename     N sync Pi name     f fork     w finish worktree",
-    "  g move group     G rename group     R restart (R resume, N new)     d delete     a mark read",
+    "  n new     p send     r restart choices     N sync Pi name     f fork     w finish worktree",
+    "  R rename     g move group     G rename group     d delete     a mark read",
+    "  Restart choices: r selected     n new conversation     a all     Esc cancel",
+    "  Delete choices: d delete/forget     D discard worktree     s close subagents     w finish worktree",
+    "",
+    "New-session form",
+    "  Tab/↑↓ move     Ctrl+O choose repo     Alt+A add repo     Alt+X remove extra     Ctrl+T worktree",
     "",
     "Project state",
-    "  s skills picker     m MCP picker",
+    "  s skills picker     m MCP picker     ←→/Tab switch picker columns",
     "",
     "Return from managed sessions",
     "  Ctrl+Q return to dashboard     Alt+R rename current session",

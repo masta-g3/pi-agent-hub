@@ -40,12 +40,16 @@ Ctrl+Q returns to the dashboard
 | `/` | Filter sessions |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
+| `q` | Quit the dashboard |
 | `i` | Toggle compact/full selected-session info |
-| `Ctrl+Q` | Return from a managed session to the dashboard |
-| `r` | Rename the selected session in the dashboard footer |
-| `R` | Open restart confirmation: `R` resumes current conversation, `N` starts a new one |
+| `↑↓` / `j` / `k` | Move selection |
+| `r` | Open restart choices: `r` restarts selected, `n` starts a new conversation, `a` restarts all |
+| `R` | Rename the selected session in the dashboard footer |
+| `d` | Delete or forget the selected session |
+| `f` | Fork the selected session |
+| `a` | Mark the selected waiting session read |
 | `w` | Finish the selected hub-owned worktree session |
-| `Shift+N` | Sync the selected hub title from Pi's `/name` |
+| `N` | Sync the selected hub title from Pi's `/name` |
 | `g` | Move the selected session to a group |
 | `G` | Rename the selected session's group |
 | `K` / `J` | Move the selected session up/down within its group |
@@ -126,10 +130,10 @@ Groups are simple labels on sessions.
 | `K` / `J` | Move the selected session up/down within its group |
 | `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
 | `p` | Send a one-line message to the selected live session without opening it |
-| `r` | Rename the selected session in the dashboard footer |
-| `R` | Open restart confirmation: `R` resumes current conversation, `N` starts a new one |
+| `r` | Open restart choices: `r` restarts selected, `n` starts a new conversation, `a` restarts all |
+| `R` | Rename the selected session in the dashboard footer |
 | `w` | Finish the selected hub-owned worktree session |
-| `Shift+N` | Sync the selected hub title from Pi's `/name` |
+| `N` | Sync the selected hub title from Pi's `/name` |
 
 Reordering is disabled while a filter is active.
 
@@ -142,7 +146,7 @@ Skills and MCP state attach to the selected session's primary repo:
 <project>/.pi/sessions/mcp.json
 ```
 
-The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. It also shows the active Skill pool path; press `Alt+E` in the picker to edit that path and reload the available Skills. In Skills/MCP pickers, `↑`/`↓` moves within the current column, `Tab` switches between Enabled and Available, and `Space` toggles the selected item. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
+The `s` picker lists skills from the configured skill pool directories and writes the final project selection once. It also shows the active Skill pool path; press `Alt+E` in the picker to edit that path and reload the available Skills. In Skills/MCP pickers, `↑`/`↓` moves within the current column, `←`/`→` switches between Enabled and Available (`Tab` also works), and `Space` toggles the selected item. The `m` picker writes enabled MCP servers for the selected project. If no session is selected, both pickers fall back to the dashboard current working directory.
 
 For multi-repo sessions, extra repos are available in the runtime workspace, but Skills/MCP still belong to the primary repo. Restart the session after changing Skills or MCP so Pi reloads tools.
 

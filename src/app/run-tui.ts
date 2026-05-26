@@ -187,6 +187,12 @@ export async function runTui(): Promise<void> {
     restartNew(sessionId) {
       return mutateRegistry(() => restartManagedSessionFresh(sessionId));
     },
+    restartAll() {
+      return mutateRegistry(async () => {
+        const sessions = controller.snapshot().registry.sessions.filter((session) => session.kind !== "subagent");
+        for (const session of sessions) await restartManagedSession(session.id);
+      });
+    },
     deleteSession(sessionId) {
       return mutateRegistry(async () => {
         const deleted = await deleteManagedSession(sessionId);

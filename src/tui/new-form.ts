@@ -252,9 +252,9 @@ function buildFields(repoValues: string[], group: string, title: string, suggest
   const repos = repoValues.length ? repoValues : [""];
   return [
     ...repos.map((value, index) => repoField(index, value, suggestions)),
-    ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch || title, hint: "new local branch and session name" }] : []),
-    { key: "group" as const, label: "group", value: group },
-    ...(worktreeEnabled ? [] : [{ key: "title" as const, label: "title", value: title }]),
+    ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch || title, hint: "new local branch and session title" }] : []),
+    { key: "group" as const, label: "group", value: group, hint: "existing or new label" },
+    ...(worktreeEnabled ? [] : [{ key: "title" as const, label: "title", value: title, hint: "display title" }]),
   ];
 }
 
@@ -263,7 +263,7 @@ function repoField(index: number, value: string, suggestions: string[]): Field {
     key: `repo:${index}`,
     label: index === 0 ? "★ primary" : "+ repo",
     value,
-    hint: index === 0 ? cwdHint(suggestions.length) : undefined,
+    hint: index === 0 ? cwdHint(suggestions.length) : "extra repo · ctrl-o choose · alt-x remove",
     suggestions,
     cycleIndex: matchSuggestionIndex(value, suggestions),
     section: index === 0 ? "repos" : undefined,
@@ -311,6 +311,6 @@ function randomSessionTitle(): string {
 }
 
 function cwdHint(suggestionCount: number): string {
-  if (suggestionCount > 1) return `default cwd · ctrl-n/p cycles ${suggestionCount} known cwds`;
-  return "default cwd";
+  if (suggestionCount > 1) return `default repo · ctrl-o choose · ctrl-n/p cycles ${suggestionCount}`;
+  return "default repo";
 }

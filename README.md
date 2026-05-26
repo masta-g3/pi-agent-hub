@@ -42,13 +42,18 @@ Inside the dashboard:
 | `/` | Filter sessions |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
-| `Ctrl+Q` | Return from a managed session to the dashboard |
-| `r` / `R` | Rename, or open restart choices (`R` resume, `N` new conversation) |
+| `q` | Quit the dashboard |
+| `r` | Open restart choices (`r` selected, `n` new conversation, `a` all) |
+| `R` | Rename the selected session |
+| `d` | Delete or forget the selected session |
+| `f` | Fork the selected session |
+| `a` | Mark the selected waiting session read |
 | `w` | Finish a hub-owned worktree session |
-| `Shift+N` | Sync the selected hub title from Pi's `/name` |
+| `N` | Sync the selected hub title from Pi's `/name` |
+| `↑↓` / `j` / `k` | Move selection |
 | `g` / `G` | Move a session to a group or rename its group |
 | `K` / `J` | Move the selected session up/down within its group |
-| `s` / `m` | Pick project skills or MCP servers; `Tab` switches Enabled/Available |
+| `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
 
 ## Install
 
