@@ -138,6 +138,24 @@ test("removeSession removes child rows with their parent", () => {
   assert.equal(controller.snapshot().selectedId, "sibling");
 });
 
+test("refresh prunes subagent rows whose tmux sessions are gone", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = {
+      version: 1 as const,
+      sessions: [
+        session("idle", { id: "parent", title: "parent", order: 0 }),
+        session("waiting", { id: "child", title: "child", kind: "subagent" as const, parentId: "parent", agentName: "scout" }),
+      ],
+    };
+    await writeFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+    const controller = new SessionsController(registry);
+
+    await controller.refresh(10);
+
+    assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["parent"]);
+  });
+});
+
 test("moving parent group moves direct child rows too", async () => {
   await withTempSessionsDir(async () => {
     const controller = new SessionsController({

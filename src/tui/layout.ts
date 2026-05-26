@@ -189,7 +189,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const title = session.status === "stopped" ? styles.dim(titleText) : titleText;
   const repoBadge = session.repoCount > 1 && session.kind !== "subagent" ? styles.dim(` [${session.repoCount} repos]`) : "";
   const worktreeBadge = session.worktreeBranch && session.kind !== "subagent" ? styles.dim(" [wt]") : "";
-  const indent = session.depth > 0 ? styles.dim("  ↳ ") : "";
+  const indent = session.depth > 0 ? styles.dim(`${"  ".repeat(session.depth)}↳ `) : "";
   return truncate(`${prefix} ${indent}${symbol} ${title}${repoBadge}${worktreeBadge}`, width);
 }
 

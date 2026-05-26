@@ -33,8 +33,13 @@ export class SessionsController {
     this.registry = await loadRegistry();
     this.selectedId = keepSelection(this.registry.sessions, this.selectedId);
     const sessions: ManagedSession[] = [];
+    const prunedIds = new Set<string>();
     for (const session of this.registry.sessions) {
       const exists = await sessionExists(session.tmuxSession);
+      if (isSubagentSession(session) && !exists) {
+        prunedIds.add(session.id);
+        continue;
+      }
       const heartbeat = await readHeartbeat(session.id);
       const computed = computeStatus({ session, tmux: { exists }, heartbeat, now });
       const updated = applyComputedStatus(session, computed, now, heartbeat);
@@ -43,8 +48,12 @@ export class SessionsController {
     const updatedById = new Map(sessions.map((session) => [session.id, session]));
     this.registry = await updateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((session) => updatedById.get(session.id) ?? session),
+      sessions: latest.sessions.flatMap((session) => {
+        if (prunedIds.has(session.id)) return [];
+        return [updatedById.get(session.id) ?? session];
+      }),
     }));
+    this.selectedId = keepSelection(this.registry.sessions, this.selectedId);
   }
 
   async refreshPreview(lines = 160): Promise<void> {

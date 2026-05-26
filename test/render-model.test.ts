@@ -313,16 +313,44 @@ test("subagent rows render directly under their parent", () => {
   assert.doesNotMatch(lines, /read auth\.ts/);
 });
 
-test("filtering by child includes parent context", () => {
+test("nested subagent rows render under their subagent parent", () => {
+  const parent = session("parent", "default", "idle", "api");
+  const child = {
+    ...session("child", "default", "running", "worker"),
+    kind: "subagent" as const,
+    parentId: "parent",
+    agentName: "worker",
+  };
+  const grandchild = {
+    ...session("grandchild", "default", "waiting", "critic"),
+    kind: "subagent" as const,
+    parentId: "child",
+    agentName: "code-critic",
+  };
+  const model = buildRenderModel({ sessions: [parent, grandchild, child], width: 120 });
+
+  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child", "grandchild"]);
+  assert.equal(model.groups[0]?.sessions[1]?.depth, 1);
+  assert.equal(model.groups[0]?.sessions[2]?.depth, 2);
+  assert.match(renderSessions(model).join("\n"), /↳ .*worker[\s\S]*↳ .*code-critic/);
+});
+
+test("filtering by nested child includes ancestor context", () => {
   const parent = session("parent", "default", "idle", "api");
   const child = {
     ...session("child", "default", "running", "scout child"),
     kind: "subagent" as const,
     parentId: "parent",
     agentName: "scout",
-    taskPreview: "unique child task",
   };
-  const model = buildRenderModel({ sessions: [parent, child, session("other", "default", "idle", "web")], width: 120, filter: "unique" });
+  const grandchild = {
+    ...session("grandchild", "default", "waiting", "critic child"),
+    kind: "subagent" as const,
+    parentId: "child",
+    agentName: "code-critic",
+    taskPreview: "unique nested task",
+  };
+  const model = buildRenderModel({ sessions: [parent, child, grandchild, session("other", "default", "idle", "web")], width: 120, filter: "unique" });
 
-  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child"]);
+  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child", "grandchild"]);
 });
