@@ -12,6 +12,22 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Fixed
 
+## 1.2.0 - 2026-05-26
+
+### Added
+
+- Render nested subagent rows recursively with depth-aware indentation.
+- Keep ancestor context visible when filtering for nested subagents.
+
+### Changed
+
+- Simplify dashboard shortcuts: `r` opens restart choices, `R` renames, `N` syncs the Pi name, and `q` quits.
+- Improve restart/new-conversation flows and two-column picker keyboard navigation.
+
+### Fixed
+
+- Prune stale subagent rows when their tmux sessions no longer exist.
+
 ## 1.1.1 - 2026-05-21
 
 ### Fixed
