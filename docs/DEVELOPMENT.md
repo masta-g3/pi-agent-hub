@@ -2,6 +2,8 @@
 
 This page covers local setup, test commands, package checks, and smoke testing.
 
+Requirements: Node.js 20+, Pi, and tmux 3.1+.
+
 ## Local setup
 
 ```bash

@@ -25,7 +25,7 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 
 ## Quick start
 
-Requirements: Pi and tmux.
+Requirements: Pi, Node.js 20+, and tmux 3.1+.
 
 ```bash
 npm install -g pi-agent-hub
@@ -100,6 +100,22 @@ pi-hub config unset session-prelude
 ```
 
 `add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form with `Ctrl+T`; the branch name is also the session title. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
+
+## Troubleshooting
+
+For SSH/tmux use, mouse behavior comes from the remote tmux server. If right-click pastes or the scroll wheel cycles prompt history instead of interacting with the dashboard/session, enable tmux mouse support:
+
+```tmux
+set -g mouse on
+```
+
+For better modified-key handling, also enable extended keys if your tmux version supports it:
+
+```tmux
+set -g extended-keys on
+```
+
+`pi-agent-hub` does not force these global tmux settings.
 
 ## Documentation
 
