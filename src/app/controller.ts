@@ -2,12 +2,14 @@ import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, saveR
 import { assignGroupOrder, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
+import { readSessionMetadata } from "../core/session-metadata.js";
 import { applyComputedStatus, computeStatus, markAcknowledged, readHeartbeat } from "../core/status.js";
 import { capturePane, sessionExists } from "../core/tmux.js";
-import type { SessionsRegistry, ManagedSession } from "../core/types.js";
+import type { SessionsRegistry, ManagedSession, RuntimeSession, SessionMetadata } from "../core/types.js";
 
 export interface SessionsSnapshot {
   registry: SessionsRegistry;
+  sessions: RuntimeSession[];
   selectedId?: string;
   preview: string;
   filter?: string;
@@ -20,6 +22,7 @@ export type SyncPiNameResult =
 
 export class SessionsController {
   private registry: SessionsRegistry;
+  private sessionMetadata = new Map<string, SessionMetadata>();
   private selectedId: string | undefined;
   private preview = "";
   private filter: string | undefined;
@@ -38,9 +41,13 @@ export class SessionsController {
       const exists = await sessionExists(session.tmuxSession);
       if (isSubagentSession(session) && !exists) {
         prunedIds.add(session.id);
+        this.sessionMetadata.delete(session.id);
         continue;
       }
       const heartbeat = await readHeartbeat(session.id);
+      const sessionMetadata = await readSessionMetadata(session.id);
+      if (sessionMetadata) this.sessionMetadata.set(session.id, sessionMetadata);
+      else this.sessionMetadata.delete(session.id);
       const computed = computeStatus({ session, tmux: { exists }, heartbeat, now });
       const updated = applyComputedStatus(session, computed, now, heartbeat);
       sessions.push(updated);
@@ -66,7 +73,7 @@ export class SessionsController {
   }
 
   snapshot(): SessionsSnapshot {
-    return { registry: this.registry, selectedId: this.selectedId, preview: this.preview, filter: this.filter };
+    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, preview: this.preview, filter: this.filter };
   }
 
   async save(): Promise<void> {
@@ -74,7 +81,7 @@ export class SessionsController {
   }
 
   move(delta: number): void {
-    const sessions = visibleSessions(this.registry.sessions, this.filter);
+    const sessions = this.visibleSessions();
     if (!sessions.length) {
       this.selectedId = undefined;
       return;
@@ -86,7 +93,7 @@ export class SessionsController {
 
   setFilter(filter: string | undefined): void {
     this.filter = filter?.trim() || undefined;
-    this.selectedId = keepSelection(visibleSessions(this.registry.sessions, this.filter), this.selectedId);
+    this.selectedId = keepSelection(this.visibleSessions(), this.selectedId);
   }
 
   async acknowledgeSelected(now = Date.now()): Promise<void> {
@@ -163,34 +170,45 @@ export class SessionsController {
   }
 
   removeSession(id: string): void {
-    const before = visibleSessions(this.registry.sessions, this.filter);
+    const before = this.visibleSessions();
     const oldIndex = before.findIndex((session) => session.id === id);
     const wasSelected = this.selectedId === id;
     const ids = sessionCascadeIds(this.registry.sessions, id);
     this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
-    const after = visibleSessions(this.registry.sessions, this.filter);
+    const after = this.visibleSessions();
     this.selectedId = wasSelected ? after[Math.min(oldIndex, after.length - 1)]?.id : keepSelection(after, this.selectedId);
     if (wasSelected) this.preview = "";
   }
 
   selectSession(id: string): boolean {
-    if (!visibleSessions(this.registry.sessions, this.filter).some((session) => session.id === id)) return false;
+    if (!this.visibleSessions().some((session) => session.id === id)) return false;
     this.selectedId = id;
     return true;
   }
 
-  selected(): ManagedSession | undefined {
+  selected(): RuntimeSession | undefined {
     if (!this.selectedId) return undefined;
-    return visibleSessions(this.registry.sessions, this.filter).find((session) => session.id === this.selectedId);
+    return this.visibleSessions().find((session) => session.id === this.selectedId);
+  }
+
+  private visibleSessions(): RuntimeSession[] {
+    return visibleSessions(this.sessionsWithMetadata(), this.filter);
+  }
+
+  private sessionsWithMetadata(): RuntimeSession[] {
+    return this.registry.sessions.map((session) => {
+      const metadata = this.sessionMetadata.get(session.id);
+      return metadata ? { ...session, sessionMetadata: metadata } : session;
+    });
   }
 }
 
-function keepSelection(sessions: ManagedSession[], selectedId: string | undefined): string | undefined {
+function keepSelection(sessions: RuntimeSession[], selectedId: string | undefined): string | undefined {
   if (!sessions.length) return undefined;
   if (selectedId && sessions.some((session) => session.id === selectedId)) return selectedId;
   return sessions[0]?.id;
 }
 
-function visibleSessions(sessions: ManagedSession[], filter: string | undefined): ManagedSession[] {
+function visibleSessions(sessions: RuntimeSession[], filter: string | undefined): RuntimeSession[] {
   return orderedSessionRows(sessions, filter);
 }

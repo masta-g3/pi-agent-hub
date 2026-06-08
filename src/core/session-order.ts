@@ -1,6 +1,6 @@
 import type { ManagedSession } from "./types.js";
 
-export function orderedSessions(sessions: ManagedSession[]): ManagedSession[] {
+export function orderedSessions<T extends ManagedSession>(sessions: T[]): T[] {
   const ranks = orderRanks(sessions);
   const indexById = new Map(sessions.map((session, index) => [session.id, index]));
   return sessions.slice().sort((a, b) => groupOrder(a.group, b.group) || ranks.get(a.id)! - ranks.get(b.id)! || indexById.get(a.id)! - indexById.get(b.id)!);
@@ -12,7 +12,7 @@ export function nextOrderInGroup(sessions: ManagedSession[], group: string): num
   return orders.length ? Math.max(...orders) + 1 : 0;
 }
 
-export function assignGroupOrder(sessions: ManagedSession[], orderedIds: string[], group: string): ManagedSession[] {
+export function assignGroupOrder<T extends ManagedSession>(sessions: T[], orderedIds: string[], group: string): T[] {
   const orderById = new Map(orderedIds.map((id, index) => [id, index]));
   return sessions.map((session) => session.group === group ? { ...session, order: orderById.get(session.id) ?? session.order } : session);
 }

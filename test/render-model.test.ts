@@ -148,6 +148,18 @@ test("filter matches across title group cwd basename and status", () => {
   assert.equal(model.groups[0]?.sessions[0]?.id, "b");
 });
 
+test("filter matches session metadata", () => {
+  const model = buildRenderModel({
+    sessions: [{
+      ...session("a", "default", "idle", "api"),
+      sessionMetadata: { source: "any-extension", goal: "Implement semantic summaries" },
+    }, session("b", "default", "idle", "docs")],
+    width: 100,
+    filter: "semantic",
+  });
+  assert.equal(model.groups[0]?.sessions[0]?.id, "a");
+});
+
 test("multi-repo sessions render repo badge and compact details", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),
@@ -177,6 +189,36 @@ test("single-repo compact details omit repo count and group", () => {
   assert.match(rendered, /\/repo\/api/);
   assert.doesNotMatch(rendered, /1 repo/);
   assert.doesNotMatch(rendered, /group default/);
+});
+
+test("session metadata renders without replacing the Hub title", () => {
+  const model = buildRenderModel({
+    sessions: [{
+      ...session("a", "default", "idle", "Hub title"),
+      cwd: "/repo/api",
+      sessionMetadata: {
+        source: "any-extension",
+        goal: "Support semantic dashboard metadata.",
+        status: "Reader is wired into refresh.",
+        nextStep: "Validate rendering.",
+        stage: "implementing",
+        updatedAt: 880_000,
+      },
+    }],
+    selectedId: "a",
+    width: 120,
+    now: 1_000_000,
+  });
+
+  assert.equal(model.selected?.title, "Hub title");
+  const rendered = renderSessions(model).join("\n");
+  assert.match(rendered, /Hub title/);
+  assert.match(rendered, /── metadata .*via any-extension · 2m/);
+  assert.match(rendered, /goal\s+Support semantic dashboard metadata\./);
+  assert.match(rendered, /prog\s+Reader is wired into refresh\./);
+  assert.match(rendered, /next\s+Validate rendering\./);
+  assert.doesNotMatch(rendered, /next\s+▶/);
+  assert.doesNotMatch(rendered, /confidence/);
 });
 
 

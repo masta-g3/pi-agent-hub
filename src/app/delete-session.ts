@@ -1,6 +1,6 @@
 import { unlink } from "node:fs/promises";
 import { removeMultiRepoWorkspace } from "../core/multi-repo.js";
-import { heartbeatPath, registryPath } from "../core/paths.js";
+import { heartbeatPath, registryPath, sessionMetadataPath } from "../core/paths.js";
 import { loadRegistry, saveRegistry } from "../core/registry.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { killSession, sessionExists } from "../core/tmux.js";
@@ -56,6 +56,9 @@ export async function removeSessions(registry: SessionsRegistry, sessions: Manag
   await saveRegistry({ ...registry, sessions: registry.sessions.filter((item) => !ids.has(item.id)) }, path);
   for (const item of sessions) {
     await unlink(heartbeatPath(item.id, env)).catch((error: unknown) => {
+      if (!isNotFound(error)) throw error;
+    });
+    await unlink(sessionMetadataPath(item.id, env)).catch((error: unknown) => {
       if (!isNotFound(error)) throw error;
     });
   }

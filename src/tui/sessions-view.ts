@@ -273,8 +273,9 @@ export class SessionsView implements Component {
     if (this.pendingRestart) return this.renderRestartDialog(width);
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
+    const now = this.actions.now?.() ?? Date.now();
     const lines = renderSessions(buildRenderModel({
-      sessions: snapshot.registry.sessions,
+      sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
       width,
       filter: this.mode === "filter" ? this.filterDraft.value : snapshot.filter,
@@ -283,8 +284,8 @@ export class SessionsView implements Component {
       detailsExpanded: this.detailsExpanded,
       height: this.actions.terminalRows?.() ?? process.stdout.rows,
       selectedSkillCount: selected ? this.actions.skillCount?.(selected.cwd) : undefined,
+      now,
     }), this.theme);
-    const now = this.actions.now?.() ?? Date.now();
     const footer = this.mode === "filter"
       ? filterFooter(this.filterDraft, now, this.theme)
       : this.mode === "rename"

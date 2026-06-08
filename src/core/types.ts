@@ -8,6 +8,16 @@ export interface ActiveThemeSnapshot {
   tokens?: Partial<Record<ActiveThemeToken, string | number>>;
 }
 
+export interface SessionMetadata {
+  source?: string;
+  goal?: string;
+  status?: string;
+  nextStep?: string;
+  stage?: string;
+  confidence?: number;
+  updatedAt?: number;
+}
+
 export interface ManagedSession {
   id: string;
   title: string;
@@ -37,6 +47,10 @@ export interface ManagedSession {
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
+}
+
+export interface RuntimeSession extends ManagedSession {
+  sessionMetadata?: SessionMetadata;
 }
 
 export interface SessionsRegistry {

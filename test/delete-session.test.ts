@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "../src/app/delete-session.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "../src/core/registry.js";
-import { heartbeatPath, multiRepoWorkspacePath, registryPath } from "../src/core/paths.js";
+import { heartbeatPath, multiRepoWorkspacePath, registryPath, sessionMetadataPath } from "../src/core/paths.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,18 +20,21 @@ async function tempEnv() {
   };
 }
 
-test("deleteManagedSession accepts id prefix and removes full-id heartbeat", async () => {
+test("deleteManagedSession accepts id prefix and removes full-id heartbeat and metadata", async () => {
   const env = await tempEnv();
   const session = createSessionRecord({ cwd: "/tmp/api", title: "api", now: 1 });
   await saveRegistry({ version: 1, sessions: [session] }, registryPath(env));
   await mkdir(join(env.PI_AGENT_HUB_DIR, "heartbeats"), { recursive: true });
+  await mkdir(join(env.PI_AGENT_HUB_DIR, "session-metadata"), { recursive: true });
   await writeFile(heartbeatPath(session.id, env), JSON.stringify({ ok: true }), "utf8");
+  await writeFile(sessionMetadataPath(session.id, env), JSON.stringify({ goal: "Clean up" }), "utf8");
 
   const deleted = await deleteManagedSession(session.id.slice(0, 8), { env });
 
   assert.deepEqual(deleted, { id: session.id, title: "api" });
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
   await assert.rejects(readFile(heartbeatPath(session.id, env), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(sessionMetadataPath(session.id, env), "utf8"), /ENOENT/);
 });
 
 test("deleteManagedSession cascades mirrored subagent rows", async () => {

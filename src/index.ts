@@ -2,6 +2,7 @@ export * from "./core/types.js";
 export * from "./core/paths.js";
 export * from "./core/registry.js";
 export * from "./core/status.js";
+export * from "./core/session-metadata.js";
 export * from "./core/pi-process.js";
 export * from "./core/tmux.js";
 export * from "./tui/render-model.js";

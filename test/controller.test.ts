@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
@@ -153,6 +153,30 @@ test("refresh prunes subagent rows whose tmux sessions are gone", async () => {
     await controller.refresh(10);
 
     assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["parent"]);
+  });
+});
+
+test("refresh reads optional session metadata without changing liveness", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = { version: 1 as const, sessions: [session("running", { id: "api", title: "Hub title" })] };
+    await writeFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "session-metadata"), { recursive: true });
+    await writeFile(join(process.env.PI_AGENT_HUB_DIR!, "session-metadata", "api.json"), `${JSON.stringify({
+      source: "any-extension",
+      goal: "Expose semantic dashboard metadata.",
+      status: "Metadata file detected.",
+      nextStep: "Render it carefully.",
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry);
+
+    await controller.refresh(10);
+
+    const updated = controller.snapshot().registry.sessions[0];
+    const runtime = controller.snapshot().sessions[0];
+    assert.equal(updated?.status, "error");
+    assert.equal(updated?.title, "Hub title");
+    assert.equal("sessionMetadata" in (updated ?? {}), false);
+    assert.equal(runtime?.sessionMetadata?.status, "Metadata file detected.");
   });
 });
 

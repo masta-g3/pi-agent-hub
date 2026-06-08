@@ -8,6 +8,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 - Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, dashboard theme anchor)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
+- Optional session metadata: `session-metadata/<session-id>.json`
 - Multi-repo workspaces: `workspaces/<session-id>`
 - Hub-owned Git worktrees: `worktrees/<repo-name>/<session-id-prefix>-<branch-slug>`
 - Recent repo history: `repo-history.json`
@@ -19,6 +20,34 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 - MCP catalog: `<global-state>/mcp.json` by default, configurable in `config.json`
 - MCP pool socket: `<global-state>/pool/pool.sock`
 - Temporary tmux return binding state: `return-key/active.json` and `return-key/previous.tmux`
+
+### Session metadata
+
+Extensions can publish dashboard-only semantic metadata for a managed session by writing:
+
+```text
+<global-state>/session-metadata/<session-id>.json
+```
+
+Hub treats this file as extension-owned transient state: it displays known fields in the selected-session details pane, removes the file on session delete, and never uses it for liveness, status counts, ordering, or Hub title changes.
+
+```json
+{
+  "source": "my-extension",
+  "goal": "Improve Hub metadata rendering",
+  "status": "Generic metadata is visible in the dashboard",
+  "nextStep": "Verify the details pane",
+  "stage": "reviewing",
+  "confidence": 0.86,
+  "updatedAt": 1765060000000
+}
+```
+
+Display rules:
+
+- At least one of `goal`, `status`, `nextStep`, or `stage` must be present.
+- If `confidence` is present and below `0.5`, Hub hides the metadata block.
+- `source` and `updatedAt` are shown as provenance/freshness in the metadata header when present.
 
 ## Global config
 

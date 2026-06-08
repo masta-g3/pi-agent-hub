@@ -138,6 +138,7 @@ function compactDetails(session: RenderSession, width: number, styles: LayoutSty
     if (session.repoCount > 1) parts.push(`${session.repoCount} repos`);
     lines.push(truncate(parts.join(" · "), width));
   }
+  lines.push(...metadataBlock(session, width, false, styles));
   const capabilities = compactCapabilities(session, width, styles);
   if (capabilities) lines.push(capabilities);
   if (session.error) lines.push(styles.error(`error     ${session.error}`));
@@ -166,9 +167,52 @@ function expandedDetails(session: RenderSession, width: number, styles: LayoutSt
   if (session.worktreePath) lines.push(`wt path   ${truncatePath(session.worktreePath, Math.max(0, width - 10))}`);
   if (session.workspaceCwd) lines.push(`runtime   ${truncatePath(session.workspaceCwd, Math.max(0, width - 10))}`);
   if (session.sessionFile) lines.push(`session   ${truncatePath(session.sessionFile, Math.max(0, width - 10))}`);
+  lines.push(...metadataBlock(session, width, true, styles));
   if (session.enabledMcpServers.length) lines.push(`mcp       ${session.enabledMcpServers.join(", ")}`);
   if (session.resultSummary) lines.push(`result    ${session.resultSummary}`);
   if (session.error) lines.push(styles.error(`error     ${session.error}`));
+  return lines;
+}
+
+function metadataBlock(session: RenderSession, width: number, expanded: boolean, styles: LayoutStyles): string[] {
+  const metadata = session.sessionMetadata;
+  if (!metadata) return [];
+  const headerRight = [metadata.source ? `via ${metadata.source}` : undefined, session.metadataUpdatedAge].filter(Boolean).join(" · ");
+  const lines = ["", twoColumn(styles.border("── metadata ─"), styles.dim(headerRight), width)];
+  if (metadata.goal) lines.push(...metadataField("goal", metadata.goal, width, styles));
+  if (metadata.status) lines.push(...metadataField("prog", metadata.status, width, styles));
+  if (metadata.nextStep) lines.push(...metadataField("next", metadata.nextStep, width, styles));
+  if (expanded && metadata.stage) lines.push(...metadataField("stage", metadata.stage, width, styles));
+  return lines;
+}
+
+function metadataField(label: string, value: string, width: number, styles: LayoutStyles, marker = ""): string[] {
+  const labelText = styles.muted(pad(label, 5));
+  const firstPrefix = `${labelText} `;
+  const nextPrefix = `${pad("", 5)} `;
+  const firstWidth = Math.max(4, width - displayWidth(firstPrefix) - displayWidth(marker));
+  const nextWidth = Math.max(4, width - displayWidth(nextPrefix));
+  const wrapped = wrapWords(value, firstWidth, nextWidth);
+  return wrapped.map((line, index) => index === 0 ? `${firstPrefix}${marker}${line}` : `${nextPrefix}${line}`);
+}
+
+function wrapWords(value: string, firstWidth: number, nextWidth: number): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines: string[] = [];
+  let width = firstWidth;
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (displayWidth(candidate) <= width) {
+      current = candidate;
+      continue;
+    }
+    if (current) lines.push(current);
+    width = nextWidth;
+    current = word;
+  }
+  if (current) lines.push(current);
   return lines;
 }
 

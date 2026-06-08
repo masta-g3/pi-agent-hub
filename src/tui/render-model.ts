@@ -1,6 +1,6 @@
 import { groupOrder, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, sessionDepth } from "../core/session-tree.js";
-import type { ManagedSession, SessionStatus } from "../core/types.js";
+import type { RuntimeSession, SessionStatus, SessionMetadata } from "../core/types.js";
 
 export interface RenderSession {
   id: string;
@@ -24,6 +24,8 @@ export interface RenderSession {
   agentName?: string;
   taskPreview?: string;
   resultSummary?: string;
+  sessionMetadata?: SessionMetadata;
+  metadataUpdatedAge?: string;
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
@@ -67,7 +69,7 @@ export interface RenderModel {
 }
 
 export interface BuildRenderModelInput {
-  sessions: ManagedSession[];
+  sessions: RuntimeSession[];
   selectedId?: string;
   width: number;
   height?: number;
@@ -76,12 +78,13 @@ export interface BuildRenderModelInput {
   preview?: string;
   detailsExpanded?: boolean;
   selectedSkillCount?: number;
+  now?: number;
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const visible = orderedSessionRows(input.sessions, input.filter);
   const selectedId = pickSelectedId(visible, input.selectedId);
-  const mapped = visible.map((session) => toRenderSession(session, session.id === selectedId, input.sessions, session.id === selectedId ? input.selectedSkillCount : undefined));
+  const mapped = visible.map((session) => toRenderSession(session, session.id === selectedId, input.sessions, session.id === selectedId ? input.selectedSkillCount : undefined, input.now));
   const groupsByName = new Map<string, RenderSession[]>();
   for (const session of mapped) {
     const group = groupsByName.get(session.group) ?? [];
@@ -122,8 +125,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
 }
 
 export function retainSelectionAfterRefresh(
-  previous: ManagedSession[],
-  next: ManagedSession[],
+  previous: RuntimeSession[],
+  next: RuntimeSession[],
   selectedId: string | undefined,
 ): string | undefined {
   if (!next.length) return undefined;
@@ -139,13 +142,13 @@ export function retainSelectionAfterRefresh(
   return sameGroup[Math.min(oldIndex, sameGroup.length - 1)]?.id ?? sameGroup.at(-1)?.id;
 }
 
-function pickSelectedId(sessions: ManagedSession[], selectedId: string | undefined): string | undefined {
+function pickSelectedId(sessions: RuntimeSession[], selectedId: string | undefined): string | undefined {
   if (!sessions.length) return undefined;
   if (selectedId && sessions.some((session) => session.id === selectedId)) return selectedId;
   return sessions[0]?.id;
 }
 
-function toRenderSession(session: ManagedSession, selected: boolean, sessions: ManagedSession[], skillCount: number | undefined): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], skillCount: number | undefined, now: number | undefined): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   return {
     id: session.id,
@@ -169,11 +172,25 @@ function toRenderSession(session: ManagedSession, selected: boolean, sessions: M
     agentName: session.agentName,
     taskPreview: session.taskPreview,
     resultSummary: session.resultSummary,
+    sessionMetadata: session.sessionMetadata,
+    metadataUpdatedAge: metadataUpdatedAge(session.sessionMetadata, now),
     worktreePath: session.worktreePath,
     worktreeBranch: session.worktreeBranch,
     worktreeBaseBranch: session.worktreeBaseBranch,
     worktreeOwnedByHub: session.worktreeOwnedByHub,
   };
+}
+
+function metadataUpdatedAge(metadata: SessionMetadata | undefined, now: number | undefined): string | undefined {
+  if (!metadata?.updatedAt || now === undefined) return undefined;
+  const ageMs = Math.max(0, now - metadata.updatedAt);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (ageMs < minute) return "now";
+  if (ageMs < hour) return `${Math.floor(ageMs / minute)}m`;
+  if (ageMs < day) return `${Math.floor(ageMs / hour)}h`;
+  return `${Math.floor(ageMs / day)}d`;
 }
 
 function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"] {

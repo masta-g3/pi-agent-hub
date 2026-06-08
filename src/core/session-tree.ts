@@ -1,11 +1,11 @@
 import { orderedSessions } from "./session-order.js";
-import type { ManagedSession } from "./types.js";
+import type { ManagedSession, RuntimeSession } from "./types.js";
 
 export function isSubagentSession(session: ManagedSession): boolean {
   return session.kind === "subagent";
 }
 
-export function sessionDepth(session: ManagedSession, sessions: ManagedSession[]): number {
+export function sessionDepth(session: RuntimeSession, sessions: RuntimeSession[]): number {
   if (!isSubagentSession(session) || !session.parentId) return 0;
   const byId = new Map(sessions.map((candidate) => [candidate.id, candidate]));
   const seen = new Set<string>();
@@ -36,10 +36,10 @@ export function sessionCascadeIds(sessions: ManagedSession[], id: string): Set<s
   return ids;
 }
 
-export function orderedSessionRows(sessions: ManagedSession[], filter?: string): ManagedSession[] {
+export function orderedSessionRows(sessions: RuntimeSession[], filter?: string): RuntimeSession[] {
   const visible = filter?.trim() ? treeFilteredSessions(sessions, filter.trim().toLowerCase()) : sessions;
   const visibleIds = new Set(visible.map((session) => session.id));
-  const childrenByParent = new Map<string, ManagedSession[]>();
+  const childrenByParent = new Map<string, RuntimeSession[]>();
   const childRows = visible.filter(isSubagentSession);
   for (const child of childRows) {
     if (!child.parentId) continue;
@@ -48,9 +48,9 @@ export function orderedSessionRows(sessions: ManagedSession[], filter?: string):
     childrenByParent.set(child.parentId, children);
   }
 
-  const rows: ManagedSession[] = [];
+  const rows: RuntimeSession[] = [];
   const added = new Set<string>();
-  function addWithChildren(session: ManagedSession): void {
+  function addWithChildren(session: RuntimeSession): void {
     if (added.has(session.id)) return;
     rows.push(session);
     added.add(session.id);
@@ -62,9 +62,9 @@ export function orderedSessionRows(sessions: ManagedSession[], filter?: string):
   return rows;
 }
 
-function treeFilteredSessions(sessions: ManagedSession[], filter: string): ManagedSession[] {
+function treeFilteredSessions(sessions: RuntimeSession[], filter: string): RuntimeSession[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
-  const childrenByParent = new Map<string, ManagedSession[]>();
+  const childrenByParent = new Map<string, RuntimeSession[]>();
   for (const session of sessions) {
     if (!isSubagentSession(session) || !session.parentId) continue;
     const children = childrenByParent.get(session.parentId) ?? [];
@@ -72,7 +72,7 @@ function treeFilteredSessions(sessions: ManagedSession[], filter: string): Manag
     childrenByParent.set(session.parentId, children);
   }
 
-  const visible = new Map<string, ManagedSession>();
+  const visible = new Map<string, RuntimeSession>();
   for (const session of sessions) {
     if (!matchesFilter(session, filter)) continue;
     visible.set(session.id, session);
@@ -85,7 +85,7 @@ function treeFilteredSessions(sessions: ManagedSession[], filter: string): Manag
   return [...visible.values()];
 }
 
-export function matchesFilter(session: ManagedSession, filter: string): boolean {
+export function matchesFilter(session: RuntimeSession, filter: string): boolean {
   return [
     session.title,
     session.group,
@@ -94,10 +94,14 @@ export function matchesFilter(session: ManagedSession, filter: string): boolean 
     session.status,
     session.agentName ?? "",
     session.taskPreview ?? "",
+    session.sessionMetadata?.goal ?? "",
+    session.sessionMetadata?.status ?? "",
+    session.sessionMetadata?.nextStep ?? "",
+    session.sessionMetadata?.stage ?? "",
   ].some((value) => value.toLowerCase().includes(filter));
 }
 
-function addAncestors(session: ManagedSession, byId: Map<string, ManagedSession>, visible: Map<string, ManagedSession>): void {
+function addAncestors(session: RuntimeSession, byId: Map<string, RuntimeSession>, visible: Map<string, RuntimeSession>): void {
   const seen = new Set<string>();
   let parentId = session.parentId;
   while (parentId && !seen.has(parentId)) {
@@ -109,7 +113,7 @@ function addAncestors(session: ManagedSession, byId: Map<string, ManagedSession>
   }
 }
 
-function addDescendants(id: string, childrenByParent: Map<string, ManagedSession[]>, visible: Map<string, ManagedSession>): void {
+function addDescendants(id: string, childrenByParent: Map<string, RuntimeSession[]>, visible: Map<string, RuntimeSession>): void {
   for (const child of childrenByParent.get(id) ?? []) {
     visible.set(child.id, child);
     addDescendants(child.id, childrenByParent, visible);

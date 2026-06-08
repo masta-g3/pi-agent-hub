@@ -26,6 +26,14 @@ export function heartbeatPath(sessionId: string, env: NodeJS.ProcessEnv = proces
   return join(heartbeatDir(env), `${sessionId}.json`);
 }
 
+export function sessionMetadataDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "session-metadata");
+}
+
+export function sessionMetadataPath(sessionId: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionMetadataDir(env), `${sessionId}.json`);
+}
+
 export function repoHistoryPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "repo-history.json");
 }
