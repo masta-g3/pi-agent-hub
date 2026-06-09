@@ -1089,6 +1089,63 @@ test("footer rename prompt validates blank title", () => {
   assert.match(view.render(100).join("\n"), /title is required/);
 });
 
+test("custom Ctrl+N dashboard shortcut sends session-summary name to selected live session", async () => {
+  const runs: Array<{ sessionId: string; send: string }> = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-n", label: "summarize name", send: "/session-summary name", syncPiNameAfterMs: 8000 }],
+    runDashboardShortcut: async (sessionId, shortcut) => { runs.push({ sessionId, send: shortcut.send }); },
+  });
+
+  view.handleInput("\x0e");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(runs, [{ sessionId: "api", send: "/session-summary name" }]);
+  assert.match(stripAnsi(view.render(100).join("\n")), /summarize name → api/);
+});
+
+test("custom dashboard shortcut blocks subagent stopped and error rows", () => {
+  const blockedSessions: ManagedSession[] = [
+    { ...session("child", "child"), kind: "subagent", parentId: "missing", agentName: "scout" },
+    { ...session("stopped", "stopped"), status: "stopped" },
+    { ...session("error", "error"), status: "error" },
+  ];
+  const messages: RegExp[] = [/subagent rows cannot receive input/, /session is not live/, /session is not live/];
+
+  for (let i = 0; i < blockedSessions.length; i += 1) {
+    let called = false;
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [blockedSessions[i]!] }), () => {}, {
+      dashboardShortcuts: [{ key: "C-n", send: "/session-summary name" }],
+      runDashboardShortcut: () => { called = true; },
+    });
+    view.handleInput("\x0e");
+    assert.equal(called, false);
+    assert.match(stripAnsi(view.render(100).join("\n")), messages[i]!);
+  }
+});
+
+test("custom dashboard shortcuts only run in normal mode", () => {
+  let called = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-n", send: "/session-summary name" }],
+    runDashboardShortcut: () => { called = true; },
+  });
+
+  view.handleInput("/");
+  view.handleInput("\x0e");
+
+  assert.equal(called, false);
+});
+
+test("custom dashboard shortcut reports unavailable without a transport action", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-n", send: "/session-summary name" }],
+  });
+
+  view.handleInput("\x0e");
+
+  assert.match(stripAnsi(view.render(100).join("\n")), /shortcut unavailable/);
+});
+
 test("p opens footer send prompt and submits message to selected live session", async () => {
   const sent: Array<{ tmuxSession: string; message: string }> = [];
   let now = 100;

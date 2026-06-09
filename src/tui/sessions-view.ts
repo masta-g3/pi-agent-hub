@@ -3,7 +3,9 @@ import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession } from "../core/worktree.js";
+import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
+import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 import { buildRenderModel } from "./render-model.js";
 import { renderSessions, renderDialog, renderForm } from "./layout.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -88,6 +90,8 @@ export interface SessionsViewActions {
   mcpServers?: () => PickerItem[] | Promise<PickerItem[]>;
   applyMcpServers?: (items: PickerItem[]) => void | Promise<void>;
   sendMessage?: (tmuxSession: string, message: string) => unknown;
+  dashboardShortcuts?: readonly DashboardShortcut[];
+  runDashboardShortcut?: (sessionId: string, shortcut: DashboardShortcut) => unknown;
   copy?: (text: string) => void;
   skillCount?: (cwd: string) => number | undefined;
   now?: () => number;
@@ -127,6 +131,10 @@ export class SessionsView implements Component {
 
   setTheme(theme: SessionsTheme): void {
     this.theme = theme;
+  }
+
+  setMessage(message: string): void {
+    this.message = message;
   }
 
   handleInput(data: string): void {
@@ -215,6 +223,8 @@ export class SessionsView implements Component {
       else if (data === "a") this.confirmRestartAll();
       return;
     }
+
+    if (this.runConfiguredShortcut(data)) return;
 
     if (data === "J" || matchesKey(data, Key.shift("down"))) this.reorderSelected(1);
     else if (data === "K" || matchesKey(data, Key.shift("up"))) this.reorderSelected(-1);
@@ -406,6 +416,33 @@ export class SessionsView implements Component {
       { key: "to", label: "to", value: selected.group, hint: `renames all sessions currently in ${selected.group}` },
     ]);
     this.message = undefined;
+  }
+
+  private runConfiguredShortcut(data: string): boolean {
+    const shortcut = this.actions.dashboardShortcuts?.find((item) => matchesDashboardShortcut(data, item.key));
+    if (!shortcut) return false;
+    const selected = this.controller.selected();
+    if (!selected) return true;
+    if (selected.kind === "subagent") {
+      this.message = "subagent rows cannot receive input";
+      return true;
+    }
+    if (selected.status === "stopped" || selected.status === "error") {
+      this.message = "session is not live; press r to restart";
+      return true;
+    }
+    if (!this.actions.runDashboardShortcut) {
+      this.message = "shortcut unavailable";
+      return true;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.runAction(
+      () => this.actions.runDashboardShortcut?.(selected.id, shortcut),
+      "running shortcut...",
+      () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} → ${selected.title}`); },
+    );
+    return true;
   }
 
   private startSendDialog() {

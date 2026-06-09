@@ -8,7 +8,7 @@ import { loadActiveTheme, loadSessionsTheme, type SessionsTheme } from "../tui/t
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardThemeSessionId, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSkillPoolDir } from "../core/config.js";
+import { effectiveDashboardShortcuts, effectiveDashboardThemeSessionId, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSkillPoolDir } from "../core/config.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { configureDashboardStatusBar, configureManagedSessionStatusBar, restoreSwitchReturnBinding, sendTextToSession, switchClientWithReturn } from "../core/tmux.js";
@@ -103,6 +103,7 @@ export async function runTui(): Promise<void> {
   void syncManagedSessionStatusBars().catch(() => {});
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
+  const dashboardShortcuts = await effectiveDashboardShortcuts();
   let skillPoolDirs = await effectiveSkillPoolDirs();
   let skillPool = await listSkillPool();
   const mcpCatalog = await loadMcpCatalog();
@@ -125,11 +126,14 @@ export async function runTui(): Promise<void> {
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
   let stopActionLoop: (() => void) | undefined;
+  const shortcutTimers = new Set<NodeJS.Timeout>();
   let stopped = false;
   const stop = () => {
     stopped = true;
     stopThemeLoop?.();
     stopActionLoop?.();
+    for (const timer of shortcutTimers) clearTimeout(timer);
+    shortcutTimers.clear();
     void stopLoop?.stop();
     void restoreSwitchReturnBinding({ onlyOwnerPid: process.pid }).catch(() => {});
     tui.stop();
@@ -151,6 +155,20 @@ export async function runTui(): Promise<void> {
     const result = mutationQueue.then(run, run);
     mutationQueue = result.catch(() => {});
     return result;
+  };
+  const scheduleShortcutNameSync = (sessionId: string, delayMs: number) => {
+    const timer = setTimeout(() => {
+      shortcutTimers.delete(timer);
+      void mutateRegistry(async () => {
+        await controller.syncPiName(sessionId);
+      }).catch((error: unknown) => {
+        if (!stopped) {
+          view.setMessage(errorMessage(error));
+          tui.requestRender();
+        }
+      });
+    }, delayMs);
+    shortcutTimers.add(timer);
   };
   const skillPickerItems = async (projectCwd: string) => {
     const state = await loadProjectSkillsState(projectCwd);
@@ -242,6 +260,13 @@ export async function runTui(): Promise<void> {
     },
     sendMessage(tmuxSession, message) {
       return sendTextToSession(tmuxSession, message);
+    },
+    dashboardShortcuts,
+    async runDashboardShortcut(sessionId, shortcut) {
+      const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
+      if (!session) throw new Error("session not found");
+      await sendTextToSession(session.tmuxSession, shortcut.send);
+      if (shortcut.syncPiNameAfterMs) scheduleShortcutNameSync(session.id, shortcut.syncPiNameAfterMs);
     },
     acknowledge() {
       return mutateRegistry(() => controller.acknowledgeSelected());
@@ -351,4 +376,8 @@ function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs
 
 function selectedProjectCwd(selected: ManagedSession | undefined, fallback: string): string {
   return selected ? projectStateCwd(selected) : fallback;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

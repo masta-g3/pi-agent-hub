@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardThemeSessionId, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSessionPrelude, setSkillPoolDir, unsetSessionPrelude } from "../src/core/config.js";
+import { configPath, effectiveDashboardShortcuts, effectiveDashboardThemeSessionId, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, setDashboardThemeSessionId, setSessionPrelude, setSkillPoolDir, unsetSessionPrelude } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -23,6 +23,7 @@ test("config defaults to the built-in skill pool and MCP catalog", async () => {
   assert.equal(await effectiveMcpCatalogPath(env), join(root, "mcp.json"));
   assert.equal(await effectiveSessionPrelude(env), undefined);
   assert.equal(await effectiveDashboardThemeSessionId(env), undefined);
+  assert.deepEqual(await effectiveDashboardShortcuts(env), []);
 });
 
 test("session prelude config is trimmed and validated", async () => {
@@ -85,6 +86,61 @@ test("dashboard theme session config is trimmed validated and preserves unrelate
   }), "utf8");
 
   await assert.rejects(() => effectiveDashboardThemeSessionId(env), /Invalid dashboard\.themeSessionId/);
+});
+
+test("dashboard shortcut config is normalized and validated", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: {
+      themeSessionId: "session-1",
+      shortcuts: [
+        { key: "ctrl+n", label: " summarize name ", send: " /session-summary name ", syncPiNameAfterMs: 8000 },
+        { key: "alt+x", send: "/other" },
+      ],
+    },
+  }), "utf8");
+
+  assert.deepEqual(await effectiveDashboardShortcuts(env), [
+    { key: "C-n", label: "summarize name", send: "/session-summary name", syncPiNameAfterMs: 8000 },
+    { key: "M-x", send: "/other" },
+  ]);
+  assert.equal(await effectiveDashboardThemeSessionId(env), "session-1");
+});
+
+test("dashboard shortcut config rejects conflicts and invalid send values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: { shortcuts: [{ key: "N", send: "/session-summary name" }] },
+  }), "utf8");
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /conflicts with a built-in dashboard shortcut/);
+
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: { shortcuts: [{ key: "C-q", send: "/session-summary name" }] },
+  }), "utf8");
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /conflicts with a built-in dashboard shortcut/);
+
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: { shortcuts: [{ key: "C-m", send: "/session-summary name" }] },
+  }), "utf8");
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /conflicts with a built-in dashboard shortcut/);
+
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: { shortcuts: [{ key: "C-n", send: "/one\n/two" }] },
+  }), "utf8");
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /must be one line/);
+
+  await writeFile(configPath(env), JSON.stringify({
+    version: 1,
+    dashboard: { shortcuts: [{ key: "C-n", send: "\n/session-summary name" }] },
+  }), "utf8");
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /must be one line/);
 });
 
 test("setDashboardThemeSessionId rejects blank ids", async () => {

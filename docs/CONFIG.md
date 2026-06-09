@@ -5,7 +5,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 ## Runtime state
 
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
-- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, dashboard theme anchor)
+- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, dashboard theme anchor, dashboard shortcuts)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Optional session metadata: `session-metadata/<session-id>.json`
@@ -69,7 +69,15 @@ Optional global config lives at `config.json` under the global state directory:
     "prelude": "security show-keychain-info ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || security unlock-keychain ~/Library/Keychains/login.keychain-db"
   },
   "dashboard": {
-    "themeSessionId": "last-entered-session-id"
+    "themeSessionId": "last-entered-session-id",
+    "shortcuts": [
+      {
+        "key": "C-n",
+        "label": "summarize name",
+        "send": "/session-summary name",
+        "syncPiNameAfterMs": 1500
+      }
+    ]
   }
 }
 ```
@@ -81,6 +89,30 @@ pi-hub config get
 pi-hub config set session-prelude '<shell snippet>'
 pi-hub config unset session-prelude
 ```
+
+## Dashboard shortcuts
+
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. They cannot target stopped, error, or subagent rows.
+
+```json
+{
+  "version": 1,
+  "dashboard": {
+    "shortcuts": [
+      {
+        "key": "C-n",
+        "label": "summarize name",
+        "send": "/session-summary name",
+        "syncPiNameAfterMs": 1500
+      }
+    ]
+  }
+}
+```
+
+Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard keys and tmux return keys are reserved. `send` must be a single nonblank line; this is not a shell-command or macro facility.
+
+`syncPiNameAfterMs` is a pi-agent-hub-specific post-action for `/session-summary name` workflows: after sending the shortcut, Hub waits that many milliseconds and then syncs the selected dashboard title from Pi's latest `session_info.name`, equivalent to pressing `N` later.
 
 ## Session prelude
 

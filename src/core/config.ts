@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { readJsonOr, writeJsonAtomic } from "./atomic-json.js";
+import { validateDashboardShortcuts, type DashboardShortcut } from "./dashboard-shortcuts.js";
 import { sessionsStateDir } from "./paths.js";
 
 export interface SessionsConfig {
@@ -16,6 +17,7 @@ export interface SessionsConfig {
   };
   dashboard?: {
     themeSessionId?: string;
+    shortcuts?: DashboardShortcut[];
   };
 }
 
@@ -48,6 +50,10 @@ export async function effectiveSessionPrelude(env: NodeJS.ProcessEnv = process.e
 export async function effectiveDashboardThemeSessionId(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
   const id = (await loadSessionsConfig(env)).dashboard?.themeSessionId?.trim();
   return id || undefined;
+}
+
+export async function effectiveDashboardShortcuts(env: NodeJS.ProcessEnv = process.env): Promise<DashboardShortcut[]> {
+  return validateDashboardShortcuts((await loadSessionsConfig(env)).dashboard?.shortcuts);
 }
 
 export async function setSkillPoolDirs(poolDirs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -94,6 +100,7 @@ function validateConfig(config: SessionsConfig): void {
   if (config.session?.prelude !== undefined && typeof config.session.prelude !== "string") throw new Error("Invalid session.prelude in pi-agent-hub config");
   if (config.dashboard !== undefined && !isPlainObject(config.dashboard)) throw new Error("Invalid dashboard config in pi-agent-hub config");
   if (config.dashboard?.themeSessionId !== undefined && typeof config.dashboard.themeSessionId !== "string") throw new Error("Invalid dashboard.themeSessionId in pi-agent-hub config");
+  validateDashboardShortcuts(config.dashboard?.shortcuts);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

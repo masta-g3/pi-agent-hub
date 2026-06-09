@@ -24,6 +24,7 @@ Ctrl+Q returns to the dashboard
 | Dashboard return | `Ctrl+Q` inside a managed session | Jump back to the hub without stopping the agent. |
 | In-session rename | `Alt+R` inside a managed session | Open the dashboard rename dialog for the current session, then return to it after saving. |
 | Direct send | `p` in the dashboard | Paste and submit a one-line message into the selected live session without opening it. |
+| Custom dashboard shortcuts | `dashboard.shortcuts` in config | Bind safe Pi slash-command sends, such as `/session-summary name`, to dashboard keys. |
 | Stable grouping/order | `g`, `G`, `K`, `J` | Keep sessions organized without status/title resorting. |
 | Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
 | Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create one-repo Git worktrees under hub state and explicitly finish, forget, or discard them. |
@@ -136,6 +137,8 @@ Groups are simple labels on sessions.
 | `N` | Sync the selected hub title from Pi's `/name` |
 
 Reordering is disabled while a filter is active.
+
+Custom normal-mode dashboard shortcuts can be configured in `config.json`; see [Dashboard shortcuts](CONFIG.md#dashboard-shortcuts). They send one-line text to the selected live session without opening it and are intended for Pi-native commands such as `/session-summary name`.
 
 ## Project-scoped Skills and MCP
 
