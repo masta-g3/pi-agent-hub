@@ -138,7 +138,7 @@ Groups are simple labels on sessions.
 
 Reordering is disabled while a filter is active.
 
-Custom normal-mode dashboard shortcuts can be configured in `config.json`; see [Dashboard shortcuts](CONFIG.md#dashboard-shortcuts). They send one-line text to the selected live session without opening it and are intended for Pi-native commands such as `/session-summary name`.
+Custom normal-mode dashboard shortcuts can be configured in `config.json`; see [Dashboard shortcuts](CONFIG.md#dashboard-shortcuts). They send one-line text to the selected live session without opening it and are intended for Pi-native commands such as `/session-summary name`, provided by the optional [`pi-session-summary`](https://github.com/masta-g3/pi-session-summary) extension.
 
 ## Project-scoped Skills and MCP
 
