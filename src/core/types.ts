@@ -18,6 +18,14 @@ export interface SessionMetadata {
   updatedAt?: number;
 }
 
+export interface ManagedWorktree {
+  path: string;
+  repoRoot: string;
+  branch: string;
+  baseBranch: string;
+  role: "primary" | "additional";
+}
+
 export interface ManagedSession {
   id: string;
   title: string;
@@ -47,6 +55,7 @@ export interface ManagedSession {
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
+  worktrees?: ManagedWorktree[];
 }
 
 export interface RuntimeSession extends ManagedSession {

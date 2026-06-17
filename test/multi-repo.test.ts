@@ -83,6 +83,31 @@ test("ensureMultiRepoWorkspace creates repo symlinks and primary .pi link", asyn
   await assert.rejects(lstat(join(ensured.workspaceCwd!, "stale")), /ENOENT/);
 });
 
+test("ensureMultiRepoWorkspace links worktree sessions to source repo .pi", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
+  const state = join(root, "state");
+  const api = join(root, "worktrees", "api");
+  const web = join(root, "worktrees", "web");
+  const apiRoot = join(root, "source", "api");
+  await mkdir(api, { recursive: true });
+  await mkdir(web, { recursive: true });
+  await mkdir(apiRoot, { recursive: true });
+  const original = session(root, {
+    cwd: api,
+    additionalCwds: [web],
+    worktreeOwnedByHub: true,
+    worktrees: [
+      { path: api, repoRoot: apiRoot, branch: "feature/multi", baseBranch: "main", role: "primary" },
+      { path: web, repoRoot: join(root, "source", "web"), branch: "feature/multi", baseBranch: "main", role: "additional" },
+    ],
+  });
+
+  const ensured = await ensureMultiRepoWorkspace(original, { PI_AGENT_HUB_DIR: state });
+
+  assert.equal(resolve(await readlink(join(ensured.workspaceCwd!, ".pi"))), join(apiRoot, ".pi"));
+  await assert.rejects(lstat(join(api, ".pi")), /ENOENT/);
+});
+
 test("ensureMultiRepoWorkspace dedupes canonical paths and degrades duplicate-only extras to single repo", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
   const state = join(root, "state");

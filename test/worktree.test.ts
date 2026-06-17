@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { discardWorktreeSession, finishWorktreeSession } from "../src/app/worktree-session.js";
-import { createOwnedWorktree, finishOwnedWorktree, branchSlug } from "../src/core/worktree.js";
+import { createOwnedWorktree, createOwnedWorktrees, finishOwnedWorktree, branchSlug } from "../src/core/worktree.js";
 import { createSessionRecord, loadRegistry, saveRegistry } from "../src/core/registry.js";
 import { heartbeatPath, registryPath, worktreesDir } from "../src/core/paths.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -31,7 +31,11 @@ async function tempEnv() {
 
 async function tempRepo() {
   const { root, env } = await tempEnv();
-  const repo = join(root, "repo");
+  return { repo: await createRepo(root, "repo"), env };
+}
+
+async function createRepo(root: string, name: string): Promise<string> {
+  const repo = join(root, name);
   await git(root, ["init", repo]);
   await git(repo, ["config", "user.email", "test@example.com"]);
   await git(repo, ["config", "user.name", "Test User"]);
@@ -39,7 +43,7 @@ async function tempRepo() {
   await git(repo, ["add", "README.md"]);
   await git(repo, ["commit", "-m", "initial"]);
   await git(repo, ["branch", "-M", "main"]);
-  return { repo, env };
+  return repo;
 }
 
 test("branchSlug keeps readable filesystem-safe names", () => {
@@ -59,6 +63,36 @@ test("createOwnedWorktree creates a hub-owned Git worktree", async () => {
   assert.equal((await git(created.worktreePath, ["branch", "--show-current"])).trim(), "feature/worktree");
 });
 
+test("createOwnedWorktrees creates hub-owned Git worktrees for multiple repos", async () => {
+  const { root, env } = await tempEnv();
+  const api = await createRepo(root, "api");
+  const web = await createRepo(root, "web");
+
+  const created = await createOwnedWorktrees({ cwds: [api, web], sessionId: "multi-session", branch: "feature/multi", env });
+
+  assert.equal(created.cwd, created.primary.worktreePath);
+  assert.deepEqual(created.additionalCwds, [created.worktrees[1]!.path]);
+  assert.deepEqual(created.worktrees.map((worktree) => worktree.role), ["primary", "additional"]);
+  assert.deepEqual(created.worktrees.map((worktree) => worktree.repoRoot), [await realpath(api), await realpath(web)]);
+  assert.equal((await git(created.worktrees[0]!.path, ["branch", "--show-current"])).trim(), "feature/multi");
+  assert.equal((await git(created.worktrees[1]!.path, ["branch", "--show-current"])).trim(), "feature/multi");
+});
+
+test("createOwnedWorktrees preflights existing branches before creating any worktree", async () => {
+  const { root, env } = await tempEnv();
+  const api = await createRepo(root, "api");
+  const web = await createRepo(root, "web");
+  await git(web, ["branch", "feature/existing"]);
+
+  await assert.rejects(
+    createOwnedWorktrees({ cwds: [api, web], sessionId: "rollback-session", branch: "feature/existing", env }),
+    /Branch already exists/,
+  );
+
+  await assert.rejects(lstat(worktreesDir(env)), /ENOENT/);
+  assert.equal((await git(api, ["branch", "--list", "feature/existing"])).trim(), "");
+});
+
 test("createOwnedWorktree rejects invalid branch names before creating a path", async () => {
   const { repo, env } = await tempRepo();
 
@@ -75,6 +109,8 @@ test("finishOwnedWorktree merges a clean worktree and removes it", async () => {
   await writeFile(join(created.worktreePath, "feature.txt"), "done\n", "utf8");
   await git(created.worktreePath, ["add", "feature.txt"]);
   await git(created.worktreePath, ["commit", "-m", "feature"]);
+  await mkdir(join(repo, ".pi"));
+  await writeFile(join(repo, ".pi", "skills.json"), "{}\n", "utf8");
   const session = worktreeSession(created);
 
   const finished = await finishOwnedWorktree({ session, env });
@@ -105,6 +141,54 @@ test("discardWorktreeSession removes a clean worktree branch without merging", a
   await assert.rejects(readFile(join(repo, "discard.txt"), "utf8"), /ENOENT/);
   await assert.rejects(lstat(created.worktreePath), /ENOENT/);
   assert.equal((await git(repo, ["branch", "--list", "feature/discard"])).trim(), "");
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+});
+
+test("finishWorktreeSession merges and removes all multi-repo worktrees", async () => {
+  const { root, env } = await tempEnv();
+  const api = await createRepo(root, "api");
+  const web = await createRepo(root, "web");
+  const created = await createOwnedWorktrees({ cwds: [api, web], sessionId: "finish-multi-session", branch: "feature/multi-finish", env });
+  await writeFile(join(created.worktrees[0]!.path, "api.txt"), "api\n", "utf8");
+  await git(created.worktrees[0]!.path, ["add", "api.txt"]);
+  await git(created.worktrees[0]!.path, ["commit", "-m", "api"]);
+  await writeFile(join(created.worktrees[1]!.path, "web.txt"), "web\n", "utf8");
+  await git(created.worktrees[1]!.path, ["add", "web.txt"]);
+  await git(created.worktrees[1]!.path, ["commit", "-m", "web"]);
+  const session = { ...multiWorktreeSession(created), id: "finish-multi", tmuxSession: "pi-agent-hub-finish-multi" };
+  await saveRegistry({ version: 1, sessions: [session] }, registryPath(env));
+
+  const finished = await finishWorktreeSession(session.id, { env });
+
+  assert.equal(finished.count, 2);
+  assert.equal(await readFile(join(api, "api.txt"), "utf8"), "api\n");
+  assert.equal(await readFile(join(web, "web.txt"), "utf8"), "web\n");
+  await assert.rejects(lstat(created.worktrees[0]!.path), /ENOENT/);
+  await assert.rejects(lstat(created.worktrees[1]!.path), /ENOENT/);
+  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+});
+
+test("discardWorktreeSession removes all multi-repo worktrees without merging", async () => {
+  const { root, env } = await tempEnv();
+  const api = await createRepo(root, "api");
+  const web = await createRepo(root, "web");
+  const created = await createOwnedWorktrees({ cwds: [api, web], sessionId: "discard-multi-session", branch: "feature/multi-discard", env });
+  await writeFile(join(created.worktrees[0]!.path, "api.txt"), "api\n", "utf8");
+  await git(created.worktrees[0]!.path, ["add", "api.txt"]);
+  await git(created.worktrees[0]!.path, ["commit", "-m", "api"]);
+  await writeFile(join(created.worktrees[1]!.path, "web.txt"), "web\n", "utf8");
+  await git(created.worktrees[1]!.path, ["add", "web.txt"]);
+  await git(created.worktrees[1]!.path, ["commit", "-m", "web"]);
+  const session = { ...multiWorktreeSession(created), id: "discard-multi", tmuxSession: "pi-agent-hub-discard-multi" };
+  await saveRegistry({ version: 1, sessions: [session] }, registryPath(env));
+
+  const discarded = await discardWorktreeSession(session.id, { env });
+
+  assert.equal(discarded.count, 2);
+  await assert.rejects(readFile(join(api, "api.txt"), "utf8"), /ENOENT/);
+  await assert.rejects(readFile(join(web, "web.txt"), "utf8"), /ENOENT/);
+  await assert.rejects(lstat(created.worktrees[0]!.path), /ENOENT/);
+  await assert.rejects(lstat(created.worktrees[1]!.path), /ENOENT/);
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
 });
 
@@ -174,6 +258,22 @@ test("finishOwnedWorktree blocks dirty worktrees and keeps files", async () => {
   assert.equal(await readFile(join(created.worktreePath, "dirty.txt"), "utf8"), "dirty\n");
   assert.equal((await git(repo, ["branch", "--show-current"])).trim(), "main");
 });
+
+function multiWorktreeSession(created: Awaited<ReturnType<typeof createOwnedWorktrees>>): ManagedSession {
+  return {
+    id: "session",
+    title: "session",
+    cwd: created.cwd,
+    additionalCwds: created.additionalCwds,
+    group: "default",
+    tmuxSession: "pi-agent-hub-session",
+    status: "idle",
+    createdAt: 1,
+    updatedAt: 1,
+    worktreeOwnedByHub: true,
+    worktrees: created.worktrees,
+  };
+}
 
 function worktreeSession(created: Awaited<ReturnType<typeof createOwnedWorktree>>): ManagedSession {
   return {

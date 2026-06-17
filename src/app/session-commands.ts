@@ -7,7 +7,7 @@ import { buildPiArgs } from "../core/pi-process.js";
 import { extensionPath } from "../core/extension-path.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath, sessionsStateDir } from "../core/paths.js";
-import { createOwnedWorktree, isWorktreeSession, removeOwnedWorktree } from "../core/worktree.js";
+import { createOwnedWorktrees, isWorktreeSession, removeOwnedWorktrees } from "../core/worktree.js";
 import { recordRepoUsage } from "../core/repo-history.js";
 import { createSessionRecord, loadRegistry, updateRegistry, upsertSession } from "../core/registry.js";
 import { nextOrderInGroup } from "../core/session-order.js";
@@ -45,28 +45,32 @@ export function managedPiCommand(input: { piArgs: string[]; prelude?: string; sh
 }
 
 export async function addManagedSession(input: SessionInput): Promise<ManagedSession> {
-  if (input.worktree && input.additionalCwds?.length) throw new Error("Worktree sessions support one primary repo in v1");
   const originalCwd = resolve(input.cwd);
+  const originalAdditionalCwds = input.additionalCwds ?? [];
   let record = createSessionRecord({ cwd: originalCwd, title: input.title, group: input.group, additionalCwds: input.additionalCwds });
-  if (input.worktree) {
-    const created = await createOwnedWorktree({ cwd: record.cwd, sessionId: record.id, branch: input.worktree.branch });
-    record = {
-      ...record,
-      cwd: created.worktreePath,
-      worktreePath: created.worktreePath,
-      worktreeRepoRoot: created.worktreeRepoRoot,
-      worktreeBranch: created.worktreeBranch,
-      worktreeBaseBranch: created.worktreeBaseBranch,
-      worktreeOwnedByHub: true,
-    };
-  } else {
-    record = await ensureMultiRepoWorkspace(record);
-  }
-  await updateRegistry((registry) => {
-    record.order = nextOrderInGroup(registry.sessions, record.group);
-    return { ...registry, sessions: [...registry.sessions, record] };
-  });
   try {
+    if (input.worktree) {
+      const created = await createOwnedWorktrees({ cwds: [record.cwd, ...(record.additionalCwds ?? [])], sessionId: record.id, branch: input.worktree.branch });
+      const primary = created.primary;
+      record = {
+        ...record,
+        cwd: created.cwd,
+        additionalCwds: created.additionalCwds,
+        worktreePath: primary.worktreePath,
+        worktreeRepoRoot: primary.worktreeRepoRoot,
+        worktreeBranch: primary.worktreeBranch,
+        worktreeBaseBranch: primary.worktreeBaseBranch,
+        worktreeOwnedByHub: true,
+        worktrees: created.worktrees,
+      };
+      record = await ensureMultiRepoWorkspace(record);
+    } else {
+      record = await ensureMultiRepoWorkspace(record);
+    }
+    await updateRegistry((registry) => {
+      record.order = nextOrderInGroup(registry.sessions, record.group);
+      return { ...registry, sessions: [...registry.sessions, record] };
+    });
     await startManagedSession(record.id);
   } catch (error) {
     const rollbackError = await rollbackStartedRecord(record).catch((cleanupError: unknown) => cleanupError);
@@ -74,7 +78,7 @@ export async function addManagedSession(input: SessionInput): Promise<ManagedSes
     throw error;
   }
   try {
-    const historyCwds = input.worktree ? [originalCwd] : [record.cwd, ...(record.additionalCwds ?? [])];
+    const historyCwds = input.worktree ? [originalCwd, ...originalAdditionalCwds] : [record.cwd, ...(record.additionalCwds ?? [])];
     await recordRepoUsage(historyCwds);
   } catch {
     // Repo history is a convenience cache; session creation already succeeded.
@@ -203,7 +207,7 @@ async function rollbackStartedRecord(record: ManagedSession): Promise<void> {
   }
   if (isWorktreeSession(record) && record.worktreeOwnedByHub) {
     try {
-      await removeOwnedWorktree(record);
+      await removeOwnedWorktrees(record);
     } catch (error) {
       errors.push(error);
     }

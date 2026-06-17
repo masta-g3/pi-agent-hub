@@ -2,7 +2,7 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import { sessionCascadeIds } from "../core/session-tree.js";
-import { isWorktreeSession } from "../core/worktree.js";
+import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
@@ -1155,8 +1155,9 @@ export class SessionsView implements Component {
 
   private renderFinishDialog(width: number): string[] {
     const target = this.controller.snapshot().registry.sessions.find((session) => session.id === this.finishTargetId);
-    const branch = target?.worktreeBranch ?? "unknown";
-    const base = target?.worktreeBaseBranch ?? "unknown";
+    const worktree = target ? primaryWorktree(target) : undefined;
+    const branch = worktree?.branch ?? target?.worktreeBranch ?? "unknown";
+    const base = worktree?.baseBranch ?? target?.worktreeBaseBranch ?? "unknown";
     return renderDialog("Finish worktree", [
       target ? `target   ${target.title}` : "target   none",
       `branch   ${branch}`,
@@ -1465,9 +1466,14 @@ function worktreeStatusField(state: NewFormState) {
   return {
     key: "worktree",
     label: "worktree",
-    value: state.worktreeEnabled ? "on" : "off",
+    value: state.worktreeEnabled ? worktreeStatusValue(state) : "off",
     readonly: true,
   };
+}
+
+function worktreeStatusValue(state: NewFormState): string {
+  const repos = state.order.filter((key) => key.startsWith("repo:") && state.fields[key]?.value.trim()).length;
+  return repos > 1 ? `on · ${repos} repos` : "on";
 }
 
 function newFormFooter(state: NewFormState): string {

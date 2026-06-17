@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addRepo, appendChar, createNewForm, cycleCwdSuggestion, removeFocusedRepo, setFocus, setRepoValue, submission } from "../src/tui/new-form.js";
+import { addRepo, appendChar, backspace, createNewForm, cycleCwdSuggestion, removeFocusedRepo, setFocus, setRepoValue, submission, toggleWorktree, validateNewForm } from "../src/tui/new-form.js";
 
 test("new form defaults group to primary cwd basename and title to random slug", () => {
   const state = createNewForm({ cwd: "/repo/api" });
@@ -33,6 +33,20 @@ test("new form adds removes and submits dynamic repo rows", () => {
   state = removeFocusedRepo(state);
   assert.deepEqual(state.order, ["repo:0", "repo:1", "group", "title"]);
   assert.deepEqual(submission(state), { cwd: "/repo/api", group: "api", title: "api", additionalCwds: ["/repo/web"] });
+});
+
+test("new form supports worktree mode with additional repos", () => {
+  let state = createNewForm({ cwd: "/repo/api", titleGenerator: () => "api" });
+  state = addRepo(state);
+  for (const char of "/repo/web") state = appendChar(state, char);
+  state = toggleWorktree(state);
+  for (let i = 0; i < "api".length; i += 1) state = backspace(state);
+  for (const char of "feature/multi") state = appendChar(state, char);
+
+  const result = validateNewForm(state);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(submission(result.state), { cwd: "/repo/api", group: "api", title: "feature/multi", additionalCwds: ["/repo/web"], worktree: { branch: "feature/multi" } });
 });
 
 test("new form omits blank extra repo rows", () => {

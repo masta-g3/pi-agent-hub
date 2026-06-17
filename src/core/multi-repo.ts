@@ -1,6 +1,7 @@
 import { mkdir, realpath, rm, stat, symlink } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { multiRepoWorkspacePath } from "./paths.js";
+import { primaryWorktree } from "./worktree.js";
 import type { ManagedSession } from "./types.js";
 
 export function isMultiRepo(session: Pick<ManagedSession, "additionalCwds" | "workspaceCwd">): boolean {
@@ -63,14 +64,15 @@ export async function ensureMultiRepoWorkspace(session: ManagedSession, env: Nod
   assertOwnedWorkspace(session.id, workspaceCwd, env);
   await rm(workspaceCwd, { recursive: true, force: true });
   await mkdir(workspaceCwd, { recursive: true });
-  await mkdir(join(primary.path, ".pi"), { recursive: true });
+  const primaryPiPath = session.worktreeOwnedByHub === true ? join(primaryWorktree(session)?.repoRoot ?? primary.path, ".pi") : join(primary.path, ".pi");
+  await mkdir(primaryPiPath, { recursive: true });
 
   const projectPaths = [primary.path, ...additional.map((item) => item.path)];
   const linkNames = dedupeBasenames(projectPaths);
   for (let i = 0; i < projectPaths.length; i += 1) {
     await symlink(projectPaths[i]!, join(workspaceCwd, linkNames[i]!), "dir");
   }
-  await symlink(join(primary.path, ".pi"), join(workspaceCwd, ".pi"), "dir");
+  await symlink(primaryPiPath, join(workspaceCwd, ".pi"), "dir");
 
   return {
     ...session,

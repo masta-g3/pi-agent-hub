@@ -172,13 +172,6 @@ export function validateNewForm(state: NewFormState): ValidationResult {
       fields[key] = { ...field, error: undefined, value: trimmed, cursor: Math.min(field.cursor ?? charLength(trimmed), charLength(trimmed)) };
     }
   }
-  if (state.worktreeEnabled) {
-    const extraRepo = repoKeys(state).find((key) => !isPrimaryRepoKey(key) && fields[key].value.trim());
-    if (extraRepo) {
-      fields[extraRepo] = { ...fields[extraRepo], error: "Worktree sessions support one primary repo in v1" };
-      firstInvalid ??= extraRepo;
-    }
-  }
   if (firstInvalid) return { ok: false, state: { ...state, fields, focus: firstInvalid } };
   return { ok: true, state: { ...state, fields } };
 }
@@ -252,7 +245,7 @@ function buildFields(repoValues: string[], group: string, title: string, suggest
   const repos = repoValues.length ? repoValues : [""];
   return [
     ...repos.map((value, index) => repoField(index, value, suggestions)),
-    ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch || title, hint: "new local branch and session title" }] : []),
+    ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch || title, hint: repos.length > 1 ? "same new branch in every repo" : "new local branch and session title" }] : []),
     { key: "group" as const, label: "group", value: group, hint: "existing or new label" },
     ...(worktreeEnabled ? [] : [{ key: "title" as const, label: "title", value: title, hint: "display title" }]),
   ];

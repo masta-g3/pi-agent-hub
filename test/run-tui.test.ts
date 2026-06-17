@@ -86,6 +86,30 @@ test("buildNewFormContext excludes hub-owned worktree paths from cwd suggestions
   });
 });
 
+test("buildNewFormContext uses source roots for multi-repo worktree sessions", () => {
+  const worktree = {
+    ...session("feature", "/hub/worktrees/api/feature-api", "backend", ["/hub/worktrees/web/feature-api"]),
+    worktreeOwnedByHub: true,
+    worktrees: [
+      { path: "/hub/worktrees/api/feature-api", repoRoot: "/repo/api", branch: "feature/api", baseBranch: "main", role: "primary" as const },
+      { path: "/hub/worktrees/web/feature-api", repoRoot: "/repo/web", branch: "feature/api", baseBranch: "main", role: "additional" as const },
+    ],
+  };
+  const context = buildNewFormContext({
+    cwd: "/dashboard",
+    sessions: [worktree, session("docs", "/repo/docs", "docs")],
+    selected: worktree,
+    historyCwds: ["/hub/worktrees/web/feature-api", "/repo/cli"],
+  });
+
+  assert.deepEqual(context, {
+    cwd: "/repo/api",
+    group: "backend",
+    knownCwds: ["/repo/api", "/dashboard", "/repo/web", "/repo/docs", "/repo/cli"],
+    additionalCwds: ["/repo/web"],
+  });
+});
+
 test("buildNewFormContext includes history paths without sessions", () => {
   const context = buildNewFormContext({
     cwd: "/dashboard",

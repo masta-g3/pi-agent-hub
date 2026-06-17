@@ -27,7 +27,7 @@ Ctrl+Q returns to the dashboard
 | Custom dashboard shortcuts | `dashboard.shortcuts` in config | Bind safe Pi slash-command sends, such as `/session-summary name`, to dashboard keys. |
 | Stable grouping/order | `g`, `G`, `K`, `J` | Keep sessions organized without status/title resorting. |
 | Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
-| Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create one-repo Git worktrees under hub state and explicitly finish, forget, or discard them. |
+| Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create Git worktrees under hub state for one or more repos and explicitly finish, forget, or discard them. |
 | Project Skills | `s` picker | Attach Pi skills to the selected session's primary repo. |
 | Project MCP servers | `m` picker | Enable MCP tools for the selected session's primary repo. |
 | Subagent rows | Automatic when `pi-tmux-subagents` reports them | See child agent work nested under the parent session. |
@@ -118,7 +118,7 @@ While editing the form:
 
 Extra repos are symlinked into one runtime workspace. The primary cwd remains the main project for skills and MCP state.
 
-When worktree mode is enabled, the form supports one primary repo only. The `branch` field creates a new local branch and also becomes the session title shown in the dashboard.
+When worktree mode is enabled, the `branch` field creates the same new local branch in every selected repo and also becomes the session title shown in the dashboard.
 
 ## Groups and session actions
 
@@ -174,9 +174,9 @@ Worktree sessions are opt-in and hub-owned:
 <PI_AGENT_HUB_DIR>/worktrees/<repo-name>/<session-id-prefix>-<branch-slug>/
 ```
 
-Press `Ctrl+T` in the new-session form to enable worktree mode, then enter the branch name. The branch name is also the session title. Worktree mode supports one primary repo in v1 and cannot be combined with extra repos.
+Press `Ctrl+T` in the new-session form to enable worktree mode, then enter the branch name. The branch name is also the session title. If extra repo rows are present, Hub creates one worktree per repo using that same branch name, then starts Pi in the same symlink workspace shape used by normal multi-repo sessions. Workspace `.pi` points at the primary source repo's `.pi`, not a worktree, so project state does not dirty the worktree.
 
-Normal `d` delete is conservative: it removes the dashboard row and heartbeat, but keeps hub-owned worktree files. From the delete dialog, `Shift+D` discards a clean hub-owned worktree and branch without merging. Press `w` on a clean hub-owned worktree session to stop its session/subagent tmux processes, merge the worktree branch into the recorded base branch, remove the worktree, prune Git metadata, delete the merged local branch, and remove the dashboard row. Dirty worktrees or dirty base repos block finish so files are preserved.
+Normal `d` delete is conservative: it removes the dashboard row, workspace, and heartbeat, but keeps hub-owned worktree files. From the delete dialog, `Shift+D` discards clean hub-owned worktrees and branches without merging. Press `w` on a clean hub-owned worktree session to stop its session/subagent tmux processes, merge each worktree branch into its recorded base branch, remove the worktrees, prune Git metadata, delete the merged local branches, and remove the dashboard row. Dirty worktrees or dirty base repos block finish so files are preserved.
 
 ## Non-goals
 

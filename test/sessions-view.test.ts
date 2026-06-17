@@ -448,7 +448,7 @@ test("new form worktree mode defaults branch from generated title", () => {
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "api-work", worktree: { branch: "api-work" } });
 });
 
-test("new form worktree mode rejects additional repos", () => {
+test("new form worktree mode supports additional repos", () => {
   let created: unknown;
   const view = new SessionsView(new SessionsController(), () => {}, {
     createSession: (input) => { created = input; },
@@ -458,11 +458,11 @@ test("new form worktree mode rejects additional repos", () => {
   view.handleInput("\u001ba");
   for (const char of "/tmp/web") view.handleInput(char);
   view.handleInput("\u0014");
+  for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "feature/api") view.handleInput(char);
   view.handleInput("\r");
 
-  assert.equal(created, undefined);
-  assert.match(view.render(120).join("\n"), /one primary repo/);
+  assert.deepEqual(created, { cwd: "/tmp/api", group: "api", title: "feature/api", additionalCwds: ["/tmp/web"], worktree: { branch: "feature/api" } });
 });
 
 test("new form add repo shortcut submits one additional cwd", () => {

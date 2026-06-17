@@ -1,5 +1,6 @@
 import { groupOrder, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, sessionDepth } from "../core/session-tree.js";
+import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { RuntimeSession, SessionStatus, SessionMetadata } from "../core/types.js";
 
 export interface RenderSession {
@@ -30,6 +31,7 @@ export interface RenderSession {
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
+  worktreeCount?: number;
 }
 
 export interface StatusCounts {
@@ -150,6 +152,8 @@ function pickSelectedId(sessions: RuntimeSession[], selectedId: string | undefin
 
 function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], skillCount: number | undefined, now: number | undefined): RenderSession {
   const displayStatus = displayStatusFor(session.status);
+  const worktree = primaryWorktree(session);
+  const worktrees = sessionWorktrees(session);
   return {
     id: session.id,
     title: session.title,
@@ -174,10 +178,11 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     resultSummary: session.resultSummary,
     sessionMetadata: session.sessionMetadata,
     metadataUpdatedAge: metadataUpdatedAge(session.sessionMetadata, now),
-    worktreePath: session.worktreePath,
-    worktreeBranch: session.worktreeBranch,
-    worktreeBaseBranch: session.worktreeBaseBranch,
+    worktreePath: worktree?.path ?? session.worktreePath,
+    worktreeBranch: worktree?.branch ?? session.worktreeBranch,
+    worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,
     worktreeOwnedByHub: session.worktreeOwnedByHub,
+    worktreeCount: worktrees.length || undefined,
   };
 }
 
