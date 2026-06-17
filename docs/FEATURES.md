@@ -166,6 +166,8 @@ Extra repos are symlinked into a per-session runtime workspace:
 
 Source repos are not moved, cloned, or owned by `pi-agent-hub`.
 
+At session start/restart, Hub checks each selected repo root for `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, then `CLAUDE.MD`. When any exist, it writes a generated workspace `AGENTS.md` with labeled sections for each repo so Pi loads the combined instructions from the workspace cwd.
+
 ## Worktree model
 
 Worktree sessions are opt-in and hub-owned:

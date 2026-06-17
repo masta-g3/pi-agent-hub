@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lstat, mkdir, readlink, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
@@ -83,6 +83,59 @@ test("ensureMultiRepoWorkspace creates repo symlinks and primary .pi link", asyn
   await assert.rejects(lstat(join(ensured.workspaceCwd!, "stale")), /ENOENT/);
 });
 
+test("ensureMultiRepoWorkspace creates workspace AGENTS.md from each repo context file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
+  const state = join(root, "state");
+  const api = join(root, "api");
+  const web = join(root, "web");
+  await mkdir(api, { recursive: true });
+  await mkdir(web, { recursive: true });
+  await writeFile(join(api, "AGENTS.md"), "API instructions\n", "utf8");
+  await writeFile(join(web, "CLAUDE.md"), "WEB instructions\n", "utf8");
+
+  const ensured = await ensureMultiRepoWorkspace(session(root, { additionalCwds: [web] }), { PI_AGENT_HUB_DIR: state });
+
+  const context = await readFile(join(ensured.workspaceCwd!, "AGENTS.md"), "utf8");
+  assert.match(context, /Multi-repo workspace instructions/);
+  assert.match(context, /Repository: api/);
+  assert.match(context, new RegExp(escapeRegExp(join(api, "AGENTS.md"))));
+  assert.match(context, /API instructions/);
+  assert.match(context, /Repository: web/);
+  assert.match(context, new RegExp(escapeRegExp(join(web, "CLAUDE.md"))));
+  assert.match(context, /WEB instructions/);
+});
+
+test("ensureMultiRepoWorkspace prefers AGENTS.md over CLAUDE.md when both exist", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
+  const state = join(root, "state");
+  const api = join(root, "api");
+  const web = join(root, "web");
+  await mkdir(api, { recursive: true });
+  await mkdir(web, { recursive: true });
+  await writeFile(join(api, "AGENTS.md"), "API agents instructions\n", "utf8");
+  await writeFile(join(api, "CLAUDE.md"), "API claude instructions\n", "utf8");
+
+  const ensured = await ensureMultiRepoWorkspace(session(root, { additionalCwds: [web] }), { PI_AGENT_HUB_DIR: state });
+
+  const context = await readFile(join(ensured.workspaceCwd!, "AGENTS.md"), "utf8");
+  assert.match(context, new RegExp(escapeRegExp(join(api, "AGENTS.md"))));
+  assert.match(context, /API agents instructions/);
+  assert.doesNotMatch(context, /API claude instructions/);
+});
+
+test("ensureMultiRepoWorkspace skips generated AGENTS.md when no repo context files exist", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
+  const state = join(root, "state");
+  const api = join(root, "api");
+  const web = join(root, "web");
+  await mkdir(api, { recursive: true });
+  await mkdir(web, { recursive: true });
+
+  const ensured = await ensureMultiRepoWorkspace(session(root, { additionalCwds: [web] }), { PI_AGENT_HUB_DIR: state });
+
+  await assert.rejects(readFile(join(ensured.workspaceCwd!, "AGENTS.md"), "utf8"), /ENOENT/);
+});
+
 test("ensureMultiRepoWorkspace links worktree sessions to source repo .pi", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
   const state = join(root, "state");
@@ -139,6 +192,10 @@ test("ensureMultiRepoWorkspace fails missing or non-directory paths", async () =
     /Project path is not a directory/,
   );
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("removeMultiRepoWorkspace removes only the owned workspace", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-multi-"));
