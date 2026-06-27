@@ -1,11 +1,15 @@
+import { unlink } from "node:fs/promises";
+import { removeMultiRepoWorkspace } from "../core/multi-repo.js";
+import { heartbeatPath, sessionMetadataPath } from "../core/paths.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, saveRegistry, updateRegistry } from "../core/registry.js";
+import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } from "../core/session-bucket.js";
 import { assignGroupOrder, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
 import { readSessionMetadata } from "../core/session-metadata.js";
 import { applyComputedStatus, computeStatus, markAcknowledged, readHeartbeat } from "../core/status.js";
-import { capturePane, sessionExists } from "../core/tmux.js";
-import type { SessionsRegistry, ManagedSession, RuntimeSession, SessionMetadata } from "../core/types.js";
+import { capturePane, sessionPresence } from "../core/tmux.js";
+import type { SessionsRegistry, ManagedSession, RuntimeSession, SessionMetadata, SessionBucket } from "../core/types.js";
 
 export interface SessionsSnapshot {
   registry: SessionsRegistry;
@@ -38,8 +42,9 @@ export class SessionsController {
     const sessions: ManagedSession[] = [];
     const prunedIds = new Set<string>();
     for (const session of this.registry.sessions) {
-      const exists = await sessionExists(session.tmuxSession);
-      if (isSubagentSession(session) && !exists) {
+      const presence = await sessionPresence(session.tmuxSession);
+      const exists = presence === "present";
+      if (isSubagentSession(session) && presence === "missing") {
         prunedIds.add(session.id);
         this.sessionMetadata.delete(session.id);
         continue;
@@ -53,6 +58,12 @@ export class SessionsController {
       sessions.push(updated);
     }
     const updatedById = new Map(sessions.map((session) => [session.id, session]));
+    const expiredArchivedIds = await expiredArchivedCascadeIds(this.registry.sessions, now);
+    for (const id of expiredArchivedIds) {
+      prunedIds.add(id);
+      this.sessionMetadata.delete(id);
+    }
+    const prunedSessions = this.registry.sessions.filter((session) => prunedIds.has(session.id));
     this.registry = await updateRegistry((latest) => ({
       ...latest,
       sessions: latest.sessions.flatMap((session) => {
@@ -60,6 +71,7 @@ export class SessionsController {
         return [updatedById.get(session.id) ?? session];
       }),
     }));
+    for (const session of prunedSessions) await removeDashboardState(session);
     this.selectedId = keepSelection(this.registry.sessions, this.selectedId);
   }
 
@@ -109,7 +121,8 @@ export class SessionsController {
   async moveSessionToGroup(id: string, group: string, now = Date.now()): Promise<void> {
     const normalized = normalizeGroup(group);
     const selected = this.registry.sessions.find((session) => session.id === id);
-    const order = selected && selected.group !== normalized ? nextOrderInGroup(this.registry.sessions, normalized) : selected?.order;
+    const section = selected ? sessionSection(selected) : "active";
+    const order = selected && selected.group !== normalized ? nextOrderInGroup(this.registry.sessions, normalized, section) : selected?.order;
     this.registry = {
       ...this.registry,
       sessions: this.registry.sessions.map((session) => {
@@ -125,13 +138,36 @@ export class SessionsController {
     if (this.filter) return;
     const selected = this.selected();
     if (!selected || isSubagentSession(selected)) return;
-    const group = orderedSessions(this.registry.sessions).filter((session) => session.group === selected.group && !isSubagentSession(session));
+    const section = sessionSection(selected);
+    const group = orderedSessions(this.registry.sessions).filter((session) => session.group === selected.group && sessionSection(session) === section && !isSubagentSession(session));
     const index = group.findIndex((session) => session.id === selected.id);
     const target = index + delta;
     if (index < 0 || target < 0 || target >= group.length) return;
     const ids = group.map((session) => session.id);
     [ids[index], ids[target]] = [ids[target]!, ids[index]!];
-    this.registry = { ...this.registry, sessions: assignGroupOrder(this.registry.sessions, ids, selected.group) };
+    this.registry = { ...this.registry, sessions: assignGroupOrder(this.registry.sessions, ids, selected.group, section) };
+    await saveRegistry(this.registry);
+  }
+
+  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now()): Promise<void> {
+    const selected = this.registry.sessions.find((session) => session.id === id);
+    if (!selected || isSubagentSession(selected)) return;
+    const ids = sessionCascadeIds(this.registry.sessions, id);
+    this.registry = {
+      ...this.registry,
+      sessions: this.registry.sessions.map((session) => ids.has(session.id) ? moveToBucket(session, bucket, now) : session),
+    };
+    await saveRegistry(this.registry);
+  }
+
+  async restoreSessionBucket(id: string, now = Date.now()): Promise<void> {
+    const selected = this.registry.sessions.find((session) => session.id === id);
+    if (!selected || isSubagentSession(selected)) return;
+    const ids = sessionCascadeIds(this.registry.sessions, id);
+    this.registry = {
+      ...this.registry,
+      sessions: this.registry.sessions.map((session) => ids.has(session.id) ? restoreBucket(session, now) : session),
+    };
     await saveRegistry(this.registry);
   }
 
@@ -211,4 +247,31 @@ function keepSelection(sessions: RuntimeSession[], selectedId: string | undefine
 
 function visibleSessions(sessions: RuntimeSession[], filter: string | undefined): RuntimeSession[] {
   return orderedSessionRows(sessions, filter);
+}
+
+async function expiredArchivedCascadeIds(sessions: ManagedSession[], now: number): Promise<Set<string>> {
+  const pruneIds = new Set<string>();
+  for (const session of sessions) {
+    if (isSubagentSession(session) || session.bucket !== "archived" || typeof session.bucketChangedAt !== "number") continue;
+    if (now - session.bucketChangedAt < ARCHIVE_PRUNE_AFTER_MS) continue;
+    const ids = sessionCascadeIds(sessions, session.id);
+    const cascade = sessions.filter((item) => ids.has(item.id));
+    const presences = await Promise.all(cascade.map((item) => sessionPresence(item.tmuxSession)));
+    if (presences.every((presence) => presence === "missing")) for (const id of ids) pruneIds.add(id);
+  }
+  return pruneIds;
+}
+
+async function removeDashboardState(session: ManagedSession): Promise<void> {
+  await removeMultiRepoWorkspace(session);
+  await unlink(heartbeatPath(session.id)).catch((error: unknown) => {
+    if (!isNotFound(error)) throw error;
+  });
+  await unlink(sessionMetadataPath(session.id)).catch((error: unknown) => {
+    if (!isNotFound(error)) throw error;
+  });
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

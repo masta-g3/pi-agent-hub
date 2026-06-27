@@ -102,9 +102,23 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles): string[] {
   const lines: string[] = [];
-  for (const group of model.groups) {
-    lines.push(twoColumn(styles.accent(group.name), formatStatusCounts(group.statusCounts, styles), width));
-    for (const session of group.sessions) lines.push(renderSessionRow(session, width, styles));
+  const sections = model.showSections ? model.sections : [];
+  let firstSection = true;
+  if (!model.showSections) {
+    for (const group of model.groups) {
+      lines.push(twoColumn(styles.accent(group.name), formatStatusCounts(group.statusCounts, styles), width));
+      for (const session of group.sessions) lines.push(renderSessionRow(session, width, styles));
+    }
+    return lines;
+  }
+  for (const section of sections) {
+    if (!firstSection) lines.push("");
+    lines.push(sectionHeader(section.title, formatStatusCounts(section.statusCounts, styles), width, styles));
+    firstSection = false;
+    for (const group of section.groups) {
+      lines.push(twoColumn(styles.accent(group.name), formatStatusCounts(group.statusCounts, styles), width));
+      for (const session of group.sessions) lines.push(renderSessionRow(session, width, styles));
+    }
   }
   return lines;
 }
@@ -138,6 +152,8 @@ function compactDetails(session: RenderSession, width: number, styles: LayoutSty
     if (session.repoCount > 1) parts.push(`${session.repoCount} repos`);
     lines.push(truncate(parts.join(" · "), width));
   }
+  const lifecycle = lifecycleLine(session);
+  if (lifecycle) lines.push(styles.dim(lifecycle));
   lines.push(...metadataBlock(session, width, false, styles));
   const capabilities = compactCapabilities(session, width, styles);
   if (capabilities) lines.push(capabilities);
@@ -161,6 +177,8 @@ function expandedDetails(session: RenderSession, width: number, styles: LayoutSt
     `cwd       ${truncatePath(session.cwd, Math.max(0, width - 10))}`,
     `repos     ${session.repoCount}`,
     `group     ${session.group}`,
+    session.section !== "active" ? `section   ${session.section}` : undefined,
+    session.archiveExpiresIn ? `expires   ${session.archiveExpiresIn}` : undefined,
   ].filter((line): line is string => Boolean(line));
   for (const cwd of session.additionalCwds) lines.push(`extra     ${truncatePath(cwd, Math.max(0, width - 10))}`);
   if (session.worktreeBranch) lines.push(`worktree  ${session.worktreeBranch} → ${session.worktreeBaseBranch ?? "unknown"}${session.worktreeCount && session.worktreeCount > 1 ? ` (${session.worktreeCount})` : ""}`);
@@ -216,6 +234,17 @@ function wrapWords(value: string, firstWidth: number, nextWidth: number): string
   return lines;
 }
 
+function lifecycleLine(session: RenderSession): string | undefined {
+  if (session.section === "active") return undefined;
+  if (session.section === "archived" && session.archiveExpiresIn) return `archived · expires in ${session.archiveExpiresIn}`;
+  return `${session.section} · U restore`;
+}
+
+function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles): string {
+  const left = styles.border(`── ${title} `);
+  return twoColumn(left, right, width);
+}
+
 function formatStatusCounts(counts: StatusCounts, styles: LayoutStyles): string {
   return STATUS_ORDER
     .flatMap(([status, symbol]) => counts[status] ? [styles.status(status, `${symbol}${counts[status]}`)] : [])
@@ -233,8 +262,9 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const title = session.status === "stopped" ? styles.dim(titleText) : titleText;
   const repoBadge = session.repoCount > 1 && session.kind !== "subagent" ? styles.dim(` [${session.repoCount} repos]`) : "";
   const worktreeBadge = session.worktreeBranch && session.kind !== "subagent" ? styles.dim(" [wt]") : "";
+  const archiveBadge = session.archiveExpiresIn ? styles.dim(` [exp ${session.archiveExpiresIn}]`) : "";
   const indent = session.depth > 0 ? styles.dim(`${"  ".repeat(session.depth)}↳ `) : "";
-  return truncate(`${prefix} ${indent}${symbol} ${title}${repoBadge}${worktreeBadge}`, width);
+  return truncate(`${prefix} ${indent}${symbol} ${title}${repoBadge}${worktreeBadge}${archiveBadge}`, width);
 }
 
 export interface FormField {

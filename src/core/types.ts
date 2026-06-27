@@ -1,4 +1,5 @@
 export type SessionStatus = "starting" | "running" | "waiting" | "idle" | "error" | "stopped";
+export type SessionBucket = "backlog" | "archived";
 
 export type ActiveThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border" | "statusLineBg";
 
@@ -39,6 +40,8 @@ export interface ManagedSession {
   piSessionId?: string;
   acknowledgedAt?: number;
   order?: number;
+  bucket?: SessionBucket;
+  bucketChangedAt?: number;
   createdAt: number;
   updatedAt: number;
   error?: string;

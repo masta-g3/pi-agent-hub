@@ -49,6 +49,9 @@ Ctrl+Q returns to the dashboard
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session |
 | `a` | Mark the selected waiting session read |
+| `A` | Archive the selected session |
+| `B` | Move the selected session to Backlog |
+| `U` | Restore a Backlog or Archived session to Active |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the selected hub title from Pi's `/name` |
 | `g` | Move the selected session to a group |
@@ -70,6 +73,8 @@ Ctrl+Q returns to the dashboard
 ```
 
 Zero counts are hidden in the dashboard summaries, so `◐2 ×1` means only waiting and error sessions are currently visible.
+
+The session list is sectioned as Active, Backlog, then Archived when any non-active rows exist. Group headers remain inside each section, and all-active dashboards omit the Active section header to stay compact.
 
 The dashboard top line summarizes visible sessions and nonzero status counts in fixed order. Press `?` for the full help/legend and `i` to toggle compact vs full selected-session metadata. The details pane can also show extension-provided session metadata; see [Configuration](CONFIG.md#session-metadata).
 
@@ -133,8 +138,13 @@ Groups are simple labels on sessions.
 | `p` | Send a one-line message to the selected live session without opening it |
 | `r` | Open restart choices: `r` restarts selected, `n` starts a new conversation, `a` restarts all |
 | `R` | Rename the selected session in the dashboard footer |
+| `A` | Archive the selected session |
+| `B` | Move the selected session to Backlog |
+| `U` | Restore a Backlog or Archived session to Active |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the selected hub title from Pi's `/name` |
+
+Backlog and Archive are dashboard organization states only: they do not stop tmux or Pi. Subagent rows follow their parent session and cannot be moved directly. Archived rows are automatically removed from the dashboard after 72 hours, but only after the archived session and any subagent rows are confirmed missing from tmux; this cleanup removes Hub registry/heartbeat/metadata/workspace state and does not delete Pi conversation files.
 
 Reordering is disabled while a filter is active.
 

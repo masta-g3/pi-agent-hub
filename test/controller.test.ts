@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
+import { heartbeatPath, multiRepoWorkspacePath, sessionMetadataPath } from "../src/core/paths.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function session(status: ManagedSession["status"], overrides: Partial<ManagedSession> = {}): ManagedSession {
@@ -122,6 +123,10 @@ async function withTempSessionsDir(fn: () => Promise<void>): Promise<void> {
   }
 }
 
+async function assertPathMissing(path: string): Promise<void> {
+  await assert.rejects(() => access(path), (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT");
+}
+
 test("removeSession removes child rows with their parent", () => {
   const controller = new SessionsController({
     version: 1,
@@ -177,6 +182,57 @@ test("refresh reads optional session metadata without changing liveness", async 
     assert.equal(updated?.title, "Hub title");
     assert.equal("sessionMetadata" in (updated ?? {}), false);
     assert.equal(runtime?.sessionMetadata?.status, "Metadata file detected.");
+  });
+});
+
+test("moving parent bucket moves child rows too", async () => {
+  await withTempSessionsDir(async () => {
+    const controller = new SessionsController({
+      version: 1,
+      sessions: [
+        session("idle", { id: "parent", title: "parent", order: 0 }),
+        session("running", { id: "child", title: "child", kind: "subagent", parentId: "parent", agentName: "scout" }),
+      ],
+    });
+
+    await controller.moveSessionToBucket("parent", "archived", 100);
+
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "parent")?.bucket, "archived");
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "parent")?.bucketChangedAt, 100);
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "child")?.bucket, "archived");
+
+    await controller.restoreSessionBucket("parent", 200);
+
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "parent")?.bucket, undefined);
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "parent")?.bucketChangedAt, undefined);
+    assert.equal(controller.snapshot().registry.sessions.find((item) => item.id === "child")?.bucket, undefined);
+  });
+});
+
+test("archive pruning removes expired archived rows only when tmux is missing", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = {
+      version: 1 as const,
+      sessions: [
+        session("idle", { id: "active", title: "active" }),
+        session("idle", { id: "backlog", title: "backlog", bucket: "backlog", bucketChangedAt: 1 }),
+        session("idle", { id: "archived", title: "archived", bucket: "archived", bucketChangedAt: 1, workspaceCwd: multiRepoWorkspacePath("archived") }),
+      ],
+    };
+    await writeFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), `${JSON.stringify(registry, null, 2)}\n`, "utf8");
+    await mkdir(multiRepoWorkspacePath("archived"), { recursive: true });
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "session-metadata"), { recursive: true });
+    await writeFile(heartbeatPath("archived"), `${JSON.stringify({ state: "shutdown", updatedAt: 1, stateSince: 1 })}\n`, "utf8");
+    await writeFile(sessionMetadataPath("archived"), `${JSON.stringify({ source: "test", status: "old" })}\n`, "utf8");
+    const controller = new SessionsController(registry);
+
+    await controller.refresh(1 + 72 * 60 * 60 * 1000);
+
+    assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["active", "backlog"]);
+    await assertPathMissing(multiRepoWorkspacePath("archived"));
+    await assertPathMissing(heartbeatPath("archived"));
+    await assertPathMissing(sessionMetadataPath("archived"));
   });
 });
 

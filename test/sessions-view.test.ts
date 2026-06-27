@@ -127,6 +127,37 @@ test("J K and shift arrows reorder selected session", () => {
   assert.deepEqual(deltas, [1, -1, 1, -1]);
 });
 
+test("archive backlog and restore shortcuts call lifecycle actions", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    archiveSession: (id) => { events.push(`archive:${id}`); },
+    backlogSession: (id) => { events.push(`backlog:${id}`); },
+    restoreSession: (id) => { events.push(`restore:${id}`); },
+  });
+
+  view.handleInput("A");
+  view.handleInput("B");
+  assert.deepEqual(events, ["archive:api", "backlog:api"]);
+
+  controller.snapshot().registry.sessions[0]!.bucket = "backlog";
+  view.handleInput("U");
+  assert.deepEqual(events, ["archive:api", "backlog:api", "restore:api"]);
+});
+
+test("section shortcuts block subagent rows", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    session("parent", "parent"),
+    { ...session("child", "child"), kind: "subagent" as const, parentId: "parent", agentName: "scout" },
+  ] });
+  const view = new SessionsView(controller, () => {}, { archiveSession: () => { throw new Error("should not archive subagent directly"); } });
+
+  controller.move(1);
+  view.handleInput("A");
+
+  assert.match(stripAnsi(view.render(100).join("\n")), /subagent rows follow their parent section/);
+});
+
 test("N syncs selected session title from Pi name", async () => {
   const synced: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {

@@ -251,6 +251,15 @@ export async function runTui(): Promise<void> {
     changeGroup(sessionId, group) {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));
     },
+    archiveSession(sessionId) {
+      return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "archived"));
+    },
+    backlogSession(sessionId) {
+      return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "backlog"));
+    },
+    restoreSession(sessionId) {
+      return mutateRegistry(() => controller.restoreSessionBucket(sessionId));
+    },
     renameSession(sessionId, title) {
       return mutateRegistry(() => controller.renameSession(sessionId, title));
     },

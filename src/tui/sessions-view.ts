@@ -76,6 +76,9 @@ export interface SessionsViewActions {
   createSession?: (input: NewFormSubmission) => unknown;
   forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
+  archiveSession?: (sessionId: string) => unknown;
+  backlogSession?: (sessionId: string) => unknown;
+  restoreSession?: (sessionId: string) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
   syncPiName?: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup?: (from: string, to: string) => unknown;
@@ -242,6 +245,9 @@ export class SessionsView implements Component {
     else if (data === "n") this.startNewDialog();
     else if (data === "f") this.startForkDialog();
     else if (data === "g") this.startGroupDialog();
+    else if (data === "A") this.moveSelectedToBucket("archived");
+    else if (data === "B") this.moveSelectedToBucket("backlog");
+    else if (data === "U") this.restoreSelectedBucket();
     else if (data === "e" || data === "R") this.startRenameSessionDialog();
     else if (data === "G") this.startRenameGroupDialog();
     else if (data === "p") this.startSendDialog();
@@ -582,6 +588,35 @@ export class SessionsView implements Component {
     }
     const reorder = this.actions.reorderSelected;
     this.runAction(() => reorder ? reorder(delta) : this.controller.reorderSelected(delta), "reordering session...");
+  }
+
+  private moveSelectedToBucket(bucket: "backlog" | "archived") {
+    const selected = this.controller.selected();
+    if (!selected) return;
+    if (selected.kind === "subagent") {
+      this.message = "subagent rows follow their parent section";
+      return;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    const action = bucket === "archived" ? this.actions.archiveSession : this.actions.backlogSession;
+    this.runAction(() => action ? action(selected.id) : this.controller.moveSessionToBucket(selected.id, bucket), bucket === "archived" ? "archiving session..." : "moving to backlog...");
+  }
+
+  private restoreSelectedBucket() {
+    const selected = this.controller.selected();
+    if (!selected) return;
+    if (selected.kind === "subagent") {
+      this.message = "subagent rows follow their parent section";
+      return;
+    }
+    if (!selected.bucket) {
+      this.message = "session already active";
+      return;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.runAction(() => this.actions.restoreSession ? this.actions.restoreSession(selected.id) : this.controller.restoreSessionBucket(selected.id), "restoring session...");
   }
 
   private syncPiNameSelected() {
@@ -1515,6 +1550,7 @@ function renderHelp(width: number): string[] {
     "Sessions",
     "  n new     p send     r restart choices     N sync Pi name     f fork     w finish worktree",
     "  R rename     g move group     G rename group     d delete     a mark read",
+    "  A archive     B backlog     U restore to Active",
     "  Restart choices: r selected     n new conversation     a all     Esc cancel",
     "  Delete choices: d delete/forget     D discard worktree     s close subagents     w finish worktree",
     "",
@@ -1526,6 +1562,10 @@ function renderHelp(width: number): string[] {
     "",
     "Return from managed sessions",
     "  Ctrl+Q return to dashboard     Alt+R rename current session",
+    "",
+    "Sections",
+    "  Active · Backlog · Archived keep project/group headers inside each section",
+    "  Archived rows auto-remove after 72h once their tmux session is gone",
     "",
     "Status legend",
     "  ● running/starting     ◐ waiting     ○ idle     × error     - stopped",

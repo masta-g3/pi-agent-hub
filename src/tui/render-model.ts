@@ -1,3 +1,4 @@
+import { archivedExpiresAt, sessionSection, type SessionSection } from "../core/session-bucket.js";
 import { groupOrder, orderedSessions } from "../core/session-order.js";
 import { orderedSessionRows, sessionDepth } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
@@ -11,6 +12,9 @@ export interface RenderSession {
   workspaceCwd?: string;
   repoCount: number;
   group: string;
+  section: SessionSection;
+  bucketChangedAt?: number;
+  archiveExpiresIn?: string;
   status: SessionStatus;
   displayStatus: "running" | "waiting" | "idle" | "error" | "stopped";
   symbol: string;
@@ -48,6 +52,14 @@ export interface RenderGroup {
   sessions: RenderSession[];
 }
 
+export interface RenderSection {
+  key: SessionSection;
+  title: string;
+  statusCounts: StatusCounts;
+  sessionsTotal: number;
+  groups: RenderGroup[];
+}
+
 export interface RenderSummary {
   total: number;
   visibleTotal: number;
@@ -62,6 +74,8 @@ export interface RenderModel {
   showPreview: boolean;
   compactFooter: boolean;
   groups: RenderGroup[];
+  sections: RenderSection[];
+  showSections: boolean;
   summary: RenderSummary;
   selected?: RenderSession;
   footer: string;
@@ -87,24 +101,15 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const visible = orderedSessionRows(input.sessions, input.filter);
   const selectedId = pickSelectedId(visible, input.selectedId);
   const mapped = visible.map((session) => toRenderSession(session, session.id === selectedId, input.sessions, session.id === selectedId ? input.selectedSkillCount : undefined, input.now));
-  const groupsByName = new Map<string, RenderSession[]>();
-  for (const session of mapped) {
-    const group = groupsByName.get(session.group) ?? [];
-    group.push(session);
-    groupsByName.set(session.group, group);
-  }
-
-  const groups = [...groupsByName.entries()]
-    .sort(([a], [b]) => groupOrder(a, b))
-    .map(([name, sessions]) => ({
-      name,
-      statusCounts: countRenderSessions(sessions),
-      sessions,
-    } satisfies RenderGroup));
+  const groups = groupsForSessions(mapped);
+  const sections = sectionsForSessions(mapped);
 
   const compactFooter = input.width < 80;
   const selected = mapped.find((session) => session.selected);
   const worktreeFooter = selected?.worktreeOwnedByHub ? " · w Finish WT" : "";
+  const showLifecycleFooter = selected && selected.kind !== "subagent" && input.width >= 120;
+  const lifecycleFooter = showLifecycleFooter ? selected.section === "active" ? " · A Archive · B Backlog" : " · U Restore" : "";
+  const compactLifecycleFooter = selected && selected.kind !== "subagent" ? selected.section === "active" ? " · A · B" : " · U" : "";
   return {
     width: input.width,
     empty: input.sessions.length === 0,
@@ -112,6 +117,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     showPreview: input.width >= 80,
     compactFooter,
     groups,
+    sections,
+    showSections: sections.some((section) => section.key !== "active" && section.sessionsTotal > 0),
     summary: {
       total: input.sessions.length,
       visibleTotal: visible.length,
@@ -119,7 +126,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     },
     ...(input.height ? { height: input.height } : {}),
     selected,
-    footer: compactFooter ? `Enter · n · /  │  p · i · r · R · d${selected?.worktreeOwnedByHub ? " · w" : ""}  │  ?` : `Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete${worktreeFooter}  │  ? Help`,
+    footer: compactFooter ? `Enter · n · /  │  p · i · r · R · d${selected?.worktreeOwnedByHub ? " · w" : ""}${compactLifecycleFooter}  │  ?` : `Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete${worktreeFooter}${lifecycleFooter}  │  ? Help`,
     filter: input.filter,
     preview: input.preview ?? "",
     detailsExpanded: input.detailsExpanded ?? false,
@@ -150,6 +157,37 @@ function pickSelectedId(sessions: RuntimeSession[], selectedId: string | undefin
   return sessions[0]?.id;
 }
 
+function groupsForSessions(sessions: RenderSession[]): RenderGroup[] {
+  const groupsByName = new Map<string, RenderSession[]>();
+  for (const session of sessions) {
+    const group = groupsByName.get(session.group) ?? [];
+    group.push(session);
+    groupsByName.set(session.group, group);
+  }
+  return [...groupsByName.entries()]
+    .sort(([a], [b]) => groupOrder(a, b))
+    .map(([name, groupSessions]) => ({
+      name,
+      statusCounts: countRenderSessions(groupSessions),
+      sessions: groupSessions,
+    } satisfies RenderGroup));
+}
+
+function sectionsForSessions(sessions: RenderSession[]): RenderSection[] {
+  const titles: Record<SessionSection, string> = { active: "ACTIVE", backlog: "BACKLOG", archived: "ARCHIVED" };
+  return (["active", "backlog", "archived"] as const).flatMap((key) => {
+    const sectionSessions = sessions.filter((session) => session.section === key);
+    if (!sectionSessions.length) return [];
+    return [{
+      key,
+      title: titles[key],
+      statusCounts: countRenderSessions(sectionSessions),
+      sessionsTotal: sectionSessions.length,
+      groups: groupsForSessions(sectionSessions),
+    } satisfies RenderSection];
+  });
+}
+
 function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], skillCount: number | undefined, now: number | undefined): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
@@ -162,6 +200,9 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     workspaceCwd: session.workspaceCwd,
     repoCount: 1 + (session.additionalCwds?.length ?? 0),
     group: session.group,
+    section: sessionSection(session),
+    bucketChangedAt: session.bucketChangedAt,
+    archiveExpiresIn: archiveExpiresIn(session, now),
     status: session.status,
     displayStatus,
     symbol: symbolFor(displayStatus),
@@ -186,9 +227,19 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
   };
 }
 
+function archiveExpiresIn(session: RuntimeSession, now: number | undefined): string | undefined {
+  const expiresAt = archivedExpiresAt(session);
+  if (expiresAt === undefined || now === undefined) return undefined;
+  if (expiresAt <= now) return "now";
+  return ageLabel(expiresAt - now);
+}
+
 function metadataUpdatedAge(metadata: SessionMetadata | undefined, now: number | undefined): string | undefined {
   if (!metadata?.updatedAt || now === undefined) return undefined;
-  const ageMs = Math.max(0, now - metadata.updatedAt);
+  return ageLabel(Math.max(0, now - metadata.updatedAt));
+}
+
+function ageLabel(ageMs: number): string {
   const minute = 60_000;
   const hour = 60 * minute;
   const day = 24 * hour;

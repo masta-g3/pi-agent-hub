@@ -1,3 +1,4 @@
+import { sessionSection } from "./session-bucket.js";
 import { orderedSessions } from "./session-order.js";
 import type { ManagedSession, RuntimeSession } from "./types.js";
 
@@ -92,6 +93,7 @@ export function matchesFilter(session: RuntimeSession, filter: string): boolean 
     basename(session.cwd),
     ...(session.additionalCwds ?? []).map(basename),
     session.status,
+    sessionSection(session),
     session.agentName ?? "",
     session.taskPreview ?? "",
     session.sessionMetadata?.goal ?? "",

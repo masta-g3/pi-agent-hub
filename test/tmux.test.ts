@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { capturePane, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSwitchReturnBinding, restoreSwitchReturnBinding, sendTextToSession, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { capturePane, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSwitchReturnBinding, restoreSwitchReturnBinding, sendTextToSession, sessionPresence, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -23,6 +23,14 @@ function fakeTmux(handler: (call: Call) => CommandResult | Promise<CommandResult
     },
   };
 }
+
+test("sessionPresence distinguishes missing sessions from unknown tmux failures", async () => {
+  assert.equal(await sessionPresence("api", fakeTmux(() => ({ stdout: "", stderr: "" }))), "present");
+  assert.equal(await sessionPresence("api", fakeTmux(() => { throw new Error("tmux has-session -t api failed: can't find session: api"); })), "missing");
+  assert.equal(await sessionPresence("api", fakeTmux(() => { throw new Error("tmux has-session -t api failed: no server running on /tmp/tmux"); })), "missing");
+  assert.equal(await sessionPresence("api", fakeTmux(() => { throw new Error("tmux has-session -t api failed: failed to connect to server"); })), "unknown");
+  assert.equal(await sessionPresence("api", fakeTmux(() => { throw new Error("tmux has-session -t api failed: permission denied"); })), "unknown");
+});
 
 test("configureManagedSessionStatusBar sets a Pi-native right footer", async () => {
   const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));

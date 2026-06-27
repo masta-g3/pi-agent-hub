@@ -39,6 +39,29 @@ test("grouping order and status counts", () => {
   assert.doesNotMatch(rendered, /1 waiting · 1 error/);
 });
 
+test("sectioned model preserves groups inside lifecycle sections", () => {
+  const backlog = { ...session("backlog", "default", "idle"), bucket: "backlog" as const, bucketChangedAt: 100 };
+  const archived = { ...session("archived", "work", "stopped"), bucket: "archived" as const, bucketChangedAt: 100 };
+  const model = buildRenderModel({ sessions: [archived, session("active", "default", "idle"), backlog], selectedId: "archived", width: 120, now: 100 });
+
+  assert.equal(model.showSections, true);
+  assert.deepEqual(model.sections.map((section) => [section.key, section.groups.map((group) => group.name)]), [["active", ["default"]], ["backlog", ["default"]], ["archived", ["work"]]]);
+  assert.equal(model.selected?.archiveExpiresIn, "3d");
+  assert.match(model.footer, /U Restore/);
+
+  const rendered = renderSessions(model).join("\n");
+  assert.match(rendered, /ACTIVE/);
+  assert.match(rendered, /BACKLOG/);
+  assert.match(rendered, /ARCHIVED/);
+  assert.match(rendered, /\[exp 3d\]/);
+});
+
+test("all-active dashboards suppress lifecycle section headers", () => {
+  const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
+  assert.equal(model.showSections, false);
+  assert.doesNotMatch(renderSessions(model).join("\n"), /ACTIVE/);
+});
+
 test("session order is stable and ignores status and title", () => {
   const model = buildRenderModel({
     sessions: [
@@ -63,7 +86,7 @@ test("narrow layout hides preview and uses compact footer", () => {
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete  │  ? Help");
+  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · A Archive · B Backlog  │  ? Help");
 });
 
 test("wide footer shows worktree finish only for worktree sessions", () => {
@@ -71,7 +94,7 @@ test("wide footer shows worktree finish only for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · w Finish WT  │  ? Help");
+  assert.equal(model.footer, "Enter Open · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · w Finish WT · A Archive · B Backlog  │  ? Help");
 });
 
 test("long titles/cwd truncate without exceeding width", () => {

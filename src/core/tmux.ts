@@ -37,13 +37,20 @@ export async function hasTmux(exec: TmuxExec = realTmuxExec): Promise<boolean> {
   }
 }
 
-export async function sessionExists(name: string, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+export type TmuxPresence = "present" | "missing" | "unknown";
+
+export async function sessionPresence(name: string, exec: TmuxExec = realTmuxExec): Promise<TmuxPresence> {
   try {
     await exec.exec("tmux", ["has-session", "-t", name]);
-    return true;
-  } catch {
-    return false;
+    return "present";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /can't find session|no server running/i.test(message) ? "missing" : "unknown";
   }
+}
+
+export async function sessionExists(name: string, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+  return await sessionPresence(name, exec) === "present";
 }
 
 export async function newSession(options: {
