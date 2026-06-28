@@ -1,7 +1,7 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
-import { sessionCascadeIds } from "../core/session-tree.js";
+import { orderedSessionRows, sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
@@ -49,6 +49,7 @@ import {
   moveFieldCursorWordLeft,
   moveFieldCursorWordRight,
   moveFocus as moveFormFocus,
+  setValue,
   validateRequired,
   type FormState,
 } from "./form.js";
@@ -162,7 +163,7 @@ export class SessionsView implements Component {
     }
 
     if (this.mode === "group") {
-      this.handleFormInput(data, this.moveGroupForm, (state) => { this.moveGroupForm = state; }, () => this.submitGroupDialog());
+      this.handleMoveGroupInput(data);
       return;
     }
 
@@ -378,10 +379,21 @@ export class SessionsView implements Component {
     this.clearPendingRestart();
     this.clearFlash();
     this.mode = "group";
+    const choices = this.moveGroupChoices(selected.group);
     this.moveGroupForm = createForm<"group">([
-      { key: "group", label: "group", value: "", hint: "existing or new group label" },
+      { key: "group", label: "group", value: choices[0] ?? "", hint: moveGroupHint(choices.length) },
     ]);
     this.message = undefined;
+  }
+
+  private moveGroupChoices(currentGroup: string | undefined): string[] {
+    const snapshot = this.controller.snapshot();
+    const choices: string[] = [];
+    for (const session of orderedSessionRows(snapshot.sessions, snapshot.filter)) {
+      if (session.kind === "subagent" || session.group === currentGroup || choices.includes(session.group)) continue;
+      choices.push(session.group);
+    }
+    return choices;
   }
 
   private startRenameSessionDialog(returnAfterRenameTmuxSession?: string) {
@@ -919,6 +931,32 @@ export class SessionsView implements Component {
     }
   }
 
+  private handleMoveGroupInput(data: string) {
+    if (matchesKey(data, Key.ctrl("n"))) {
+      this.cycleMoveGroup(1);
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("p"))) {
+      this.cycleMoveGroup(-1);
+      return;
+    }
+    this.handleFormInput(data, this.moveGroupForm, (state) => { this.moveGroupForm = state; }, () => this.submitGroupDialog());
+  }
+
+  private cycleMoveGroup(delta: 1 | -1) {
+    if (!this.moveGroupForm) return;
+    const selected = this.controller.selected();
+    const choices = this.moveGroupChoices(selected?.group);
+    if (!choices.length) return;
+    const current = this.moveGroupForm.fields.group.value.trim();
+    const currentIndex = choices.indexOf(current);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + delta + choices.length) % choices.length : delta > 0 ? 0 : choices.length - 1;
+    const next = choices[nextIndex];
+    if (!next) return;
+    this.moveGroupForm = setValue(this.moveGroupForm, "group", next);
+    this.message = undefined;
+  }
+
   private handleFormInput<K extends string>(data: string, state: FormState<K> | undefined, setState: (state: FormState<K> | undefined) => void, submit: () => void) {
     if (!state) {
       this.mode = "normal";
@@ -1238,12 +1276,13 @@ export class SessionsView implements Component {
 
   private renderGroupDialog(width: number): string[] {
     if (!this.moveGroupForm) return [];
+    const choices = this.moveGroupChoices(this.controller.selected()?.group);
     return renderForm({
       title: "Move to group",
       fields: this.moveGroupForm.order.map((key) => this.moveGroupForm!.fields[key]),
       focus: this.moveGroupForm.focus,
-      footer: "←→ edit · enter move · esc cancel",
-      narrowFooter: "enter · esc",
+      footer: choices.length ? "ctrl-n/p cycle · ←→ edit · enter move · esc cancel" : "←→ edit · enter move · esc cancel",
+      narrowFooter: choices.length ? "ctrl-n/p · enter · esc" : "enter · esc",
     }, width, this.theme);
   }
 
@@ -1415,6 +1454,11 @@ function wordDelete(data: string): boolean {
   return matchesKey(data, Key.ctrl("delete")) || matchesKey(data, Key.alt("delete")) || matchesKey(data, Key.alt("d"));
 }
 
+function moveGroupHint(count: number): string {
+  if (count === 0) return "existing or new group label";
+  return `ctrl-n/p cycle ${count} existing ${count === 1 ? "group" : "groups"} · or type new`;
+}
+
 function filterFooter(input: TextInputState, now: number, theme?: SessionsTheme): string {
   const text = `filter: ${renderInlineInput(input, footerCursor(now))}  • ←→ edit • esc clear • enter done`;
   return theme ? styleToken(theme, "dim", text) : text;
@@ -1549,7 +1593,7 @@ function renderHelp(width: number): string[] {
     "",
     "Sessions",
     "  n new     p send     r restart choices     N sync Pi name     f fork     w finish worktree",
-    "  R rename     g move group     G rename group     d delete     a mark read",
+    "  R rename     g move group (Ctrl+N/P cycles groups)     G rename group     d delete     a mark read",
     "  A archive     B backlog     U restore to Active",
     "  Restart choices: r selected     n new conversation     a all     Esc cancel",
     "  Delete choices: d delete/forget     D discard worktree     s close subagents     w finish worktree",

@@ -1056,6 +1056,53 @@ test("group dialog validates blank group and escape cancels", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Move to group/);
 });
 
+test("group dialog prepopulates and cycles visible existing groups", () => {
+  let moved: { id: string; group: string } | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [
+    session("api", "api"),
+    { ...session("docs", "docs"), group: "docs" },
+    { ...session("web", "web"), group: "web" },
+  ] });
+  const view = new SessionsView(controller, () => {}, { changeGroup: (id, group) => { moved = { id, group }; } });
+
+  view.handleInput("g");
+  let rendered = stripAnsi(view.render(120).join("\n"));
+  assert.match(rendered, /Move to group/);
+  assert.match(rendered, /group\s+docs█/);
+  assert.match(rendered, /ctrl-n\/p cycle 2 existing groups/);
+
+  view.handleInput("\u000e");
+  rendered = stripAnsi(view.render(120).join("\n"));
+  assert.match(rendered, /group\s+web█/);
+
+  view.handleInput("\u0010");
+  rendered = stripAnsi(view.render(120).join("\n"));
+  assert.match(rendered, /group\s+docs█/);
+
+  view.handleInput("\r");
+  assert.deepEqual(moved, { id: "api", group: "docs" });
+});
+
+test("group dialog cycles groups from the filtered dashboard", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    session("api", "api"),
+    { ...session("docs", "docs"), group: "docs" },
+    { ...session("web", "web"), group: "web" },
+  ] });
+  const view = new SessionsView(controller, () => {});
+
+  view.handleInput("/");
+  for (const char of "web") view.handleInput(char);
+  view.handleInput("\r");
+  controller.selectSession("web");
+  view.handleInput("g");
+
+  const rendered = stripAnsi(view.render(120).join("\n"));
+  assert.match(rendered, /Move to group/);
+  assert.match(rendered, /group\s+█/);
+  assert.match(rendered, /existing or new group label/);
+});
+
 test("R opens footer rename prompt for selected session title", () => {
   let renamed: { id: string; title: string } | undefined;
   let now = 100;

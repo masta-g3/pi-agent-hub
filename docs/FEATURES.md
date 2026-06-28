@@ -54,7 +54,7 @@ Ctrl+Q returns to the dashboard
 | `U` | Restore a Backlog or Archived session to Active |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the selected hub title from Pi's `/name` |
-| `g` | Move the selected session to a group |
+| `g` | Move the selected session to a group; the dialog pre-fills visible existing groups and `Ctrl+N` / `Ctrl+P` cycles them |
 | `G` | Rename the selected session's group |
 | `K` / `J` | Move the selected session up/down within its group |
 | `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
@@ -131,7 +131,7 @@ Groups are simple labels on sessions.
 
 | Key | Action |
 | --- | --- |
-| `g` | Move the selected session to a group |
+| `g` | Move the selected session to a group; use `Ctrl+N` / `Ctrl+P` in the dialog to cycle visible existing groups |
 | `G` | Rename the selected session's group everywhere |
 | `K` / `J` | Move the selected session up/down within its group |
 | `Shift+Up` / `Shift+Down` | Same as `K` / `J` |

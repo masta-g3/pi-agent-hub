@@ -52,7 +52,7 @@ Inside the dashboard:
 | `w` | Finish a hub-owned worktree session |
 | `N` | Sync the selected hub title from Pi's `/name` |
 | `↑↓` / `j` / `k` | Move selection |
-| `g` / `G` | Move a session to a group or rename its group |
+| `g` / `G` | Move a session to a group (Ctrl+N/P cycles visible groups) or rename its group |
 | `K` / `J` | Move the selected session up/down within its group |
 | `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
 
