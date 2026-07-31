@@ -99,6 +99,7 @@ pi-hub              # create/attach/switch to the dashboard tmux session
 pi-hub tui          # run the TUI directly in the current terminal
 pi-hub doctor
 pi-hub list
+pi-hub recover       # restore missing Active sessions from saved Pi history
 pi-hub add . -t api -g default
 pi-hub add ./api -t fullstack --add-cwd ../web --add-cwd ../shared
 pi-hub delete <session-id>
@@ -111,6 +112,8 @@ pi-hub config unset worktree-default
 ```
 
 `add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form by focusing the Worktree row and pressing `Space`, or with `Ctrl+T`; the branch name is also the session title. New forms normally start with worktrees off. Set `worktree-default` to open them in worktree mode automatically; either toggle can still turn it off per session. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Dashboard archive/backlog/restore only reorganizes rows and never stops tmux or Pi. Archived is a flat newest-first list that shows five parent cascades by default; select the older-items row and press `Enter` or double-click to expand it. Archived cascades become eligible for dashboard cleanup after seven days, but are forgotten only when every tmux session in the cascade is confirmed gone. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
+
+Hub records the tmux server process epoch. After that server is replaced, opening the dashboard automatically restores missing Active parent sessions from their saved Pi conversation files. Explicitly stopped, Backlog, Archived, and subagent rows are not auto-started. `pi-hub recover` runs the same guarded reconciliation manually, including before the first server baseline has been recorded. Missing project directories or unreadable Pi history fail per session without blocking other recoveries.
 
 ## Troubleshooting
 

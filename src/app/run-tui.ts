@@ -20,6 +20,7 @@ import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, restartManagedSessionFresh, syncManagedSessionStatusBars } from "./session-commands.js";
+import { automaticRecoveryAfterTmuxRestart, automaticRecoveryMessage } from "./session-recovery.js";
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
@@ -128,6 +129,7 @@ export function createRegistryMutator(deps: RegistryMutatorDeps): (action: () =>
 
 export async function runTui(): Promise<void> {
   const cwd = process.cwd();
+  const startupRecovery = await automaticRecoveryAfterTmuxRestart();
   const controller = new SessionsController();
   await controller.refresh();
   let dashboardThemeSessionId = resolveDashboardThemeSessionId(controller.snapshot().registry.sessions, await effectiveDashboardThemeSessionId(), controller.selected()?.id);
@@ -572,6 +574,8 @@ export async function runTui(): Promise<void> {
     skillCount,
     terminalRows: () => terminal.rows,
   }, theme);
+  const recoveryMessage = automaticRecoveryMessage(startupRecovery);
+  if (recoveryMessage) view.setMessage(recoveryMessage);
   stopThemeLoop = startThemeRefreshLoop({
     initialTheme: theme,
     load: () => loadDashboardTheme(cwd, controller.snapshot().registry.sessions, dashboardThemeSessionId),

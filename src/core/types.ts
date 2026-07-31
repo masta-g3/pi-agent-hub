@@ -53,6 +53,7 @@ export interface ManagedSession {
   createdAt: number;
   updatedAt: number;
   error?: string;
+  recoveryError?: string;
   enabledMcpServers?: string[];
   kind?: "main" | "subagent";
   parentId?: string;

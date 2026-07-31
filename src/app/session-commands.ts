@@ -93,9 +93,19 @@ export async function startManagedSession(id: string): Promise<void> {
   if (isSubagentSession(session)) throw new Error(`Cannot start subagent row: ${session.title}`);
   if (await sessionExists(session.tmuxSession)) {
     await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await loadManagedSessionTheme(session) });
+    await updateRegistry((latest) => ({
+      ...latest,
+      sessions: latest.sessions.map((item) => item.id === session.id ? { ...item, error: undefined, recoveryError: undefined } : item),
+    }));
     return;
   }
-  session = await ensureMultiRepoWorkspace(session);
+  session = {
+    ...await ensureMultiRepoWorkspace(session),
+    status: "starting",
+    error: undefined,
+    recoveryError: undefined,
+    updatedAt: Date.now(),
+  };
   await updateRegistry((latest) => upsertSession(latest, session));
   const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile });
   await newSession({
@@ -115,7 +125,7 @@ export async function stopManagedSession(id: string): Promise<void> {
   await updateRegistry((latest) => {
     const latestSession = findSession(latest, id);
     if (isSubagentSession(latestSession)) throw new Error(`Cannot stop subagent row: ${latestSession.title}`);
-    return { ...latest, sessions: latest.sessions.map((item) => item.id === latestSession.id ? { ...item, status: "stopped", updatedAt: Date.now() } : item) };
+    return { ...latest, sessions: latest.sessions.map((item) => item.id === latestSession.id ? { ...item, status: "stopped", error: undefined, recoveryError: undefined, updatedAt: Date.now() } : item) };
   });
 }
 
@@ -123,7 +133,7 @@ export async function restartManagedSession(id: string): Promise<void> {
   await stopManagedSession(id);
   await updateRegistry((registry) => {
     const session = findSession(registry, id);
-    return { ...registry, sessions: registry.sessions.map((item) => item.id === session.id ? { ...item, status: "starting", updatedAt: Date.now() } : item) };
+    return { ...registry, sessions: registry.sessions.map((item) => item.id === session.id ? { ...item, status: "starting", error: undefined, recoveryError: undefined, updatedAt: Date.now() } : item) };
   });
   await startManagedSession(id);
 }
@@ -143,6 +153,7 @@ export async function restartManagedSessionFresh(id: string, titleGenerator = ra
         piSessionId: undefined,
         acknowledgedAt: undefined,
         error: undefined,
+        recoveryError: undefined,
         activeTheme: undefined,
         updatedAt: Date.now(),
       } : item),

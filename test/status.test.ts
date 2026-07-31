@@ -54,6 +54,15 @@ test("missing tmux maps to error unless session is stopped", () => {
   assert.equal(computeStatus({ session: session({ status: "stopped" }), tmux: { exists: false }, now }).status, "stopped");
 });
 
+test("missing tmux preserves a specific recovery failure", () => {
+  const result = computeStatus({
+    session: session({ status: "error", recoveryError: "recovery failed: cwd is unavailable: /repo" }),
+    tmux: { exists: false },
+    now,
+  });
+  assert.equal(result.error, "recovery failed: cwd is unavailable: /repo");
+});
+
 test("stale heartbeat falls back to tmux activity", () => {
   const stale = heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1, state: "waiting" });
   const result = computeStatus({ session: session(), tmux: { exists: true, recentActivityMs: 100 }, heartbeat: stale, now });

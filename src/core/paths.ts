@@ -18,6 +18,10 @@ export function registryPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "registry.json");
 }
 
+export function tmuxServerStatePath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "tmux-server.json");
+}
+
 export function heartbeatDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "heartbeats");
 }
