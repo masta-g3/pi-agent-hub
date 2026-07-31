@@ -13,6 +13,7 @@ import { dashboardEnv, openDashboard } from "./app/dashboard.js";
 import { runTui } from "./app/run-tui.js";
 import { deleteManagedSession } from "./app/delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, startManagedSession, stopManagedSession } from "./app/session-commands.js";
+import { recoverMissingManagedSessions } from "./app/session-recovery.js";
 import { startMcpPool } from "./mcp/pool-daemon.js";
 
 const command = process.argv[2] ?? "dashboard";
@@ -48,6 +49,9 @@ async function main() {
     case "restart":
       await restart(args[0]);
       return;
+    case "recover":
+      await recover();
+      return;
     case "delete":
       await deleteCommand(args[0]);
       return;
@@ -79,6 +83,7 @@ Usage:
   ${CLI_COMMAND} start <session-id>
   ${CLI_COMMAND} stop <session-id>
   ${CLI_COMMAND} restart <session-id>
+  ${CLI_COMMAND} recover
   ${CLI_COMMAND} delete <session-id>
   ${CLI_COMMAND} fork <session-id> [-t title] [-g group]
   ${CLI_COMMAND} mcp-pool
@@ -135,6 +140,14 @@ async function stop(id: string | undefined) {
 async function restart(id: string | undefined) {
   if (!id) throw new Error(`Usage: ${CLI_COMMAND} restart <session-id>`);
   await restartManagedSession(id);
+}
+
+async function recover() {
+  const report = await recoverMissingManagedSessions();
+  for (const session of report.recovered) console.log(`recovered ${session.id}\t${session.title}`);
+  for (const session of report.failed) console.error(`failed ${session.id}\t${session.title}\t${session.error}`);
+  if (!report.recovered.length && !report.failed.length) console.log("No managed sessions need recovery.");
+  if (report.failed.length) process.exitCode = 1;
 }
 
 async function deleteCommand(id: string | undefined) {

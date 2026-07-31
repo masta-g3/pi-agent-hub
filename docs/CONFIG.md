@@ -7,6 +7,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
 - Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, `session.worktreeDefault`, dashboard theme anchor, dashboard shortcuts)
 - Registry: `registry.json`
+- Tmux server recovery baseline: `tmux-server.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Optional session metadata: `session-metadata/<session-id>.json`
 - Multi-repo workspaces: `workspaces/<session-id>`

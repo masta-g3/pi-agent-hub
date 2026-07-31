@@ -38,7 +38,7 @@ test("pi-hub config manages worktree-default", async () => {
 
 test("pi-hub config manages session-prelude", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-cli-config-"));
-  const env = { PI_AGENT_HUB_DIR: root };
+  const env = { PI_AGENT_HUB_DIR: root, PI_CODING_AGENT_DIR: join(root, "agent") };
   const prelude = "echo setup && echo done";
 
   const set = await runCli(["config", "set", "session-prelude", prelude], env);

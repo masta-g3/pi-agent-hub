@@ -21,7 +21,7 @@ export function computeStatus(input: StatusInput): ComputedStatus {
   if (!tmux.exists) {
     return session.status === "stopped"
       ? { status: "stopped" }
-      : { status: "error", error: tmux.error ?? "tmux session is missing" };
+      : { status: "error", error: tmux.error ?? session.recoveryError ?? "tmux session is missing" };
   }
 
   const fallbackFromTmux = (note?: string): ComputedStatus => {

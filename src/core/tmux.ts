@@ -42,6 +42,23 @@ export async function hasTmux(exec: TmuxExec = realTmuxExec): Promise<boolean> {
   }
 }
 
+export interface TmuxServerIdentity {
+  pid: number;
+  startedAt: number;
+  socketPath: string;
+}
+
+export async function tmuxServerIdentity(exec: TmuxExec = realTmuxExec): Promise<TmuxServerIdentity> {
+  const result = await exec.exec("tmux", ["display-message", "-p", "#{pid}\t#{start_time}\t#{socket_path}"]);
+  const [pidText, startedAtText, socketPath] = result.stdout.trimEnd().split("\t");
+  const pid = Number(pidText);
+  const startedAt = Number(startedAtText);
+  if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(startedAt) || startedAt <= 0 || !socketPath) {
+    throw new Error("tmux server identity is invalid");
+  }
+  return { pid, startedAt, socketPath };
+}
+
 export type TmuxPresence = "present" | "missing" | "unknown";
 
 export async function sessionPresence(name: string, exec: TmuxExec = realTmuxExec): Promise<TmuxPresence> {

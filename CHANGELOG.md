@@ -9,6 +9,7 @@ Use this section while developing. Move entries into a versioned section before 
 ### Added
 
 - Add explicit `x` then `1`–`4` panel close commands, guarded `Alt+1`–`Alt+4` focus jumps, and `Alt+Q` sidebar return from anywhere in the dashboard tmux session.
+- Add tmux server epoch tracking, automatic Active-session recovery after whole-server replacement, and a manual `pi-hub recover` command.
 
 ### Changed
 
@@ -18,6 +19,7 @@ Use this section while developing. Move entries into a versioned section before 
 ### Fixed
 
 - Fix `Alt+1`–`Alt+4` pane lookup so tmux resolves live slot metadata at keypress time and empty slots remain silent no-ops.
+- Preserve specific per-session recovery failures for missing project directories or unreadable Pi history while continuing to recover other sessions.
 
 ## 1.2.0 - 2026-05-26
 

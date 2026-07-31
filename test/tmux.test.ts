@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, capturePane, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, capturePane, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, tmuxServerIdentity, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -30,6 +30,20 @@ test("dashboard tui command uses current node and CLI file", () => {
 
   assert.equal(command, "'/opt/node bin/node' '/pkg/pi-agent-hub/dist/cli'\\''s.js' tui");
   assert.doesNotMatch(command, /^pi-hub tui$/);
+});
+
+test("tmuxServerIdentity reads the server process epoch", async () => {
+  const exec = fakeTmux(() => ({ stdout: "3040\t1785463372\t/private/tmp/tmux-501/default\n", stderr: "" }));
+
+  assert.deepEqual(await tmuxServerIdentity(exec), {
+    pid: 3040,
+    startedAt: 1785463372,
+    socketPath: "/private/tmp/tmux-501/default",
+  });
+  assert.deepEqual(exec.calls, [{
+    command: "tmux",
+    args: ["display-message", "-p", "#{pid}\t#{start_time}\t#{socket_path}"],
+  }]);
 });
 
 test("switchClient switches the current tmux client", async () => {

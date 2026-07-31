@@ -155,6 +155,40 @@ function session(overrides: Partial<ManagedSession> = {}): ManagedSession {
   };
 }
 
+test("startManagedSession clears stale recovery errors before recreating tmux", async () => {
+  const oldDir = process.env.PI_AGENT_HUB_DIR;
+  const oldPath = process.env.PATH;
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-start-recovery-"));
+  const bin = join(root, "bin");
+  const cwd = join(root, "repo");
+  await mkdir(bin);
+  await mkdir(cwd);
+  await writeFile(join(bin, "tmux"), "#!/bin/sh\n[ \"$1\" = \"has-session\" ] && exit 1\nexit 0\n", "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
+  process.env.PI_AGENT_HUB_DIR = root;
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  try {
+    await saveRegistry({ version: 1, sessions: [session({
+      cwd,
+      status: "error",
+      error: "recovery failed: old error",
+      recoveryError: "recovery failed: old error",
+    })] });
+
+    await startManagedSession("source-session");
+
+    const started = (await loadRegistry()).sessions[0]!;
+    assert.equal(started.status, "starting");
+    assert.equal(started.error, undefined);
+    assert.equal(started.recoveryError, undefined);
+  } finally {
+    if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR;
+    else process.env.PI_AGENT_HUB_DIR = oldDir;
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+});
+
 test("restartManagedSessionFresh clears saved Pi state and starts a new tmux session", async () => {
   const oldDir = process.env.PI_AGENT_HUB_DIR;
   const oldPath = process.env.PATH;
