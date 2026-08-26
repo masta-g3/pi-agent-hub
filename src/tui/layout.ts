@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
-import type { RenderModel, RenderSession, StatusCounts } from "./render-model.js";
+import type { CockpitTier, RenderModel, RenderSession, StatusCounts } from "./render-model.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { darkTheme, stripAnsi, stripAnsiExceptItalics, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
@@ -171,9 +171,16 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
       ? `${model.summary.total} ${model.summary.total === 1 ? "session" : "sessions"}`
       : `${model.summary.visibleTotal}/${model.summary.total} sessions`;
   const parts = [styles.accent(countLabel)];
-  const counts = formatStatusCounts(board ? model.boardStatusCounts : model.summary.statusCounts, styles);
-  if (counts) parts.push(counts);
-  if (board) parts.push(styles.dim("view lanes"));
+  if (board) {
+    const counts = formatStatusCounts(model.boardStatusCounts, styles);
+    if (counts) parts.push(counts);
+    parts.push(styles.dim("view lanes"));
+  } else {
+    const needsYou = model.sections.find((section) => section.cockpitTier === "needs-you")?.sessionsTotal ?? 0;
+    const health = model.sections.find((section) => section.cockpitTier === "health")?.sessionsTotal ?? 0;
+    if (needsYou) parts.push(styles.warning(`?${needsYou} needs you`));
+    if (health) parts.push(styles.error(`×${health} health`));
+  }
   if (model.filter !== undefined) parts.push(styles.dim(`filter: ${model.filter}`));
   return truncate(parts.join(" · "), width);
 }
@@ -183,13 +190,7 @@ function groupAttentionCount(count: number, styles: LayoutStyles, muted = false)
   return (muted ? styles.muted : styles.warning)(`◐${count}`);
 }
 
-function groupStatusCounts(group: RenderModel["groups"][number], styles: LayoutStyles, muted = false): string {
-  return [groupAttentionCount(group.attentionCount, styles, muted), formatStatusCounts(group.statusCounts, styles, muted)]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function groupBoardCounts(group: RenderModel["groups"][number], parentCount: number, styles: LayoutStyles): string {
+function groupBoardCounts(group: RenderModel["sections"][number]["groups"][number], parentCount: number, styles: LayoutStyles): string {
   return [groupAttentionCount(group.attentionCount, styles), styles.dim(`·${parentCount}`)].filter(Boolean).join(" ");
 }
 
@@ -256,31 +257,21 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     if (model.density === "all-cards") contextIndexes.set(lines.length - 1, context);
     if (session.selected) selectedEndIndex = lines.length - 1;
   };
-  if (!model.showSections) {
-    for (const [groupIndex, group] of model.groups.entries()) {
-      if (model.density === "all-cards" && groupIndex) pushLine("");
-      const groupHeadingIndex = lines.length;
-      pushLine(twoColumn(styles.accent(group.name), groupStatusCounts(group, styles), width));
-      for (const [index, session] of group.sessions.entries()) {
-        pushRow(session, model.density === "all-cards" ? { last: index === group.sessions.length - 1, rich: session.kind !== "subagent" } : undefined, [groupHeadingIndex]);
-      }
-    }
-    return { lines, targets, selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes, fillAroundSelected: model.density === "all-cards" };
-  }
   let firstSection = true;
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
-    const mutedStatuses = section.key !== "active";
-    const headingRight = board ? styles.dim(`·${section.sessionsTotal}`) : formatStatusCounts(section.statusCounts, styles, mutedStatuses);
+    const headingRight = board
+      ? styles.dim(`·${section.sessionsTotal}`)
+      : cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`);
     const sectionHeadingIndex = lines.length;
-    const headerTarget = section.collapsible && (section.key === "backlog" || section.key === "archived")
-      ? { kind: "section-header" as const, section: section.key as "backlog" | "archived" }
+    const headerTarget = section.collapsible && section.key === "archived"
+      ? { kind: "section-header" as const, section: "archived" as const }
       : undefined;
     if (section.selected) {
       selectedIndex = lines.length;
       selectedEndIndex = lines.length;
     }
-    pushLine(sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected), headerTarget);
+    pushLine(sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier), headerTarget);
     firstSection = false;
     for (const [groupIndex, group] of section.groups.entries()) {
       if (model.density === "all-cards" && groupIndex) pushLine("");
@@ -290,16 +281,13 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         const groupName = model.density === "all-cards" ? styles.accent(group.name) : styles.muted(group.name);
         groupHeadingIndex = lines.length;
         pushLine(twoColumn(groupName, groupBoardCounts(group, parentCount, styles), width));
-      } else if (group.name) {
-        groupHeadingIndex = lines.length;
-        pushLine(twoColumn(styles.accent(group.name), groupStatusCounts(group, styles, mutedStatuses), width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
       const junction = model.density === "all-cards" && section.key !== "archived";
       for (const [index, session] of group.sessions.entries()) {
         pushRow(session, junction ? {
           last: index === group.sessions.length - 1,
-          rich: (board || section.key === "active") && session.kind !== "subagent",
+          rich: (board || session.section === "active") && session.kind !== "subagent",
         } : undefined, context);
       }
     }
@@ -706,14 +694,17 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     const short = railCompact(session.workflow, mode, styles);
     return fits(short) ? short : "";
   }
+  if (session.archivedAge) return fits(styles.dim(session.archivedAge)) ? styles.dim(session.archivedAge) : "";
 
+  const lifecycle = session.section === "backlog" ? styles.muted("backlog") : "";
+  const group = styles.dim(session.group);
   const stage = session.workflow ? railCompact(session.workflow, mode, styles) : "";
-  const activity = session.displayStatus === "running" ? "" : session.activityAge ?? "";
-  const stageSlot = `${stage}${" ".repeat(Math.max(0, 4 - displayWidth(stage)))}`;
-  const activitySlot = `${" ".repeat(Math.max(0, 3 - displayWidth(activity)))}${activity}`;
-  const active = `${stage ? styles.accent(stageSlot) : stageSlot} ${activity ? styles.dim(activitySlot) : activitySlot}`;
-  const right = session.archivedAge ? styles.dim(session.archivedAge) : active;
-  return fits(right) ? right : "";
+  const activity = session.displayStatus === "running" ? "" : session.activityAge ? styles.dim(session.activityAge) : "";
+  const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
+  const candidates = lifecycle
+    ? [[lifecycle, group, stage, activity], [lifecycle, group, stage], [lifecycle, group], [lifecycle, stage], [lifecycle]]
+    : [[group, stage, activity], [group, stage], [group, activity], [group], [stage, activity], [activity], [stage]];
+  return candidates.map(join).find(fits) ?? "";
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles): string {
@@ -879,12 +870,19 @@ function lifecycleLine(session: RenderSession): string | undefined {
   return `${session.section} · U restore`;
 }
 
-function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false): string {
+function cockpitTone(tier: CockpitTier | undefined, styles: LayoutStyles): (text: string) => string {
+  if (tier === "needs-you") return styles.warning;
+  if (tier === "health") return styles.error;
+  if (tier === "active") return styles.success;
+  return tier ? styles.muted : styles.border;
+}
+
+function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier): string {
+  const tone = cockpitTone(tier, styles);
   const prefix = collapsed === undefined
-    ? styles.border("──")
-    : `${selected ? styles.accent("▌") : styles.border("─")}${styles.muted(collapsed ? "▸" : "▾")}`;
-  const left = styles.border(`${prefix} ${title} `);
-  return twoColumn(left, right, width);
+    ? tone("──")
+    : `${selected ? styles.accent("▌") : tone("─")}${tone(collapsed ? "▸" : "▾")}`;
+  return twoColumn(`${prefix}${tone(` ${title} `)}`, right, width);
 }
 
 function formatStatusCounts(counts: StatusCounts, styles: LayoutStyles, muted = false): string {
@@ -935,7 +933,9 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const rowPrefix = options.prefixMode === "none" ? "" : board && !selectionMarker && prefix === " " ? prefix : `${prefix} `;
   const leftPrefix = `${rowPrefix}${indent}${symbol} ${sidePaneMarker}${worktreeMarker}`;
   const leftSuffix = `${disclosureBadge}${runningBadge}${repoBadge}`;
-  const right = rowRightAdornment(session, styles, board, width);
+  const fixedLeftWidth = displayWidth(leftPrefix) + displayWidth(leftSuffix);
+  const adornmentWidth = board ? width : Math.max(0, width - fixedLeftWidth);
+  const right = rowRightAdornment(session, styles, board, adornmentWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;
   const titleWidth = Math.max(0, width - displayWidth(leftPrefix) - displayWidth(leftSuffix) - rightSpace);
   const text = `${leftPrefix}${styleTitle(truncate(titleText, titleWidth))}${leftSuffix}`;

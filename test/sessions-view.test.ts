@@ -102,8 +102,9 @@ test("help overlay opens and closes", () => {
   assert.match(help, /mouse click select · double-click open\/switch/);
   assert.match(help, /v cycle row density/);
   assert.match(help, /t theme settings/);
-  assert.match(help, /Active and Backlog keep project\/group headers/);
-  assert.match(help, /Archived shows 5 parent cascades/);
+  assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
+  assert.match(help, /only explicit producer attention enters Needs you/);
+  assert.match(help, /Archived is flat and chronological/);
   assert.match(help, /Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE/);
   assert.match(help, /subagent trees: ←\/→ collapse\/expand selected · Shift\+←\/→ all/);
   assert.match(help, /subagent trees start collapsed; Space toggles one board tree/);
@@ -975,11 +976,9 @@ test("navigation follows the shared projection across lifecycle sections and sub
   // The default project tree is collapsed, so navigation starts on the parent.
   view.render(100);
   assert.equal(controller.snapshot().selectedId, "active");
-  view.handleInput("j"); // backlog header
-  assert.equal(controller.snapshot().selectedId, "active");
-  view.handleInput("j"); // backlog row
+  view.handleInput("j"); // Backlog is a normal Quiet row.
   assert.equal(controller.snapshot().selectedId, "backlog");
-  view.handleInput("j"); // archived header
+  view.handleInput("j"); // Archived header is the only lifecycle target.
   assert.equal(controller.snapshot().selectedId, "backlog");
   view.handleInput("j"); // archived row
   assert.equal(controller.snapshot().selectedId, "archived");
@@ -994,7 +993,7 @@ test("navigation follows the shared projection across lifecycle sections and sub
   assert.match(stripAnsi(view.render(100).join("\\n")), /child/);
 });
 
-test("section headers collapse independently and persist their state", () => {
+test("Archived is the only collapsible project section and persists its state", () => {
   const sessions = [
     session("active", "active"),
     { ...session("backlog", "backlog"), bucket: "backlog" as const },
@@ -1004,27 +1003,23 @@ test("section headers collapse independently and persist their state", () => {
   const controller = new SessionsController({ version: 1, sessions });
   const view = new SessionsView(controller, () => {}, { saveViewState: (state) => saved.push(state) });
 
-  view.handleInput("j");
-  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ BACKLOG/);
+  view.handleInput("j"); // backlog row
+  assert.equal(controller.snapshot().selectedId, "backlog");
+  view.handleInput("j"); // Archived header
+  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ ARCHIVED/);
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ BACKLOG/);
-  assert.doesNotMatch(collapsed, /\n.*backlog/);
-  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["backlog"] });
-
-  view.handleInput("j");
-  view.handleInput("\r");
-  const both = stripAnsi(view.render(80).join("\n"));
-  assert.match(both, /▸ BACKLOG/);
-  assert.match(both, /▸ ARCHIVED/);
-  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["backlog", "archived"] });
+  assert.match(collapsed, /▸ ARCHIVED/);
+  assert.doesNotMatch(collapsed, /\n.*○ archived/);
+  assert.match(collapsed, /backlog/);
+  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["archived"] });
 });
 
-test("section header selection blocks session actions and Enter reopens it", () => {
+test("Archived header selection blocks session actions and Enter collapses it", () => {
   const events: string[] = [];
   const sessions = [
     session("active", "active"),
-    { ...session("backlog", "backlog"), bucket: "backlog" as const },
+    { ...session("archived", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const controller = new SessionsController({ version: 1, sessions });
   const view = new SessionsView(controller, () => {}, {
@@ -1032,10 +1027,10 @@ test("section header selection blocks session actions and Enter reopens it", () 
     archiveSession: () => { events.push("archive"); },
     reorderSelected: () => { events.push("reorder"); },
   });
-  view.handleInput("j");
+  view.handleInput("j"); // Archived header
   for (const key of ["A", "J", "\r"]) view.handleInput(key);
   assert.deepEqual(events, []);
-  assert.match(stripAnsi(view.render(80).join("\n")), /▸ BACKLOG/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▸ ARCHIVED/);
 });
 
 test("archive disclosure toggles with keyboard and blocks stale session actions", () => {
@@ -1246,8 +1241,8 @@ test("non-row mouse input cancels a pending double-click", () => {
   });
   const rendered = view.render(100);
   const docsLine = rowIndexFor(rendered, "docs");
-  const headerLine = rendered.findIndex((line) => stripAnsi(line).includes("default"));
-  assert.notEqual(headerLine, -1, "missing group header");
+  const headerLine = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
+  assert.notEqual(headerLine, -1, "missing cockpit tier heading");
 
   view.handleInput(mousePressAtLine(docsLine));
   now += 50;
@@ -1266,7 +1261,7 @@ test("non-row mouse input cancels a pending double-click", () => {
   assert.deepEqual(switched, []);
 });
 
-test("mouse clicks ignore group headers and details pane", () => {
+test("mouse clicks ignore cockpit tier headings and details pane", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
@@ -1275,8 +1270,8 @@ test("mouse clicks ignore group headers and details pane", () => {
   const rendered = view.render(100);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("default"));
-  assert.notEqual(headerIndex, -1, "missing group header");
+  const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
+  assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
   view.handleInput(mousePressAtLine(headerIndex));
   view.handleInput(mousePressAtLine(rowIndexFor(rendered, "docs"), 99));
 

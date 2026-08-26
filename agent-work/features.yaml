@@ -789,3 +789,114 @@
   created_at: '2026-08-23'
   plan_file: agent-work/history/20260823_architecture-005_heartbeat_intake.md
   completed_at: '2026-08-23'
+- id: cockpit-001
+  status: done
+  title: Cockpit foundation
+  subtitle: Ship live attention-first project view
+  description: The default project view presents a responsive live attention hierarchy
+    with executable render contracts while preserving independent session state.
+  priority: 1
+  created_at: '2026-08-24'
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260825_cockpit-001_cockpit_foundation.md
+  completed_at: '2026-08-25'
+- id: cockpit-002
+  status: superseded
+  title: Attention projection
+  subtitle: Rank explicit needs without state coupling
+  description: The dashboard projects explicit attention, health, activity, and quiet
+    tiers without changing row state.
+  priority: 1
+  created_at: '2026-08-24'
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-003
+  status: pending
+  title: Status explanation
+  subtitle: Explain every derived session status
+  description: The UI and CLI show the tmux, heartbeat, acknowledgement, and workflow
+    evidence behind each derived status.
+  priority: 1
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-004
+  status: pending
+  title: Attention delivery
+  subtitle: Notify only on explicit requests
+  description: Dashboard, terminal, and optional sound notifications fire only when
+    explicit producer attention appears.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-005
+  status: pending
+  title: Intent palette
+  subtitle: Search sessions actions and filters
+  description: One intent surface finds sessions, matches bounded context, applies
+    scoped filters, and exposes valid actions with live shortcuts.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-006
+  status: pending
+  title: Action workspace
+  subtitle: Lead with decisions and next actions
+  description: Selected-session details present explicit attention, producer summary,
+    and valid actions before technical metadata.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  - cockpit-005
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-007
+  status: pending
+  title: Direct pinning
+  subtitle: Pin and manipulate live sessions
+  description: Users can pin and directly manipulate live tmux-backed sessions without
+    addressing numbered slots.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-006
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-008
+  status: pending
+  title: Adaptive cockpit
+  subtitle: Replace parallel views with one surface
+  description: One responsive dashboard hierarchy replaces density and workflow-board
+    modes while preserving producer workflow data.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-003
+  - cockpit-004
+  - cockpit-005
+  - cockpit-006
+  - cockpit-007
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-009
+  status: pending
+  title: Cockpit onboarding
+  subtitle: Teach the new daily workflow
+  description: First-run and release guidance teach the attention-first workflow with
+    accessible behavior at supported widths.
+  priority: 3
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-008
+  references:
+  - agent-work/plans/cockpit-000.md

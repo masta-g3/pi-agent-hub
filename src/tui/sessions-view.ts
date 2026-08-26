@@ -721,18 +721,15 @@ export class SessionsView implements Component {
     const projection = this.dashboardProjection(this.controller.snapshot());
     const { allRows, archive, visible: visibleRows, allTree: tree, filterActive } = projection;
     const sectionOf = (row: typeof allRows[number]) => effectiveSessionLifecycle(row, allRows, tree).section;
-    const hasLifecycleSections = allRows.some((row) => sectionOf(row) !== "active");
-    if (!hasLifecycleSections) return visibleRows.map((row) => ({ kind: "session", id: row.id }));
-    const targets: SessionListTarget[] = [];
-    for (const section of ["active", "backlog", "archived"] as const) {
-      const allSectionRows = allRows.filter((row) => sectionOf(row) === section);
-      if (!allSectionRows.length) continue;
-      const sectionRows = visibleRows.filter((row) => sectionOf(row) === section);
-      if (section !== "active") targets.push({ kind: "section-header", section });
-      if (section === "active" || !this.collapsedSections.has(section) || filterActive) {
-        targets.push(...sectionRows.map((row) => ({ kind: "session" as const, id: row.id })));
-        if (section === "archived" && archive.showDisclosure && !this.collapsedSections.has("archived")) targets.push({ kind: "archive-disclosure" });
-      }
+    const targets: SessionListTarget[] = visibleRows
+      .filter((row) => sectionOf(row) !== "archived")
+      .map((row) => ({ kind: "session" as const, id: row.id }));
+    const allArchived = allRows.filter((row) => sectionOf(row) === "archived");
+    if (!allArchived.length) return targets;
+    targets.push({ kind: "section-header", section: "archived" });
+    if (!this.collapsedSections.has("archived") || filterActive) {
+      targets.push(...visibleRows.filter((row) => sectionOf(row) === "archived").map((row) => ({ kind: "session" as const, id: row.id })));
+      if (archive.showDisclosure && !this.collapsedSections.has("archived")) targets.push({ kind: "archive-disclosure" });
     }
     return targets;
   }
@@ -749,6 +746,7 @@ export class SessionsView implements Component {
       this.archiveDisclosureSelected = false;
     }
     if (this.selectedSection && targets.some((target) => target.kind === "section-header" && target.section === this.selectedSection)) return;
+    this.selectedSection = undefined;
     const selectedId = this.controller.snapshot().selectedId;
     if (targets.some((target) => target.kind === "session" && target.id === selectedId)) return;
     const snapshot = this.controller.snapshot();
@@ -757,8 +755,8 @@ export class SessionsView implements Component {
     const selectedRow = allRows.find((row) => row.id === selectedId);
     if (selectedRow && !snapshot.filter?.trim()) {
       const section = effectiveSessionLifecycle(selectedRow, allRows, tree).section;
-      if (section !== "active" && this.collapsedSections.has(section)) {
-        this.selectedSection = section;
+      if (section === "archived" && this.collapsedSections.has("archived")) {
+        this.selectedSection = "archived";
         return;
       }
     }
@@ -1122,16 +1120,18 @@ function renderHelp(width: number, theme?: SessionsTheme): string[] {
     "  Alt+Q panel to sidebar     Ctrl+Q return fallback     Alt+R rename session",
     "",
     heading("Sections and views"),
-    "  Active and Backlog keep project/group headers; Archived is flat and chronological",
-    "  Archived shows 5 parent cascades; Enter/double-click reveals older rows",
+    "  Project view: Needs you · Health · Active · Quiet; groups appear on session rows",
+    "  only explicit producer attention enters Needs you; Backlog stays labeled in Quiet when inactive",
+    "  Archived is flat and chronological; Enter/double-click reveals older rows",
     "  Archived cascades auto-remove after 7d once every tmux session is gone",
+    "  v temporarily cycles row density; S temporarily toggles the producer workflow board",
     "  Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE;",
     "  subagent trees start collapsed; Space toggles one board tree; filters reveal matches",
     "  every lane nests project/group labels; Backlog/Archived stay summarized",
     "",
     heading("Status legend"),
     "  ● running/starting     ◐ waiting     ○ idle     × error     - stopped",
-    "  zero counts are hidden in group and top summary",
+    "  zero counts are hidden from tier and top summaries",
     "",
     heading("Metadata"),
     "  i toggle compact/full selected-session info",

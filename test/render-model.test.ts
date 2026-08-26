@@ -19,11 +19,15 @@ function session(id: string, group: string, status: SessionStatus, title = id): 
   };
 }
 
+function modelRows(model: ReturnType<typeof buildRenderModel>) {
+  return model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
+}
+
 test("dashboard projection supplies the same visible rows as rendering", () => {
   const sessions = [session("parent", "app", "running"), { ...session("child", "app", "running"), kind: "subagent" as const, parentId: "parent" }];
   const projection = buildDashboardProjection({ sessions, expandedProjectParentIds: new Set(["parent"]) });
   const model = buildRenderModel({ sessions, selectedId: "parent", width: 120, structuralProjection: projection, expandedProjectParentIds: new Set(["parent"]) });
-  assert.deepEqual(model.groups.flatMap((group) => group.sessions.map((row) => row.id)), projection.visible.map((row) => row.id));
+  assert.deepEqual(modelRows(model).map((row) => row.id), projection.visible.map((row) => row.id));
 });
 
 const WORKFLOW = {
@@ -150,12 +154,12 @@ test("workflow rail renders positional markers in compact rows and details", () 
 
   const activeLines = renderSessions(active).lines.map(stripAnsi);
   const activeRow = activeLines.find((line) => /^│▌/.test(line));
-  assert.match(activeRow ?? "", /● a\s+◉EX/);
+  assert.match(activeRow ?? "", /● a.*default · ◉EX/);
   assert.match(activeLines.join("\n"), /✓ PL─◉ EX─· RV─· RF─· CM · auth-003/);
 
   const completeLines = renderSessions(complete).lines.map(stripAnsi);
   const completeRow = completeLines.find((line) => /^│▌/.test(line));
-  assert.match(completeRow ?? "", /- a\s+✓EX/);
+  assert.match(completeRow ?? "", /- a.*default · ✓EX/);
   assert.match(completeLines.join("\n"), /✓ PL─✓ EX─· RV─· RF─· CM · auth-003/);
   for (const line of [...renderSessions(active).lines, ...renderSessions(complete).lines]) assert.ok(visibleWidth(line) <= 110, line);
 });
@@ -191,7 +195,7 @@ test("sidebar workflow stages use the theme accent color", () => {
   assert.doesNotMatch(row, /\u001b\[38;2;4;5;6mEX/);
 });
 
-test("active and backlog rows use fixed stage and activity slots", () => {
+test("project rows show group lifecycle workflow and age metadata by priority", () => {
   const now = 1_000_000;
   const sessions = [
     { ...session("running", "default", "running"), workflow: WORKFLOW, lastActivityAt: now - 14 * 60_000 },
@@ -209,17 +213,14 @@ test("active and backlog rows use fixed stage and activity slots", () => {
 
   assert.match(running, /EX/);
   assert.doesNotMatch(running, /14m/);
-  assert.match(waiting, /EX\s+14m/);
-  assert.doesNotMatch(waiting.split("│")[1] ?? "", /·/);
-  assert.equal(running.indexOf("EX"), waiting.indexOf("EX"));
-  assert.match(focused, /FOC 14m/);
-  assert.equal(focused.indexOf("FOC"), waiting.indexOf("EX"));
-  assert.equal(focused.indexOf("14m"), waiting.indexOf("14m"));
-  assert.match(idle, /14m/);
+  assert.match(running, /default · ◉EX/);
+  assert.doesNotMatch(running, /14m/);
+  assert.match(waiting, /default · ◉EX · 14m/);
+  assert.match(focused, /default · ◉FOC · 14m/);
+  assert.match(idle, /default · 14m/);
   assert.doesNotMatch(idle, /EX/);
-  assert.equal(waiting.indexOf("14m"), idle.indexOf("14m"));
-  assert.match(backlog, /EX\s+14m/);
-  assert.equal(waiting.indexOf("EX"), backlog.indexOf("EX"));
+  assert.match(backlog, /backlog · default · ◉EX/);
+  assert.doesNotMatch(backlog, /14m/);
 });
 
 test("expanded details include the full workflow rail", () => {
@@ -349,15 +350,15 @@ test("board collapses descendant rows by default and reveals them through epheme
   assert.equal(filtered.selected?.boardExpanded, true);
 
   const projectCollapsed = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60 });
-  assert.deepEqual(projectCollapsed.groups[0]?.sessions.map((row) => row.id), ["parent"]);
+  assert.deepEqual(modelRows(projectCollapsed).map((row) => row.id), ["parent"]);
   assert.match(renderSessions(projectCollapsed).lines.map(stripAnsi).join("\n"), /Parent task ▸/);
 
   const projectExpanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60, expandedProjectParentIds: new Set(["parent"]) });
-  assert.deepEqual(projectExpanded.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
+  assert.deepEqual(modelRows(projectExpanded).map((row) => row.id), ["parent", "child", "nested"]);
   assert.match(renderSessions(projectExpanded).lines.map(stripAnsi).join("\n"), /Parent task ▾/);
 
   const projectFiltered = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60, filter: "nested-worker" });
-  assert.deepEqual(projectFiltered.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
+  assert.deepEqual(modelRows(projectFiltered).map((row) => row.id), ["parent", "child", "nested"]);
 });
 
 test("board groups child rows by their top-level parent and counts parent cards only", () => {
@@ -468,8 +469,8 @@ test("render model records side pane slots by session id", () => {
     sidePaneSessionIds: new Map([["api", 2]]),
   });
 
-  assert.equal(model.groups[0]?.sessions.find((item) => item.id === "api")?.sidePaneSlot, 2);
-  assert.equal(model.groups[0]?.sessions.find((item) => item.id === "docs")?.sidePaneSlot, undefined);
+  assert.equal(modelRows(model).find((item) => item.id === "api")?.sidePaneSlot, 2);
+  assert.equal(modelRows(model).find((item) => item.id === "docs")?.sidePaneSlot, undefined);
 });
 
 test("panel strip uses all sessions and records the focused slot", () => {
@@ -513,11 +514,11 @@ test("side pane glyphs do not crowd compact workflow rails", () => {
     sidePaneSessionIds: new Map([["api", 1]]),
   });
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
-  assert.match(row ?? "", /● ◫1 api\s+◉EX/);
+  assert.match(row ?? "", /● ◫1 api.*default · ◉EX/);
   assert.doesNotMatch(row ?? "", /4\/7|EX ◫1/);
 });
 
-test("side pane glyphs remain left-visible at narrow widths", () => {
+test("side pane glyphs and group tags remain left-visible at narrow widths", () => {
   const workflow = { ...WORKFLOW, steps: WORKFLOW.steps.map((step) => step.id === "execute" ? { ...step, short: "EXECUTE-LONG-LABEL" } : step) };
   const model = buildRenderModel({
     sessions: [{ ...session("api", "default", "running", "long-title-".repeat(4)), workflow }],
@@ -527,8 +528,8 @@ test("side pane glyphs remain left-visible at narrow widths", () => {
   });
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
   assert.match(row ?? "", /● ◫1 long-t/);
-  assert.match(row ?? "", /EXECUTE-LONG-LABEL/);
-  assert.doesNotMatch(row ?? "", /4\/7/);
+  assert.match(row ?? "", /default/);
+  assert.doesNotMatch(row ?? "", /EXECUTE-LONG-LABEL|4\/7/);
 });
 
 test("stage grouping keeps side pane glyphs separate from group adornments", () => {
@@ -683,13 +684,14 @@ test("height-bounded list preserves scroll top until selection reaches an edge",
   assert.equal(edge.listScrollTop, first.listScrollTop + 1);
 });
 
-test("project grouping is unchanged when view state is omitted", () => {
+test("project view defaults to cockpit tiers with Backlog as row metadata", () => {
   const backlog = { ...session("bk", "experiments", "idle"), bucket: "backlog" as const, bucketChangedAt: 1 };
   const model = buildRenderModel({ sessions: [session("a", "default", "idle"), backlog], width: 120 });
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /BACKLOG/);
-  assert.doesNotMatch(rendered, /view lanes/);
-  assert.doesNotMatch(rendered, /backlog\/archived · v groups/);
+  assert.deepEqual(model.sections.map((section) => section.key), ["quiet"]);
+  assert.match(rendered, /QUIET/);
+  assert.match(rendered, /backlog · experiments/);
+  assert.doesNotMatch(rendered, /view lanes|── BACKLOG/);
 });
 
 test("empty state rendering includes first-run prompts", () => {
@@ -704,11 +706,12 @@ test("grouping order and status counts", () => {
     sessions: [session("b", "work", "idle"), session("a", "default", "waiting"), session("e", "default", "error")],
     width: 120,
   });
-  assert.deepEqual(model.groups.map((group) => group.name), ["default", "work"]);
-  assert.deepEqual(model.groups[0]?.statusCounts, { running: 0, waiting: 1, idle: 0, error: 1, stopped: 0 });
-  assert.deepEqual(model.groups[1]?.statusCounts, { running: 0, waiting: 0, idle: 1, error: 0, stopped: 0 });
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /◐1 ×1/);
+  assert.deepEqual(model.sections.map((section) => [section.key, section.statusCounts]), [
+    ["health", { running: 0, waiting: 0, idle: 0, error: 1, stopped: 0 }],
+    ["quiet", { running: 0, waiting: 1, idle: 1, error: 0, stopped: 0 }],
+  ]);
+  const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
+  assert.match(rendered, /HEALTH[\s\S]*× e.*default[\s\S]*QUIET[\s\S]*◐ a.*default[\s\S]*○ b.*work/);
   assert.doesNotMatch(rendered, /1 waiting · 1 error/);
 });
 
@@ -721,14 +724,15 @@ test("groups keep stable order and expose unacknowledged waiting counts", () => 
   ];
   const model = buildRenderModel({ sessions, width: 120 });
 
-  assert.deepEqual(model.groups.map((group) => [group.name, group.attentionCount]), [
-    ["default", 1], ["work", 0], ["z", 1],
-  ]);
-  assert.equal(model.groups.find((group) => group.name === "default")?.sessions[0]?.needsAttention, true);
-  assert.equal(model.groups.find((group) => group.name === "work")?.sessions[0]?.needsAttention, false);
+  const rows = modelRows(model);
+  assert.deepEqual([...new Set(rows.map((row) => row.group))], ["default", "work", "z"]);
+  assert.equal(rows.find((row) => row.id === "default-waiting")?.needsAttention, true);
+  assert.equal(rows.find((row) => row.id === "work-waiting")?.needsAttention, false);
 
   const rendered = renderSessions(buildRenderModel({ sessions, width: 40 })).lines.map(stripAnsi).join("\\n");
-  assert.match(rendered, /default.*◐1/);
+  assert.match(rendered, /QUIET/);
+  assert.match(rendered, /default-waiting.*default/);
+  assert.doesNotMatch(rendered, /default.*◐1/);
 });
 
 test("groups are rendered by newest waiting or idle activity", () => {
@@ -743,28 +747,27 @@ test("groups are rendered by newest waiting or idle activity", () => {
     width: 120,
   });
 
-  assert.deepEqual(model.groups.map((group) => group.name), ["default", "work", "z"]);
+  assert.deepEqual([...new Set(modelRows(model).map((row) => row.group))], ["default", "work", "z"]);
 });
 
-test("sectioned model preserves Active and Backlog groups but flattens Archived chronologically", () => {
+test("cockpit flattens groups into row tags and keeps Archived chronological", () => {
   const day = 24 * 60 * 60 * 1000;
   const backlog = { ...session("backlog", "default", "idle"), bucket: "backlog" as const, bucketChangedAt: 100 };
   const archiveOld = { ...session("archive-old", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 100 };
   const archiveNew = { ...session("archive-new", "work", "stopped"), bucket: "archived" as const, bucketChangedAt: 100 + day };
   const model = buildRenderModel({ sessions: [archiveOld, session("active", "default", "idle"), backlog, archiveNew], selectedId: "archive-new", width: 120, now: 100 + 2 * day });
 
-  assert.equal(model.showSections, true);
-  assert.deepEqual(model.sections.map((section) => [section.key, section.groups.map((group) => group.name)]), [["active", ["default"]], ["backlog", ["default"]], ["archived", [""]]]);
-  assert.deepEqual(model.sections[2]?.groups[0]?.sessions.map((row) => row.id), ["archive-new", "archive-old"]);
+  assert.deepEqual(model.sections.map((section) => [section.key, section.groups.map((group) => group.name)]), [["quiet", [""]], ["archived", [""]]]);
+  assert.deepEqual(model.sections[1]?.groups[0]?.sessions.map((row) => row.id), ["archive-new", "archive-old"]);
   assert.equal(model.selected?.archivedAge, "1d");
   assert.equal(model.selected?.archiveRetentionIn, "6d");
   assert.match(model.footer, /U Restore/);
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /ACTIVE/);
-  assert.match(rendered, /BACKLOG/);
+  assert.match(rendered, /QUIET/);
+  assert.match(rendered, /backlog · default/);
   assert.match(rendered, /ARCHIVED/);
-  assert.doesNotMatch(rendered, /\[exp/);
+  assert.doesNotMatch(rendered, /── BACKLOG|\[exp/);
 });
 
 test("Archived collapses after five parent cascades and filtering reveals matches", () => {
@@ -777,7 +780,7 @@ test("Archived collapses after five parent cascades and filtering reveals matche
 
   const collapsed = buildRenderModel({ sessions: [...archived, child], width: 80, now: 800 });
   const archiveSection = collapsed.sections.find((section) => section.key === "archived");
-  assert.equal(archiveSection?.sessionsTotal, 8);
+  assert.equal(archiveSection?.sessionsTotal, 7);
   assert.equal(archiveSection?.archiveDisclosure?.hiddenParents, 2);
   assert.deepEqual(archiveSection?.groups[0]?.sessions.map((row) => row.id), ["archive-0", "archive-1", "archive-2", "archive-3", "archive-4"]);
   assert.match(renderSessions(collapsed).lines.map(stripAnsi).join("\n"), /… 2 older archived/);
@@ -808,10 +811,9 @@ test("late-created descendants inherit Archived presentation and stay out of the
   assert.deepEqual(board.boardHidden, { nonActive: 1 });
 });
 
-test("all-active dashboards suppress lifecycle section headers", () => {
+test("single-tier dashboards keep the cockpit tier visible", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.showSections, false);
-  assert.doesNotMatch(renderSessions(model).lines.join("\n"), /ACTIVE/);
+  assert.match(renderSessions(model).lines.join("\n"), /QUIET/);
 });
 
 test("session order puts unread waiting before running and idle rows", () => {
@@ -823,7 +825,7 @@ test("session order puts unread waiting before running and idle rows", () => {
     ],
     width: 120,
   });
-  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["api", "docs", "worker"]);
+  assert.deepEqual(modelRows(model).map((item) => item.id), ["api", "docs", "worker"]);
 });
 
 test("narrow layout hides preview and uses readable compact footer", () => {
@@ -876,7 +878,7 @@ test("styled preview lines keep italics only", () => {
   for (const line of rendered.split("\n")) assert.ok(visibleWidth(line) <= 120, line);
 });
 
-test("top summary shows visible totals status counts and filter", () => {
+test("top summary shows visible totals attention counts and filter", () => {
   const model = buildRenderModel({
     sessions: [session("api", "default", "running"), session("docs", "default", "waiting"), session("web", "default", "error")],
     width: 120,
@@ -886,7 +888,8 @@ test("top summary shows visible totals status counts and filter", () => {
   assert.equal(model.summary.total, 3);
   assert.equal(model.summary.visibleTotal, 1);
   assert.deepEqual(model.summary.statusCounts, { running: 0, waiting: 1, idle: 0, error: 0, stopped: 0 });
-  assert.match(renderSessions(model).lines.join("\n"), /1\/3 sessions · ◐1 · filter: doc/);
+  assert.match(renderSessions(model).lines.join("\n"), /1\/3 sessions · filter: doc/);
+  assert.doesNotMatch(renderSessions(model).lines.join("\n"), /◐1/);
 });
 
 
@@ -903,7 +906,7 @@ test("selected and stopped rows have distinct treatments with stopped rows last"
   assert.doesNotMatch(lines, /Stopped/);
 });
 
-test("backlog and archived status icons are muted while Active stays colored", () => {
+test("lifecycle muting stays independent from cockpit tier color", () => {
   const theme = { ...darkTheme, error: "#010203", muted: "#040506" };
   const sessions = [
     session("active", "default", "error", "active-error"),
@@ -918,44 +921,45 @@ test("backlog and archived status icons are muted while Active stays colored", (
     assert.match(row(title), /\u001b\[38;2;4;5;6m×/);
     assert.doesNotMatch(row(title), /\u001b\[38;2;1;2;3m×/);
   }
-  for (const section of ["BACKLOG", "ARCHIVED"]) {
-    const heading = lines.find((line) => stripAnsi(line).includes(section)) ?? "";
-    assert.match(heading, /\u001b\[38;2;4;5;6m×1/);
-    assert.doesNotMatch(heading, /\u001b\[38;2;1;2;3m×1/);
-  }
+  const health = lines.find((line) => stripAnsi(line).includes("HEALTH")) ?? "";
+  assert.match(health, /\u001b\[38;2;1;2;3m.*HEALTH/);
+  const archived = lines.find((line) => stripAnsi(line).includes("ARCHIVED")) ?? "";
+  assert.match(archived, /\u001b\[38;2;4;5;6m.*ARCHIVED/);
 });
 
-test("independently collapses lifecycle sections while preserving counts", () => {
+test("legacy Backlog collapse is inert while Archived remains collapsible", () => {
   const sessions = [
     session("active", "default", "running", "active"),
     { ...session("backlog", "default", "idle", "backlog"), bucket: "backlog" as const },
     { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
-  const model = buildRenderModel({ sessions, selectedId: "active", collapsedSections: new Set(["backlog"]), width: 100 });
-  assert.equal(model.sections.find((section) => section.key === "backlog")?.collapsed, true);
-  assert.equal(model.sections.find((section) => section.key === "backlog")?.sessionsTotal, 1);
-  assert.equal(model.sections.find((section) => section.key === "backlog")?.groups.length, 0);
-  assert.equal(model.sections.find((section) => section.key === "archived")?.collapsed, false);
-  const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(text, /▸ BACKLOG/);
-  assert.doesNotMatch(text, /backlog/);
-  assert.match(text, /▾ ARCHIVED[\s\S]*- archived/);
+  const backlogState = buildRenderModel({ sessions, selectedId: "active", collapsedSections: new Set(["backlog"]), width: 100 });
+  const backlogText = renderSessions(backlogState).lines.map(stripAnsi).join("\n");
+  assert.match(backlogText, /backlog · default/);
+  assert.doesNotMatch(backlogText, /BACKLOG/);
+
+  const archivedState = buildRenderModel({ sessions, selectedId: "active", collapsedSections: new Set(["archived"]), width: 100 });
+  assert.equal(archivedState.sections.find((section) => section.key === "archived")?.collapsed, true);
+  assert.equal(archivedState.sections.find((section) => section.key === "archived")?.sessionsTotal, 1);
+  assert.equal(archivedState.sections.find((section) => section.key === "archived")?.groups.length, 0);
+  assert.match(renderSessions(archivedState).lines.map(stripAnsi).join("\n"), /▸ ARCHIVED/);
 });
 
-test("lifecycle headers keep a shared title column", () => {
+test("cockpit tier headers keep a shared title column", () => {
   const sessions = [
     session("active", "default", "running", "active"),
-    { ...session("backlog", "default", "idle", "backlog"), bucket: "backlog" as const },
+    session("quiet", "default", "idle", "quiet"),
+    { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
-  const expanded = renderSessions(buildRenderModel({ sessions, width: 100 })).lines.map(stripAnsi);
-  const active = expanded.find((line) => line.includes("ACTIVE")) ?? "";
-  const backlog = expanded.find((line) => line.includes("BACKLOG")) ?? "";
-  assert.equal(active.indexOf("ACTIVE"), backlog.indexOf("BACKLOG"));
+  const lines = renderSessions(buildRenderModel({ sessions, width: 100 })).lines.map(stripAnsi);
+  const active = lines.find((line) => line.includes("ACTIVE")) ?? "";
+  const quiet = lines.find((line) => line.includes("QUIET")) ?? "";
+  const archived = lines.find((line) => line.includes("ARCHIVED")) ?? "";
+  assert.equal(active.indexOf("ACTIVE"), quiet.indexOf("QUIET"));
+  assert.equal(active.indexOf("ACTIVE"), archived.indexOf("ARCHIVED"));
   assert.match(active, /── ACTIVE/);
-  assert.match(backlog, /─▾ BACKLOG/);
-
-  const collapsed = renderSessions(buildRenderModel({ sessions, collapsedSections: new Set(["backlog"]), width: 100 })).lines.map(stripAnsi).join("\n");
-  assert.match(collapsed, /─▸ BACKLOG/);
+  assert.match(quiet, /── QUIET/);
+  assert.match(archived, /─▾ ARCHIVED/);
 });
 
 test("filter reveals rows in collapsed lifecycle sections without changing state", () => {
@@ -979,8 +983,7 @@ test("preview renders captured tmux output with empty state", () => {
 
 test("filter matches across title group cwd basename and status", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api"), session("b", "work", "waiting", "docs")], width: 100, filter: "wait" });
-  assert.equal(model.groups.length, 1);
-  assert.equal(model.groups[0]?.sessions[0]?.id, "b");
+  assert.deepEqual(modelRows(model).map((row) => row.id), ["b"]);
 });
 
 test("board filter matches workflow ticket ids after compact titles replace ticket-prefixed names", () => {
@@ -1091,28 +1094,48 @@ test("model.height pads body rows so the box fills the terminal", () => {
 });
 
 
-test("narrow group header truncates name before status counts", () => {
+test("narrow rows drop oversized group metadata before the session title", () => {
+  const group = "long-group-name-that-overflows-".repeat(4);
   const sessions = [
-    { ...session("a", "long-group-name-that-overflows", "running"), cwd: "/r/a" },
-    { ...session("b", "long-group-name-that-overflows", "waiting"), cwd: "/r/b" },
-    { ...session("c", "long-group-name-that-overflows", "error"), cwd: "/r/c" },
+    { ...session("a", group, "running", "running-title"), cwd: "/r/a" },
+    { ...session("b", group, "waiting", "waiting-title"), cwd: "/r/b" },
+    { ...session("c", group, "error", "error-title"), cwd: "/r/c" },
   ];
-  const lines = renderSessions(buildRenderModel({ sessions, width: 50 })).lines;
-  const groupLine = lines.find((line) => line.includes("◐1") || line.includes("●1"));
-  assert.ok(groupLine, "expected a group header line with status counts");
+  const lines = renderSessions(buildRenderModel({ sessions, width: 50 })).lines.map(stripAnsi);
+  assert.ok(lines.some((line) => line.includes("running-title")));
+  assert.ok(lines.some((line) => line.includes("waiting-title")));
+  assert.ok(lines.some((line) => line.includes("error-title")));
+  assert.equal(lines.some((line) => line.includes(group)), false);
   for (const line of lines) assert.ok(visibleWidth(line) <= 50, line);
-  assert.match(groupLine!, /●1\s◐1\s×1/);
 });
 
 
-test("very long group names preserve status counts", () => {
-  const group = "group-".repeat(20);
-  const sessions = [session("a", group, "running"), session("b", group, "waiting"), session("c", group, "error")];
-  const lines = renderSessions(buildRenderModel({ sessions, width: 50 })).lines;
-  const groupLine = lines.map(stripAnsi).find((line) => line.includes("group-") && line.includes("●1") && line.includes("◐1") && line.includes("×1"));
-  assert.ok(groupLine, "expected counts to remain visible after group name truncation");
-  assert.match(groupLine!, /…\s+◐1\s●1\s◐1\s×1/);
-  for (const line of lines) assert.ok(visibleWidth(line) <= 50, line);
+test("fixed row badges cannot preserve metadata by crowding out the title", () => {
+  const parent = {
+    ...session("parent", "engineering-x", "waiting", "Authoritative title"),
+    additionalCwds: ["/repo/two", "/repo/three"],
+    worktreeBranch: "feature/cockpit",
+    context: { version: 1 as const, updatedAt: 1, attention: { kind: "question" as const, text: "Review this" } },
+  };
+  const child = { ...session("child", "engineering-x", "idle", "worker"), kind: "subagent" as const, parentId: "parent" };
+  const lines = renderSessions(buildRenderModel({
+    sessions: [parent, child], selectedId: "parent", width: 40,
+    sidePaneSessionIds: new Map([["parent", 1]]),
+  })).lines.map(stripAnsi);
+  const row = lines.find((line) => line.includes("Authoritative title")) ?? "";
+
+  assert.match(row, /Authoritative title/);
+  assert.doesNotMatch(row, /engineering-x/);
+  assert.equal(visibleWidth(row), 40);
+});
+
+
+test("group row tags remain visible when space permits", () => {
+  const group = "release-group";
+  const lines = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 })).lines.map(stripAnsi);
+  const row = lines.find((line) => /▌ ○ release/.test(line)) ?? "";
+  assert.match(row, /release.*release-group/);
+  for (const line of lines) assert.ok(visibleWidth(line) <= 100, line);
 });
 
 
@@ -1164,8 +1187,8 @@ test("subagent rows render directly under their parent", () => {
   const sibling = session("sibling", "default", "idle", "web");
   const model = buildRenderModel({ sessions: [parent, sibling, child], width: 120, expandedProjectParentIds: new Set(["parent"]) });
 
-  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child", "sibling"]);
-  assert.equal(model.groups[0]?.sessions[1]?.depth, 1);
+  assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "sibling"]);
+  assert.equal(modelRows(model)[1]?.depth, 1);
   const lines = renderSessions(model).lines.join("\n");
   assert.match(lines, /└ .*scout/);
   assert.doesNotMatch(lines, /read auth\.ts/);
@@ -1187,9 +1210,9 @@ test("nested subagent rows render under their subagent parent", () => {
   };
   const model = buildRenderModel({ sessions: [parent, grandchild, child], width: 120, expandedProjectParentIds: new Set(["parent"]) });
 
-  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child", "grandchild"]);
-  assert.equal(model.groups[0]?.sessions[1]?.depth, 1);
-  assert.equal(model.groups[0]?.sessions[2]?.depth, 2);
+  assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "grandchild"]);
+  assert.equal(modelRows(model)[1]?.depth, 1);
+  assert.equal(modelRows(model)[2]?.depth, 2);
   assert.match(renderSessions(model).lines.join("\n"), /└ .*worker[\s\S]*└ .*code-critic/);
 });
 
@@ -1210,7 +1233,7 @@ test("filtering by nested child includes ancestor context", () => {
   };
   const model = buildRenderModel({ sessions: [parent, child, grandchild, session("other", "default", "idle", "web")], width: 120, filter: "unique" });
 
-  assert.deepEqual(model.groups[0]?.sessions.map((item) => item.id), ["parent", "child", "grandchild"]);
+  assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "grandchild"]);
 });
 
 test("all-card producer plan projection stays Active-main-only", () => {
@@ -1249,7 +1272,7 @@ test("all-card generic richness stays Active-main-only and ANSI width safe", () 
     assert.doesNotMatch(text, /Child activity|Backlog activity|Archived activity|#child-001|#backlog-001|#archived-001/);
     assert.match(text, /┣\s+◐ Parent title/);
     assert.match(text, /└\s+.*worker/);
-    assert.match(text, /└\s+○ Backlog title/);
+    assert.match(text, /└\s+○ Backlog/);
     assert.match(text, /- Archived title/);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
@@ -1346,12 +1369,12 @@ test("filter matches generic context and deterministic producer plan", () => {
     sessions: [{ ...session("a", "default", "idle", "api"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "context-001", description: "Implement generic context filtering" } } }, session("b", "default", "idle", "docs")],
     width: 100, filter: "generic context",
   });
-  assert.equal(context.groups[0]?.sessions[0]?.id, "a");
+  assert.equal(modelRows(context)[0]?.id, "a");
   const plan = buildRenderModel({
     sessions: [{ ...session("a", "default", "idle", "api"), workflow: { ...WORKFLOW, plan: { phase: { title: "Render cards", index: 2, count: 3 }, nextStep: "Check narrow widths" } } }, session("b", "default", "idle", "docs")],
     width: 100, filter: "narrow",
   });
-  assert.equal(plan.groups[0]?.sessions[0]?.id, "a");
+  assert.equal(modelRows(plan)[0]?.id, "a");
 });
 
 test("generic context and producer activity define canonical junction hierarchy", () => {

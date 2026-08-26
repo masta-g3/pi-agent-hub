@@ -49,7 +49,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `?` | Show help and status legend |
 | `i` | Toggle compact/full selected-session info |
 | `v` | Toggle compact rows ↔ all-session junction cards |
-| `S` | Toggle project grouping ↔ workflow-stage lanes |
+| `S` | Toggle the project cockpit ↔ workflow-stage lanes |
 | `q` | Quit the dashboard |
 | `r` | Open restart choices (`r` selected, `n` new conversation, `a` all active sessions) |
 | `R` | Rename the selected session |
@@ -66,7 +66,9 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
 | Click / double-click | Select / open, switch, or restart from any visible card line |
 
-The dashboard has independent grouping and density controls. `S` switches project groups and workflow-stage lanes. `v` toggles compact rows and junction-rail cards for all Active main sessions. Pi's native session name is canonical; Hub starts with the primary repo basename and caches names received by heartbeat. Junction cards can show generic producer context as `#ticket-id · subtitle`, followed by producer-owned workflow activity or deterministic plan progress. Existing Hub groups own the rails in both grouping modes. Backlog, Archived, and subagents remain compact. In stage grouping, every Active session remains visible: compatible workflow sessions stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing project/group labels. Top-level parent rows show `⚙︎N` when descendant subagents are starting or running. Subagent trees start collapsed in both project and stage grouping: `▸`/`▾` shows disclosure state, `←`/`→` collapses or expands the selected tree, `Shift+←`/`Shift+→` applies to all trees in the current grouping, and `Space` remains a stage-group selected-tree toggle. Filters temporarily reveal matching child context. Producer-confirmed attention remains independent of workflow and runtime state: `✓` marks a ready handoff, `?` a question, and `!` a blocker on waiting/idle rows. The right pane keeps full available plan context.
+The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
+
+`v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The right pane keeps full available plan context.
 
 ## Install
 
