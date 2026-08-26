@@ -47,7 +47,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `/` | Filter sessions |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
-| `i` | Toggle compact/full selected-session info |
+| `i` | Explain the selected session's runtime status and cockpit placement |
 | `v` | Toggle compact rows ↔ all-session junction cards |
 | `S` | Toggle the project cockpit ↔ workflow-stage lanes |
 | `q` | Quit the dashboard |
@@ -67,6 +67,8 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | Click / double-click | Select / open, switch, or restart from any visible card line |
 
 The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
+
+Press `i` to explain the selected session from one current observation: tmux presence, heartbeat freshness and Pi state, read state, the runtime decision, cockpit placement, and separate workflow provenance. At 80 columns or wider this expands the details pane. From 40–79 columns it opens a gated full-width Info screen; only `i` or `Escape` returns to the cockpit.
 
 `v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The right pane keeps full available plan context.
 
@@ -105,6 +107,7 @@ pi-hub              # create/attach/switch to the dashboard tmux session
 pi-hub tui          # run the TUI directly in the current terminal
 pi-hub doctor
 pi-hub list
+pi-hub explain <session-id-or-unique-prefix>
 pi-hub add . -g default
 pi-hub add ./api --add-cwd ../web --add-cwd ../shared
 pi-hub delete <session-id>
@@ -115,6 +118,8 @@ pi-hub config unset session-prelude
 pi-hub config set worktree-default true
 pi-hub config unset worktree-default
 ```
+
+`explain` observes the live fleet once and prints the same runtime and cockpit reasoning as the dashboard. It resolves an exact session ID before a unique prefix, reports bounded candidates for ambiguous prefixes, and never updates `registry.json`.
 
 `add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form by focusing the Worktree row and pressing `Space`, or with `Ctrl+T`; the branch does not control Pi's native session name. New forms start with worktrees on. Set `worktree-default false` to open them in normal-session mode instead; either toggle can still change the mode per session. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Dashboard archive/backlog/restore only reorganizes rows and never stops tmux or Pi. Archived is a flat newest-first list that shows five parent cascades by default; select the older-items row and press `Enter` or double-click to expand it. Archived cascades become eligible for dashboard cleanup after seven days, but are forgotten only when every tmux session in the cascade is confirmed gone. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
 

@@ -812,7 +812,7 @@
   references:
   - agent-work/plans/cockpit-000.md
 - id: cockpit-003
-  status: pending
+  status: done
   title: Status explanation
   subtitle: Explain every derived session status
   description: The UI and CLI show the tmux, heartbeat, acknowledgement, and workflow
@@ -823,6 +823,8 @@
   - cockpit-001
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260826_cockpit-003_status_explanation.md
+  completed_at: '2026-08-26'
 - id: cockpit-004
   status: pending
   title: Attention delivery

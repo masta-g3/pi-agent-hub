@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { SessionsController } from "../src/app/controller.js";
+import { computeStatus } from "../src/core/status.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -19,6 +20,133 @@ function session(id: string, title: string): ManagedSession {
     updatedAt: 1,
   };
 }
+
+test("narrow info is action-gated and returns with i or Escape", () => {
+  const base = session("api", "Project API");
+  const now = 100_000;
+  const explained = {
+    ...base,
+    status: "waiting" as const,
+    statusEvidence: computeStatus({
+      session: { ...base, status: "waiting" },
+      tmux: { exists: true },
+      heartbeat: { managedSessionId: base.id, cwd: base.cwd, state: "waiting", stateSince: now - 3_000, updatedAt: now - 7_000 },
+      now,
+    }).evidence,
+    context: { version: 1 as const, updatedAt: now, attention: { kind: "question" as const, text: "Choose rollout order" } },
+  };
+  let stopped = false;
+  let restarted = 0;
+  let pane = 0;
+  const controller = new SessionsController({ version: 1, sessions: [explained] });
+  const view = new SessionsView(controller, () => { stopped = true; }, {
+    now: () => now,
+    restart: () => { restarted += 1; },
+    assignSidePaneSlot: () => { pane += 1; return { status: "assigned", slot: 1 } as never; },
+  });
+
+  view.render(60);
+  view.handleInput("i");
+  const info = stripAnsi(view.render(60).join("\n"));
+  assert.match(info, /why this status/);
+  assert.match(info, /waiting · NEEDS YOU/);
+  assert.doesNotMatch(info, /── NEEDS YOU/);
+
+  for (const key of ["j", "r", "1", "p", "q"]) view.handleInput(key);
+  assert.equal(controller.snapshot().selectedId, "api");
+  assert.equal(restarted, 0);
+  assert.equal(pane, 0);
+  assert.equal(stopped, false);
+
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
+  view.handleInput("i");
+  view.handleInput("\u001b");
+  assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
+});
+
+test("info waits for matching evidence from a refresh", async () => {
+  const base = session("api", "api");
+  const now = 100_000;
+  let current = base as typeof base & { statusEvidence?: ReturnType<typeof computeStatus>["evidence"] };
+  let registry = { version: 1 as const, sessions: [current] };
+  let resolve!: () => void;
+  const refresh = new Promise<void>((done) => { resolve = done; });
+  const controller = {
+    snapshot: () => ({ registry, sessions: [current], selectedId: current.id, preview: "", filter: undefined }),
+    selected: () => current,
+  } as unknown as SessionsController;
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    refreshStatusEvidence: async () => {
+      await refresh;
+      current = {
+        ...base,
+        statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence,
+      };
+      registry = { version: 1, sessions: [current] };
+    },
+  });
+
+  view.render(60);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /refreshing status evidence/);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /why this status/);
+  resolve();
+  await refresh;
+  await new Promise((done) => setImmediate(done));
+  assert.match(stripAnsi(view.render(60).join("\n")), /why this status/);
+});
+
+test("info stays closed when refresh produces no matching evidence", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { refreshStatusEvidence: async () => {} });
+
+  view.render(60);
+  view.handleInput("i");
+  await new Promise((done) => setImmediate(done));
+
+  const rendered = stripAnsi(view.render(60).join("\n"));
+  assert.doesNotMatch(rendered, /why this status/);
+  assert.match(rendered, /status evidence unavailable/);
+});
+
+test("narrow info closes when selection changes outside the gated screen", () => {
+  const now = 100_000;
+  const sessions = ["api", "docs"].map((id) => {
+    const base = session(id, id);
+    return { ...base, statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence };
+  });
+  const controller = new SessionsController({ version: 1, sessions });
+  const view = new SessionsView(controller, () => {}, { now: () => now });
+
+  view.render(60);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /why this status/);
+  controller.selectSession("docs");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /why this status/);
+});
+
+test("narrow i opens Info after expanded wide details and wide Escape still clears filtering", () => {
+  const now = 100_000;
+  const base = session("api", "api");
+  const explained = { ...base, statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence };
+  const controller = new SessionsController({ version: 1, sessions: [explained] });
+  const view = new SessionsView(controller, () => {}, { now: () => now });
+
+  view.render(100);
+  view.handleInput("i");
+  view.render(60);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /why this status/);
+  view.handleInput("i");
+
+  view.render(100);
+  view.handleInput("i");
+  controller.setFilter("api");
+  view.handleInput("\u001b");
+  assert.equal(controller.snapshot().filter, undefined);
+});
 
 test("filter mode filters live and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -1027,7 +1155,11 @@ test("Archived header selection blocks session actions and Enter collapses it", 
     archiveSession: () => { events.push("archive"); },
     reorderSelected: () => { events.push("reorder"); },
   });
+  view.render(60);
   view.handleInput("j"); // Archived header
+  view.handleInput("i");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /why this status/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /select a session to show status evidence/);
   for (const key of ["A", "J", "\r"]) view.handleInput(key);
   assert.deepEqual(events, []);
   assert.match(stripAnsi(view.render(80).join("\n")), /▸ ARCHIVED/);

@@ -8,10 +8,19 @@ import type { CollapsibleSection } from "./dialog.js";
 
 export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
 
+export type CockpitPlacementReason =
+  | { kind: "archived"; ownerId: string; ownerTitle: string }
+  | { kind: "explicit-attention"; ownerId: string; ownerTitle: string; attentionKind: SessionAttention["kind"] }
+  | { kind: "owner-error"; ownerId: string; ownerTitle: string }
+  | { kind: "owner-active"; ownerId: string; ownerTitle: string; status: "starting" | "running" }
+  | { kind: "descendant-active"; ownerId: string; ownerTitle: string; driverId: string; driverTitle: string; status: "starting" | "running" }
+  | { kind: "quiet"; ownerId: string; ownerTitle: string };
+
 export interface RenderSession {
   id: string;
   cockpitTier: CockpitTier;
   cockpitOwnerId: string;
+  cockpitPlacement: CockpitPlacementReason;
   title: string;
   cwd: string;
   additionalCwds: string[];
@@ -25,6 +34,7 @@ export interface RenderSession {
   lastActivityAt?: number;
   activityAge?: string;
   status: SessionStatus;
+  statusEvidence?: RuntimeSession["statusEvidence"];
   displayStatus: "running" | "waiting" | "idle" | "error" | "stopped";
   symbol: string;
   needsAttention: boolean;
@@ -116,6 +126,7 @@ export interface BoardHiddenCounts {
 
 export interface RenderModel {
   width: number;
+  now: number;
   height?: number;
   listScrollTop?: number;
   empty: boolean;
@@ -150,6 +161,7 @@ export interface DashboardProjection {
   board: boolean;
   cockpitTierById: ReadonlyMap<string, CockpitTier>;
   cockpitOwnerById: ReadonlyMap<string, string>;
+  cockpitPlacementById: ReadonlyMap<string, CockpitPlacementReason>;
 }
 
 export interface DashboardProjectionInput {
@@ -168,7 +180,7 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   const filterActive = Boolean(input.filter?.trim());
   const sourceRows = orderedSessionRows(input.sessions);
   const sourceTree = createSessionTreeIndex(sourceRows);
-  const { tierById: cockpitTierById, ownerById: cockpitOwnerById } = cockpitIndex(sourceRows, sourceTree);
+  const { tierById: cockpitTierById, ownerById: cockpitOwnerById, placementById: cockpitPlacementById } = cockpitIndex(sourceRows, sourceTree);
   const allRows = filterActive ? orderedSessionRows(input.sessions, input.filter) : sourceRows;
   const allTree = filterActive ? createSessionTreeIndex(allRows) : sourceTree;
   const activeRows = allRows.filter((session) => effectiveSessionLifecycle(session, allRows, allTree).section === "active");
@@ -183,13 +195,17 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     const section = effectiveSessionLifecycle(session, allRows, allTree).section;
     return section !== "archived" || !collapsedSections.has("archived");
   });
-  return { allRows, allTree, activeRows, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById };
+  return { allRows, allTree, activeRows, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
 }
 
 function cockpitIndex(
   rows: RuntimeSession[],
   tree: SessionTreeIndex<RuntimeSession>,
-): { tierById: Map<string, CockpitTier>; ownerById: Map<string, string> } {
+): {
+  tierById: Map<string, CockpitTier>;
+  ownerById: Map<string, string>;
+  placementById: Map<string, CockpitPlacementReason>;
+} {
   const ownerById = new Map<string, string>();
   const ownerRows = new Map<string, RuntimeSession>();
   for (const row of rows) {
@@ -198,24 +214,47 @@ function cockpitIndex(
     ownerById.set(row.id, owner.id);
     ownerRows.set(owner.id, owner);
   }
-  const tierByOwner = new Map<string, CockpitTier>();
-  for (const owner of ownerRows.values()) tierByOwner.set(owner.id, cockpitTierFor(owner, rows, tree));
+  const decisionByOwner = new Map<string, { tier: CockpitTier; placement: CockpitPlacementReason }>();
+  for (const owner of ownerRows.values()) decisionByOwner.set(owner.id, cockpitPlacementFor(owner, rows, tree));
   const tierById = new Map<string, CockpitTier>();
-  for (const row of rows) tierById.set(row.id, tierByOwner.get(ownerById.get(row.id)!)!);
-  return { ownerById, tierById };
+  const placementById = new Map<string, CockpitPlacementReason>();
+  for (const row of rows) {
+    const decision = decisionByOwner.get(ownerById.get(row.id)!)!;
+    tierById.set(row.id, decision.tier);
+    placementById.set(row.id, decision.placement);
+  }
+  return { ownerById, tierById, placementById };
 }
 
-function cockpitTierFor(
+function cockpitPlacementFor(
   owner: RuntimeSession,
   rows: RuntimeSession[],
   tree: SessionTreeIndex<RuntimeSession>,
-): CockpitTier {
-  if (effectiveSessionLifecycle(owner, rows, tree).section === "archived") return "archived";
-  if (visibleAttention(owner)) return "needs-you";
-  if (owner.status === "error") return "health";
-  if (owner.status === "starting" || owner.status === "running"
-    || tree.descendants(owner.id).some((row) => row.status === "starting" || row.status === "running")) return "active";
-  return "quiet";
+): { tier: CockpitTier; placement: CockpitPlacementReason } {
+  const ownerFields = { ownerId: owner.id, ownerTitle: owner.title };
+  if (effectiveSessionLifecycle(owner, rows, tree).section === "archived") {
+    return { tier: "archived", placement: { kind: "archived", ...ownerFields } };
+  }
+  const attention = visibleAttention(owner);
+  if (attention) return { tier: "needs-you", placement: { kind: "explicit-attention", ...ownerFields, attentionKind: attention.kind } };
+  if (owner.status === "error") return { tier: "health", placement: { kind: "owner-error", ...ownerFields } };
+  if (owner.status === "starting" || owner.status === "running") {
+    return { tier: "active", placement: { kind: "owner-active", ...ownerFields, status: owner.status } };
+  }
+  const driver = tree.descendants(owner.id).find((row) => row.status === "starting" || row.status === "running");
+  if (driver && (driver.status === "starting" || driver.status === "running")) {
+    return {
+      tier: "active",
+      placement: {
+        kind: "descendant-active",
+        ...ownerFields,
+        driverId: driver.id,
+        driverTitle: driver.agentName ?? driver.title,
+        status: driver.status,
+      },
+    };
+  }
+  return { tier: "quiet", placement: { kind: "quiet", ...ownerFields } };
 }
 
 const COCKPIT_TIER_ORDER: CockpitTier[] = ["needs-you", "health", "active", "quiet", "archived"];
@@ -257,7 +296,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const grouping = input.grouping ?? "project";
   const density = input.density ?? "compact";
   const projection = input.structuralProjection ?? buildDashboardProjection(input);
-  const { allRows, allTree, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById } = projection;
+  const { allRows, allTree, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById } = projection;
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const selectedId = pickSelectedId(input.archiveDisclosureSelected || input.selectedSection ? allRows : visible, input.selectedId);
   const sidePaneSessionIds = input.sidePaneSessionIds;
@@ -280,7 +319,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     session, session.id === selectedId, allRows, allTree,
     session.id === selectedId ? input.selectedSkillCount : undefined, input.now,
     sidePaneSessionIds?.get(session.id), board, density, subagentStats.get(session.id), treeExpanded(session.id),
-    cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!,
+    cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!,
   ));
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection;
@@ -306,6 +345,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
     width: input.width,
+    now: input.now ?? Date.now(),
     empty: input.sessions.length === 0,
     noMatches: input.sessions.length > 0 && (allRows.length === 0 || noBoardMatches),
     noBoardSessions: board && !filterActive && mapped.length === 0,
@@ -592,7 +632,7 @@ function descendantSubagentStats(
   return stats;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, skillCount: number | undefined, now: number | undefined, sidePaneSlot: number | undefined, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, skillCount: number | undefined, now: number | undefined, sidePaneSlot: number | undefined, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -603,6 +643,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     id: session.id,
     cockpitTier,
     cockpitOwnerId,
+    cockpitPlacement,
     title: session.title,
     cwd: session.cwd,
     additionalCwds: session.additionalCwds ?? [],
@@ -615,6 +656,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     lastActivityAt: session.lastActivityAt,
     activityAge: activityAge(session.lastActivityAt, now),
     status: session.status,
+    statusEvidence: session.statusEvidence,
     displayStatus,
     symbol: symbolFor(displayStatus),
     needsAttention: session.status === "waiting" && session.acknowledgedAt === undefined,

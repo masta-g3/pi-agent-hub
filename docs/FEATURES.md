@@ -27,6 +27,7 @@ Ctrl+Q returns to the dashboard
 | Custom dashboard shortcuts | `dashboard.shortcuts` in config | Bind safe Pi slash-command sends, such as `/session-name refresh`, to dashboard keys. |
 | Stable dashboard theme | `t` opens theme settings | Preview Pi global themes, save globally by default, or keep a Hub-only override without following session changes. |
 | Attention-first cockpit | Default project view | See explicit requests first, then runtime health, active work, quiet work, and chronological archives. |
+| Explainable status | `i` in the dashboard or `pi-hub explain <id-or-prefix>` | See the live tmux, heartbeat, read-state, runtime-decision, cockpit-placement, and workflow evidence without changing session state. |
 | Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
 | Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create Git worktrees under hub state for one or more repos and explicitly finish, forget, or discard them. |
 | Project Skills | `s` picker | Attach Pi skills to the selected session's primary repo. |
@@ -49,7 +50,7 @@ Ctrl+Q returns to the dashboard
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
-| `i` | Toggle compact/full selected-session info |
+| `i` | Explain the selected session's runtime status and cockpit placement |
 | `↑↓` / `j` / `k` | Move selection |
 | `r` | Open restart choices: `r` restarts selected, `n` starts a new conversation, `a` restarts all active sessions (not Backlog or Archived) |
 | `R` | Rename the selected session in a cursor-aware form |
@@ -84,6 +85,8 @@ Ctrl+Q returns to the dashboard
 
 Runtime symbols describe liveness only. A waiting row does not imply an explicit request. The default project cockpit groups complete owner trees into nonempty tiers: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then `ARCHIVED`. `NEEDS YOU` requires producer-confirmed attention on a waiting/idle owner. `HEALTH` requires an owner runtime error. `ACTIVE` requires a starting/running owner or descendant. Other non-archived trees appear in `QUIET`. A running child can activate its owner tree, but child attention/error never promotes the owner and tier placement never changes row status, workflow, lifecycle, or attention. During context compaction, the session shows `running` and then returns to its previous state. If compaction retries, it stays `running` until the next agent turn begins.
 
+Press `i` to inspect why the selected row has its current runtime status and cockpit tier. The explanation reports one current observation in causal order: tmux, heartbeat, read state, runtime result plus placement, then independent workflow provenance. At 80+ columns it appears in expanded details. At 40–79 columns it replaces the cockpit with a full-width Info screen where all actions except `i` and `Escape` are gated. Synthetic Archived/disclosure targets cannot open stale session information. `pi-hub explain <exact-id-or-unique-prefix>` prints the same semantic evidence after one read-only full-fleet observation; it does not write registry state or provide status history.
+
 Backlog remains an independent organization state. Its rows carry a `backlog` tag and can still enter a higher tier when explicit attention, error, or active work requires it. Groups are muted row tags rather than project headings. Archived remains flat and globally newest-first; its header is the only collapsible project section. It shows the newest five parent cascades by default and keeps nested rows in their parent's cascade. Select `… N older archived` and press `Enter` or double-click to expand; use `⌃ show fewer` to collapse. Filtering reveals matching rows without changing tier classification, tree expansion, or Archived collapse state. Stage grouping keeps Backlog/Archived summarized in the footer.
 
 Sessions running the optional `workflow-runtime` extension also show a workflow rail: the compact current-position marker and short code (`◉EX` or `✓EX`) in project rows and the producer-defined full rail (`✓ PL─◉ EX─· RV─· RF─· CM · ticket`) in the details pane. Project rows retain the title first, then reveal `backlog`, group, workflow short, and activity age as width permits; running rows omit the redundant age, and Archived rows retain their time-since-archive label. Junction cards use the dense marker-only form (`✓◉···`) before producer activity. When activity is absent, deterministic plan progress uses the adaptive `▰`/`▱` phase grid, flattening and then reducing to a ten-cell ratio plus count only as width requires. The runtime owns the ordered ids, short codes, friendly labels, and optional current-position completion; Hub does not mirror a workflow vocabulary.
@@ -102,7 +105,7 @@ In all-session card density, each cockpit tier owns one junction rail in project
 
 Attention is an independent overlay on waiting/idle rows: `✓` means a ready handoff, `?` an explicit question/choice, and `!` a blocker. Only explicit owner attention enters `NEEDS YOU`; waiting alone does not. Running/error/stopped rows keep operational presentation, and subagent attention is never promoted to its parent. The right pane's `work` block retains the bounded ticket description, phase title, task fraction, attention, and deterministic action once; the live preview follows. Workflow step, Hub runtime status, attention, and running-subagent count remain independent axes: the board never infers attention from waiting, promotes child state, advances workflow, dispatches skills, moves stages, or persists board state.
 
-The project top line summarizes visible sessions plus nonzero `needs you` and `health` tree counts; the workflow board retains runtime status counts. Press `?` for the full help/legend and `i` to toggle compact vs full selected-session context. The details pane shows the bounded generic ticket description and explicit attention reason when available.
+The project top line summarizes visible sessions plus nonzero `needs you` and `health` tree counts; the workflow board retains runtime status counts. Press `?` for the full help/legend and `i` for the selected session's status explanation. Expanded details continue with the bounded generic ticket description and explicit attention reason when available.
 
 ## Dashboard themes
 

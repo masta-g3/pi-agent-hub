@@ -2,6 +2,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, StatusCounts } from "./render-model.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
+import { statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, stripAnsiExceptItalics, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
 export type SessionListTarget =
@@ -45,7 +46,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const stripLines = model.panelStrip ? 1 : 0;
   const targetRows = bodyRowsFromHeight(model.height, stripLines);
   const left = renderSessionList(model, split, styles);
-  const right = model.showPreview ? renderDetails(model.selected, bodyWidth - split - 1, model.preview, model.detailsExpanded, targetRows, styles) : [];
+  const right = model.showPreview ? renderDetails(model.selected, bodyWidth - split - 1, model.preview, model.detailsExpanded, targetRows, model.now, styles) : [];
   const rows = targetRows ?? Math.max(left.lines.length, right.length, 8);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
   const body: string[] = [renderTopSummary(model, bodyWidth, styles)];
@@ -62,6 +63,28 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   for (let i = 0; i < rows; i += 1) rowTargets[2 + stripLines + i] = windowedLeft.targets[i];
   return { lines, rowTargets, listWidth: split, listScrollTop: windowedLeft.top };
+}
+
+export function renderStatusInfo(session: RenderSession, width: number, height: number | undefined, now: number, theme?: SessionsTheme): SessionsLayout {
+  const styles = theme ? createStyles(theme) : plainStyles();
+  const safeWidth = Math.max(40, width);
+  const bodyWidth = safeWidth - 2;
+  const core = [
+    titleStatusRow(session, bodyWidth, styles),
+    ...(session.ticketSubtitle ? [styles.dim(truncate(session.ticketSubtitle, bodyWidth))] : []),
+    ...renderStatusEvidenceBlock(session, bodyWidth, now, styles),
+  ];
+  const footer = styleFooter("i Back · Esc Back", styles);
+  const targetRows = height && height > 0 ? Math.max(0, height - 2) : core.length + 3;
+  const contentRows = Math.max(0, targetRows - 2);
+  const body = [
+    ...core.slice(0, contentRows),
+    ...Array.from({ length: Math.max(0, contentRows - core.length) }, () => ""),
+    styles.border("─".repeat(bodyWidth)),
+    truncate(footer, bodyWidth),
+  ];
+  const lines = box(safeWidth, body, styles);
+  return { lines, rowTargets: lines.map(() => undefined), listWidth: 0, listScrollTop: 0 };
 }
 
 // Footer strings stay plain in the render model for testability; keys get
@@ -648,9 +671,9 @@ function planProgressText(plan: NonNullable<RenderSession["plan"]>, styles: Layo
   return text ? styles.dim(text) : "";
 }
 
-function renderDetails(session: RenderSession | undefined, width: number, preview: string, expanded: boolean, targetRows: number | undefined, styles: LayoutStyles): string[] {
+function renderDetails(session: RenderSession | undefined, width: number, preview: string, expanded: boolean, targetRows: number | undefined, now: number, styles: LayoutStyles): string[] {
   if (!session) return ["No session selected"];
-  const lines = expanded ? expandedDetails(session, width, styles) : compactDetails(session, width, styles);
+  const lines = expanded ? expandedDetails(session, width, now, styles) : compactDetails(session, width, styles);
   lines.push("", styles.border("── preview ────────────────────────────────"));
   const previewBudget = Math.max(4, (targetRows ?? lines.length + 12) - lines.length);
   const previewLines = preview.trimEnd() ? preview.trimEnd().split("\n").slice(-previewBudget).map(stripAnsiExceptItalics) : ["preview empty"];
@@ -723,6 +746,24 @@ function railLine(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay |
   return displayWidth(full) <= width ? full : railCompact(workflow, mode, styles);
 }
 
+function renderStatusEvidenceBlock(session: RenderSession, width: number, now: number, styles: LayoutStyles): string[] {
+  return [
+    "",
+    styles.border("── why this status ─"),
+    ...statusEvidenceFields(session, now).flatMap((field) => renderStatusEvidenceField(field, width, styles)),
+  ];
+}
+
+function renderStatusEvidenceField(field: StatusEvidenceField, width: number, styles: LayoutStyles): string[] {
+  if (field.kind === "result") {
+    const tier = field.tier.toUpperCase().replace("-", " ");
+    const value = `${styles.status(field.status, field.status)} · ${cockpitTone(field.tier, styles)(tier)} · ${field.reason}`;
+    return workField(field.label, value, width, styles, `${styles.accent(field.marker)} `);
+  }
+  const marker = field.tone === "success" ? styles.success(field.marker) : field.tone === "error" ? styles.error(field.marker) : styles.dim(field.marker);
+  return workField(field.label, field.value, width, styles, `${marker} `);
+}
+
 function compactDetails(session: RenderSession, width: number, styles: LayoutStyles): string[] {
   const lines = [titleStatusRow(session, width, styles)];
   if (session.ticketSubtitle) lines.push(styles.dim(truncate(session.ticketSubtitle, width)));
@@ -752,9 +793,10 @@ function compactCapabilities(session: RenderSession, width: number, styles: Layo
   return twoColumn(styles.muted(parts.join(" · ")), styles.dim("s/m edit"), width);
 }
 
-function expandedDetails(session: RenderSession, width: number, styles: LayoutStyles): string[] {
+function expandedDetails(session: RenderSession, width: number, now: number, styles: LayoutStyles): string[] {
   const lines = [titleStatusRow(session, width, styles)];
   if (session.ticketSubtitle) lines.push(styles.dim(truncate(session.ticketSubtitle, width)));
+  lines.push(...renderStatusEvidenceBlock(session, width, now, styles));
   const mode = activeWorkflowMode(session);
   if (session.workflow) lines.push(railLine(session.workflow, mode, width, styles));
   if (mode) {

@@ -249,6 +249,29 @@ test("removeSession removes child rows with their parent", () => {
   assert.equal(controller.snapshot().selectedId, "sibling");
 });
 
+test("runtime status evidence is transient and follows causal session changes", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = { version: 1 as const, sessions: [session("running", { id: "api" })] };
+    await updateRegistry(() => registry);
+    const controller = new SessionsController(registry, async () => "", async () => "present");
+
+    await controller.refresh(100);
+    assert.equal(controller.snapshot().sessions[0]?.statusEvidence?.reason, "fallback-waiting");
+    const persisted = await readFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), "utf8");
+    assert.doesNotMatch(persisted, /statusEvidence|observedAt/);
+
+    await controller.moveSessionToGroup("api", "work", 101);
+    assert.equal(controller.snapshot().sessions[0]?.statusEvidence?.reason, "fallback-waiting");
+
+    await controller.acknowledgeSession("api", 102);
+    assert.equal(controller.snapshot().sessions[0]?.status, "idle");
+    assert.equal(controller.snapshot().sessions[0]?.statusEvidence, undefined);
+
+    await controller.refresh(103);
+    assert.equal(controller.snapshot().sessions[0]?.statusEvidence?.reason, "fallback-idle");
+  });
+});
+
 test("refresh preserves unknown tmux failures as errors instead of stopped", async () => {
   await withTempSessionsDir(async () => {
     const registry = { version: 1 as const, sessions: [session("running", { id: "api" })] };
@@ -843,12 +866,14 @@ test("refresh ignores an observation after the row version changes", async () =>
     await started;
     await updateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((item) => item.id === "api" ? { ...item, sessionFile: "newer-session.json", updatedAt: now + 1 } : item),
+      sessions: latest.sessions.map((item) => item.id === "api" ? { ...item, sessionFile: "newer-session.json", status: "idle", acknowledgedAt: now + 1, updatedAt: now + 1 } : item),
     }));
     release();
     await refreshing;
 
     assert.equal(controller.snapshot().registry.sessions[0]?.sessionFile, "newer-session.json");
+    assert.equal(controller.snapshot().sessions[0]?.status, "idle");
+    assert.equal(controller.snapshot().sessions[0]?.statusEvidence, undefined);
   });
 });
 

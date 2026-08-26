@@ -309,6 +309,9 @@ export async function runTui(): Promise<void> {
         .then(() => { if (!stopped) tui.requestRender(); })
         .catch(() => {});
     },
+    refreshStatusEvidence() {
+      return stopLoop?.refresh() ?? controller.refresh();
+    },
     restart(sessionId) {
       return mutateRegistry(() => restartManagedSession(sessionId));
     },

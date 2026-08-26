@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { boardLaneRows, buildDashboardProjection, buildRenderModel, retainSelectionAfterRefresh } from "../src/tui/render-model.js";
-import { renderSessions, workflowStepMarker } from "../src/tui/layout.js";
-import { darkTheme, stripAnsi } from "../src/tui/theme.js";
+import { computeStatus } from "../src/core/status.js";
+import { renderSessions, renderStatusInfo, workflowStepMarker } from "../src/tui/layout.js";
+import { darkTheme, lightTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import type { ManagedSession, SessionStatus } from "../src/core/types.js";
 
 function session(id: string, group: string, status: SessionStatus, title = id): ManagedSession {
@@ -892,6 +893,54 @@ test("top summary shows visible totals attention counts and filter", () => {
   assert.doesNotMatch(renderSessions(model).lines.join("\n"), /◐1/);
 });
 
+
+test("expanded details explain runtime status, cockpit placement, and workflow provenance", () => {
+  const now = 100_000;
+  const base = session("api", "default", "waiting", "Project API");
+  const heartbeat = {
+    managedSessionId: base.id, cwd: base.cwd, state: "waiting" as const,
+    stateSince: now - 3_000, updatedAt: now - 7_000,
+    workflow: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, updatedAt: now },
+  };
+  const statusEvidence = computeStatus({ session: base, tmux: { exists: true }, heartbeat, now }).evidence;
+  const explained = {
+    ...base,
+    statusEvidence,
+    context: { version: 1 as const, updatedAt: now, attention: { kind: "question" as const, text: "Choose rollout order" } },
+    workflow: heartbeat.workflow,
+  };
+
+  const compact = renderSessions(buildRenderModel({ sessions: [explained], selectedId: base.id, width: 100, now })).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(compact, /why this status|tmux session present/);
+
+  for (const width of [100, 160]) {
+    const model = buildRenderModel({ sessions: [explained], selectedId: base.id, width, detailsExpanded: true, now });
+    const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
+    assert.match(rendered, /why this status/);
+    assert.match(rendered, /tmux\s+✓ tmux session present/);
+    assert.match(rendered, /heartbeat\s+✓ heartbeat fresh · 7s old · Pi state waiting/);
+    assert.match(rendered, /read\s+✓ agent result is newer than your last read/);
+    assert.match(rendered, /result\s+→ waiting · NEEDS YOU · fresh heartbeat reports an/);
+    assert.match(rendered, /unread result; producer asked a question/);
+    assert.match(rendered, /workflow\s+· producer step 1\/1 · Execute · fresh/);
+    const darkLines = renderSessions(model, darkTheme).lines;
+    const resultLine = darkLines.find((line) => stripAnsi(line).includes("result    →"))!;
+    assert.ok(resultLine.includes(styleToken(darkTheme, "warning", "waiting")));
+    assert.ok(resultLine.includes(styleToken(darkTheme, "warning", "NEEDS YOU")));
+    for (const line of darkLines) assert.equal(visibleWidth(line), width);
+    assert.equal(darkLines.map(stripAnsi).join("\n"), renderSessions(model, lightTheme).lines.map(stripAnsi).join("\n"));
+  }
+
+  const narrowSession = buildRenderModel({ sessions: [explained], selectedId: base.id, width: 60, now }).selected!;
+  for (const width of [40, 60, 79]) {
+    const dark = renderStatusInfo(narrowSession, width, 24, now, darkTheme);
+    const light = renderStatusInfo(narrowSession, width, 24, now, lightTheme);
+    assert.equal(dark.lines.map(stripAnsi).join("\n"), light.lines.map(stripAnsi).join("\n"));
+    assert.match(dark.lines.map(stripAnsi).join("\n"), /why this status/);
+    for (const line of dark.lines) assert.equal(visibleWidth(line), width);
+    assert.ok(dark.rowTargets.every((target) => target === undefined));
+  }
+});
 
 test("error reason appears in selected metadata", () => {
   const broken = { ...session("a", "default", "error", "api"), error: "MCP failed" };

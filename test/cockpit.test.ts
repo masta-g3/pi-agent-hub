@@ -15,6 +15,10 @@ function tierOf(model: RenderModel, id: string): string | undefined {
   return model.sections.find((section) => section.groups.some((group) => group.sessions.some((row) => row.id === id)))?.key;
 }
 
+function rowOf(model: RenderModel, id: string) {
+  return model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions)).find((row) => row.id === id);
+}
+
 test("project cockpit classifies independent state axes without promotion", () => {
   const model = buildRenderModel({
     sessions: cockpitFleet(),
@@ -43,6 +47,14 @@ test("project cockpit classifies independent state axes without promotion", () =
   assert.equal(model.sections.find((section) => section.key === "needs-you")?.sessionsTotal, 3);
   assert.equal(model.sections.find((section) => section.key === "active")?.sessionsTotal, 2);
   assert.equal(model.sections.find((section) => section.key === "quiet")?.sessionsTotal, 5);
+  assert.equal(rowOf(model, "docs")?.cockpitPlacement.kind, "explicit-attention");
+  assert.equal(rowOf(model, "qa")?.cockpitPlacement.kind, "owner-error");
+  assert.deepEqual(rowOf(model, "dashboard")?.cockpitPlacement, {
+    kind: "descendant-active", ownerId: "dashboard", ownerTitle: "Dashboard UI polish",
+    driverId: "worker", driverTitle: "code-critic", status: "running",
+  });
+  assert.equal(rowOf(model, "child-error")?.cockpitPlacement.kind, "quiet");
+  assert.equal(rowOf(model, "archive-new")?.cockpitPlacement.kind, "archived");
 });
 
 test("Backlog lifecycle stays independent from higher-priority cockpit signals", () => {
@@ -58,6 +70,22 @@ test("Backlog lifecycle stays independent from higher-priority cockpit signals",
   for (const row of model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))) {
     assert.equal(row.section, "backlog");
   }
+});
+
+test("multiple active descendants choose the first cached descendant as evidence", () => {
+  const fleet = cockpitFleet();
+  const parent = fleet.find((row) => row.id === "dashboard")!;
+  const first = { ...fleet.find((row) => row.id === "worker")!, id: "first", agentName: "first" };
+  const second = { ...first, id: "second", agentName: "second" };
+  const model = buildRenderModel({ sessions: [parent, first, second], selectedId: parent.id, width: 100 });
+
+  assert.deepEqual(model.selected?.cockpitPlacement, {
+    kind: "descendant-active", ownerId: parent.id, ownerTitle: parent.title,
+    driverId: "first", driverTitle: "first", status: "running",
+  });
+  assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions)).map((row) => row.cockpitPlacement), [
+    model.selected?.cockpitPlacement,
+  ]);
 });
 
 test("filtering visibility cannot demote an owner whose hidden descendant is running", () => {

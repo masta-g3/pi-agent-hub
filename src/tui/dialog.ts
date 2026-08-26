@@ -84,6 +84,7 @@ export interface NavigationActions {
   switchInsideTmux: (tmuxSession: string) => void | Promise<void>;
   sendMessage: (tmuxSession: string, message: string) => unknown;
   selectionChanged: () => void;
+  refreshStatusEvidence: () => void | Promise<void>;
 }
 
 export interface DashboardShortcutActions {
@@ -113,6 +114,7 @@ export interface SessionsViewActions {
   sidePaneSessionIds?: () => ReadonlyMap<string, number>;
   sidePaneFocusedSlot?: () => number | undefined;
   selectionChanged?: () => void;
+  refreshStatusEvidence?: () => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   restartNew?: (sessionId: string) => unknown;
   restartAll?: () => unknown;

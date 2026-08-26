@@ -50,8 +50,35 @@ test("malformed heartbeat is treated as missing", async () => {
   }
 });
 
+test("status evidence covers every reducer branch", () => {
+  const cases = [
+    { name: "stopped tmux", input: { session: session({ status: "stopped" }), tmux: { exists: false }, now }, status: "stopped", reason: "tmux-stopped" },
+    { name: "missing tmux", input: { session: session(), tmux: { exists: false }, now }, status: "error", reason: "tmux-missing" },
+    { name: "unknown tmux", input: { session: session(), tmux: { exists: false, error: "tmux did not answer" }, now }, status: "error", reason: "tmux-unknown" },
+    { name: "missing heartbeat active", input: { session: session(), tmux: { exists: true, recentActivityMs: 100 }, now }, status: "running", reason: "fallback-active" },
+    { name: "missing heartbeat starting", input: { session: session({ status: "starting" }), tmux: { exists: true }, now }, status: "starting", reason: "fallback-starting" },
+    { name: "missing heartbeat waiting", input: { session: session({ status: "running" }), tmux: { exists: true }, now }, status: "waiting", reason: "fallback-waiting" },
+    { name: "missing heartbeat idle", input: { session: session({ status: "idle", acknowledgedAt: now - 1 }), tmux: { exists: true }, now }, status: "idle", reason: "fallback-idle" },
+    { name: "heartbeat error", input: { session: session(), tmux: { exists: true }, heartbeat: heartbeat({ state: "error", message: "Pi failed" }), now }, status: "error", reason: "heartbeat-error" },
+    { name: "heartbeat shutdown", input: { session: session(), tmux: { exists: true }, heartbeat: heartbeat({ state: "shutdown" }), now }, status: "stopped", reason: "heartbeat-shutdown" },
+    { name: "heartbeat running", input: { session: session(), tmux: { exists: true }, heartbeat: heartbeat({ state: "running" }), now }, status: "running", reason: "heartbeat-active" },
+    { name: "heartbeat unread", input: { session: session(), tmux: { exists: true }, heartbeat: heartbeat(), now }, status: "waiting", reason: "heartbeat-unread" },
+    { name: "heartbeat read", input: { session: session({ acknowledgedAt: now }), tmux: { exists: true }, heartbeat: heartbeat(), now }, status: "idle", reason: "heartbeat-read" },
+  ] as const;
+
+  for (const item of cases) {
+    const result = computeStatus(item.input);
+    assert.equal(result.status, item.status, item.name);
+    assert.equal(result.evidence.reason, item.reason, item.name);
+    assert.equal(result.evidence.observedAt, now, item.name);
+  }
+});
+
 test("heartbeat running maps to running", () => {
-  assert.equal(computeStatus({ session: session(), tmux: { exists: true }, heartbeat: heartbeat({ state: "running" }), now }).status, "running");
+  const result = computeStatus({ session: session(), tmux: { exists: true }, heartbeat: heartbeat({ state: "running" }), now });
+  assert.equal(result.status, "running");
+  assert.deepEqual(result.evidence.tmux, { state: "present" });
+  assert.equal(result.evidence.heartbeat.freshness, "fresh");
 });
 
 test("heartbeat waiting with no acknowledgement maps to waiting", () => {
@@ -78,13 +105,39 @@ test("stale heartbeat falls back to tmux activity", () => {
   const stale = heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1, state: "waiting" });
   const result = computeStatus({ session: session(), tmux: { exists: true, recentActivityMs: 100 }, heartbeat: stale, now });
   assert.equal(result.status, "running");
-  assert.equal(result.note, "stale heartbeat");
+  assert.equal(result.evidence.reason, "fallback-active");
+  assert.equal(result.evidence.heartbeat.freshness, "stale");
+});
+
+test("heartbeat freshness and acknowledgement boundaries are exact", () => {
+  const fresh = computeStatus({ session: session(), tmux: { exists: true }, heartbeat: heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS }), now });
+  const stale = computeStatus({ session: session(), tmux: { exists: true }, heartbeat: heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1 }), now });
+  const equalRead = computeStatus({ session: session({ acknowledgedAt: now - 1_000 }), tmux: { exists: true }, heartbeat: heartbeat({ stateSince: now - 1_000 }), now });
+  const beforeUnread = computeStatus({ session: session({ acknowledgedAt: now - 1_001 }), tmux: { exists: true }, heartbeat: heartbeat({ stateSince: now - 1_000 }), now });
+
+  assert.equal(fresh.evidence.heartbeat.freshness, "fresh");
+  assert.equal(stale.evidence.heartbeat.freshness, "stale");
+  assert.equal(equalRead.evidence.acknowledgement.state, "read");
+  assert.equal(beforeUnread.evidence.acknowledgement.state, "unread");
 });
 
 test("missing heartbeat falls back to waiting while tmux is alive", () => {
   const result = computeStatus({ session: session({ status: "running" }), tmux: { exists: true }, now });
   assert.equal(result.status, "waiting");
-  assert.equal(result.note, "missing heartbeat");
+  assert.equal(result.evidence.reason, "fallback-waiting");
+  assert.equal(result.evidence.heartbeat.freshness, "missing");
+});
+
+test("workflow evidence stays independent from status", () => {
+  const workflow = { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, updatedAt: now };
+  const fresh = computeStatus({ session: session({ workflow }), tmux: { exists: true }, heartbeat: heartbeat({ workflow }), now });
+  const retained = computeStatus({ session: session({ workflow }), tmux: { exists: true }, now });
+  const absent = computeStatus({ session: session(), tmux: { exists: true }, heartbeat: heartbeat(), now });
+
+  assert.deepEqual(fresh.evidence.workflow, { source: "fresh", activeIndex: 0, stepCount: 1, stepLabel: "Execute" });
+  assert.deepEqual(retained.evidence.workflow, { source: "retained", activeIndex: 0, stepCount: 1, stepLabel: "Execute" });
+  assert.deepEqual(absent.evidence.workflow, { source: "absent" });
+  assert.equal(fresh.status, absent.status);
 });
 
 test("apply computed status persists Pi session metadata from heartbeat", () => {
@@ -127,7 +180,7 @@ test("apply computed status preserves the latest heartbeat activity time", () =>
 test("apply computed status keeps fresh active theme and drops stale theme", () => {
   const activeTheme = { name: "solarized-dark", sourcePath: "/themes/solarized-dark.json" };
   const fresh = applyComputedStatus(session(), { status: "waiting" }, now, heartbeat({ activeTheme }));
-  const stale = applyComputedStatus(session(), { status: "waiting", note: "stale heartbeat" }, now, heartbeat({ activeTheme, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
+  const stale = applyComputedStatus(session(), { status: "waiting" }, now, heartbeat({ activeTheme, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
 
   assert.deepEqual(fresh.activeTheme, activeTheme);
   assert.equal(stale.activeTheme, undefined);
@@ -145,13 +198,13 @@ test("apply computed status retains base workflow without transient active mode"
   const cleared = applyComputedStatus(session({ workflow }), { status: "waiting" }, now, heartbeat());
   assert.equal(cleared.workflow, undefined);
 
-  const stale = applyComputedStatus(session({ workflow }), { status: "waiting", note: "stale heartbeat" }, now, heartbeat({ workflow: runtimeWorkflow, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
+  const stale = applyComputedStatus(session({ workflow }), { status: "waiting" }, now, heartbeat({ workflow: runtimeWorkflow, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
   assert.deepEqual(stale.workflow, workflow);
 
   const shutdown = applyComputedStatus(session({ workflow }), { status: "stopped" }, now, heartbeat({ state: "shutdown", workflow: runtimeWorkflow }));
   assert.deepEqual(shutdown.workflow, workflow);
 
-  const missing = applyComputedStatus(session({ workflow }), { status: "waiting", note: "missing heartbeat" }, now);
+  const missing = applyComputedStatus(session({ workflow }), { status: "waiting" }, now);
   assert.deepEqual(missing.workflow, workflow);
 });
 

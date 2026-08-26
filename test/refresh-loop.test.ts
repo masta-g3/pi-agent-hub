@@ -28,6 +28,37 @@ test("refresh loop stop waits for in-flight tick", async () => {
   assert.equal(stopResolved, true);
 });
 
+test("refresh requests share the in-flight loop tick", async () => {
+  const refresh = deferred();
+  let refreshes = 0;
+  const controller = {
+    refresh: () => { refreshes += 1; return refresh.promise; },
+    snapshot: () => ({ selectedId: undefined }),
+    refreshPreview: async () => {},
+  };
+  const tui = { requestRender: () => {} };
+
+  const loop = startRefreshLoop(controller as never, tui as never);
+  const requested = loop.refresh();
+  assert.equal(refreshes, 1);
+  refresh.resolve();
+  await requested;
+  await loop.stop();
+});
+
+test("explicit refresh requests surface observation failures", async () => {
+  const controller = {
+    refresh: async () => { throw new Error("registry temporarily unavailable"); },
+    snapshot: () => ({ selectedId: undefined }),
+    refreshPreview: async () => {},
+  };
+  const tui = { requestRender: () => {} };
+
+  const loop = startRefreshLoop(controller as never, tui as never);
+  await assert.rejects(() => loop.refresh(), /registry temporarily unavailable/);
+  await assert.doesNotReject(() => loop.stop());
+});
+
 test("refresh loop keeps running when preview refresh fails", async () => {
   const controller = {
     refresh: async () => {},

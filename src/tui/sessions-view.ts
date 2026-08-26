@@ -5,7 +5,7 @@ import type { ManagedSession } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
 import { buildDashboardProjection, buildRenderModel, type DashboardProjection } from "./render-model.js";
-import { renderSessions, type SessionListTarget } from "./layout.js";
+import { renderSessions, renderStatusInfo, type SessionListTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -57,6 +57,8 @@ export class SessionsView implements Component {
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
   private detailsExpanded = false;
+  private narrowInfoSessionId: string | undefined;
+  private lastWidth = 80;
   private grouping: "project" | "stage";
   private density: "compact" | "all-cards";
   private pendingRestart: { sessionId: string } | undefined;
@@ -94,6 +96,11 @@ export class SessionsView implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.narrowInfoSessionId && this.controller.selected()?.id !== this.narrowInfoSessionId) this.narrowInfoSessionId = undefined;
+    if (this.narrowInfoSessionId) {
+      if (data === "i" || matchesKey(data, Key.escape)) this.narrowInfoSessionId = undefined;
+      return;
+    }
     if (isMouseSequence(data)) {
       this.clearPendingFocusSlot();
       const event = parseMouseEvent(data);
@@ -193,7 +200,7 @@ export class SessionsView implements Component {
       else if (isEnterKey(data)) this.selectedSection ? this.toggleSection(this.selectedSection) : this.toggleArchiveDisclosure();
       else if (matchesKey(data, Key.slash)) this.startFilter();
       else if (data === "n") this.startNewDialog();
-      else if (data === "i") this.detailsExpanded = !this.detailsExpanded;
+      else if (data === "i") this.toggleInfo();
       else if (data === "v") this.toggleDensity();
       else if (data === "S") this.toggleGrouping();
       else if (data === "?") this.dialog = { kind: "help" };
@@ -257,11 +264,7 @@ export class SessionsView implements Component {
     else if (data === "w") this.startFinishDialog();
     else if (data === "s") this.startPicker("skills");
     else if (data === "m") this.startPicker("mcp");
-    else if (data === "i") {
-      this.clearPendingRestart();
-      this.clearFlash();
-      this.detailsExpanded = !this.detailsExpanded;
-    }
+    else if (data === "i") this.toggleInfo();
     else if (data === "v") this.toggleDensity();
     else if (data === "S") this.toggleGrouping();
     else if (data === "a") {
@@ -279,6 +282,13 @@ export class SessionsView implements Component {
 
   render(width: number): string[] {
     this.clearExpiredFlash();
+    this.lastWidth = width;
+    const selectedId = this.controller.selected()?.id;
+    if (this.narrowInfoSessionId && selectedId !== this.narrowInfoSessionId) this.narrowInfoSessionId = undefined;
+    if (this.narrowInfoSessionId && width >= 80) {
+      this.narrowInfoSessionId = undefined;
+      this.detailsExpanded = true;
+    }
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
       this.rowTargets = [];
@@ -299,7 +309,7 @@ export class SessionsView implements Component {
     const sidePaneSessionIds = this.actions.sidePaneSessionIds?.();
     const filter = (this.dialog?.kind === "prompt" ? (promptFilterValue(this.dialog) ?? snapshot.filter) : snapshot.filter)?.trim() || undefined;
     const structuralProjection = this.dashboardProjection(snapshot);
-    const layout = renderSessions(buildRenderModel({
+    const model = buildRenderModel({
       sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
       width,
@@ -323,7 +333,10 @@ export class SessionsView implements Component {
       expandedBoardParentIds: this.expandedBoardParentIds,
       expandedProjectParentIds: this.expandedProjectParentIds,
       structuralProjection,
-    }), this.theme);
+    });
+    const layout = this.narrowInfoSessionId && model.selected?.id === this.narrowInfoSessionId
+      ? renderStatusInfo(model.selected, width, height, now, this.theme)
+      : renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
@@ -347,6 +360,39 @@ export class SessionsView implements Component {
     if (target.id !== previousId) this.actions.selectionChanged?.();
     this.startRenameSessionDialog(tmuxSession);
     return this.dialog?.kind === "form" && this.dialog.purpose === "renameSession";
+  }
+
+  private toggleInfo(): void {
+    if (this.lastWidth >= 80 && this.detailsExpanded) {
+      this.detailsExpanded = false;
+      return;
+    }
+    if (this.lastWidth < 80) this.detailsExpanded = false;
+    if (this.archiveDisclosureSelected || this.selectedSection) {
+      this.flashMessage("select a session to show status evidence");
+      return;
+    }
+    const selected = this.controller.selected();
+    if (!selected) return;
+    const selectedId = selected.id;
+    const open = (requireEvidence = false) => {
+      const current = this.controller.selected();
+      if (current?.id !== selectedId) return;
+      if (requireEvidence && !current.statusEvidence) {
+        this.message = "status evidence unavailable after refresh";
+        return;
+      }
+      if (this.lastWidth < 80) this.narrowInfoSessionId = selectedId;
+      else this.detailsExpanded = true;
+    };
+    const refresh = this.actions.navigationActions?.refreshStatusEvidence ?? this.actions.refreshStatusEvidence;
+    if (selected.statusEvidence || !refresh) {
+      open();
+      return;
+    }
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.runAction(() => refresh(), "refreshing status evidence...", () => open(true));
   }
 
   private dialogContext(): DialogContext {
@@ -1134,7 +1180,8 @@ function renderHelp(width: number, theme?: SessionsTheme): string[] {
     "  zero counts are hidden from tier and top summaries",
     "",
     heading("Metadata"),
-    "  i toggle compact/full selected-session info",
+    "  i toggle compact/full selected-session info; full info explains runtime and cockpit status",
+    "  below 80 columns, i opens a full-width status explanation; i/Esc returns",
   ];
   const inner = Math.max(40, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
