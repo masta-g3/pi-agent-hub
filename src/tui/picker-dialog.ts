@@ -1,16 +1,18 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { projectStateCwd } from "../core/multi-repo.js";
 import { createTextInput, editTextInput, isEnterKey } from "./text-input.js";
-import { errorMessage, isPromise, type PickerDialogContext } from "./dialog.js"
+import { errorMessage, isPromise, type PickerDialogContext, type ProjectPickerTarget } from "./dialog.js";
 import { movePickerSelection, renderTwoColumnPicker, switchPickerColumn, togglePickerItem, type PickerItem, type PickerState } from "./two-column-picker.js";
 
 export interface PickerDialog {
   kind: "picker";
   purpose: "skills" | "mcp";
+  target: ProjectPickerTarget;
   picker: PickerState;
   saveId: number;
 }
 
-export function createPickerDialog(purpose: "skills" | "mcp", items: PickerItem[], ctx: PickerDialogContext): PickerDialog | undefined {
+export function createPickerDialog(purpose: "skills" | "mcp", items: PickerItem[], ctx: PickerDialogContext, target?: ProjectPickerTarget): PickerDialog | undefined {
   const poolDir = purpose === "skills" ? ctx.actions.skillPoolDir?.() : undefined;
   if (!items.length && !(purpose === "skills" && poolDir !== undefined)) {
     ctx.setMessage(`${purpose}: nothing available`);
@@ -20,6 +22,7 @@ export function createPickerDialog(purpose: "skills" | "mcp", items: PickerItem[
   return {
     kind: "picker",
     purpose,
+    target: target ?? ctx.actions.pickerTarget?.() ?? pickerTargetFromSelection(ctx),
     saveId: 0,
     picker: {
       title: purpose === "skills" ? "Skills" : "MCP — [project]",
@@ -58,7 +61,8 @@ function handleSkillPoolInput(dialog: PickerDialog, data: string, ctx: PickerDia
     if (!save) return { ...dialog, picker: { ...dialog.picker, poolError: "skill pool editing unavailable", poolMessage: undefined } };
     const pending: PickerDialog = { ...dialog, saveId: dialog.saveId + 1, picker: { ...dialog.picker, poolPending: true, poolMessage: "saving skill pool...", poolError: undefined } };
     try {
-      const result = save(dir);
+      if (!validPickerTarget(dialog.target, ctx)) return pickerTargetErrorDialog(dialog);
+      const result = save(dir, dialog.target);
       if (!isPromise<PickerItem[]>(result)) return savedSkillPoolDialog(pending, result, dir, ctx);
       void result.then((items) => {
         if (ctx.dialog() === pending) ctx.setDialog(savedSkillPoolDialog(pending, items, dir, ctx));
@@ -96,17 +100,36 @@ function skillPoolErrorDialog(pending: PickerDialog, error: unknown): PickerDial
 }
 
 function applyPickerSelection(dialog: PickerDialog, ctx: PickerDialogContext): undefined {
+  if (!validPickerTarget(dialog.target, ctx)) {
+    ctx.setMessage("picker target is no longer available");
+    return undefined;
+  }
   const items = dialog.picker.items;
   const apply = dialog.purpose === "skills" ? ctx.actions.applySkills : ctx.actions.applyMcpServers;
   const success = dialog.purpose === "skills" ? "restart session to reload skills" : "restart session to reload MCP tools";
   try {
-    const result = apply?.(items);
+    const result = apply?.(items, dialog.target);
     if (isPromise(result)) void result.then(() => { ctx.setMessage(success); }).catch((error: unknown) => { ctx.setMessage(errorMessage(error)); });
     else ctx.setMessage(success);
   } catch (error) {
     ctx.setMessage(errorMessage(error));
   }
   return undefined;
+}
+
+function pickerTargetFromSelection(ctx: PickerDialogContext): ProjectPickerTarget {
+  const selected = ctx.controller.selected();
+  return selected ? { sessionId: selected.id, projectCwd: projectStateCwd(selected) } : { projectCwd: process.cwd() };
+}
+
+function validPickerTarget(target: ProjectPickerTarget, ctx: PickerDialogContext): boolean {
+  if (!target.sessionId) return true;
+  const session = ctx.controller.snapshot().registry.sessions.find((item) => item.id === target.sessionId);
+  return Boolean(session && projectStateCwd(session) === target.projectCwd);
+}
+
+function pickerTargetErrorDialog(dialog: PickerDialog): PickerDialog {
+  return { ...dialog, picker: { ...dialog.picker, poolError: "picker target is no longer available", poolMessage: undefined } };
 }
 
 function editPickerSearch(data: string, picker: PickerState): PickerState | undefined {

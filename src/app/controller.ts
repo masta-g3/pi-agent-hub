@@ -186,12 +186,18 @@ export class SessionsController {
   }
 
   async reorderSelected(delta: -1 | 1): Promise<void> {
-    if (this.filter) return;
     const selected = this.selected();
+    if (!selected) return;
+    await this.reorderSession(selected.id, delta);
+  }
+
+  async reorderSession(sessionId: string, delta: -1 | 1): Promise<void> {
+    if (this.filter) return;
+    const selected = this.registry.sessions.find((session) => session.id === sessionId);
     if (!selected || isSubagentSession(selected)) return;
     if (sessionSection(selected) === "archived") return;
     await this.mutateRegistry((latest) => {
-      const current = latest.sessions.find((session) => session.id === selected.id);
+      const current = latest.sessions.find((session) => session.id === sessionId);
       if (!current || isSubagentSession(current)) return latest;
       const section = sessionSection(current);
       if (section === "archived") return latest;

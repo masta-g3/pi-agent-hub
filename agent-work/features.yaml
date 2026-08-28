@@ -828,46 +828,51 @@
 - id: cockpit-004
   status: pending
   title: Attention delivery
-  subtitle: Notify only on explicit requests
-  description: Dashboard, terminal, and optional sound notifications fire only when
-    explicit producer attention appears.
+  subtitle: Announce fresh explicit requests once
+  description: Fresh producer requests announce once for six seconds, deduped by session
+    and request ID, with cold-start seeding, focus suppression, and optional BEL;
+    acknowledgement silences delivery while producer attention remains.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
-  - cockpit-001
+  - cockpit-008
   references:
   - agent-work/plans/cockpit-000.md
 - id: cockpit-005
-  status: pending
+  status: done
   title: Intent palette
-  subtitle: Search sessions actions and filters
-  description: One intent surface finds sessions, matches bounded context, applies
-    scoped filters, and exposes valid actions with live shortcuts.
+  subtitle: Find sessions actions context filters
+  description: The shared command model and colon palette search sessions, bounded
+    context, filters, and target-aware actions while showing why unavailable actions
+    cannot run.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
   - cockpit-001
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260827_cockpit-005_intent_palette.md
+  completed_at: '2026-08-27'
 - id: cockpit-006
   status: pending
   title: Action workspace
-  subtitle: Lead with decisions and next actions
-  description: Selected-session details present explicit attention, producer summary,
-    and valid actions before technical metadata.
+  subtitle: Lead with decisions and actions
+  description: The selected-session workspace leads with explicit requests, recommendations,
+    valid contextual actions, and bounded producer context, with evidence behind i.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
-  - cockpit-001
+  - cockpit-003
   - cockpit-005
   references:
   - agent-work/plans/cockpit-000.md
 - id: cockpit-007
   status: pending
   title: Direct pinning
-  subtitle: Pin and manipulate live sessions
-  description: Users can pin and directly manipulate live tmux-backed sessions without
-    addressing numbered slots.
+  subtitle: Pin named live sessions spatially
+  description: Named transient panes replace numbered-slot grammar with safe pin,
+    focus, resize, close, guarded spatial movement, Alt+Q return, automatic geometry,
+    a compact decision strip, and capacity refusal without eviction.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
@@ -877,28 +882,27 @@
 - id: cockpit-008
   status: pending
   title: Adaptive cockpit
-  subtitle: Replace parallel views with one surface
-  description: One responsive dashboard hierarchy replaces density and workflow-board
-    modes while preserving producer workflow data.
+  subtitle: Unify responsive cockpit and workflow board
+  description: Approved parent cards, micro children, collapsed trees, and 60/100/160
+    layouts retain the read-only S workflow board while obsolete density modes are
+    removed.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
   - cockpit-003
-  - cockpit-004
-  - cockpit-005
-  - cockpit-006
   - cockpit-007
   references:
   - agent-work/plans/cockpit-000.md
 - id: cockpit-009
   status: pending
   title: Cockpit onboarding
-  subtitle: Teach the new daily workflow
-  description: First-run and release guidance teach the attention-first workflow with
-    accessible behavior at supported widths.
+  subtitle: Teach one attention round trip
+  description: Real-tier and footer guidance retire after the first explicit request
+    is opened and acknowledged and the user returns with Alt+Q; one version-scoped
+    release cue stays below real attention without per-tip history.
   priority: 3
   created_at: '2026-08-24'
   depends_on:
-  - cockpit-008
+  - cockpit-004
   references:
   - agent-work/plans/cockpit-000.md

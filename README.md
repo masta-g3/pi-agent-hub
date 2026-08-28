@@ -45,6 +45,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `Alt+Q` / `Ctrl+Q` | Return from a panel to the sidebar |
 | `o` | Reset side panels to the selected session, or close it when it is the only panel |
 | `/` | Filter sessions |
+| `:` | Search actions, sessions, and named filters |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
 | `i` | Explain the selected session's runtime status and cockpit placement |
@@ -69,6 +70,8 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
 
 Press `i` to explain the selected session from one current observation: tmux presence, heartbeat freshness and Pi state, read state, the runtime decision, cockpit placement, and separate workflow provenance. At 80 columns or wider this expands the details pane. From 40–79 columns it opens a gated full-width Info screen; only `i` or `Escape` returns to the cockpit.
+
+Press `:` to search the same actions exposed by direct keys, jump to sessions through bounded title/group/project/task/ticket/attention/workflow context, or apply named lifecycle, status, and group filters. Unavailable actions remain visible with a reason. Selecting a session only reveals and selects its current row in Hub; it does not attach, restart, or mark it read. `/` remains the fast free-text fleet filter, and `?` remains direct Help.
 
 `v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The right pane keeps full available plan context.
 

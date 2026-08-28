@@ -762,7 +762,7 @@ test("cockpit flattens groups into row tags and keeps Archived chronological", (
   assert.deepEqual(model.sections[1]?.groups[0]?.sessions.map((row) => row.id), ["archive-new", "archive-old"]);
   assert.equal(model.selected?.archivedAge, "1d");
   assert.equal(model.selected?.archiveRetentionIn, "6d");
-  assert.match(model.footer, /U Restore/);
+  assert.match(model.footer, /: Actions/);
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(rendered, /QUIET/);
@@ -796,6 +796,27 @@ test("Archived collapses after five parent cascades and filtering reveals matche
   const filtered = buildRenderModel({ sessions: [...archived, child], width: 80, filter: "archive-6", now: 800 });
   assert.deepEqual(filtered.sections.find((section) => section.key === "archived")?.groups[0]?.sessions.map((row) => row.id), ["archive-6"]);
   assert.equal(filtered.sections.find((section) => section.key === "archived")?.archiveDisclosure, undefined);
+});
+
+test("an ephemeral reveal exposes only its collapsed older Archived cascade", () => {
+  const archived = Array.from({ length: 7 }, (_, index) => ({
+    ...session(`archive-${index}`, "default", "stopped"),
+    bucket: "archived" as const,
+    bucketChangedAt: 700 - index,
+  }));
+  const child = { ...session("old-child", "default", "stopped"), kind: "subagent" as const, parentId: "archive-6", agentName: "worker" };
+  const model = buildRenderModel({
+    sessions: [...archived, child],
+    selectedId: "old-child",
+    width: 80,
+    collapsedSections: new Set(["archived"] as const),
+    expandedProjectParentIds: new Set(["archive-6"]),
+    revealedSessionId: "old-child",
+  });
+
+  const rows = model.sections.find((section) => section.key === "archived")?.groups[0]?.sessions.map((row) => row.id);
+  assert.deepEqual(rows, ["archive-6", "old-child"]);
+  assert.doesNotMatch(renderSessions(model).lines.map(stripAnsi).join("\n"), /archive-5/);
 });
 
 test("late-created descendants inherit Archived presentation and stay out of the board", () => {
@@ -832,21 +853,21 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showPreview, false);
-  assert.equal(model.footer, "1-4 Set · x# Close · F# Focus · ? Help");
+  assert.equal(model.footer, "↑↓ · / Filter · : Actions · ? Help");
 });
 
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · A Archive · B Backlog  │  v Density · S Lanes · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help");
 });
 
-test("wide footer shows worktree finish only for worktree sessions", () => {
+test("wide footer stays stable for worktree sessions", () => {
   const model = buildRenderModel({
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · w Finish WT · A Archive · B Backlog  │  v Density · S Lanes · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help");
 });
 
 test("long titles/cwd truncate without exceeding width", () => {

@@ -181,6 +181,27 @@ test("reorderSelected swaps selected session within its group and clamps at bord
   });
 });
 
+test("reorderSession keeps its explicit target when selection changes", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = {
+      version: 1 as const,
+      sessions: [
+        session("idle", { id: "a", title: "a", order: 0 }),
+        session("idle", { id: "b", title: "b", order: 1 }),
+        session("idle", { id: "c", title: "c", order: 2 }),
+      ],
+    };
+    await updateRegistry(() => registry);
+    const controller = new SessionsController(registry);
+    controller.selectSession("b");
+
+    await controller.reorderSession("a", 1);
+
+    assert.equal(controller.snapshot().selectedId, "b");
+    assert.deepEqual(controller.snapshot().registry.sessions.map((item) => [item.id, item.order]), [["a", 1], ["b", 0], ["c", 2]]);
+  });
+});
+
 test("reorderSelected stays within the selected priority and activity tie", async () => {
   await withTempSessionsDir(async () => {
     const registry = {

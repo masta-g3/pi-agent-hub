@@ -21,7 +21,7 @@ export const COCKPIT_EXPECTED_FRAMES: Record<60 | 100 | 160, string> = {
 │· - Recent archive                                      1m│
 │                                                          │
 │──────────────────────────────────────────────────────────│
-│1-4 Set · x# Close · F# Focus · ? Help                    │
+│↑↓ Move · Enter Open · / Filter · : Actions · ? Help      │
 ╰──────────────────────────────────────────────────────────╯`,
   100: `╭ pi agent hub ────────────────────────────────────────────────────────────────────────────────────╮
 │8 sessions · ?1 needs you · ×1 health                                                             │
@@ -45,7 +45,7 @@ export const COCKPIT_EXPECTED_FRAMES: Record<60 | 100 | 160, string> = {
 │· - Recent archive                 1m│                                                            │
 │                                     │                                                            │
 │──────────────────────────────────────────────────────────────────────────────────────────────────│
-│Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · / Filter · i Info · ? Help        │
+│↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help                            │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯`,
   160: `╭ pi agent hub ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │8 sessions · ?1 needs you · ×1 health                                                                                                                         │
@@ -69,6 +69,6 @@ export const COCKPIT_EXPECTED_FRAMES: Record<60 | 100 | 160, string> = {
 │· - Recent archive                    1m│                                                                                                                     │
 │                                        │                                                                                                                     │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · n New · / Filter  │  p Send · i Info · r Restart · R Rename · d Delete · A Archive · B Backlo…│
+│↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help                                                                                        │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯`,
 };

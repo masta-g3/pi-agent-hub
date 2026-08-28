@@ -28,7 +28,7 @@ import { discardWorktreeSession, finishWorktreeSession } from "./worktree-sessio
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
-import type { SessionsViewState } from "../tui/dialog.js";
+import type { ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession; historyCwds?: string[]; worktreeDefault?: boolean }): NewFormContext {
   const selectedCwd = input.selected ? newSessionCwd(input.selected) : input.cwd;
@@ -377,8 +377,8 @@ export async function runTui(): Promise<void> {
     renameGroup(from, to) {
       return mutateRegistry(() => controller.renameGroup(from, to));
     },
-    reorderSelected(delta) {
-      return mutateRegistry(() => controller.reorderSelected(delta));
+    reorderSession(sessionId, delta) {
+      return mutateRegistry(() => controller.reorderSession(sessionId, delta));
     },
     sendMessage(tmuxSession, message) {
       return sendTextToSession(tmuxSession, message);
@@ -389,8 +389,8 @@ export async function runTui(): Promise<void> {
       if (!session) throw new Error("session not found");
       await sendTextToSession(session.tmuxSession, shortcut.send);
     },
-    acknowledge() {
-      return mutateRegistry(() => controller.acknowledgeSelected());
+    acknowledgeSession(sessionId) {
+      return mutateRegistry(() => controller.acknowledgeSession(sessionId));
     },
     newFormContext() {
       return buildNewFormContext({
@@ -401,8 +401,14 @@ export async function runTui(): Promise<void> {
         worktreeDefault,
       });
     },
-    async skills() {
-      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
+    async skills(target) {
+      return skillPickerItems(resolveProjectPickerTarget(target, controller.snapshot().registry.sessions));
+    },
+    pickerTarget() {
+      const selected = controller.selected();
+      return selected
+        ? { sessionId: selected.id, projectCwd: projectStateCwd(selected) }
+        : { projectCwd: cwd };
     },
     skillPoolDir() {
       return skillPoolDirs[0];
@@ -410,27 +416,29 @@ export async function runTui(): Promise<void> {
     skillPoolDirExtraCount() {
       return Math.max(0, skillPoolDirs.length - 1);
     },
-    async saveSkillPoolDir(dir) {
+    async saveSkillPoolDir(dir, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
       await setSkillPoolDirs([dir]);
       skillPoolDirs = await effectiveSkillPoolDirs();
       skillPool = await listSkillPool();
-      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
+      return skillPickerItems(projectCwd);
     },
-    async applySkills(items) {
-      const projectCwd = selectedProjectCwd(controller.selected(), cwd);
+    async applySkills(items, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
       const state = await setProjectSkills(projectCwd, items.flatMap((item) => {
         const skill = skillPool.find((entry) => entry.name === item.name);
         return skill ? [{ name: item.name, sourcePath: skill.path, enabled: item.enabled }] : [];
       }));
       skillCountCache.set(projectCwd, state.attached.length);
     },
-    async mcpServers() {
-      const state = await loadProjectMcpState(selectedProjectCwd(controller.selected(), cwd));
+    async mcpServers(target) {
+      const state = await loadProjectMcpState(resolveProjectPickerTarget(target, controller.snapshot().registry.sessions));
       const enabled = new Set(state.enabledServers);
       return Object.keys(mcpCatalog.servers).sort().map((name) => ({ name, enabled: enabled.has(name) }));
     },
-    async applyMcpServers(items) {
-      await setProjectMcpServers(selectedProjectCwd(controller.selected(), cwd), items.filter((item) => item.enabled).map((item) => item.name));
+    async applyMcpServers(items, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
+      await setProjectMcpServers(projectCwd, items.filter((item) => item.enabled).map((item) => item.name));
     },
     async themeSettings() {
       themePreference = await effectiveDashboardThemePreference();
@@ -526,8 +534,11 @@ export function mapSidePaneSessionIds(slots: readonly (string | undefined)[], se
   return ids;
 }
 
-function selectedProjectCwd(selected: ManagedSession | undefined, fallback: string): string {
-  return selected ? projectStateCwd(selected) : fallback;
+export function resolveProjectPickerTarget(target: ProjectPickerTarget, sessions: readonly ManagedSession[]): string {
+  if (!target.sessionId) return target.projectCwd;
+  const session = sessions.find((item) => item.id === target.sessionId);
+  if (!session || projectStateCwd(session) !== target.projectCwd) throw new Error("picker target is no longer available");
+  return target.projectCwd;
 }
 
 function errorMessage(error: unknown): string {

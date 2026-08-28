@@ -221,15 +221,15 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
   assert.match(help, /i toggle/);
-  assert.match(help, /p send/);
+  assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
   assert.match(help, /1-4 assign \(stay here\)/);
   assert.match(help, /x then 1-4 close panel/);
   assert.match(help, /F then 1-4 or Alt\+1-4 focus panel/);
-  assert.match(help, /o reset to one panel/);
+  assert.match(help, /F\s+Focus panel…/);
   assert.match(help, /mouse click select · double-click open\/switch/);
-  assert.match(help, /v cycle row density/);
-  assert.match(help, /t theme settings/);
+  assert.match(help, /Density · toggle compact and all-card rows/);
+  assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
   assert.match(help, /only explicit producer attention enters Needs you/);
   assert.match(help, /Archived is flat and chronological/);
@@ -238,6 +238,18 @@ test("help overlay opens and closes", () => {
   assert.match(help, /subagent trees start collapsed; Space toggles one board tree/);
   view.handleInput("\u001b");
   assert.doesNotMatch(view.render(80).join("\n"), /pi agent hub help/);
+});
+
+test("Help derives configured shortcuts from the command catalog", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }],
+    runDashboardShortcut: () => {},
+  });
+
+  view.handleInput("?");
+
+  const help = stripAnsi(view.render(120).join("\n"));
+  assert.match(help, /C-x\s+Summarize · send \/summary/);
 });
 
 test("t opens theme settings from an empty dashboard and Escape restores preview", () => {
@@ -400,7 +412,20 @@ test("section shortcuts block subagent rows", () => {
   controller.move(1);
   view.handleInput("A");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /subagent rows follow their parent section/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+});
+
+test("direct mark-read obeys the shared command availability", () => {
+  let acknowledged: string | undefined;
+  const running = { ...session("api", "api"), status: "running" as const };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [running] }), () => {}, {
+    acknowledgeSession: (id) => { acknowledged = id; },
+  });
+
+  view.handleInput("a");
+
+  assert.equal(acknowledged, undefined);
+  assert.match(stripAnsi(view.render(100).join("\n")), /session has no unread attention/);
 });
 
 test("N syncs selected session title from Pi name", async () => {
@@ -941,7 +966,7 @@ test("panel shortcuts block stopped and error sessions", () => {
   view.handleInput("o");
 
   assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /session not running/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /session is not live/);
 });
 
 test("panel shortcuts allow live subagent rows", () => {
@@ -1424,7 +1449,7 @@ test("mouse wheel moves selection", () => {
 
 test("mouse sequences are consumed while rename form is open", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
   view.render(100);
   view.handleInput("R");
   view.handleInput("\u001b[<0;3;4M");
@@ -1439,6 +1464,7 @@ test("mouse press only dismisses restart choices and wheel is ignored", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
+    restart: () => {},
   });
   const rendered = view.render(100);
 
@@ -1473,7 +1499,7 @@ test("sidebar dashboard renders readable primary controls", () => {
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 15, sidePaneSessionIds: () => new Map([["s0", 1]]) });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-2) ?? "", /1-4 Set · x# Close · F# Focus · \? Help/);
+  assert.match(rendered.at(-2) ?? "", /↑↓ · \/ Filter · : Actions · \? Help/);
   assert.doesNotMatch(rendered.at(-2) ?? "", /…/);
 });
 
@@ -1567,7 +1593,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /Enter Open .* i Info .* \? Help/);
+    assert.match(rendered, /Enter Open .* : Actions .* \? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -1723,13 +1749,13 @@ test("enter on error session restarts instead of switching to missing tmux sessi
   }
 });
 
-test("enter on stopped session without restart action explains the recovery key", () => {
+test("enter on stopped session without restart action reports unavailable transport", () => {
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
   const view = new SessionsView(controller, () => {});
 
   view.handleInput("\r");
 
-  assert.match(view.render(100).join("\n"), /session stopped; press r twice to restart/);
+  assert.match(view.render(100).join("\n"), /restart transport unavailable/);
 });
 
 test("new form worktree row toggles with space", () => {
@@ -2147,7 +2173,7 @@ test("delete dialog does not offer subagent-only cleanup for selected subagent",
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, { closeSubagents: () => {} });
+  const view = new SessionsView(controller, () => {}, { closeSubagents: () => {}, deleteSession: () => {} });
 
   controller.move(1);
   view.handleInput("d");
@@ -2261,7 +2287,7 @@ test("finish worktree dialog confirms with second w", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Finish worktree/);
 });
 
-test("finish worktree key ignores non-worktree sessions", () => {
+test("finish worktree key explains non-worktree sessions", () => {
   let finished: string | undefined;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
     finishWorktree: (id) => { finished = id; },
@@ -2270,7 +2296,7 @@ test("finish worktree key ignores non-worktree sessions", () => {
   view.handleInput("w");
 
   assert.equal(finished, undefined);
-  assert.match(view.render(100).join("\n"), /selected session is not a worktree/);
+  assert.match(view.render(100).join("\n"), /no Hub-owned worktree/);
 });
 
 test("delete dialog ignores repeated confirm while async delete is pending", async () => {
@@ -2421,7 +2447,7 @@ test("R requires stopped and error sessions to restart before rename", () => {
 test("narrow rename form keeps a long title and cursor visible", () => {
   const title = "Market Snapshot Workflow Review and Export";
   const controller = new SessionsController({ version: 1, sessions: [session("market", title)] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
 
   view.handleInput("R");
   const rendered = view.render(42);
@@ -2493,7 +2519,7 @@ test("custom dashboard shortcut blocks subagent stopped and error rows", () => {
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
   ];
-  const messages: RegExp[] = [/subagent rows cannot receive input/, /session is not live/, /session is not live/];
+  const messages: RegExp[] = [/unavailable for subagents/, /session is not live/, /session is not live/];
 
   for (let i = 0; i < blockedSessions.length; i += 1) {
     let called = false;
@@ -2527,7 +2553,7 @@ test("custom dashboard shortcut reports unavailable without a transport action",
 
   view.handleInput("\x0e");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /shortcut unavailable/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /shortcut transport unavailable/);
 });
 
 test("p opens footer send prompt and submits message to selected live session", async () => {
@@ -2599,7 +2625,7 @@ test("send shortcut blocks subagent stopped and error rows", () => {
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
   ];
-  const messages: RegExp[] = [/subagent rows cannot receive input/, /session is not live/, /session is not live/];
+  const messages: RegExp[] = [/unavailable for subagents/, /session is not live/, /session is not live/];
 
   for (let i = 0; i < blockedSessions.length; i += 1) {
     let called = false;
@@ -2627,7 +2653,7 @@ test("send shortcut reports unavailable without a transport action", () => {
 
   view.handleInput("p");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /send unavailable/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /send transport unavailable/);
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /send to api/);
 });
 
@@ -2646,7 +2672,7 @@ test("send action errors show in footer", async () => {
 
 test("e remains a rename alias", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
 
   view.handleInput("e");
 
@@ -2715,6 +2741,30 @@ test("async skills picker loads before rendering", async () => {
 
   assert.match(view.render(100).join("\n"), /Skills/);
   assert.match(view.render(100).join("\n"), /repo-rules/);
+});
+
+test("async picker loading keeps the project target from open through apply", async () => {
+  const first = session("first", "first");
+  const second = session("second", "second");
+  const controller = new SessionsController({ version: 1, sessions: [first, second] });
+  let release!: () => void;
+  const loading = new Promise<void>((resolve) => { release = resolve; });
+  let loadedFor: unknown;
+  let appliedTo: unknown;
+  const view = new SessionsView(controller, () => {}, {
+    skills: async (target) => { loadedFor = target; await loading; return [{ name: "repo-rules", enabled: false }]; },
+    applySkills: (_items, target) => { appliedTo = target; },
+  });
+
+  view.handleInput("s");
+  controller.selectSession(second.id);
+  release();
+  await loading;
+  await new Promise((resolve) => setImmediate(resolve));
+  view.handleInput("\r");
+
+  assert.deepEqual(loadedFor, { sessionId: first.id, projectCwd: first.cwd });
+  assert.deepEqual(appliedTo, { sessionId: first.id, projectCwd: first.cwd });
 });
 
 test("skills picker toggles and applies with restart prompt", () => {
@@ -2938,7 +2988,7 @@ test("restart requires confirmation and supports new conversation", () => {
 test("restart dialog stays open until answered", () => {
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { now: () => now });
+  const view = new SessionsView(controller, () => {}, { now: () => now, restart: () => {} });
   view.handleInput("r");
   now = 2_200;
   assert.match(view.render(100).join("\n"), /Restart session/);
@@ -2947,7 +2997,7 @@ test("restart dialog stays open until answered", () => {
 test("restart dialog supports restart all", () => {
   let restartedAll = false;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const view = new SessionsView(controller, () => {}, { restartAll: () => { restartedAll = true; } });
+  const view = new SessionsView(controller, () => {}, { restart: () => {}, restartAll: () => { restartedAll = true; } });
 
   view.handleInput("r");
   view.handleInput("a");
@@ -3036,7 +3086,7 @@ test("starting no-match filter clears stale attach flash", () => {
   process.env.TMUX = "/tmp/tmux";
   try {
     const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-    const view = new SessionsView(controller, () => {});
+    const view = new SessionsView(controller, () => {}, { switchInsideTmux: () => {} });
     view.handleInput("\r");
     assert.match(view.render(100).join("\n"), /switch-client/);
     view.handleInput("/");
@@ -3046,4 +3096,230 @@ test("starting no-match filter clears stale attach flash", () => {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
   }
+});
+
+test("colon opens the bottom command ledger and Escape returns to the cockpit", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  const palette = stripAnsi(view.render(100).join("\n"));
+  assert.match(palette, /Search actions, sessions, filters/);
+  assert.match(palette, /ACTIONS/);
+  assert.match(palette, /Actions/);
+  assert.match(palette, /Enter Open.*: Actions.*\? Help/);
+
+  view.handleInput("\u001b");
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+});
+
+test("command palette stays bounded and never executes hidden rows at short heights", () => {
+  for (const height of [3, 4, 5]) {
+    let opened = 0;
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+      attachOutsideTmux: () => { opened += 1; },
+      terminalRows: () => height,
+    });
+    view.render(60);
+    view.handleInput(":");
+    const rendered = view.render(60);
+    assert.equal(rendered.length, height);
+    assert.match(stripAnsi(rendered.join("\n")), /resize to use command palette/);
+    view.handleInput("\r");
+    assert.equal(opened, 0);
+    view.handleInput("\u001b");
+  }
+
+  for (const height of [6, 7, 8, 9]) {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+      attachOutsideTmux: () => {},
+      terminalRows: () => height,
+    });
+    view.render(60);
+    view.handleInput(":");
+    const rendered = view.render(60);
+    assert.equal(rendered.length, height);
+    assert.match(stripAnsi(rendered.join("\n")), /ACTIONS/);
+    assert.match(stripAnsi(rendered.join("\n")), /Open/);
+  }
+});
+
+test("palette session results select and reveal without opening", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    attachOutsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs/);
+  view.handleInput("\r");
+
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.deepEqual(opened, []);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+});
+
+test("palette session results follow cockpit order before hidden rows", () => {
+  const quiet = session("quiet", "Task quiet");
+  const error = { ...session("error", "Task error"), status: "error" as const };
+  const controller = new SessionsController({ version: 1, sessions: [quiet, error] });
+  controller.setFilter("quiet");
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "task") view.handleInput(char);
+  const rendered = view.render(100).map(stripAnsi);
+  const errorIndex = rendered.findIndex((line) => line.includes("Task error"));
+  const quietIndex = rendered.findIndex((line) => line.includes("Task quiet"));
+
+  assert.ok(errorIndex >= 0 && quietIndex >= 0);
+  assert.ok(errorIndex < quietIndex);
+});
+
+test("palette mouse clicks execute items and outside clicks close without leaking", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  const palette = view.render(100);
+  const docsLine = palette.findIndex((line) => stripAnsi(line).includes("docs") && !stripAnsi(line).includes(": docs"));
+  assert.notEqual(docsLine, -1);
+  view.handleInput(mousePressAtLine(docsLine));
+  assert.equal(controller.snapshot().selectedId, "docs");
+
+  view.handleInput(":");
+  const reopened = view.render(100);
+  const searchLine = reopened.findIndex((line) => stripAnsi(line).includes("Search actions, sessions, filters"));
+  view.handleInput(mousePressAtLine(searchLine));
+  assert.match(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+  view.handleInput(mousePressAtLine(0));
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("palette session activation clears only an excluding fleet filter", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  controller.setFilter("api");
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.equal(controller.snapshot().filter, undefined);
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("palette reveals an older collapsed Archived result from the workflow board", () => {
+  const archived = Array.from({ length: 7 }, (_, index) => ({
+    ...session(`archive-${index}`, `archive-${index}`),
+    status: "stopped" as const,
+    bucket: "archived" as const,
+    bucketChangedAt: 700 - index,
+  }));
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active"), ...archived] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "stage", density: "compact", collapsedSections: ["archived"] },
+    saveViewState: (state) => { saved.push(state); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "archive-6") view.handleInput(char);
+  view.handleInput("\r");
+  const rendered = stripAnsi(view.render(100).join("\n"));
+
+  assert.equal(controller.snapshot().selectedId, "archive-6");
+  assert.match(rendered, /ARCHIVED/);
+  assert.match(rendered, /archive-6/);
+  assert.doesNotMatch(rendered, /OTHER ACTIVE/);
+  assert.deepEqual(saved, []);
+});
+
+test("palette action target cannot drift when selection changes", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "rename") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Rename…/);
+  controller.selectSession("docs");
+  view.handleInput("\r");
+
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.doesNotMatch(rendered, /title .*docs/);
+  assert.match(rendered, /target changed|no longer available/);
+});
+
+test("palette shows blocked actions with reasons and does not execute them", () => {
+  const child = { ...session("child", "child"), kind: "subagent" as const, parentId: "owner", agentName: "worker" };
+  let archived = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [child] }), () => {}, {
+    archiveSession: () => { archived = true; },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "archive") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+  view.handleInput("\r");
+
+  assert.equal(archived, false);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+});
+
+test("palette includes and executes configured dashboard shortcuts", () => {
+  const sent: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }],
+    runDashboardShortcut: (id, shortcut) => { sent.push(`${id}:${shortcut.send}`); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "summarize") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.deepEqual(sent, ["api:/summary"]);
+});
+
+test("palette exposes named status filters and direct Help", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("api", "api"), status: "running" },
+    session("docs", "docs"),
+  ] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "status: running") view.handleInput(char);
+  view.handleInput("\r");
+  assert.equal(controller.snapshot().filter, "running");
+  assert.match(stripAnsi(view.render(100).join("\n")), /api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /docs/);
+
+  view.handleInput("\u001b");
+  view.handleInput("?");
+  assert.match(stripAnsi(view.render(100).join("\n")), /pi agent hub help/);
+});
+
+test("colon is inert below the minimum dashboard width", () => {
+  const view = new SessionsView(new SessionsController(), () => {});
+  view.render(39);
+  view.handleInput(":");
+  assert.doesNotMatch(stripAnsi(view.render(39).join("\n")), /Search actions, sessions, filters/);
 });

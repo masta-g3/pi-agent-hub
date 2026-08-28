@@ -5,6 +5,7 @@ import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import type { CollapsibleSection } from "./dialog.js";
+import { dashboardFooter } from "./dashboard-commands.js";
 
 export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
 
@@ -172,6 +173,7 @@ export interface DashboardProjectionInput {
   collapsedSections?: ReadonlySet<CollapsibleSection>;
   expandedBoardParentIds?: ReadonlySet<string>;
   expandedProjectParentIds?: ReadonlySet<string>;
+  revealedSessionId?: string;
 }
 
 /** Structural dashboard rows shared by rendering and navigation. */
@@ -187,13 +189,25 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   const boardProjection = projectExpandedBoardRows(
     projectBoardRows(activeRows, allRows), input.expandedBoardParentIds ?? new Set(), filterActive,
   );
-  const archive = archiveSectionRows(allRows, { expanded: input.archiveExpanded ?? false, filterActive }, allTree);
+  let archive = archiveSectionRows(allRows, { expanded: input.archiveExpanded ?? false, filterActive }, allTree);
+  const revealed = input.revealedSessionId ? allTree.get(input.revealedSessionId) : undefined;
+  const revealedOwner = revealed ? (allTree.trace(revealed).owner ?? allTree.trace(revealed).terminal) : undefined;
+  const revealedArchiveIds = new Set<string>();
+  if (revealedOwner && effectiveSessionLifecycle(revealedOwner, allRows, allTree).section === "archived") {
+    revealedArchiveIds.add(revealedOwner.id);
+    for (const descendant of allTree.descendants(revealedOwner.id)) revealedArchiveIds.add(descendant.id);
+    const archiveRowIds = new Set(archive.rows.map((row) => row.id));
+    archive = {
+      ...archive,
+      rows: allRows.filter((row) => archiveRowIds.has(row.id) || revealedArchiveIds.has(row.id)),
+    };
+  }
   const visibleProjectRows = visibleTreeRows(archive.rows, allRows, input.expandedProjectParentIds ?? new Set(), filterActive);
   const projectRows = orderCockpitRows(visibleProjectRows, cockpitTierById);
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const visible = board ? boardProjection.rows : filterActive ? projectRows : projectRows.filter((session) => {
     const section = effectiveSessionLifecycle(session, allRows, allTree).section;
-    return section !== "archived" || !collapsedSections.has("archived");
+    return section !== "archived" || !collapsedSections.has("archived") || revealedArchiveIds.has(session.id);
   });
   return { allRows, allTree, activeRows, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
 }
@@ -289,6 +303,7 @@ export interface BuildRenderModelInput {
   hidePreview?: boolean;
   expandedBoardParentIds?: ReadonlySet<string>;
   expandedProjectParentIds?: ReadonlySet<string>;
+  revealedSessionId?: string;
   structuralProjection?: DashboardProjection;
 }
 
@@ -333,14 +348,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       expanded: input.archiveExpanded ?? false,
       hiddenParents: archive.hiddenParents,
       selected: input.archiveDisclosureSelected ?? false,
-    } : undefined, collapsedSections, input.selectedSection, filterActive);
+    } : undefined, collapsedSections, input.selectedSection,
+    filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"));
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
-  const worktreeFooter = selected?.worktreeOwnedByHub ? " · w Finish WT" : "";
-  const showLifecycleFooter = selected && selected.kind !== "subagent" && input.width >= 120;
-  const lifecycleFooter = showLifecycleFooter ? selected.section === "active" ? " · A Archive · B Backlog" : " · U Restore" : "";
-  const deleteFooter = input.width >= 120 ? "d Delete" : "d Del";
   const boardParents = mapped.filter((session) => session.kind !== "subagent");
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
@@ -363,11 +375,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.height ? { height: input.height } : {}),
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
-    footer: compactFooter
-      ? "1-4 Set · x# Close · F# Focus · ? Help"
-      : input.width < 120
-        ? "Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · / Filter · i Info · ? Help"
-        : `Enter Open · 1-4 Panels · x# Close · F#/Alt+# Focus · o Reset · n New · / Filter  │  p Send · i Info · r Restart · R Rename · ${deleteFooter}${worktreeFooter}${lifecycleFooter}  │  v Density · S Lanes · ? Help`,
+    footer: dashboardFooter(input.width),
     filter: input.filter,
     preview: input.preview ?? "",
     detailsExpanded: input.detailsExpanded ?? false,

@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Cockpit Design Lab · Onboarding</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --rule-w: 1px;
+  --focus-w: 2px;
+  --bench: #e4e8ed;
+  --bench-raised: #f7f8fa;
+  --bench-high: #ffffff;
+  --bench-ink: #151922;
+  --bench-muted: #515c6c;
+  --bench-dim: #59636f;
+  --bench-rule: #b8c1cd;
+  --gauge: #4438b8;
+  --gauge-soft: #e6e3fa;
+  --good: #25683a;
+  --warn: #825400;
+  --bad: #a3263b;
+  --t-bg: #12141a;
+  --t-lift: #1b1f28;
+  --t-select: #252c3a;
+  --t-rule: #343a47;
+  --t-ink: #d8dde7;
+  --t-muted: #a7afbd;
+  --t-dim: #858fa0;
+  --t-run: #7cc98a;
+  --t-wait: #e0a33f;
+  --t-idle: #a4abba;
+  --t-error: #ef7885;
+  --t-stop: #858fa0;
+  --t-flow: #a9a0ff;
+  --t-accent: #7cb2ff;
+  --t-attention-bg: #211d17;
+  --plate-cols: 100;
+  --lab-max: 112rem;
+  --copy-max: 70ch;
+  --control-min: 2.5rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bench: #151820;
+    --bench-raised: #1c2029;
+    --bench-high: #222731;
+    --bench-ink: #edf0f5;
+    --bench-muted: #b5bdc9;
+    --bench-dim: #929cab;
+    --bench-rule: #3b4350;
+    --gauge: #9d94ff;
+    --gauge-soft: #302b61;
+    --good: #8bd59a;
+    --warn: #e8b85a;
+    --bad: #ff8794;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bench);
+  color: var(--bench-ink);
+  font-family: var(--font-ui);
+  line-height: 1.45;
+}
+button, select, input { font: inherit; }
+button, select { color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: var(--focus-w) solid var(--gauge); outline-offset: var(--focus-w); }
+.terminal :focus-visible { outline-color: var(--t-accent); outline-offset: calc(-1 * var(--focus-w)); }
+.skip {
+  position: fixed;
+  inset: var(--s-3) auto auto -100vw;
+  z-index: 20;
+  padding: var(--s-2) var(--s-3);
+  background: var(--bench-high);
+  border: var(--rule-w) solid var(--bench-rule);
+}
+.skip:focus { left: var(--s-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.lab-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--s-5);
+  max-width: var(--lab-max);
+  margin: 0 auto;
+  padding: var(--s-6) var(--s-5) var(--s-4);
+  border-bottom: var(--rule-w) solid var(--bench-rule);
+}
+.eyebrow, .iteration, .field-label, .plate-label, .status-note, .terminal, code {
+  font-family: var(--font-mono);
+}
+.eyebrow, .iteration, .field-label, .plate-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+h1 { margin: var(--s-1) 0 0; font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.65rem); letter-spacing: -0.035em; line-height: 1.05; }
+.iteration { color: var(--gauge); white-space: nowrap; }
+.intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(18rem, 0.8fr);
+  gap: var(--s-6);
+  max-width: var(--lab-max);
+  margin: 0 auto;
+  padding: var(--s-5);
+}
+.intro p { max-width: var(--copy-max); margin: 0; color: var(--bench-muted); font-size: 1.05rem; }
+.scope {
+  border-left: var(--focus-w) solid var(--gauge);
+  padding-left: var(--s-4);
+  color: var(--bench-muted);
+}
+.scope strong { display: block; color: var(--bench-ink); }
+.controls {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--s-4) var(--s-5);
+  max-width: var(--lab-max);
+  margin: 0 auto;
+  padding: var(--s-3) var(--s-5);
+  background: color-mix(in srgb, var(--bench-raised) 94%, transparent);
+  border-block: var(--rule-w) solid var(--bench-rule);
+  backdrop-filter: blur(10px);
+}
+.control-group { display: grid; gap: var(--s-1); }
+.segmented { display: inline-flex; border: var(--rule-w) solid var(--bench-rule); background: var(--bench-high); }
+.segmented button {
+  min-height: var(--control-min);
+  padding: var(--s-2) var(--s-3);
+  border: 0;
+  border-right: var(--rule-w) solid var(--bench-rule);
+  background: transparent;
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button[aria-pressed="true"] { background: var(--gauge-soft); color: var(--gauge); font-weight: 700; }
+.toggle {
+  min-height: var(--control-min);
+  display: inline-flex;
+  gap: var(--s-2);
+  align-items: center;
+  padding: var(--s-2) var(--s-3);
+  border: var(--rule-w) solid var(--bench-rule);
+  background: var(--bench-high);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.toggle input { accent-color: var(--gauge); }
+.controls-note { margin-left: auto; color: var(--bench-dim); font-family: var(--font-mono); font-size: 0.78rem; }
+.control-help { max-width: 36ch; color: var(--bench-dim); font-family: var(--font-mono); font-size: 0.72rem; }
+.bench {
+  max-width: var(--lab-max);
+  margin: 0 auto;
+  padding: var(--s-5);
+}
+.plates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5); align-items: start; }
+.plates.wide-specimens { grid-template-columns: 1fr; }
+.plate { min-width: 0; }
+.plate-head {
+  display: grid;
+  gap: var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: var(--rule-w) solid var(--bench-rule);
+}
+.plate-head p { margin: 0; color: var(--bench-muted); font-size: 0.82rem; }
+.frozen-baseline { max-width: 92ch; padding-left: var(--s-3); border-left: var(--focus-w) solid var(--bench-rule); color: var(--bench-muted); font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.5; }
+.frozen-baseline strong { color: var(--bench-ink); text-transform: uppercase; letter-spacing: 0.06em; }
+.viewport {
+  margin-top: var(--s-3);
+  overflow-x: auto;
+  padding: 0 0 var(--s-3);
+  scrollbar-color: var(--bench-rule) transparent;
+}
+.ruler {
+  position: relative;
+  width: calc(var(--plate-cols) * 1ch);
+  min-width: calc(var(--plate-cols) * 1ch);
+  height: 1.65rem;
+  color: var(--bench-muted);
+  border-top: var(--rule-w) solid var(--bench-rule);
+  background: repeating-linear-gradient(to right, var(--bench-rule) 0 var(--rule-w), transparent var(--rule-w) 10ch);
+  background-size: 10ch var(--s-2);
+  background-repeat: repeat-x;
+  font: 0.78rem/1 var(--font-mono);
+}
+.ruler span { position: absolute; top: var(--s-2); }
+.ruler .r0 { left: 0; }
+.ruler .r1 { left: 20ch; }
+.ruler .r2 { left: 40ch; }
+.ruler .r3 { left: 60ch; }
+.ruler .r4 { left: 80ch; }
+.ruler .r5 { right: 0; color: var(--gauge); font-weight: 700; }
+.terminal {
+  --cell-h: 1.3em;
+  position: relative;
+  width: calc(var(--plate-cols) * 1ch);
+  min-width: calc(var(--plate-cols) * 1ch);
+  min-height: calc(38 * var(--cell-h));
+  overflow: hidden;
+  background: var(--t-bg);
+  color: var(--t-ink);
+  border: var(--rule-w) solid var(--t-rule);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+.terminal.grid::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(to right, color-mix(in srgb, var(--t-rule) 32%, transparent) var(--rule-w), transparent var(--rule-w));
+  background-size: 1ch 100%;
+  z-index: 5;
+}
+.term-top {
+  height: calc(3 * var(--cell-h));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 2ch;
+  border-bottom: var(--rule-w) solid var(--t-rule);
+}
+.brand { color: var(--t-accent); font-weight: 700; }
+.term-top-meta { color: var(--t-dim); text-align: right; }
+.term-top-meta strong { color: var(--t-wait); }
+.shell { display: grid; min-height: calc(32 * var(--cell-h)); }
+.terminal[data-cols="120"] .shell { grid-template-columns: 17ch minmax(42ch, 1fr) 34ch; }
+.terminal[data-cols="160"] .shell { grid-template-columns: 17ch minmax(48ch, 1fr) 44ch; }
+.terminal[data-cols="100"] .shell { grid-template-columns: 16ch minmax(0, 1fr); }
+.terminal[data-cols="60"] .shell, .terminal[data-cols="80"] .shell { grid-template-columns: minmax(0, 1fr); }
+.side-nav {
+  display: none;
+  padding: calc(2 * var(--cell-h)) 1ch var(--cell-h);
+  border-right: var(--rule-w) solid var(--t-rule);
+  color: var(--t-dim);
+}
+.terminal[data-cols="100"] .side-nav, .terminal[data-cols="120"] .side-nav, .terminal[data-cols="160"] .side-nav { display: block; }
+.nav-title { margin: 0 0 var(--cell-h); padding: 0 1ch; color: var(--t-muted); text-transform: uppercase; }
+.nav-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1ch;
+  width: 100%;
+  min-height: calc(2 * var(--cell-h));
+  padding: 0 1ch;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.nav-item.active { background: var(--t-select); color: var(--t-ink); }
+.nav-item:disabled { cursor: default; color: var(--t-dim); }
+.nav-item .count { color: var(--t-muted); }
+.fleet { min-width: 0; padding: var(--cell-h) 1ch; overflow-y: auto; scrollbar-color: var(--t-rule) transparent; }
+.section { margin-bottom: var(--cell-h); }
+.section.attention-section { background: var(--t-attention-bg); border-left: var(--focus-w) solid var(--t-wait); }
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  width: 100%;
+  min-height: calc(2 * var(--cell-h));
+  padding: 0 1ch;
+  border: 0;
+  border-bottom: var(--rule-w) solid var(--t-rule);
+  background: transparent;
+  color: var(--t-muted);
+  font: inherit;
+  text-align: left;
+}
+.attention-section .section-head { color: var(--t-wait); }
+.section-count { color: var(--t-dim); }
+.section-toggle { margin-left: auto; }
+.card {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: var(--rule-w) solid var(--t-rule);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.card:hover { background: var(--t-lift); }
+.card[aria-current="true"] { background: var(--t-select); }
+.attention-section .card-line { border-left: var(--focus-w) solid var(--t-wait); padding-left: calc(1ch - var(--focus-w)); }
+.attention-section .card-summary { color: var(--t-ink); }
+.card-line {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  min-height: var(--cell-h);
+  padding: 0 1ch;
+  gap: 1ch;
+}
+.card[aria-current="true"] .card-line { border-left: var(--focus-w) solid var(--t-accent); padding-left: calc(1ch - var(--focus-w)); }
+.attention-section .card[aria-current="true"] .card-line { border-left-color: var(--t-wait); }
+.card-title { flex: 1 1 auto; min-width: 8ch; color: var(--t-ink); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-summary { color: var(--t-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { color: var(--t-dim); }
+.card-meta .ticket { color: var(--t-muted); }
+.workflow { color: var(--t-flow); }
+.card-tail { flex: 0 0 auto; margin-left: auto; display: inline-flex; gap: 1ch; align-items: baseline; white-space: nowrap; color: var(--t-dim); }
+.attention-mark { color: var(--t-wait); font-weight: 700; }
+.worktree { color: var(--t-accent); }
+.status { white-space: nowrap; }
+.status.running, .status.starting { color: var(--t-run); }
+.status.waiting { color: var(--t-wait); }
+.status.idle { color: var(--t-idle); }
+.status.error { color: var(--t-error); }
+.status.stopped { color: var(--t-stop); }
+.group-label, .repo-count, .age, .lifecycle { color: var(--t-dim); }
+.lifecycle { flex: 0 0 auto; }
+.subagents { color: var(--t-muted); }
+.selection-mark { display: none; color: var(--t-accent); font-weight: 700; }
+.selection-heavy .card[aria-current="true"] .selection-mark { display: inline; }
+.selection-heavy .card[aria-current="true"] .card-line { border-left-color: transparent; }
+.selection-heavy .attention-section .card[aria-current="true"] .card-line { border-left-color: var(--t-wait); }
+.attention-rail .attention-section,
+.attention-marker .attention-section { background: transparent; border-left: 0; }
+.attention-marker .attention-section .card:not([aria-current="true"]) .card-line { border-left-color: transparent; }
+.density-compact .card-line:not(:first-child),
+.density-focus .card-line:not(:first-child) { display: none; }
+.density-compact .card-line:first-child,
+.density-focus .card-line:first-child { min-height: var(--cell-h); }
+.density-focus .attention-section .card-line,
+.density-focus .section[data-tier="health"] .card-line,
+.density-focus .card[aria-current="true"] .card-line { display: flex; }
+.terminal[data-cols="60"] .group-label,
+.terminal[data-cols="60"] .repo-count,
+.terminal[data-cols="60"] .age,
+.terminal[data-cols="60"] .status-word,
+.terminal[data-cols="60"] .workflow-long,
+.terminal[data-cols="80"] .group-label,
+.terminal[data-cols="80"] .status-word,
+.terminal[data-cols="80"] .workflow-long,
+.terminal[data-cols="100"] .workflow-long { display: none; }
+.terminal[data-cols="120"] .workflow-short,
+.terminal[data-cols="160"] .workflow-short { display: none; }
+.workflow-short .workflow-long,
+.workflow-selected .workflow-long { display: none; }
+.workflow-short .workflow-short,
+.workflow-selected .workflow-short,
+.terminal.workflow-short[data-cols="120"] .workflow-short,
+.terminal.workflow-short[data-cols="160"] .workflow-short,
+.terminal.workflow-selected[data-cols="120"] .workflow-short,
+.terminal.workflow-selected[data-cols="160"] .workflow-short { display: inline; }
+.workflow-selected[data-cols="120"] .card[aria-current="true"] .workflow-long,
+.workflow-selected[data-cols="160"] .card[aria-current="true"] .workflow-long { display: inline; }
+.workflow-selected[data-cols="120"] .card[aria-current="true"] .workflow-short,
+.workflow-selected[data-cols="160"] .card[aria-current="true"] .workflow-short { display: none; }
+.terminal[data-cols="60"] .card-summary { max-width: 38ch; }
+.nav-off .side-nav,
+.nav-wide[data-cols="100"] .side-nav { display: none; }
+.nav-off[data-cols="100"] .shell,
+.nav-wide[data-cols="100"] .shell { grid-template-columns: minmax(0, 1fr); }
+.workflow-mode[data-cols="160"] .shell { grid-template-columns: minmax(48ch, 1fr) 44ch; }
+.workflow-mode[data-cols="120"] .shell { grid-template-columns: minmax(42ch, 1fr) 34ch; }
+.workflow-mode[data-cols="100"] .shell, .workflow-mode[data-cols="60"] .shell { grid-template-columns: minmax(0, 1fr); }
+.workflow-board { min-width: 0; padding: var(--cell-h) 2ch; overflow-y: auto; scrollbar-color: var(--t-rule) transparent; }
+.board-header { display: flex; justify-content: space-between; gap: 2ch; margin-bottom: var(--cell-h); color: var(--t-dim); }
+.board-header strong { color: var(--t-flow); }
+.board-lane { margin-bottom: var(--cell-h); border-left: var(--rule-w) solid var(--t-rule); }
+.board-lane-head { display: flex; justify-content: space-between; gap: 1ch; min-height: calc(2 * var(--cell-h)); align-items: center; padding: 0 1ch; border-bottom: var(--rule-w) solid var(--t-rule); color: var(--t-flow); }
+.board-lane.other .board-lane-head { color: var(--t-muted); }
+.board-group-head { min-height: var(--cell-h); padding: 0.25rem 2ch; color: var(--t-dim); text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.78em; }
+.board-card { display: block; width: 100%; padding: 0; border: 0; border-bottom: var(--rule-w) solid var(--t-rule); background: transparent; color: var(--t-muted); font: inherit; text-align: left; }
+.board-card:hover { background: var(--t-lift); }
+.board-card[aria-current="true"] { background: var(--t-select); border-left: var(--focus-w) solid var(--t-accent); }
+.board-card-line { display: flex; align-items: baseline; gap: 1ch; min-width: 0; min-height: 1.6rem; padding: 0.12rem 1ch; }
+.board-card-title { flex: 1 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--t-ink); font-weight: 700; }
+.board-attention { color: var(--t-wait); font-weight: 700; }
+.board-flow { flex: 0 0 auto; color: var(--t-flow); white-space: nowrap; }
+.board-context { color: var(--t-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-activity { color: var(--t-flow); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-progress { color: var(--t-dim); white-space: nowrap; }
+.board-children { padding-left: 2ch; }
+.terminal[data-cols="60"] .board-card-line:not(:first-child), .terminal[data-cols="60"] .board-group-head { display: none; }
+.terminal[data-cols="60"] .workflow-board { padding-inline: 1ch; }
+.terminal.workspace-focus[data-cols="60"] .workflow-board, .terminal.workspace-focus[data-cols="100"] .workflow-board { display: none; }
+.terminal.pin-mode[data-cols="160"] .shell, .terminal.pin-mode[data-cols="100"] .shell, .terminal.pin-mode.workflow-mode[data-cols="160"] .shell, .terminal.pin-mode.workflow-mode[data-cols="100"] .shell { grid-template-columns: 42ch minmax(0, 1fr); }
+.terminal.pin-mode[data-cols="60"] .shell, .terminal.pin-mode.workflow-mode[data-cols="60"] .shell { grid-template-columns: 40ch minmax(0, 1fr); }
+.pin-sidebar { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-right: var(--rule-w) solid var(--t-rule); }
+.pin-list { min-height: 0; flex: 1 1 auto; overflow-y: auto; }
+.pin-list > .fleet { padding: var(--cell-h) 1ch; border: 0; }
+.pin-list > .workflow-board { height: 100%; padding: var(--cell-h) 1ch; }
+.pin-list .card { border-left: var(--rule-w) solid transparent; }
+.pin-list .card.pinned, .pin-list .board-card.pinned { border-left-color: var(--t-dim); }
+.pin-list .card.active-pin, .pin-list .board-card.active-pin { border-left: var(--focus-w) solid var(--t-accent); }
+.pin-list .card.pinned .card-title::before, .pin-list .board-card.pinned .board-card-title::before { content: "▢ "; color: var(--t-flow); }
+.pin-list .card.active-pin .card-title::before, .pin-list .board-card.active-pin .board-card-title::before { content: "▣ "; color: var(--t-accent); }
+.pin-list .card-summary-line, .pin-list .card-meta { display: none; }
+.pin-list .workflow-long { display: none; }
+.pin-list .workflow-short { display: inline; }
+.pin-decision { flex: 0 0 auto; min-height: calc(4 * var(--cell-h)); padding: 0.35rem 1ch; border-top: var(--rule-w) solid var(--t-rule); color: var(--t-muted); overflow: hidden; }
+.pin-decision strong { color: var(--t-wait); }
+.pin-decision span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #0d1016; overflow: hidden; }
+.live-grid { flex: 1 1 auto; min-height: 0; display: grid; gap: var(--rule-w); background: var(--t-rule); }
+.live-grid[data-count="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.live-grid[data-count="2"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.live-grid[data-count="3"], .live-grid[data-count="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.live-grid[data-count="3"] .live-pane:first-child { grid-row: 1 / 3; }
+.terminal[data-cols="100"] .live-grid[data-count="2"], .terminal[data-cols="60"] .live-grid[data-count="2"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+.live-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #0d1016; border-left: var(--rule-w) solid var(--t-dim); color: var(--t-muted); overflow: hidden; }
+.live-pane.active { border-left: var(--focus-w) solid var(--t-accent); }
+.live-pane-title { display: flex; gap: 1ch; min-height: calc(2 * var(--cell-h)); align-items: center; padding: 0 1ch; border-bottom: var(--rule-w) solid var(--t-rule); color: var(--t-ink); background: var(--t-lift); }
+.live-pane.active .live-pane-title { color: var(--t-bg); background: var(--t-accent); }
+.live-pane-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.live-pane-body { flex: 1 1 auto; padding: 0.45rem 1ch; overflow: hidden; color: #aeb8c8; }
+.live-pane-body span { display: block; min-height: var(--cell-h); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-pane-body .prompt { color: var(--t-flow); }
+.live-empty { display: grid; place-items: center; padding: 2ch; color: var(--t-dim); text-align: center; }
+.attention-delivery { box-sizing: border-box; width: 100%; height: calc(2 * var(--cell-h)); display: flex; align-items: center; gap: 1ch; min-width: 0; padding: 0 1ch; border: 0; border-bottom: var(--rule-w) solid var(--t-rule); border-left: var(--focus-w) solid var(--t-wait); background: var(--t-attention-bg); color: var(--t-muted); overflow: hidden; white-space: nowrap; text-align: left; font: inherit; }
+.attention-delivery[data-delivery-go] { cursor: pointer; }
+.attention-delivery[data-delivery-go]:focus-visible { outline: var(--focus-w) solid var(--t-accent); outline-offset: -2px; }
+.delivery-kind { color: var(--t-wait); font-weight: 700; }
+.delivery-title { flex: 0 1 auto; min-width: 12ch; overflow: hidden; text-overflow: ellipsis; color: var(--t-ink); font-weight: 700; }
+.delivery-request { flex: 1 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+.delivery-channel, .delivery-keys, .delivery-age { flex: 0 0 auto; color: var(--t-dim); }
+.delivery-keys b { color: var(--t-accent); font-weight: 400; }
+.terminal.has-delivery .shell { height: calc(33rem - 2 * var(--cell-h)); }
+.terminal.has-delivery.has-feedback .shell { height: calc(33rem - 1.8rem - 2 * var(--cell-h)); }
+.terminal[data-cols="100"] .delivery-channel, .terminal[data-cols="100"] .delivery-age { display: none; }
+.terminal[data-cols="60"] .delivery-request, .terminal[data-cols="60"] .delivery-channel, .terminal[data-cols="60"] .delivery-age { display: none; }
+.terminal[data-cols="60"] .delivery-keys { margin-left: auto; }
+.onboarding-empty { grid-column: 1 / -1; box-sizing: border-box; height: 100%; padding: 1rem 2ch; display: grid; align-content: start; gap: .55rem; }
+.onboarding-zero-head { display: flex; justify-content: space-between; gap: 1ch; color: var(--t-ink); border-bottom: 1px solid var(--t-rule); padding-bottom: .2rem; }
+.onboarding-zero-head span, .tier-hint, .onboarding-caption { color: var(--t-dim); }
+.onboarding-tier { display: grid; grid-template-columns: 14ch minmax(0, 1fr); gap: 1ch; padding: .15rem 0 .35rem; border-bottom: 1px solid color-mix(in srgb, var(--t-rule) 65%, transparent); }
+.onboarding-tier strong { display: inline-block; min-width: 13ch; color: var(--t-muted); }
+.onboarding-tier--needs strong { color: var(--t-wait); }
+.onboarding-primary { display: grid; grid-template-columns: max-content 1fr; gap: 0 1ch; padding: .3rem 1ch; border: 0; border-left: 2px solid var(--t-accent); background: transparent; color: var(--t-ink); text-align: left; font: inherit; }
+.onboarding-primary b { color: var(--t-accent); }
+.onboarding-primary small { grid-column: 2; color: var(--t-dim); }
+.onboarding-discovery { color: var(--t-dim); }
+.onboarding-discovery b { color: var(--t-accent); }
+.tier-hint { display: block; padding: .15rem 2ch .25rem; font-size: 1em; }
+.start-here { border-bottom: 1px solid var(--t-rule); border-left: 2px solid var(--t-accent); background: transparent; }
+.start-here-head { display: flex; justify-content: space-between; padding: .3rem 1ch; color: var(--t-accent); border-bottom: 1px solid var(--t-rule); }
+.start-here-row { width: 100%; display: grid; grid-template-columns: 2ch 7ch 1fr; gap: 1ch; padding: .28rem 1ch; border: 0; background: transparent; color: var(--t-muted); text-align: left; font: inherit; }
+.start-here-row:first-of-type, button.start-here-row { color: var(--t-ink); }
+.start-here-row b { color: var(--t-accent); }
+.release-guide { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 1ch; width: 100%; padding: .35rem 1ch; border: 0; border-bottom: 1px solid var(--t-rule); background: color-mix(in srgb, var(--t-accent) 7%, var(--t-bg)); color: var(--t-muted); text-align: left; font: inherit; }
+.release-guide strong { color: var(--t-accent); }
+.release-guide span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-guide kbd { color: var(--t-accent); }
+.terminal[data-cols="60"] .tier-hint--quiet, .terminal[data-cols="60"] .release-guide-detail { display: none; }
+.terminal[data-cols="60"] .onboarding-empty { padding-inline: 1ch; gap: .38rem; }
+.terminal[data-cols="60"] .onboarding-tier { padding-bottom: .2rem; }
+.terminal[data-cols="60"] .start-here-row { padding-block: .2rem; }
+.terminal[data-cols="60"] .release-guide { grid-template-columns: max-content 1fr; }
+.terminal[data-cols="60"] .release-guide kbd { display: none; }
+.event-ledger { margin-top: var(--s-4); border: var(--rule-w) solid var(--bench-rule); background: var(--bench-high); font-family: var(--font-mono); font-size: 0.78rem; }
+.event-ledger header { display: flex; justify-content: space-between; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: var(--rule-w) solid var(--bench-rule); }
+.event-ledger header span { color: var(--bench-muted); }
+.ledger-line { display: grid; grid-template-columns: 2ch minmax(12ch, 0.7fr) minmax(0, 1fr); gap: 1ch; padding: 0.35rem var(--s-4); border-bottom: var(--rule-w) solid var(--bench-rule); color: var(--bench-muted); }
+.ledger-line:last-child { border-bottom: 0; }
+.ledger-line strong { color: var(--bench-ink); }
+.ledger-fired { color: var(--gauge); }
+.ledger-silent { color: var(--bench-muted); }
+.workspace {
+  display: none;
+  min-width: 0;
+  padding: calc(1.5 * var(--cell-h)) 2ch;
+  border-left: var(--rule-w) solid var(--t-rule);
+  color: var(--t-muted);
+  overflow: hidden;
+}
+.terminal[data-cols="120"] .workspace, .terminal[data-cols="160"] .workspace { display: block; }
+.workspace-kicker { color: var(--t-accent); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.82em; }
+.workspace-title { margin: 0.35rem 0 0; color: var(--t-ink); font-size: 1em; line-height: 1.3; }
+.workspace-identity { margin-bottom: var(--cell-h); padding-bottom: var(--cell-h); border-bottom: var(--rule-w) solid var(--t-rule); }
+.ws-meta, .ws-label, .ws-location { color: var(--t-dim); }
+.ws-meta { margin-top: 0.25rem; }
+.ws-block { margin: 0 0 var(--cell-h); }
+.ws-label { display: block; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.78em; }
+.ws-ask { padding: 0.65rem 0; border-top: var(--focus-w) solid var(--t-wait); color: var(--t-ink); }
+.ws-ask.none { border-top-color: var(--t-rule); color: var(--t-dim); }
+.ws-ask strong { display: block; margin-bottom: 0.35rem; color: var(--t-wait); }
+.ws-next { color: var(--t-ink); }
+.ws-actions { display: grid; gap: 0.25rem; padding-block: 0.55rem; border-block: var(--rule-w) solid var(--t-rule); }
+.ws-action { display: grid; grid-template-columns: 6ch minmax(0, 1fr); gap: 1ch; width: 100%; padding: 0.2rem 0; border: 0; background: transparent; color: var(--t-muted); font: inherit; text-align: left; }
+.ws-action:hover, .ws-action:focus-visible { color: var(--t-ink); background: var(--t-lift); }
+.ws-action b { color: var(--t-accent); font-weight: 400; }
+.ws-action small { display: block; color: var(--t-dim); }
+.workspace--palette .ws-actions { display: flex; flex-wrap: wrap; gap: 1.5ch; }
+.workspace--palette .ws-action { display: inline-flex; width: auto; }
+.terminal[data-cols="160"] .ws-action > span { display: grid; grid-template-columns: 16ch minmax(0, 1fr); gap: 1ch; min-width: 0; }
+.terminal[data-cols="160"] .ws-action small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal[data-cols="60"] .ws-action small, .terminal[data-cols="100"] .ws-action small { display: none; }
+.ws-feedback { color: var(--t-accent); }
+.ws-preview { min-height: calc(7 * var(--cell-h)); max-height: calc(7 * var(--cell-h)); overflow: hidden; break-inside: avoid; }
+.ws-preview-head { display: flex; justify-content: space-between; gap: 1ch; margin-bottom: 0.35rem; }
+.ws-preview-source { color: var(--t-dim); font-size: 0.78em; text-align: right; }
+.ws-context-grid { display: grid; grid-template-columns: 1ch minmax(0, 1fr); gap: 0.2rem 1ch; }
+.ws-provenance { color: var(--t-dim); }
+.ws-provenance--stale { color: var(--t-wait); font-weight: 700; }
+.ws-context-ticket { color: var(--t-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-context-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--t-ink); }
+.ws-context-activity { color: var(--t-flow); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-context-empty { color: var(--t-dim); }
+.terminal[data-cols="60"] .ws-context-desc { -webkit-line-clamp: 1; white-space: nowrap; text-overflow: ellipsis; }
+.terminal[data-cols="60"] .ws-preview-source { max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-result { color: var(--t-ink); }
+.ws-result .status-glyph { margin-right: 1ch; }
+.ws-result strong { color: var(--t-ink); }
+.ws-explain { position: relative; margin-top: 0.35rem; color: var(--t-dim); }
+.ws-explain b { color: var(--t-accent); font-weight: 400; }
+.ws-evidence { display: grid; gap: 0.25rem; }
+.ws-evidence-line { display: grid; grid-template-columns: 9ch minmax(0, 1fr); gap: 1ch; }
+.ws-evidence-line b { color: var(--t-dim); font-weight: 400; }
+.ws-workflow { color: var(--t-flow); }
+.ws-workflow small { display: block; color: var(--t-dim); }
+.ws-tree { display: grid; gap: 0.25rem; color: var(--t-muted); }
+.ws-tree-line { display: flex; gap: 1ch; min-width: 0; }
+.ws-tree-line span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-tree-line .age { margin-left: auto; }
+.workspace-back { display: none; margin-bottom: var(--cell-h); color: var(--t-accent); }
+.workspace { overflow-y: auto; scrollbar-color: var(--t-rule) transparent; }
+.terminal.workspace-focus[data-cols="60"] .side-nav,
+.terminal.workspace-focus[data-cols="60"] .fleet,
+.terminal.workspace-focus[data-cols="100"] .side-nav,
+.terminal.workspace-focus[data-cols="100"] .fleet { display: none; }
+.terminal.workspace-focus[data-cols="60"] .shell,
+.terminal.workspace-focus[data-cols="100"] .shell { grid-template-columns: minmax(0, 1fr); }
+.terminal.workspace-focus[data-cols="60"] .workspace,
+.terminal.workspace-focus[data-cols="100"] .workspace { display: block; border-left: 0; padding: var(--cell-h) 2ch; }
+.terminal.workspace-focus[data-cols="60"] .workspace-back,
+.terminal.workspace-focus[data-cols="100"] .workspace-back { display: block; }
+.terminal.workspace-focus[data-cols="60"] .ws-evidence-line { grid-template-columns: 8ch minmax(0, 1fr); }
+.terminal[data-cols="60"] .ws-location { display: none; }
+.term-footer {
+  display: flex;
+  gap: 2ch;
+  align-items: center;
+  min-height: calc(2 * var(--cell-h));
+  padding: 0 2ch;
+  border-top: var(--rule-w) solid var(--t-rule);
+  color: var(--t-dim);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.term-footer strong { color: var(--t-accent); font-weight: 400; }
+.palette-scrim { position: absolute; inset: auto 0 2.65rem; z-index: 30; height: calc(26 * var(--cell-h)); display: grid; place-items: stretch; padding: 0; background: transparent; }
+.command-palette { width: 100%; height: 100%; min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--t-lift); border-block: var(--rule-w) solid var(--t-muted); color: var(--t-ink); }
+.palette-search { display: flex; align-items: center; gap: 1ch; min-height: calc(2 * var(--cell-h)); padding: 0 1ch; border-bottom: var(--rule-w) solid var(--t-rule); color: var(--t-accent); }
+.palette-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--t-ink); font: inherit; }
+.palette-list { min-height: 0; overflow-y: auto; padding: 0.4rem 0; }
+.palette-group { padding: 0.45rem 1ch 0.2rem; color: var(--t-dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.78em; }
+.palette-item { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, auto); gap: 1ch; width: 100%; min-height: calc(2 * var(--cell-h)); align-items: center; padding: 0 1ch; border: 0; background: transparent; color: var(--t-muted); font: inherit; text-align: left; }
+.palette-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-item[aria-selected="true"] { background: var(--t-select); color: var(--t-ink); }
+.palette-item .palette-key { color: var(--t-accent); }
+.palette-item .palette-hint { color: var(--t-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-empty { padding: 1rem 1ch; color: var(--t-dim); }
+.palette-help { min-height: calc(2 * var(--cell-h)); display: flex; align-items: center; padding: 0 1ch; border-top: var(--rule-w) solid var(--t-rule); color: var(--t-dim); }
+.receipt { position: static; z-index: 20; height: 1.8rem; padding: 0.25rem 2ch; border-top: var(--rule-w) solid var(--t-rule); background: var(--t-lift); color: var(--t-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal.has-feedback .shell { height: calc(33rem - 1.8rem); }
+.terminal.has-feedback .palette-scrim { bottom: calc(2.65rem + 1.8rem); }
+.receipt strong { color: var(--t-accent); }
+.terminal[data-cols="60"] .palette-hint { display: none; }
+.terminal[data-cols="60"] .palette-item { grid-template-columns: 6ch minmax(0, 1fr); }
+.terminal[data-cols="60"] .palette-scrim { height: calc(30 * var(--cell-h)); }
+@media print { .palette-scrim, .receipt { display: none !important; } }
+:is(.rhythm-airy, .rhythm-tight) { height: 39rem; min-height: 0; }
+:is(.rhythm-airy, .rhythm-tight) .term-top { height: 3.35rem; }
+:is(.rhythm-airy, .rhythm-tight) .brand { letter-spacing: 0.05em; }
+:is(.rhythm-airy, .rhythm-tight) .shell { height: 33rem; min-height: 0; overflow: hidden; }
+:is(.rhythm-airy, .rhythm-tight) .side-nav { padding: 2.2rem 1ch 1rem; }
+:is(.rhythm-airy, .rhythm-tight) .nav-title { margin-bottom: var(--s-3); letter-spacing: 0.08em; font-size: 0.8em; }
+:is(.rhythm-airy, .rhythm-tight) .nav-item { min-height: 0; padding: 0.6em 1ch; }
+:is(.rhythm-airy, .rhythm-tight) .fleet { padding: 1rem 1ch; }
+:is(.rhythm-airy, .rhythm-tight) .section { margin-bottom: 1rem; }
+:is(.rhythm-airy, .rhythm-tight) .section-head { min-height: 2rem; }
+.rhythm-airy .card-line { min-height: 1.75rem; padding-block: 0.22rem; }
+.rhythm-tight .card-line { min-height: 1.6rem; padding-block: 0.12rem; }
+.rhythm-airy.density-compact .card-line:first-child { min-height: 2rem; }
+.rhythm-tight.density-compact .card-line:first-child { min-height: 1.85rem; }
+:is(.rhythm-airy, .rhythm-tight) .workspace { padding: 2rem 2ch; }
+:is(.rhythm-airy, .rhythm-tight) .workspace-kicker { letter-spacing: 0.08em; font-size: 0.82em; }
+:is(.rhythm-airy, .rhythm-tight) .future-label { margin-top: var(--s-4); font-size: 0.82em; }
+:is(.rhythm-airy, .rhythm-tight) .term-footer { min-height: 2.65rem; }
+.attention-marker.selection-accent .attention-section .card[aria-current="true"] .card-line { border-left-color: var(--t-accent); }
+.attention-marker.selection-heavy .attention-section .card[aria-current="true"] .card-line { border-left-color: transparent; }
+.attention-mark, .status, .workflow, .subagents, .card-meta > span { position: relative; }
+.inspection-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-top: var(--rule-w) solid var(--bench-rule); color: var(--bench-muted); font-family: var(--font-mono); font-size: 0.78rem; }
+.hierarchy .tree-prefix { flex: 0 0 8ch; display: inline-grid; grid-template-columns: 2ch 1ch 1ch; gap: 1ch; align-items: baseline; color: var(--t-dim); }
+.hierarchy .disclosure { color: var(--t-accent); font-weight: 700; }
+.hierarchy [data-tree-toggle] { cursor: pointer; }
+.hierarchy .prefix-attention { color: var(--t-wait); font-weight: 700; }
+.hierarchy .status-glyph.running, .hierarchy .status-glyph.starting { color: var(--t-run); }
+.hierarchy .status-glyph.waiting { color: var(--t-wait); }
+.hierarchy .status-glyph.idle { color: var(--t-idle); }
+.hierarchy .status-glyph.error { color: var(--t-error); }
+.hierarchy .status-glyph.stopped { color: var(--t-stop); }
+.hierarchy .attention-section .card-line { border-left: 0; padding-left: 1ch; }
+.hierarchy .attention-section { border-left: var(--focus-w) solid var(--t-wait); }
+.hierarchy .card[aria-current="true"] .card-line { border-left: var(--focus-w) solid var(--t-accent); padding-left: calc(1ch - var(--focus-w)); }
+.hierarchy .children { margin-left: 0; }
+.hierarchy .card--child .card-title { flex: 0 1 20ch; min-width: 10ch; }
+.hierarchy .card--depth-2 .card-title { margin-left: 2ch; }
+.hierarchy .child-task { flex: 1 1 auto; min-width: 8ch; overflow: hidden; color: var(--t-muted); text-overflow: ellipsis; white-space: nowrap; }
+.hierarchy .card--single .card-line:not(:first-child) { display: none; }
+.hierarchy.child-micro .card--child .card-title { color: var(--t-muted); font-weight: 400; }
+.hierarchy.child-micro .card--child .workflow,
+.hierarchy.child-micro .card--child .age { display: none; }
+.hierarchy .child-detail { display: none; padding-left: 9ch; color: var(--t-muted); }
+.hierarchy.child-full[data-cols="100"] .card--child .child-detail,
+.hierarchy.child-full[data-cols="160"] .card--child .child-detail { display: flex; }
+.hierarchy.child-full[data-cols="100"] .card--child > .card-line:first-child .child-task,
+.hierarchy.child-full[data-cols="160"] .card--child > .card-line:first-child .child-task { display: none; }
+.hierarchy[data-cols="160"] .card--child .workflow-long { display: none; }
+.hierarchy[data-cols="160"] .card--child .workflow-short { display: inline; }
+.hierarchy[data-cols="60"] .card-meta { display: none; }
+.hierarchy[data-cols="60"] .card--child .child-task { max-width: 24ch; }
+.hierarchy .card--parent.card--single .tree-prefix .disclosure { color: var(--t-dim); }
+.hierarchy .card[aria-current="true"] .card-meta,
+.hierarchy .card[aria-current="true"] .age { color: var(--t-idle); }
+.no-js { padding: var(--s-4); color: var(--t-muted); }
+.spec-drawer {
+  margin-top: var(--s-5);
+  background: var(--bench-raised);
+  border-block: var(--rule-w) solid var(--bench-rule);
+}
+.spec-drawer summary {
+  padding: var(--s-3) var(--s-4);
+  cursor: pointer;
+  font-weight: 700;
+}
+.spec-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: var(--rule-w) solid var(--bench-rule); }
+.spec {
+  min-width: 0;
+  padding: var(--s-4);
+  border-right: var(--rule-w) solid var(--bench-rule);
+}
+.spec:last-child { border-right: 0; }
+.spec b { display: block; color: var(--gauge); font-family: var(--font-mono); }
+.spec p { margin: var(--s-2) 0 0; color: var(--bench-muted); font-size: 0.86rem; }
+.decision {
+  max-width: var(--lab-max);
+  margin: 0 auto;
+  padding: var(--s-6) var(--s-5) var(--s-7);
+}
+.decision-head { display: flex; justify-content: space-between; gap: var(--s-5); align-items: end; border-bottom: var(--rule-w) solid var(--bench-rule); padding-bottom: var(--s-3); }
+.decision h2 { margin: 0; font-size: clamp(1.4rem, 1.2rem + 0.8vw, 2rem); }
+.decision-head p { max-width: var(--copy-max); margin: 0; color: var(--bench-muted); }
+.questions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-bottom: var(--rule-w) solid var(--bench-rule); }
+.question { padding: var(--s-5) var(--s-4); border-right: var(--rule-w) solid var(--bench-rule); }
+.question:last-child { border-right: 0; }
+.question span { color: var(--gauge); font-family: var(--font-mono); font-weight: 700; }
+.question h3 { margin: var(--s-2) 0; font-size: 1rem; }
+.question p { margin: 0; color: var(--bench-muted); font-size: 0.9rem; }
+.boundary { margin-top: var(--s-4); color: var(--bench-dim); font-family: var(--font-mono); font-size: 0.82rem; }
+@media (max-width: 75rem) {
+  .plates { grid-template-columns: 1fr; }
+  .controls-note { width: 100%; margin-left: 0; }
+  .spec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .spec { border-bottom: var(--rule-w) solid var(--bench-rule); }
+}
+@media (max-width: 48rem) {
+  .lab-header { align-items: start; flex-wrap: wrap; }
+  .control-group { min-width: 0; max-width: 100%; }
+  .segmented { max-width: 100%; overflow-x: auto; }
+  .plate-head { display: grid; }
+  .intro { grid-template-columns: 1fr; }
+  .controls { position: static; }
+  .questions { grid-template-columns: 1fr; }
+  .question { border-right: 0; border-bottom: var(--rule-w) solid var(--bench-rule); }
+  .spec-grid { grid-template-columns: 1fr; }
+  .spec { border-right: 0; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media print {
+  :root {
+    color-scheme: light;
+    --bench: #ffffff;
+    --bench-raised: #ffffff;
+    --bench-high: #ffffff;
+    --bench-ink: #111111;
+    --bench-muted: #333333;
+    --bench-dim: #4d4d4d;
+    --bench-rule: #999999;
+  }
+  .controls { position: static; backdrop-filter: none; }
+  .plates { grid-template-columns: 1fr; }
+  .viewport { overflow: visible; transform-origin: top left; }
+  .terminal { break-inside: avoid; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .terminal, .shell { height: auto !important; min-height: 0; overflow: visible; }
+  .fleet, .workspace { overflow: visible; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#lab">Skip to design lab</a>
+<header class="lab-header">
+  <div>
+    <div class="eyebrow">pi-agent-hub · product prototype</div>
+    <h1>Cockpit Design Lab</h1>
+  </div>
+  <div class="iteration">Layer 09 / frozen · real-tier onboarding</div>
+</header>
+<section class="intro" aria-labelledby="purpose">
+  <p id="purpose"><strong>Approved: teach the attention-first daily loop through the cockpit’s real tiers.</strong> The temporary START HERE section remains available only as the rejected reference specimen.</p>
+  <div class="scope"><strong>In this review</strong> Empty fleet, first session, first explicit request, completed return, and release guidance at 60/100/160 columns. No tour, wizard, demo registry rows, new shortcut, tip counter, or notification center.</div>
+</section>
+<main id="lab">
+  <section class="controls" aria-label="Prototype controls">
+    <div class="control-group">
+      <span class="field-label">Terminal width</span>
+      <div class="segmented" id="width-control" aria-label="Terminal width">
+        <button type="button" data-width="60" aria-pressed="false">60</button>
+        <button type="button" data-width="100" aria-pressed="false">100</button>
+        <button type="button" data-width="160" aria-pressed="true">160</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <span class="field-label">Learning moment</span>
+      <div class="segmented" id="moment-control" aria-label="Onboarding learning moment">
+        <button type="button" data-moment="empty" aria-pressed="true">Empty</button>
+        <button type="button" data-moment="first" aria-pressed="false">First session</button>
+        <button type="button" data-moment="request" aria-pressed="false">First request</button>
+        <button type="button" data-moment="returned" aria-pressed="false">Returned</button>
+        <button type="button" data-moment="updated" aria-pressed="false">Updated</button>
+      </div>
+      <span class="control-help">The fleet state drives guidance. No synthetic session or per-tip history is persisted.</span>
+    </div>
+    <span class="controls-note">Compare distance to n · protect NEEDS YOU at the fold · check what retires · P/x/spatial focus, : actions, and S board remain available</span>
+  </section>
+
+  <div id="delivery-live" class="sr-only" aria-live="polite" aria-atomic="true">First run. No managed Pi sessions yet.</div>
+  <section class="bench" aria-label="Card comparison bench">
+    <div class="plates">
+      <article class="plate" data-plate="a">
+        <header class="plate-head">
+          <div><span class="plate-label">Specimen A · self-describing cockpit · selected and frozen</span><p>Existing tiers explain themselves only while the daily loop is still new.</p></div>
+          <div class="frozen-baseline"><strong>Frozen baseline</strong> Structured context · contextual actions · evidence behind i · micro children · collapsed trees · : command surface</div>
+        </header>
+        <div class="viewport">
+          <div class="ruler" aria-hidden="true"><span class="r0">0</span><span class="r1">20</span><span class="r2">40</span><span class="r3">60</span><span class="r4">80</span><span class="r5">100 cols</span></div>
+          <div class="terminal" data-cols="100" tabindex="0" aria-label="Transient attention announcement specimen">
+            <div class="no-js">NEEDS YOU · 1<br>◐ Release decision · waiting<br><br>ACTIVE · 2<br>● Status timeline · running<br>○ Docs refresh · idle</div>
+          </div>
+        </div>
+      </article>
+      <article class="plate" data-plate="b">
+        <header class="plate-head">
+          <div><span class="plate-label">Specimen B · temporary START HERE · reference only</span><p>Three actionable learning rows sit above the real cockpit until the first return.</p></div>
+          <div class="frozen-baseline"><strong>Frozen baseline</strong> Structured context · contextual actions · evidence behind i · micro children · collapsed trees · : command surface</div>
+        </header>
+        <div class="viewport">
+          <div class="ruler" aria-hidden="true"><span class="r0">0</span><span class="r1">20</span><span class="r2">40</span><span class="r3">60</span><span class="r4">80</span><span class="r5">100 cols</span></div>
+          <div class="terminal" data-cols="100" tabindex="0" aria-label="Standing attention summons specimen">
+            <div class="no-js">NEEDS YOU · 1<br>◐ Release decision · waiting<br><br>ACTIVE · 2<br>● Status timeline · running<br>○ Docs refresh · idle</div>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <details class="spec-drawer" open>
+      <summary>Onboarding anatomy · same concepts, different location</summary>
+      <div class="inspection-tools"><span>Inspection</span><label class="toggle"><input id="grid-toggle" type="checkbox"> Cell grid</label></div>
+      <div class="spec-grid">
+        <article class="spec"><b>① Activation</b><p>Success is one complete loop: create, work in Pi, notice an explicit request, open it, and return.</p></article>
+        <article class="spec"><b>② Minimum</b><p>Teach explicit NEEDS YOU, Enter to reach, Alt+Q to return, and ? or : for discovery.</p></article>
+        <article class="spec"><b>③ Retirement</b><p>First-run guidance disappears after the first acknowledged return. It never becomes dashboard furniture.</p></article>
+        <article class="spec"><b>④ Release</b><p>A version-scoped cue names changed daily actions below real attention. It opens no startup modal.</p></article>
+        <article class="spec"><b>⑤ Boundary</b><p>No tour, wizard, demo session, new key, per-tip counter, or second help architecture.</p></article>
+      </div>
+    </details>
+    <section class="event-ledger" aria-label="Lab event trace">
+      <header><strong>FROZEN ATTENTION TRACE</strong><span>Layer 08 evidence · not product history</span></header>
+      <div id="event-ledger-lines"></div>
+    </section>
+  </section>
+</main>
+
+<section class="decision" aria-labelledby="decision-title">
+  <div class="decision-head">
+    <h2 id="decision-title">Frozen decisions for Layer 09</h2>
+    <p>The cockpit teaches itself without adding temporary navigation furniture above real attention.</p>
+  </div>
+  <div class="questions">
+    <article class="question"><span>01 · approved</span><h3>Location</h3><p>Teach through the real tier headers and contextual footer. Add no temporary dashboard section.</p></article>
+    <article class="question"><span>02 · contract</span><h3>Activation</h3><p>Retire first-run guidance after the first acknowledged request and return to Hub.</p></article>
+    <article class="question"><span>03 · contract</span><h3>Release guidance</h3><p>Show one version-scoped cue below real attention; never auto-open a modal or retain per-tip history.</p></article>
+    <article class="question"><span>04 · contract</span><h3>Vocabulary</h3><p>Teach explicit NEEDS YOU, Enter, Alt+Q, ?, and :. Defer pinning, workflow, lifecycle, and project setup.</p></article>
+    <article class="question"><span>05 · contract</span><h3>Boundary</h3><p>No tour, wizard, synthetic session, coach mark, new shortcut, or second help surface.</p></article>
+  </div>
+  <p class="boundary">Frozen through Layer 09: attention cockpit · S workflow board · spatial named pinning · compact strip · refusal without eviction · structured context · contextual actions · transient explicit-request delivery · real-tier onboarding</p>
+</section>
+
+<script>
+(() => {
+  const state = {
+    width: 160,
+    onboardingMoment: "empty",
+    onboardingOpened: false,
+    releaseGuideDismissed: false,
+    disclosure: "collapsed",
+    selectedId: "release",
+    workspaceOpen: false,
+    evidenceOpen: false,
+    paletteOpen: false,
+    paletteQuery: "",
+    paletteIndex: 0,
+    activePlate: "a",
+    palettePlate: "a",
+    plateModes: { a: "integrated", b: "integrated" },
+    pins: ["release", "packaging"],
+    activePins: { a: "release", b: "release" },
+    paneFocused: { a: false, b: false },
+    paneBias: 0,
+    deliveryEvent: "initial",
+    viewerLocation: "elsewhere",
+    soundEnabled: false,
+    announcementVisible: false,
+    announcementRequestKeys: new Set(["release\u0000req-release-initial"]),
+    acknowledgedRequests: new Set(),
+    deliveryRevealId: undefined,
+    eventLedger: [
+      { fired: true, subject: "release · req-release-initial", reason: "announced · tmux message" },
+      { fired: false, subject: "registry · runtime error", reason: "silent · not explicit attention" }
+    ],
+    feedback: "",
+    collapsedSections: new Set(),
+    treeOverrides: new Map(),
+    showQuietBacklog: true,
+    grid: false
+  };
+  let announcementTimer;
+
+  const parents = {
+    release: { id: "release", title: "Release 1.3 decision", group: "Release", ticket: "release-019", status: "waiting", tier: "needs", attention: "?", attentionKind: "question", attentionSince: "1m", request: "Approve the package rollout after the macOS check?", summary: "Approve the package rollout after the macOS check?",  flowShort: "◉RV", flowLong: "✓ PL─✓ EX─◉ RV─· RF─· CM", age: "2m", repos: 2 },
+    packaging: { id: "packaging", title: "macOS package checks", group: "Release", ticket: "release-020", status: "idle", tier: "active", summary: "Parent is idle while recovery work continues.", flowShort: "◉EX", flowLong: "✓ PL─◉ EX─· RV─· RF─· CM", age: "4m", repos: 1 },
+    registry: { id: "registry", title: "Registry refresh failure", group: "Runtime", ticket: "runtime-024", status: "error", tier: "health", summary: "The owner session failed its latest refresh.", flowShort: "◉EX", flowLong: "✓ PL─◉ EX─· RV─· RF─· CM", age: "3m", repos: 1 },
+    timeline: { id: "timeline", title: "Status timeline", group: "Pi Agent Hub", ticket: "cockpit-004", status: "running", tier: "active", summary: "Mapping state changes without inferring attention.", flowShort: "◉PL", flowLong: "◉ PL─· EX─· RV─· RF─· CM", age: "", repos: 1, worktree: true },
+    transport: { id: "transport", title: "MCP transport cleanup", group: "Integrations", ticket: "mcp-012", status: "running", tier: "active", summary: "Removing duplicate socket recovery paths.", flowShort: "◉EX", flowLong: "✓ PL─◉ EX─· RV─· RF─· CM", age: "", repos: 3 },
+    docs: { id: "docs", title: "Docs refresh", group: "Docs", ticket: "docs-031", status: "idle", tier: "quiet", summary: "No explicit request. Last work is complete.", flowShort: "✓CM", flowLong: "✓ PL─✓ EX─✓ RV─✓ RF─✓ CM", age: "18m", repos: 1 },
+    review: { id: "review", title: "API boundary review", group: "Security", ticket: "api-016", status: "waiting", tier: "quiet", summary: "Waiting after acknowledgement. A child has its own question.", flowShort: "◉RV", flowLong: "✓ PL─✓ EX─◉ RV─· RF─· CM", age: "11m", repos: 1 },
+    theme: { id: "theme", title: "Theme compatibility spike", group: "Backlog", ticket: "theme-008", status: "stopped", tier: "quiet", summary: "Paused until the cockpit visual language is approved.", flowShort: "◉PL", flowLong: "◉ PL─· EX─· RV─· RF─· CM", age: "2d", repos: 1, lifecycle: "backlog" },
+    archive: { id: "archive", title: "Legacy dashboard prototype", group: "Archive", ticket: "legacy-003", status: "stopped", tier: "archived", summary: "Archived after the attention cockpit replaced it.", flowShort: "✓CM", flowLong: "✓ PL─✓ EX─✓ RV─✓ RF─✓ CM", age: "9d", repos: 1, lifecycle: "archived" }
+  };
+
+  const children = {
+    releaseDesign: { id: "releaseDesign", parentId: "release", title: "frontend-designer", task: "Review cockpit hierarchy geometry", status: "running", flowShort: "◉EX", age: "1m" },
+    releaseTests: { id: "releaseTests", parentId: "release", title: "test-runner", task: "Check package and layout fixtures", status: "idle", flowShort: "◉PL", age: "3m" },
+    packageSmoke: { id: "packageSmoke", parentId: "packaging", title: "smoke", task: "Trace the arm64 notarization failure", status: "error", flowShort: "◉EX", age: "2m" },
+    packageRecovery: { id: "packageRecovery", parentId: "packaging", title: "scout", task: "Find a clean recovery path", status: "running", flowShort: "◉EX", age: "1m" },
+    timelineCritic: { id: "timelineCritic", parentId: "timeline", title: "code-critic", task: "Check independent-axis regressions", status: "running", flowShort: "◉RV", age: "1m" },
+    timelineScout: { id: "timelineScout", parentId: "timeline", title: "scout", task: "Map tree projection edges", status: "running", flowShort: "◉EX", age: "2m" },
+    nestedApi: { id: "nestedApi", parentId: "timelineScout", title: "api-scout", task: "Inspect recursive ownership", status: "starting", flowShort: "◉PL", age: "" },
+    transportScout: { id: "transportScout", parentId: "transport", title: "transport-scout", task: "Verify socket cleanup paths", status: "idle", flowShort: "◉EX", age: "6m" },
+    docsCheck: { id: "docsCheck", parentId: "docs", title: "docs-checker", task: "Verify links after the refresh", status: "idle", flowShort: "✓RV", age: "8m" },
+    reviewChoice: { id: "reviewChoice", parentId: "review", title: "api-reviewer", task: "Choose the public error wording", status: "waiting", attention: "?", attentionKind: "question", attentionSince: "4m", request: "Should public errors name the transport boundary?", flowShort: "◉RV", age: "5m" }
+  };
+
+  const fixtures = {
+    empty: { parents: [], children: [] },
+    first: { parents: ["timeline"], children: [] },
+    question: { parents: ["release", "timeline", "docs", "theme"], children: ["releaseDesign", "releaseTests"] },
+    incident: { parents: ["registry", "packaging", "release", "review", "docs", "theme"], children: ["releaseDesign", "packageSmoke", "packageRecovery", "reviewChoice", "docsCheck"] },
+  };
+
+  const observations = {
+    release: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state waiting"], read: ["unread", "agent result is newer than your last read"] },
+    registry: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state error"], read: ["neutral", "read state does not affect this result"] },
+    packaging: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state idle"], read: ["neutral", "read state does not affect this result"] },
+    timeline: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    transport: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    docs: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state idle"], read: ["neutral", "read state does not affect this result"] },
+    review: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state waiting"], read: ["read", "latest result was acknowledged"] },
+    theme: { tmux: ["missing", "tmux session missing"], heartbeat: ["absent", "no heartbeat · using tmux fallback"], read: ["neutral", "read state does not affect this result"] },
+    archive: { tmux: ["missing", "tmux session missing"], heartbeat: ["absent", "no heartbeat · archived session"], read: ["neutral", "read state does not affect this result"] },
+    releaseDesign: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    releaseTests: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state idle"], read: ["neutral", "read state does not affect this result"] },
+    packageSmoke: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state error"], read: ["neutral", "read state does not affect this result"] },
+    packageRecovery: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    timelineCritic: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    timelineScout: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state running"], read: ["neutral", "read state does not affect this result"] },
+    nestedApi: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state starting"], read: ["neutral", "read state does not affect this result"] },
+    transportScout: { tmux: ["unknown", "tmux presence unknown"], heartbeat: ["unknown", "live heartbeat evidence unavailable"], read: ["neutral", "read state does not affect this result"] },
+    docsCheck: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state idle"], read: ["neutral", "read state does not affect this result"] },
+    reviewChoice: { tmux: ["present", "tmux session present"], heartbeat: ["fresh", "heartbeat fresh · Pi state waiting"], read: ["unread", "agent result is newer than your last read"] }
+  };
+
+  const sessionContexts = {
+    release: {
+      subtitle: "Package the macOS release",
+      description: "Ship 1.3 once notarization passes on arm64 and the installer smoke test is green.",
+      activity: "verifying arm64 notarization",
+      freshness: "producer context · 12s ago"
+    },
+    registry: {
+      subtitle: "Recover the registry refresh loop",
+      description: "Replace the duplicate refresh path that races the heartbeat writer.",
+      freshness: "producer context · 6m ago · stale"
+    },
+    releaseDesign: {
+      task: "Review cockpit hierarchy geometry",
+      freshness: "subagent task · producer-owned"
+    },
+    packageSmoke: {
+      task: "Trace the arm64 notarization failure",
+      freshness: "subagent task · producer-owned"
+    },
+    theme: {
+      subtitle: "Audit terminal theme compatibility",
+      description: "Verify cockpit emphasis remains legible across bundled themes.",
+      freshness: "producer context · 2d ago · stale"
+    }
+  };
+
+  const liveScreenFixtures = {
+    release: ["› verify arm64 notarization", "✓ notarization accepted", "⠋ installer smoke 3/4", "  waiting for maintainer decision"],
+    timeline: ["› map status transitions", "✓ 42 contract checks", "● width=100 · tree=collapsed", "  next: review reducer diagram"],
+    registry: ["› refresh fleet observation", "! tmux snapshot unavailable", "  retry is explicit", "  no registry mutation"],
+    packaging: ["› npm run package:check", "✓ tarball contents", "⠋ linked install smoke", "  recovery path removed"],
+    releaseDesign: ["› inspect pane geometry", "✓ 60 / 100 / 160", "● continuity rail review", "  report to Release 1.3"],
+    transport: ["› remove recovery overlap", "✓ transport boundary", "⠋ failure-path review", "  runtime remains Pi-native"],
+    docs: ["› refresh cockpit guidance", "✓ structure contracts", "✓ feature notes", "  idle"],
+    review: ["› review context boundary", "? confirm source wording", "  no raw capture", "  waiting"],
+    theme: ["› verify Catppuccin contrast", "✓ accent rail", "○ narrow footer", "  backlog"],
+    archive: ["session stopped", "archive is lifecycle state", "no live pane available"]
+  };
+
+  const deliveryEvents = {
+    initial: { requests: [{ id: "release", requestId: "req-release-initial", kind: "question", text: "Approve the package rollout after the macOS check?" }], subject: "release · initial arrival" }
+  };
+
+  const workflowRuntimes = {
+    release: { producer: "maintainer-workflow", steps: ["PLAN", "EXECUTE", "REVIEW", "REFLECT", "COMMIT"], activeIndex: 2, activity: "Awaiting package rollout decision", progress: [7, 9] },
+    registry: { producer: "maintainer-workflow", steps: ["PLAN", "EXECUTE", "REVIEW", "REFLECT", "COMMIT"], activeIndex: 1, activity: "Refresh failed before retry", progress: [4, 8] },
+    timeline: { producer: "maintainer-workflow", steps: ["PLAN", "EXECUTE", "REVIEW", "REFLECT", "COMMIT"], activeIndex: 0, activity: "Mapping state transitions", progress: [3, 7] },
+    docs: { producer: "maintainer-workflow", steps: ["PLAN", "EXECUTE", "REVIEW", "REFLECT", "COMMIT"], activeIndex: 4, completedCurrent: true, progress: [5, 5] },
+    review: { producer: "maintainer-workflow", steps: ["PLAN", "EXECUTE", "REVIEW", "REFLECT", "COMMIT"], activeIndex: 2, activity: "Boundary wording under review", progress: [5, 8] },
+    transport: { producer: "integration-flow", steps: ["DISCOVER", "CHANGE", "VERIFY"], activeIndex: 1, activity: "Removing duplicate recovery paths", progress: [4, 6] },
+    theme: { producer: "theme-audit", steps: ["AUDIT", "VERIFY"], activeIndex: 0, progress: [1, 4] }
+  };
+
+  const tierOrder = ["needs", "health", "active", "quiet", "archived"];
+  const tierLabels = { needs: "NEEDS YOU", health: "HEALTH", active: "ACTIVE", quiet: "QUIET", archived: "ARCHIVED" };
+  const statusGlyph = { starting: "◌", running: "●", waiting: "◐", idle: "○", error: "×", stopped: "−" };
+
+  function activeFixture() {
+    const key = { empty: "empty", first: "first", request: "question", returned: "question", updated: "incident" }[state.onboardingMoment];
+    return fixtures[key];
+  }
+
+  function parentRows() {
+    const event = deliveryEvents[state.deliveryEvent];
+    const releaseRequest = event.requests.find(request => request.id === "release");
+    const rows = activeFixture().parents.map(id => {
+      const row = { ...parents[id] };
+      if (id === "release" && state.deliveryEvent === "withdraw") return { ...row, attention: undefined, attentionKind: undefined, request: undefined, tier: "active" };
+      if (id !== "release" || !releaseRequest) return row;
+      const attention = releaseRequest.kind === "ready" ? "✓" : releaseRequest.kind === "blocked" ? "!" : "?";
+      return { ...row, status: state.acknowledgedRequests.has(requestKey(releaseRequest)) || releaseRequest.kind === "ready" ? "idle" : "waiting", tier: "needs", attention, attentionKind: releaseRequest.kind, request: releaseRequest.text, summary: releaseRequest.text };
+    });
+    return state.showQuietBacklog ? rows : rows.filter(row => row.lifecycle !== "backlog" || row.tier !== "quiet");
+  }
+
+  function childRows() {
+    const event = deliveryEvents[state.deliveryEvent];
+    return activeFixture().children.map(id => {
+      const row = { ...children[id], kind: "child" };
+      const request = event.requests.find(item => item.id === id);
+      if (!request) return row;
+      return { ...row, status: state.acknowledgedRequests.has(requestKey(request)) ? "idle" : row.status, attention: request.kind === "ready" ? "✓" : request.kind === "blocked" ? "!" : "?", attentionKind: request.kind, request: request.text };
+    });
+  }
+
+  function allRows() {
+    return [...parentRows(), ...childRows()];
+  }
+
+  function selected() {
+    return allRows().find(row => row.id === state.selectedId) || parentRows()[0];
+  }
+
+  function childrenOf(id) {
+    return childRows().filter(row => row.parentId === id);
+  }
+
+  function descendantsOf(id) {
+    const direct = childrenOf(id);
+    return direct.flatMap(row => [row, ...descendantsOf(row.id)]);
+  }
+
+  function ownerOf(id) {
+    let row = allRows().find(item => item.id === id);
+    while (row?.kind === "child") row = allRows().find(item => item.id === row.parentId);
+    return row;
+  }
+
+  function activeDescendants(id) {
+    return descendantsOf(id).filter(row => row.status === "starting" || row.status === "running").length;
+  }
+
+  function deliveryRevealsTier(tier) {
+    if (!state.deliveryRevealId) return false;
+    return ownerOf(state.deliveryRevealId)?.tier === tier;
+  }
+
+  function treeExpanded(id) {
+    if (!childrenOf(id).length) return false;
+    if (state.deliveryRevealId && descendantsOf(id).some(row => row.id === state.deliveryRevealId)) return true;
+    if (state.treeOverrides.has(id)) return state.treeOverrides.get(id);
+    if (state.disclosure === "expanded") return true;
+    if (state.disclosure === "collapsed") return false;
+    return descendantsOf(id).some(row => ["starting", "running", "error"].includes(row.status) || row.attention);
+  }
+
+  function counts() {
+    const result = Object.fromEntries(tierOrder.map(tier => [tier, 0]));
+    for (const row of parentRows()) result[row.tier] += 1;
+    return result;
+  }
+
+  function prefix(row, options) {
+    const child = row.kind === "child";
+    const directChildren = childrenOf(row.id);
+    let structure = "·";
+    if (child) structure = options.depth > 1 ? "│└" : `${options.last ? "└" : "├"}─`;
+    else if (directChildren.length) structure = treeExpanded(row.id) ? "▾" : "▸";
+    const toggle = !child && directChildren.length ? ` data-tree-toggle="${row.id}"` : "";
+    return `<span class="tree-prefix ${child ? "tree-prefix--child" : ""}"><span class="disclosure"${toggle}>${structure}</span><span class="prefix-attention">${row.attention || ""}</span><span class="status-glyph ${row.status}">${statusGlyph[row.status]}</span></span>`;
+  }
+
+  function workflow(row) {
+    const runtime = workflowRuntimes[row.id];
+    if (!runtime) return "";
+    return `<span class="workflow"><span class="workflow-short">${workflowRail(runtime, false)}</span><span class="workflow-long">${workflowRail(runtime, true)}</span></span>`;
+  }
+
+  function card(row, options = {}) {
+    const child = row.kind === "child";
+    const active = child ? 0 : activeDescendants(row.id);
+    const lifecycle = row.lifecycle === "backlog" ? `<span class="lifecycle">backlog</span>` : "";
+    const agents = active ? `<span class="subagents">⚙︎${active}</span>` : "";
+    const compact = child || row.lifecycle === "backlog" || row.lifecycle === "archived";
+    const title = child ? row.title : row.title;
+    const expandable = !child && childrenOf(row.id).length;
+    const summaryText = row.attention ? row.request || row.summary : sessionContexts[row.id]?.subtitle || row.summary;
+    return `<button class="card ${child ? `card--child card--depth-${options.depth || 1}` : "card--parent"} ${compact ? "card--single" : ""}" type="button" data-id="${row.id}" aria-current="${row.id === state.selectedId}"${expandable ? ` aria-expanded="${treeExpanded(row.id)}"` : ""}>
+      <span class="card-line">${prefix(row, options)}${row.worktree ? '<span class="worktree">⎇</span>' : ''}<span class="card-title">${title}</span>${child ? `<span class="child-task">${row.task}</span>` : ""}${lifecycle}${!child && row.repos > 1 ? `<span class="repo-count">⧉${row.repos}</span>` : ""}<span class="card-tail">${agents}${workflow(row)}<span class="age">${row.age || ""}</span></span></span>
+      ${compact ? "" : `<span class="card-line card-summary-line"><span class="card-summary">${row.attention ? `“${summaryText}”` : summaryText}</span></span><span class="card-line card-meta"><span class="ticket">#${row.ticket}</span><span class="group-label">${row.group}</span>${lifecycle}</span>`}
+      ${child ? `<span class="card-line child-detail">${row.task}</span>` : ""}
+    </button>`;
+  }
+
+  function childBranch(parentId, depth = 1) {
+    const direct = childrenOf(parentId);
+    return direct.map((row, index) => {
+      const nested = childrenOf(row.id);
+      const content = card(row, { depth, last: index === direct.length - 1 });
+      return `${content}${nested.length && treeExpanded(ownerOf(row.id).id) ? childBranch(row.id, Math.min(depth + 1, 2)) : ""}`;
+    }).join("");
+  }
+
+  function tree(row) {
+    const expanded = treeExpanded(row.id);
+    return `<div class="tree" data-owner="${row.id}">${card(row)}${expanded ? `<div class="children">${childBranch(row.id)}</div>` : ""}</div>`;
+  }
+
+  const tierLessons = {
+    needs: "explicit producer requests only",
+    health: "owner runtime failures",
+    active: "work still in progress",
+    quiet: "no intervention requested"
+  };
+
+  function section(tier, sectionRows, onboardingMode = false) {
+    const lesson = onboardingMode === "coach" && tierLessons[tier] && (!sectionRows.length || tier === "needs") ? tierLessons[tier] : "";
+    const stub = onboardingMode === "stub" && tierLessons[tier];
+    if (!sectionRows.length && !lesson && !stub) return "";
+    if (!sectionRows.length) return `<section class="section onboarding-section" data-tier="${tier}"><div class="section-head" role="heading" aria-label="${tierLabels[tier]}, zero. ${lesson || "No sessions in this tier."}"><strong>${tierLabels[tier]}</strong><span class="section-count">· 0</span></div>${lesson ? `<span class="tier-hint tier-hint--${tier}">${lesson}</span>` : ""}</section>`;
+    const collapsed = state.collapsedSections.has(tier) && !deliveryRevealsTier(tier);
+    const childRequests = sectionRows.flatMap(row => descendantsOf(row.id)).filter(row => row.attention && ["waiting", "idle"].includes(row.status)).length;
+    const heading = tier === "archived"
+      ? `<button type="button" class="section-head" data-collapse="${tier}" aria-expanded="${!collapsed}"><strong>${tierLabels[tier]}</strong><span class="section-count">· ${sectionRows.length}${collapsed ? " hidden" : ""}</span><span class="section-toggle" aria-hidden="true">${collapsed ? "▸" : "▾"}</span></button>`
+      : `<div class="section-head" role="heading"${lesson ? ` aria-label="${tierLabels[tier]}, ${sectionRows.length}. ${lesson}"` : ""}><strong>${tierLabels[tier]}</strong><span class="section-count">· ${sectionRows.length}${childRequests ? ` · ?${childRequests} child` : ""}</span></div>`;
+    return `<section class="section ${tier === "needs" ? "attention-section" : ""}" data-tier="${tier}">
+      ${heading}
+      ${lesson ? `<span class="tier-hint tier-hint--${tier}">${lesson}</span>` : ""}
+      ${collapsed ? "" : sectionRows.map(row => row.tier === "archived" ? card(row) : tree(row)).join("")}
+    </section>`;
+  }
+
+  function onboardingIsActive() {
+    return ["empty", "first", "request"].includes(state.onboardingMoment);
+  }
+
+  function startHere() {
+    if (!onboardingIsActive() || state.onboardingMoment === "empty") return "";
+    const request = state.onboardingMoment === "request";
+    return `<section class="start-here" aria-label="Temporary onboarding section"><header class="start-here-head"><strong>START HERE</strong><span>temporary</span></header>
+      <div class="start-here-row"><span>✓</span><b>n</b><span>One managed Pi session exists</span></div>
+      <div class="start-here-row"><span>?</span><b>NEEDS</b><span>Explicit producer requests only</span></div>
+      <button type="button" class="start-here-row" data-start-open><span>▸</span><b>Enter</b><span>${request ? "Open request" : "Open session"} · Alt+Q returns</span></button>
+    </section>`;
+  }
+
+  function releaseGuide() {
+    if (state.onboardingMoment !== "updated" || state.releaseGuideDismissed) return "";
+    return `<button type="button" class="release-guide" data-release-dismiss aria-label="Dismiss release guidance"><strong>NEW DAILY LOOP</strong><span>NEEDS YOU is explicit · Enter reaches · Alt+Q returns <span class="release-guide-detail">· ? explains · : finds actions</span></span><kbd>Enter dismiss</kbd></button>`;
+  }
+
+  function fleetMarkup(current, plateId) {
+    const mode = onboardingIsActive() && plateId === "a" ? "coach" : onboardingIsActive() && plateId === "b" ? "stub" : false;
+    const intro = plateId === "b" ? startHere() : "";
+    const sections = tierOrder.map(tier => section(tier, current.filter(row => row.tier === tier), tier === "archived" ? false : mode)).join("");
+    const guide = releaseGuide();
+    if (!guide) return `${intro}${sections}`;
+    const needsEnd = section("needs", current.filter(row => row.tier === "needs"), false);
+    const remaining = tierOrder.filter(tier => tier !== "needs").map(tier => section(tier, current.filter(row => row.tier === tier), false)).join("");
+    return `${needsEnd}${guide}${remaining}`;
+  }
+
+  function navigation(c) {
+    const chosen = ownerOf(selected().id) || selected();
+    return `<nav class="side-nav" aria-label="Fleet sections"><p class="nav-title">Fleet</p>${tierOrder.map(tier => {
+      const rows = parentRows().filter(row => row.tier === tier);
+      return `<button type="button" class="nav-item ${tier === chosen.tier ? "active" : ""}" data-jump="${tier}" ${c[tier] === 0 ? "disabled" : ""}><span>${tierLabels[tier]}</span><span class="count">${c[tier]}</span></button>`;
+    }).join("")}</nav>`;
+  }
+
+  function workspaceFacts(row) {
+    const owner = ownerOf(row.id) || row;
+    const tier = owner.tier;
+    const child = row.kind === "child";
+    const descendantCount = descendantsOf(row.id).length;
+    const relation = child ? `subagent of ${owner.title}` : descendantCount ? `${activeDescendants(row.id)} active of ${descendantCount} subagents` : "no subagents";
+    const request = row.attention ? row.request : undefined;
+    const requestKind = row.attention ? `? ${(row.attentionKind || "attention").toUpperCase()}${row.attentionSince ? ` · ${row.attentionSince}` : ""}` : "";
+    const next = row.attention
+      ? "Open the session and answer the producer’s explicit question."
+      : row.status === "error"
+        ? "Inspect live evidence before deciding whether to restart."
+        : child
+          ? "Let the owner coordinate this task unless direct inspection is needed."
+          : ["starting", "running"].includes(row.status)
+            ? "Let the session continue; open it only when more context is needed."
+            : row.lifecycle === "backlog"
+              ? "No intervention requested while this work remains in Backlog."
+              : "No intervention requested.";
+    const tierReason = tier === "needs"
+      ? "explicit producer attention"
+      : tier === "health"
+        ? "owner reported an error"
+        : tier === "active"
+          ? "owner or descendant is working"
+          : tier === "archived"
+            ? "archived lifecycle"
+            : "no attention, error, or active work";
+    const observation = observations[row.id] || { tmux: ["unknown", "tmux presence unknown"], heartbeat: ["unknown", "live heartbeat evidence unavailable"], read: ["neutral", "read state unavailable"] };
+    const evidenceGlyph = value => value === "present" || value === "fresh" || value === "unread" ? "✓" : value === "missing" || value === "absent" ? "×" : "·";
+    const evidence = [
+      [`${evidenceGlyph(observation.tmux[0])} tmux`, observation.tmux[1]],
+      [`${evidenceGlyph(observation.heartbeat[0])} heartbeat`, observation.heartbeat[1]],
+      [`${evidenceGlyph(observation.read[0])} read`, observation.read[1]]
+    ];
+    const actionPairs = row.status === "error"
+      ? [["Enter", "Restart", "restart before attach"], ["r", "Restart choices…", "choose a restart path"], ["i", "Explain status", "show live evidence"]]
+      : row.status === "stopped"
+        ? [["Enter", "Restart", "restart before attach"], ["r", "Restart choices…", "choose a restart path"], ["U", row.lifecycle === "backlog" ? "Restore active" : "Restore", "change lifecycle only"]]
+        : child
+          ? [["Enter", "Open", "inspect this subagent"], ["i", "Explain status", "show live evidence"]]
+          : row.attention
+            ? [["p", "Send text…", "answer the explicit request"], ["Enter", "Open", "attach to the session"], ["a", "Mark read", "clear acknowledged attention"]]
+            : row.tier === "archived"
+              ? [["Enter", "Open", "inspect the archived session"], ["U", "Restore active", "return it to Active"], ["d", "Delete…", "blocked in this lab"]]
+              : row.status === "idle"
+                ? [["Enter", "Open", "inspect the session"], ["p", "Send text…", "give the agent direction"], ["A", "Archive", "move completed work"]]
+                : [["Enter", "Open", "inspect the session"], ["P", state.pins.includes(row.id) ? "Focus pinned pane" : "Pin live pane", state.pins.includes(row.id) ? "focus by session identity" : "attach beside the cockpit"], ["p", "Send text…", "give the agent direction"]];
+    const recommendedKey = row.attention ? "p" : row.status === "error" ? "i" : "Enter";
+    const treeRows = child ? [row] : descendantsOf(row.id).slice(0, 3);
+    return { owner, tier, child, relation, request, requestKind, next, tierReason, evidence, actionPairs, recommendedKey, treeRows };
+  }
+
+  function sessionPreview(row, facts) {
+    const context = sessionContexts[row.id];
+    if (facts.child) {
+      const task = context?.task || row.task;
+      return `<section class="ws-block ws-preview"><div class="ws-preview-head"><span class="ws-label">Context · subagent task</span><span class="ws-preview-source">producer-owned</span></div><div class="ws-context-grid"><span aria-hidden="true">"</span><span>${escapeHtml(task)}</span><span aria-hidden="true">·</span><span class="ws-provenance">subagent of ${escapeHtml(facts.owner.title)} · #${escapeHtml(facts.owner.ticket || "no-ticket")}</span></div></section>`;
+    }
+    if (!context?.subtitle) return `<section class="ws-block ws-preview"><div class="ws-preview-head"><span class="ws-label">Context</span><span class="ws-preview-source">producer context absent</span></div><div class="ws-context-empty">· no producer context · Hub shows runtime state only</div></section>`;
+    const stale = context.freshness?.includes("stale");
+    return `<section class="ws-block ws-preview"><div class="ws-preview-head"><span class="ws-label">Context</span><span class="ws-preview-source">bounded producer fields</span></div><div class="ws-context-grid"><span aria-hidden="true">◆</span><span class="ws-context-ticket">${escapeHtml(context.subtitle)}</span><span aria-hidden="true">·</span><span class="ws-context-desc">${escapeHtml(context.description)}</span>${context.activity ? `<span aria-hidden="true">◈</span><span class="ws-context-activity">now · ${escapeHtml(context.activity)}</span>` : ""}<span aria-hidden="true">${stale ? "!" : "·"}</span><span class="ws-provenance${stale ? " ws-provenance--stale" : ""}">${escapeHtml(context.freshness)}</span></div></section>`;
+  }
+
+  function workspace(row, variant) {
+    const f = workspaceFacts(row);
+    const identity = `<header class="workspace-identity"><div class="workspace-kicker">Selected session</div><h3 class="workspace-title">${row.title}</h3><div class="ws-meta">${row.ticket ? `#${row.ticket} · ${row.group}` : f.relation}${!f.child && row.repos > 1 ? ` · ⧉${row.repos}` : ""}${!f.child && row.worktree ? " · ⎇ cockpit/workspace" : ""}</div></header>`;
+    const ask = `<section class="ws-block ws-ask ${row.attention ? "" : "none"}">${row.attention ? `<strong>${f.requestKind}</strong><div>${f.request ? `“${f.request}”` : "Explicit attention received; request text unavailable."}</div>` : `<div>· no explicit request</div>`}</section>`;
+    const next = `<section class="ws-block ws-next"><span class="ws-label">Recommended next</span>${f.next}</section>`;
+    const shownActions = f.actionPairs;
+    const actions = `<section class="ws-block ws-actions" aria-label="Available production commands">${shownActions.map(([key, label, detail]) => `<button type="button" class="ws-action" data-action-key="${key}" data-action-label="${label}"><b>${key}</b><span>${label}<small>${detail}</small></span></button>`).join("")}<button type="button" class="ws-action" data-open-palette><b>:</b><span>More commands<small>search actions, sessions, and filters</small></span></button></section>${state.feedback ? `<div class="ws-block ws-feedback">▸ ${state.feedback}</div>` : ""}`;
+    const preview = sessionPreview(row, f);
+    const result = `<section class="ws-block ws-result"><span class="ws-label">State</span><span class="status-glyph ${row.status}">${statusGlyph[row.status]}</span><strong>${row.status} · ${tierLabels[f.tier]}</strong><div>${f.tierReason}</div><div class="ws-explain"><b>i</b> ${state.evidenceOpen ? "Hide" : "Explain"} live status</div></section>`;
+    const evidence = `<section class="ws-block ws-evidence"><span class="ws-label">Live evidence</span>${f.evidence.map(([label, value]) => `<div class="ws-evidence-line"><b>${label}</b><span>${value}</span></div>`).join("")}</section>`;
+    const ownerRuntime = workflowRuntimes[f.owner.id];
+    const flow = ownerRuntime ? workflowRail(ownerRuntime, true) : "· workflow context absent";
+    const workflowBlock = `<section class="ws-block ws-workflow"><span class="ws-label">Workflow</span>${flow}<small>${ownerRuntime ? `producer · ${ownerRuntime.producer}` : "producer workflow absent"}</small></section>`;
+    const hiddenTreeRows = f.child ? 0 : Math.max(0, descendantsOf(row.id).length - f.treeRows.length);
+    const tree = `<section class="ws-block ws-tree"><span class="ws-label">Tree · ${f.relation}</span>${f.treeRows.length ? f.treeRows.map(item => `<div class="ws-tree-line"><span class="status-glyph ${item.status}">${statusGlyph[item.status]}</span><span>${item.title} · ${item.task || item.summary}</span><span class="age">${item.age || ""}</span></div>`).join("") : ""}${hiddenTreeRows ? `<div>· +${hiddenTreeRows} more descendants</div>` : ""}</section>`;
+    const visibleEvidence = state.evidenceOpen ? [evidence] : [];
+    const order = [ask, next, actions, preview, result, ...visibleEvidence, workflowBlock, tree];
+    return `<aside class="workspace workspace--${variant}" aria-label="Selected session action workspace"><div class="workspace-back">Esc · Back to fleet</div>${identity}${order.join("")}</aside>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+  }
+
+  function paletteItems() {
+    if (!allRows().length) {
+      const items = [
+        { id: "onboarding:new", type: "onboarding", group: "Start", key: "n", label: "New session", hint: "create the first managed Pi session" },
+        { id: "onboarding:help", type: "onboarding", group: "Learn", key: "?", label: "Help", hint: "create · open · return" },
+        { id: "onboarding:doctor", type: "onboarding", group: "Setup", key: "", label: "pi-hub doctor", hint: "check Pi, tmux, and package paths" }
+      ];
+      const query = state.paletteQuery.trim().toLowerCase();
+      return items.filter(item => !query || `${item.key} ${item.label} ${item.hint} ${item.group}`.toLowerCase().includes(query));
+    }
+    const row = selected();
+    const facts = workspaceFacts(row);
+    const contextual = facts.actionPairs.map(([key, label, detail]) => ({ id: `action:${key}`, type: "action", group: `Actions on ${row.title}`, key, label, hint: detail }));
+    const extraActions = [
+      ["R", "Rename…", "change the Hub title"], ["N", "Sync Pi name", "read the native Pi name"], ["g", "Move group…", "change the group label"], ["G", "Rename group…", "rename this group"],
+      ["f", "Fork", "fork the conversation"], ["n", "New session", "start another managed session"], ["s", "Skills…", "edit project skills"], ["m", "MCP…", "edit project MCP servers"],
+      ["A", "Archive", "move to Archived"], ["B", "Backlog", "move to Backlog"], ["U", "Restore active", "return to Active"], ["d", "Delete…", "blocked in this lab"],
+      ["w", "Finish worktree…", row.worktree ? "blocked in this lab" : "no Hub-owned worktree"],
+      ["P", state.pins.includes(row.id) ? "Focus pinned pane" : "Pin live pane", state.pins.includes(row.id) ? "focus by session identity" : "attach beside the cockpit"],
+      ["x", "Close pinned pane", state.pins.includes(row.id) ? "close nested attach; keep Pi running" : "session is not pinned"]
+    ].filter(([key]) => !facts.actionPairs.some(([existing]) => existing === key)).map(([key, label, hint]) => {
+      const directPinAction = ["P", "x"].includes(key);
+      const unavailable = (!directPinAction && facts.child) || (key === "w" && !row.worktree) || (key === "x" && !state.pins.includes(row.id));
+      return { id: `action:${key}`, type: "action", group: `Actions on ${row.title}`, key, label, hint: !directPinAction && facts.child ? "unavailable for subagents" : hint, unavailable };
+    });
+    const delivery = activeDeliveryRequests().length
+      ? [{ id: "delivery:locate", type: "delivery", group: "Attention delivery", key: "", label: "Locate attention request", hint: currentDelivery().subject }]
+      : [];
+    const sessions = allRows().map(item => ({ id: `session:${item.id}`, type: "session", group: "Go to session", key: "", label: `${statusGlyph[item.status]} ${item.title}`, hint: item.ticket ? `#${item.ticket} · ${item.group}` : `subagent of ${ownerOf(item.id)?.title}` , sessionId: item.id }));
+    const views = [
+      { id: "view:backlog", type: "backlog", group: "View & filter", key: "b", label: state.showQuietBacklog ? "Hide quiet Backlog" : "Show quiet Backlog", hint: "visibility only" },
+      { id: "view:filter", type: "action", group: "View & filter", key: "/", label: "Filter…", hint: "existing fleet filter" },
+      { id: "view:density", type: "action", group: "View & filter", key: "v", label: "Density", hint: "existing display mode" },
+      { id: "view:board", type: "action", group: "View & filter", key: "S", label: "Workflow board", hint: "existing display mode" },
+      { id: "view:help", type: "action", group: "View & filter", key: "?", label: "Help", hint: "show all shortcuts" }
+    ];
+    const query = state.paletteQuery.trim().toLowerCase();
+    return [...contextual, ...extraActions, ...delivery, ...sessions, ...views].filter(item => !query || `${item.key} ${item.label} ${item.hint} ${item.group}`.toLowerCase().includes(query));
+  }
+
+  function commandPalette(plateId) {
+    if (!state.paletteOpen || state.palettePlate !== plateId) return "";
+    const items = paletteItems();
+    state.paletteIndex = Math.max(0, Math.min(state.paletteIndex, Math.max(0, items.length - 1)));
+    let group = "";
+    const rows = items.map((item, index) => {
+      const heading = item.group !== group ? `<div class="palette-group">${escapeHtml(item.group)}</div>` : "";
+      group = item.group;
+      return `${heading}<button id="palette-${plateId}-${index}" type="button" class="palette-item" role="option" data-palette-index="${index}" aria-selected="${index === state.paletteIndex}"${item.unavailable ? " aria-disabled=\"true\"" : ""}><span class="palette-key">${escapeHtml(item.key)}</span><span class="palette-label">${escapeHtml(item.label)}</span><span class="palette-hint">${escapeHtml(item.hint)}</span></button>`;
+    }).join("");
+    return `<div class="palette-scrim" data-palette-close><section class="command-palette" role="dialog" aria-modal="true" aria-label="Commands"><label class="palette-search"><span>:</span><input class="palette-input" value="${escapeHtml(state.paletteQuery)}" placeholder="Search actions, sessions, filters" autocomplete="off" spellcheck="false" aria-label="Search commands" aria-controls="palette-list-${plateId}"${items.length ? ` aria-activedescendant="palette-${plateId}-${state.paletteIndex}"` : ""}></label><div id="palette-list-${plateId}" class="palette-list" role="listbox">${rows || `<div class="palette-empty">No matching commands</div>`}</div><div class="palette-help">↑↓ Navigate · Enter Dry run · Esc Close</div></section></div>`;
+  }
+
+  function runPaletteItem(item) {
+    if (!item || item.unavailable) { state.feedback = "blocked · command unavailable for this row"; state.paletteOpen = false; render(); return; }
+    if (item.type === "onboarding") {
+      state.paletteOpen = false;
+      state.paletteQuery = "";
+      if (item.key === "n") return setOnboardingMoment("first");
+      state.feedback = item.label === "Help" ? "daily loop · n create · Enter open · Alt+Q return" : "dry run · pi-hub doctor";
+      render();
+      return;
+    }
+    if (item.type === "action" && item.key === "Enter" && deliveryTargets(selected().id)) markDeliverySeen(selected().id, "opened from action surface");
+    if (item.type === "delivery") {
+      state.paletteOpen = false;
+      state.paletteQuery = "";
+      state.paletteIndex = 0;
+      return locateDelivery();
+    }
+    if (item.type === "session") {
+      state.selectedId = item.sessionId;
+      const owner = ownerOf(item.sessionId);
+      if (owner) { state.collapsedSections.delete(owner.tier); state.treeOverrides.set(owner.id, true); }
+      state.feedback = `selected ${item.label}`;
+    } else if (item.type === "backlog") {
+      state.showQuietBacklog = !state.showQuietBacklog;
+      state.feedback = `${state.showQuietBacklog ? "showing" : "hiding"} quiet Backlog`;
+    } else if (item.key === "P") {
+      state.paletteOpen = false;
+      state.paletteQuery = "";
+      state.paletteIndex = 0;
+      return pinOrFocusSelected();
+    } else if (item.key === "x") {
+      state.paletteOpen = false;
+      state.paletteQuery = "";
+      state.paletteIndex = 0;
+      return closePin(selected().id);
+    } else {
+      const blocked = ["d", "w"].includes(item.key);
+      state.feedback = blocked ? `blocked · ${item.key} ${item.label} is disabled in this lab` : `dry run · ${item.key} ${item.label} → ${selected().title}`;
+      if (item.key === "i") state.evidenceOpen = !state.evidenceOpen;
+      if (item.key === "Enter" && state.width < 120) state.workspaceOpen = true;
+    }
+    state.paletteOpen = false;
+    state.paletteQuery = "";
+    state.paletteIndex = 0;
+    render();
+  }
+
+  function workflowRail(runtime, long = true) {
+    if (!runtime) return "· no workflow";
+    return runtime.steps.map((step, index) => {
+      const done = index < runtime.activeIndex || (index === runtime.activeIndex && runtime.completedCurrent);
+      const active = index === runtime.activeIndex && !runtime.completedCurrent;
+      const mark = done ? "✓" : active ? "◉" : "·";
+      const abbreviations = { PLAN: "PL", EXECUTE: "EX", REVIEW: "RV", REFLECT: "RF", COMMIT: "CM", DISCOVER: "DS", CHANGE: "CH", VERIFY: "VF", AUDIT: "AU" };
+      const label = abbreviations[step] || step.slice(0, 2);
+      return `${mark}${long ? " " : ""}${label}`;
+    }).join("─");
+  }
+
+  function progressText(runtime) {
+    if (!runtime?.progress) return "";
+    const [done, total] = runtime.progress;
+    const cells = 8;
+    const filled = Math.round((done / total) * cells);
+    return `${"■".repeat(filled)}${"□".repeat(cells - filled)} ${done}/${total}`;
+  }
+
+  function boardCard(row) {
+    const runtime = workflowRuntimes[row.id];
+    const directChildren = childrenOf(row.id);
+    const disclosure = directChildren.length ? (treeExpanded(row.id) ? "▾" : "▸") : "·";
+    const context = sessionContexts[row.id];
+    const detail = context?.subtitle || row.summary;
+    const activity = runtime?.activity || progressText(runtime) || "· producer activity absent";
+    return `<div class="board-tree" data-owner="${row.id}"><button type="button" class="board-card" data-id="${row.id}" aria-current="${row.id === state.selectedId}"${directChildren.length ? ` aria-expanded="${treeExpanded(row.id)}"` : ""}><span class="board-card-line"><span class="disclosure"${directChildren.length ? ` data-tree-toggle="${row.id}"` : ""}>${disclosure}</span><span class="status-glyph ${row.status}">${statusGlyph[row.status]}</span>${row.attention ? `<span class="board-attention">${row.attention}</span>` : ""}<span class="board-card-title">${row.title}</span>${activeDescendants(row.id) ? `<span class="subagents">⚙︎${activeDescendants(row.id)}</span>` : ""}<span class="board-flow"><span class="workflow-short">${workflowRail(runtime, false)}</span><span class="workflow-long">${workflowRail(runtime, true)}</span></span></span><span class="board-card-line"><span class="board-context">${row.ticket ? `#${row.ticket} · ` : ""}${detail}</span></span><span class="board-card-line"><span class="board-activity">${activity}</span>${runtime?.activity && runtime.progress ? `<span class="board-progress">${progressText(runtime)}</span>` : ""}</span></button>${directChildren.length && treeExpanded(row.id) ? `<div class="board-children">${childBranch(row.id)}</div>` : ""}</div>`;
+  }
+
+  function boardLane(title, rows, other = false) {
+    if (!rows.length) return "";
+    const groups = [...new Set(rows.map(row => row.group))];
+    return `<section class="board-lane${other ? " other" : ""}"><header class="board-lane-head"><strong>${title}</strong><span>${rows.length}</span></header>${groups.map(group => `<div class="board-group"><div class="board-group-head">${group}</div>${rows.filter(row => row.group === group).map(boardCard).join("")}</div>`).join("")}</section>`;
+  }
+
+  function boardProjection(current = parentRows()) {
+    const eligible = current.filter(row => row.lifecycle !== "backlog" && row.tier !== "archived");
+    const canonical = eligible.map(row => workflowRuntimes[row.id]).find(Boolean);
+    const compatible = canonical ? eligible.filter(row => workflowRuntimes[row.id]?.producer === canonical.producer) : [];
+    const other = eligible.filter(row => !compatible.includes(row));
+    const ordered = canonical ? canonical.steps.flatMap((_, index) => compatible.filter(row => workflowRuntimes[row.id].activeIndex === index)) : [];
+    return { canonical, compatible, other, ordered: [...ordered, ...other] };
+  }
+
+  function workflowBoard(current) {
+    const { canonical, compatible, other } = boardProjection(current);
+    const lanes = canonical ? canonical.steps.map((step, index) => boardLane(step, compatible.filter(row => workflowRuntimes[row.id].activeIndex === index))).join("") : "";
+    const backlog = current.filter(row => row.lifecycle === "backlog").length;
+    const archived = current.filter(row => row.tier === "archived").length;
+    return `<section class="workflow-board" aria-label="Read-only workflow board"><header class="board-header"><strong>S · WORKFLOW BOARD</strong><span>${canonical ? `producer · ${canonical.producer}` : "producer workflow absent"}</span></header>${lanes}${boardLane("OTHER ACTIVE", other, true)}<div class="board-header"><span>Backlog ${backlog}</span><span>Archived ${archived}</span></div></section>`;
+  }
+
+  function pinCapacity() {
+    if (state.width < 100) return 0;
+    if (state.width < 160) return 2;
+    return 4;
+  }
+
+  function livePane(sessionId, plateId) {
+    const row = allRows().find(item => item.id === sessionId);
+    if (!row) return "";
+    const owner = ownerOf(sessionId);
+    const active = state.paneFocused[plateId] && state.activePins[plateId] === sessionId;
+    const parentSuffix = row.kind === "child" && owner ? ` ← ${owner.title}` : "";
+    const ticket = row.ticket || owner?.ticket;
+    const lines = liveScreenFixtures[sessionId] || [`› open ${row.title}`, "● live Pi session", "  no fixture output", "  >"];
+    return `<section class="live-pane${active ? " active" : ""}" data-pin-focus="${sessionId}" role="group" tabindex="0" aria-label="Live pane for ${row.title}"><header class="live-pane-title"><span class="live-pane-name">LIVE · ${row.title}${parentSuffix}${ticket ? ` · #${ticket}` : ""}</span></header><div class="live-pane-body">${lines.map((line, index) => `<span class="${index === 0 ? "prompt" : ""}">${escapeHtml(line)}</span>`).join("")}<span>&nbsp;</span><span class="prompt">❯</span></div></section>`;
+  }
+
+  function pinDecisionStrip() {
+    const row = selected();
+    const facts = workspaceFacts(row);
+    if (state.evidenceOpen) {
+      return `<aside class="pin-decision"><span><strong>LIVE EVIDENCE</strong> · ${row.title}</span>${facts.evidence.slice(0, 3).map(([label, value]) => `<span><b>${label}</b> · ${value}</span>`).join("")}</aside>`;
+    }
+    const request = row.request || facts.owner.request || "No explicit request.";
+    const requestPrefix = facts.child && facts.owner.request && !row.request ? `${facts.owner.title} · ` : "";
+    const [actionKey, actionLabel] = facts.actionPairs[0];
+    const placement = facts.child ? `subagent · ${tierLabels[facts.owner.tier]}` : tierLabels[facts.owner.tier];
+    return `<aside class="pin-decision"><span><strong>${statusGlyph[row.status]} ${row.status}</strong> · ${placement}${row.attention ? ` · ${row.attention}` : ""}</span><span>${requestPrefix}${request}</span><span><b>${actionKey}</b> ${actionLabel} · <b>:</b> More actions</span></aside>`;
+  }
+
+  function pinnedRegion(plateId) {
+    const pins = state.pins.filter(id => allRows().some(row => row.id === id));
+    const count = pins.length;
+    let gridStyle = "";
+    if (state.width >= 120 && count >= 2) gridStyle = ` style="grid-template-columns:calc(${50 + state.paneBias}% - 1px) 1fr"`;
+    if (state.width < 120 && count === 2) gridStyle = ` style="grid-template-rows:calc(${50 + state.paneBias}% - 1px) 1fr"`;
+    return `<section class="live-workspace"><div class="live-grid" data-count="${count}"${gridStyle}>${pins.length ? pins.map(id => livePane(id, plateId)).join("") : `<div class="live-empty">No live panes<br><span>P pins the selected live session</span></div>`}</div></section>`;
+  }
+
+  function pinSidebar(current, board) {
+    const list = board
+      ? workflowBoard(current)
+      : `<section class="fleet" aria-label="Managed session trees">${tierOrder.map(tier => section(tier, current.filter(row => row.tier === tier))).join("")}</section>`;
+    return `<section class="pin-sidebar"><div class="pin-list">${list}</div>${pinDecisionStrip()}</section>`;
+  }
+
+  function attentionDelivery(plateId) {
+    if (state.onboardingMoment !== "request") return "";
+    const event = deliveryEvents[state.deliveryEvent];
+    const requests = event.requests.filter(request => {
+          const key = requestKey(request);
+          return key && state.announcementRequestKeys.has(key) && !state.acknowledgedRequests.has(key);
+        });
+    if (!requests.length || !state.announcementVisible) return "";
+    const first = requests[0];
+    const row = allRows().find(item => item.id === first.id);
+    const owner = ownerOf(first.id);
+    const child = row?.kind === "child";
+    const title = `${row?.title || first.id}${child && owner ? ` → ${owner.title}` : ""}`;
+    const kindMark = first.kind === "ready" ? "✓" : first.kind === "blocked" ? "!" : "?";
+    const kindWord = first.kind === "ready" ? "READY" : first.kind === "blocked" ? "BLOCKED" : "QUESTION";
+    const kindLabel = requests.length > 1 ? `${kindMark} ${requests.length} NEW` : `${kindMark} ${kindWord}`;
+    const locationSuppressed = state.viewerLocation !== "elsewhere";
+    const channel = locationSuppressed
+      ? `in ${state.viewerLocation === "hub" ? "Hub" : "request pane"} · external message suppressed`
+      : `tmux message${state.soundEnabled ? " · ♪ BEL" : " · ○ BEL off"}`;
+    const request = `${first.text}${requests.length > 1 ? ` · +${requests.length - 1} more` : ""}`;
+    return `<button type="button" class="attention-delivery delivery--${first.kind}" data-delivery-go><span class="delivery-kind">${kindLabel}</span><span class="delivery-title">${escapeHtml(title)}</span><span class="delivery-request">“${escapeHtml(request)}”</span><span class="delivery-channel">${channel}</span><span class="delivery-keys"><b>Enter</b> locate · <b>a</b> ack</span><span class="delivery-age">6s</span></button>`;
+  }
+
+  function onboardingEmptyTerminal(plateId) {
+    const a = plateId === "a";
+    const tiers = [
+      ["needs", "NEEDS YOU", "an agent’s explicit request lands here"],
+      ["health", "HEALTH", "a failed owner session lands here"],
+      ["active", "ACTIVE", "work in progress lands here"],
+      ["quiet", "QUIET", "no intervention requested"]
+    ];
+    const body = a
+      ? `${tiers.map(([key, label, copy]) => `<div class="onboarding-tier onboarding-tier--${key}"><strong>${label} · 0</strong><span>${copy}</span></div>`).join("")}<button type="button" class="onboarding-primary" data-onboarding-next><b>▸ n</b><span>Create the first managed Pi session</span></button><div class="onboarding-discovery"><b>Enter</b> opens · <b>Alt+Q</b> returns · <b>?</b> keys · <b>:</b> actions</div>`
+      : `<section class="start-here" aria-label="Temporary onboarding section"><header class="start-here-head"><strong>START HERE</strong><span>temporary</span></header><button type="button" class="start-here-row" data-onboarding-next><span>▸</span><b>n</b><span>Create one managed Pi session</span></button><div class="start-here-row"><span>?</span><b>NEEDS</b><span>Explicit producer requests only</span></div><div class="start-here-row"><span>·</span><b>Enter</b><span>Open · Alt+Q returns</span></div></section>${tiers.map(([key, label]) => `<div class="onboarding-tier onboarding-tier--${key}"><strong>${label} · 0</strong></div>`).join("")}<div class="onboarding-discovery"><b>?</b> Learn keys · <b>:</b> Find actions</div>`;
+    const receipt = state.feedback ? `<div class="receipt"><strong>▸</strong> ${escapeHtml(state.feedback)}</div>` : "";
+    return `<header class="term-top"><span class="brand">PI HUB / FIRST RUN</span><span class="term-top-meta">0 sessions · this is the whole cockpit</span></header><div class="shell"><section class="onboarding-empty"><div class="onboarding-zero-head"><strong>No managed Pi sessions yet.</strong><span>local · tmux-backed</span></div>${body}</section></div>${commandPalette(plateId)}${receipt}<footer class="term-footer"><strong>n</strong> New <strong>:</strong> Actions <strong>?</strong> Help <strong>q</strong> Quit</footer>`;
+  }
+
+  function terminal(focusModel, plateId) {
+    if (state.onboardingMoment === "empty") return onboardingEmptyTerminal(plateId);
+    const current = parentRows();
+    const c = counts();
+    const signals = [];
+    if (c.needs) signals.push(`<strong>${c.needs} need you</strong>`);
+    if (c.health) signals.push(`${c.health} health issue${c.health === 1 ? "" : "s"}`);
+    const childRequests = childRows().filter(row => row.attention && ["waiting", "idle"].includes(row.status)).length;
+    if (childRequests) signals.push(`${childRequests} child request${childRequests === 1 ? "" : "s"}`);
+    const viewMode = state.plateModes[plateId];
+    const board = viewMode === "board";
+    const pinLayout = state.pins.length > 0;
+    const focused = !pinLayout && state.workspaceOpen && state.width < 120;
+    let footer;
+    if (pinLayout && state.paneFocused[plateId]) {
+      footer = focusModel === "spatial"
+        ? `<strong>Alt+arrows</strong> Move <strong>Alt+Q</strong> Return · keys otherwise pass through to Pi`
+        : `<strong>tmux prefix+arrow</strong> Move <strong>prefix+z</strong> Zoom <strong>Alt+Q</strong> Return`;
+    } else if (pinLayout) {
+      footer = focusModel === "roster"
+        ? `<strong>P</strong> Pin/Focus <strong>x</strong> Close <strong>+/−</strong> Resize <strong>Tab</strong> Cycle <strong>Enter</strong> Pane <strong>i</strong> Evidence`
+        : `<strong>P</strong> Pin/Focus <strong>x</strong> Close <strong>+/−</strong> Resize <strong>Alt+arrows</strong> Move <strong>i</strong> Evidence`;
+    } else if (focused) {
+      footer = `<strong>Esc</strong> ${board ? "Board" : "Fleet"} <strong>:</strong> Actions <strong>i</strong> Explain <strong>?</strong> Help`;
+    } else {
+      footer = `<strong>Enter</strong> ${state.width < 120 ? "Workspace" : "Open"} <strong>P</strong> Pin <strong>S</strong> ${board ? "Cockpit" : "Board"} <strong>:</strong> Actions <strong>?</strong> Help`;
+    }
+    if (plateId === "a" && onboardingIsActive() && state.onboardingMoment !== "empty" && !pinLayout) footer = `<strong>Enter</strong> Open <strong>Alt+Q</strong> Return <strong>:</strong> Actions <strong>?</strong> Help`;
+    const receipt = state.feedback ? `<div class="receipt"><strong>▸</strong> ${escapeHtml(state.feedback)}</div>` : "";
+    const main = board ? workflowBoard(current) : `${navigation(c)}<section class="fleet" aria-label="Managed session trees">${fleetMarkup(current, plateId)}</section>`;
+    const body = pinLayout ? `${pinSidebar(current, board)}${pinnedRegion(plateId)}` : `${main}${workspace(selected(), "structured")}`;
+    const brand = state.paneFocused[plateId] ? "LIVE PANE" : focused ? "WORKSPACE" : pinLayout ? "PINNED FLEET" : board ? "WORKFLOW" : state.onboardingMoment === "updated" ? "UPDATED COCKPIT" : "FLEET";
+    const constrained = state.pins.length > pinCapacity();
+    const delivery = attentionDelivery(plateId);
+    return `<header class="term-top"><span class="brand">PI HUB / ${brand}</span><span class="term-top-meta">${current.length} trees · ${state.pins.length} pinned${constrained ? " · <strong>constrained width</strong>" : ""}${signals.length ? ` · ${signals.join(" · ")}` : ""}</span></header>${delivery}<div class="shell">${body}</div>${commandPalette(plateId)}${receipt}<footer class="term-footer">${footer}</footer>`;
+  }
+
+  function visibleRows() {
+    const result = [];
+    const visit = row => {
+      result.push(row);
+      if (treeExpanded(row.id)) for (const child of childrenOf(row.id)) visit(child);
+    };
+    for (const tier of tierOrder) {
+      if (state.collapsedSections.has(tier) && !deliveryRevealsTier(tier)) continue;
+      for (const row of parentRows().filter(item => item.tier === tier)) visit(row);
+    }
+    return result;
+  }
+
+  function boardVisibleRows() {
+    const result = [];
+    const visit = row => {
+      result.push(row);
+      if (treeExpanded(row.id)) for (const child of childrenOf(row.id)) visit(child);
+    };
+    for (const row of boardProjection().ordered) visit(row);
+    return result;
+  }
+
+  function selectionRows() {
+    return state.plateModes[state.activePlate] === "board" ? boardVisibleRows() : visibleRows();
+  }
+
+  function ensureSelection() {
+    const rows = allRows();
+    if (!rows.length) return;
+    if (!rows.some(row => row.id === state.selectedId)) state.selectedId = parentRows()[0]?.id || rows[0].id;
+    const selectable = selectionRows();
+    if (!selectable.some(row => row.id === state.selectedId)) state.selectedId = selectable[0]?.id || parentRows()[0]?.id || rows[0].id;
+  }
+
+  function render() {
+    ensureSelection();
+    document.documentElement.style.setProperty("--plate-cols", state.width);
+    document.querySelector(".plates").classList.add("wide-specimens");
+    document.querySelectorAll(".ruler").forEach(ruler => {
+      ruler.querySelector(".r5").textContent = `${state.width} cols`;
+      ruler.querySelector(".r1").hidden = state.width < 30;
+      ruler.querySelector(".r2").hidden = state.width < 50;
+      ruler.querySelector(".r3").hidden = state.width < 70;
+      ruler.querySelector(".r4").hidden = state.width < 90;
+    });
+    document.querySelectorAll(".plate").forEach(plate => {
+      const plateId = plate.dataset.plate;
+      const viewMode = state.plateModes[plateId];
+      const focusModel = "spatial";
+      const pinLayout = state.pins.length > 0;
+      const screen = plate.querySelector(".terminal");
+      screen.className = `terminal hierarchy child-micro density-cockpit rhythm-tight workspace-120${viewMode === "board" ? " workflow-mode" : ""}${pinLayout ? " pin-mode" : ""}${attentionDelivery(plateId) ? " has-delivery" : ""}${state.workspaceOpen && state.width < 120 && !pinLayout ? " workspace-focus" : ""}${state.feedback ? " has-feedback" : ""}${state.grid ? " grid" : ""}`;
+      screen.dataset.cols = String(state.width);
+      screen.innerHTML = terminal(focusModel, plateId);
+      screen.querySelectorAll(".card[data-id], .board-card[data-id]").forEach(card => {
+        if (state.pins.includes(card.dataset.id)) card.classList.add("pinned");
+        if (state.paneFocused[plateId] && state.activePins[plateId] === card.dataset.id) card.classList.add("active-pin");
+      });
+    });
+    bindDynamic();
+    renderLedger();
+  }
+
+  function currentDelivery() {
+    return deliveryEvents[state.deliveryEvent];
+  }
+
+  function requestKey(request) {
+    const requestId = String(request.requestId || "").trim();
+    if (!requestId || requestId.length > 64) return undefined;
+    return `${request.id}\u0000${requestId}`;
+  }
+
+  function unacknowledgedRequests(event = currentDelivery()) {
+    return event.requests.filter(request => {
+      const key = requestKey(request);
+      return key && !state.acknowledgedRequests.has(key);
+    });
+  }
+
+  function activeDeliveryRequests() {
+    return unacknowledgedRequests();
+  }
+
+  function deliveryTargets(id) {
+    return activeDeliveryRequests().some(request => request.id === id);
+  }
+
+  function markDeliverySeen(id, reason = "opened target") {
+    const request = activeDeliveryRequests().find(item => item.id === id);
+    const key = request && requestKey(request);
+    if (!request || !key) return;
+    state.acknowledgedRequests.add(key);
+    state.announcementRequestKeys.delete(key);
+    state.announcementVisible = state.announcementRequestKeys.size > 0;
+    state.deliveryRevealId = undefined;
+    if (state.onboardingMoment === "request" && reason.includes("opened")) state.onboardingOpened = true;
+    state.eventLedger.unshift({ fired: false, subject: `${id} · ${request.requestId}`, reason: `acknowledged · ${reason}; attention remains` });
+    state.eventLedger = state.eventLedger.slice(0, 6);
+  }
+
+  function acknowledgeDelivery() {
+    const available = activeDeliveryRequests();
+    const request = available.find(item => item.id === state.selectedId) || available[0];
+    const key = request && requestKey(request);
+    if (!request || !key) {
+      state.feedback = "nothing to acknowledge · no undisposed explicit request";
+      render();
+      return;
+    }
+    state.acknowledgedRequests.add(key);
+    state.announcementRequestKeys.delete(key);
+    state.announcementVisible = state.announcementRequestKeys.size > 0;
+    state.deliveryRevealId = undefined;
+    state.eventLedger.unshift({ fired: false, subject: `${request.id} · ${request.requestId}`, reason: "acknowledged · delivery silent; producer attention remains" });
+    state.eventLedger = state.eventLedger.slice(0, 6);
+    state.feedback = `${request.id} acknowledged · producer attention remains on its row`;
+    render();
+    focusPlate();
+  }
+
+  function locateDelivery() {
+    const request = activeDeliveryRequests()[0];
+    if (!request) return;
+    state.selectedId = request.id;
+    state.deliveryRevealId = request.id;
+    state.paneFocused[state.activePlate] = false;
+    state.feedback = `located explicit request · ${allRows().find(row => row.id === request.id)?.title || request.id}`;
+    render();
+    document.querySelector(`.plate[data-plate="${state.activePlate}"] [data-id="${request.id}"]`)?.focus({ preventScroll: true });
+  }
+
+  function renderLedger() {
+    const target = document.getElementById("event-ledger-lines");
+    if (!target) return;
+    target.innerHTML = state.eventLedger.map(item => `<div class="ledger-line"><span class="${item.fired ? "ledger-fired" : "ledger-silent"}">${item.fired ? "▸" : "○"}</span><strong>${escapeHtml(item.subject)}</strong><span>${escapeHtml(item.reason)}</span></div>`).join("");
+  }
+
+  function focusPlate(plateId = state.activePlate) {
+    document.querySelector(`.plate[data-plate="${plateId}"] .terminal`)?.focus({ preventScroll: true });
+  }
+
+  function toggleTree(id, expanded) {
+    state.treeOverrides.set(id, expanded ?? !treeExpanded(id));
+    if (!state.treeOverrides.get(id) && descendantsOf(id).some(row => row.id === state.selectedId)) state.selectedId = id;
+    render();
+  }
+
+  function focusPin(id, plateId = state.activePlate) {
+    if (!state.pins.includes(id)) return;
+    state.activePlate = plateId;
+    state.activePins[plateId] = id;
+    state.paneFocused[plateId] = true;
+    state.selectedId = id;
+    const owner = ownerOf(id);
+    if (owner && owner.id !== id) state.treeOverrides.set(owner.id, true);
+    markDeliverySeen(id, "opened live pane");
+    state.feedback = `dry run · focused ${allRows().find(row => row.id === id)?.title || id}`;
+    render();
+    focusPlate(plateId);
+  }
+
+  function closePin(id) {
+    if (!state.pins.includes(id)) return;
+    const title = allRows().find(row => row.id === id)?.title || id;
+    state.pins = state.pins.filter(pin => pin !== id);
+    for (const plateId of ["a", "b"]) {
+      if (state.activePins[plateId] === id) state.activePins[plateId] = state.pins[0];
+      if (!state.pins.length) {
+        state.paneFocused[plateId] = false;
+      }
+    }
+    state.feedback = `dry run · closed nested pane for ${title} · Pi keeps running`;
+    render();
+    focusPlate();
+  }
+
+  function pinOrFocusSelected() {
+    const row = selected();
+    if (state.pins.includes(row.id)) return focusPin(row.id);
+    if (["error", "stopped"].includes(row.status)) {
+      state.feedback = `blocked · ${row.title} must be live before pinning`;
+      render();
+      focusPlate();
+      return;
+    }
+    const capacity = pinCapacity();
+    if (capacity === 0) {
+      state.feedback = `blocked · pinning needs 100 columns · Enter opens ${row.title}`;
+      render();
+      focusPlate();
+      return;
+    }
+    if (state.pins.length >= capacity) {
+      state.feedback = `blocked · ${state.width < 120 ? "a third pane needs 160 columns" : "4 sessions already pinned; close one first"}`;
+      render();
+      focusPlate();
+      return;
+    }
+    state.pins.push(row.id);
+    state.activePins.a = row.id;
+    state.activePins.b = row.id;
+    state.paneFocused.a = false;
+    state.paneFocused.b = false;
+    state.feedback = `dry run · pinned ${row.title} · cockpit focus retained`;
+    render();
+    focusPlate();
+  }
+
+  function bindDynamic() {
+    document.querySelectorAll("[data-onboarding-next]").forEach(button => button.addEventListener("click", () => setOnboardingMoment("first")));
+    document.querySelectorAll("[data-start-open]").forEach(button => button.addEventListener("click", () => {
+      state.activePlate = button.closest(".plate")?.dataset.plate || state.activePlate;
+      if (state.onboardingMoment === "request") markDeliverySeen("release", "opened from START HERE");
+      state.onboardingOpened = state.onboardingMoment === "request";
+      state.feedback = state.onboardingMoment === "request" ? "dry run · opened explicit request; Alt+Q returns" : "dry run · opened first managed session";
+      render();
+    }));
+    document.querySelectorAll("[data-release-dismiss]").forEach(button => button.addEventListener("click", () => {
+      state.releaseGuideDismissed = true;
+      state.feedback = "release guidance acknowledged · normal cockpit remains";
+      render();
+    }));
+    document.querySelectorAll("[data-delivery-go]").forEach(delivery => {
+      delivery.addEventListener("click", () => {
+        state.activePlate = delivery.closest(".plate")?.dataset.plate || state.activePlate;
+        locateDelivery();
+      });
+      delivery.addEventListener("keydown", event => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.stopPropagation();
+        state.activePlate = delivery.closest(".plate")?.dataset.plate || state.activePlate;
+        locateDelivery();
+      });
+    });
+    document.querySelectorAll(".card, .board-card").forEach(button => {
+      button.addEventListener("click", event => {
+        const toggle = event.target.closest("[data-tree-toggle]");
+        if (toggle) return toggleTree(toggle.dataset.treeToggle);
+        state.selectedId = button.dataset.id;
+        state.activePlate = button.closest(".plate")?.dataset.plate || state.activePlate;
+        state.paneFocused[state.activePlate] = false;
+        state.evidenceOpen = false;
+        state.feedback = "";
+        render();
+        focusPlate();
+      });
+    });
+    document.querySelectorAll("[data-pin-focus]").forEach(pane => pane.addEventListener("click", event => {
+      if (event.target.closest("button")) return;
+      const plateId = pane.closest(".plate")?.dataset.plate || state.activePlate;
+      focusPin(pane.dataset.pinFocus, plateId);
+    }));
+    document.querySelectorAll("[data-collapse]").forEach(button => {
+      button.addEventListener("click", () => {
+        const tier = button.dataset.collapse;
+        state.collapsedSections.has(tier) ? state.collapsedSections.delete(tier) : state.collapsedSections.add(tier);
+        render();
+      });
+    });
+    document.querySelectorAll("[data-jump]").forEach(button => {
+      button.addEventListener("click", () => {
+        const first = parentRows().find(row => row.tier === button.dataset.jump);
+        if (!first) return;
+        state.collapsedSections.delete(first.tier);
+        state.selectedId = first.id;
+        state.feedback = "";
+        render();
+      });
+    });
+    document.querySelectorAll("[data-open-palette]").forEach(button => button.addEventListener("click", () => {
+      state.activePlate = button.closest(".plate")?.dataset.plate || state.activePlate;
+      state.palettePlate = state.activePlate;
+      state.paletteOpen = true; state.paletteQuery = ""; state.paletteIndex = 0; render();
+    }));
+    document.querySelectorAll("[data-action-key]").forEach(button => button.addEventListener("click", () => {
+      state.activePlate = button.closest(".plate")?.dataset.plate || state.activePlate;
+      runPaletteItem({ type: "action", key: button.dataset.actionKey, label: button.dataset.actionLabel });
+    }));
+    document.querySelectorAll("[data-palette-index]").forEach(button => button.addEventListener("click", () => runPaletteItem(paletteItems()[Number(button.dataset.paletteIndex)])));
+    document.querySelectorAll("[data-palette-close]").forEach(scrim => scrim.addEventListener("click", event => {
+      if (event.target !== scrim) return;
+      state.paletteOpen = false; state.paletteQuery = ""; render();
+    }));
+    document.querySelectorAll(".palette-input").forEach(input => input.addEventListener("input", event => {
+      state.paletteQuery = event.target.value; state.paletteIndex = 0; render();
+    }));
+    if (state.paletteOpen) {
+      const input = document.querySelector(".palette-input");
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
+      const activeItem = document.querySelector('.palette-item[aria-selected="true"]');
+      const list = activeItem?.closest(".palette-list");
+      if (activeItem && list) list.scrollTop = Math.max(0, activeItem.offsetTop - list.clientHeight / 2);
+    }
+  }
+
+  function selectOffset(delta) {
+    const visible = selectionRows();
+    if (!visible.length) return;
+    const index = Math.max(0, visible.findIndex(row => row.id === state.selectedId));
+    state.selectedId = visible[(index + delta + visible.length) % visible.length].id;
+    state.evidenceOpen = false;
+    state.feedback = "";
+    render();
+    document.querySelector(`.plate[data-plate="${state.activePlate}"] .card[data-id="${state.selectedId}"], .plate[data-plate="${state.activePlate}"] .board-card[data-id="${state.selectedId}"]`)?.focus();
+  }
+
+  function selectedOwnerId() {
+    return ownerOf(state.selectedId)?.id;
+  }
+
+  function spatialDestination(index, key) {
+    const count = state.pins.length;
+    if (state.width < 120) {
+      if (key === "ArrowLeft") return -1;
+      if (key === "ArrowUp") return Math.max(0, index - 1);
+      if (key === "ArrowDown") return Math.min(count - 1, index + 1);
+      return index;
+    }
+    if (count <= 2) {
+      if (key === "ArrowLeft") return index === 0 ? -1 : index - 1;
+      if (key === "ArrowRight") return Math.min(count - 1, index + 1);
+      return index;
+    }
+    if (count === 3) {
+      if (index === 0 && key === "ArrowLeft") return -1;
+      if (index === 0 && key === "ArrowRight") return 1;
+      if (index === 1 && key === "ArrowLeft") return 0;
+      if (index === 1 && key === "ArrowDown") return 2;
+      if (index === 2 && key === "ArrowLeft") return 0;
+      if (index === 2 && key === "ArrowUp") return 1;
+      return index;
+    }
+    const column = index % 2;
+    if (key === "ArrowLeft") return column === 0 ? -1 : index - 1;
+    if (key === "ArrowRight") return column === 0 ? index + 1 : index;
+    if (key === "ArrowUp") return index >= 2 ? index - 2 : index;
+    if (key === "ArrowDown") return index < 2 ? index + 2 : index;
+    return index;
+  }
+
+  document.addEventListener("focusin", event => {
+    const plate = event.target.closest?.(".plate");
+    if (plate?.dataset.plate) state.activePlate = plate.dataset.plate;
+  });
+
+  function setOnboardingMoment(moment) {
+    state.onboardingMoment = moment;
+    state.workspaceOpen = false;
+    state.evidenceOpen = false;
+    state.paletteOpen = false;
+    state.feedback = "";
+    state.treeOverrides.clear();
+    state.collapsedSections.clear();
+    state.deliveryRevealId = undefined;
+    state.pins = [];
+    state.activePins.a = undefined;
+    state.activePins.b = undefined;
+    state.paneFocused.a = false;
+    state.paneFocused.b = false;
+    state.releaseGuideDismissed = false;
+    state.onboardingOpened = false;
+    state.deliveryEvent = "initial";
+    state.acknowledgedRequests = new Set(moment === "returned" ? ["release\u0000req-release-initial"] : []);
+    state.announcementRequestKeys = new Set(moment === "request" ? ["release\u0000req-release-initial"] : []);
+    state.announcementVisible = moment === "request";
+    state.selectedId = moment === "first" ? "timeline" : moment === "empty" ? "release" : moment === "updated" ? "registry" : "release";
+    clearTimeout(announcementTimer);
+    if (moment === "request") announcementTimer = setTimeout(() => { state.announcementVisible = false; render(); }, 6000);
+    document.querySelectorAll("#moment-control button").forEach(item => item.setAttribute("aria-pressed", String(item.dataset.moment === moment)));
+    const live = document.getElementById("delivery-live");
+    if (live) live.textContent = { empty: "First run. No managed Pi sessions yet.", first: "First managed Pi session is running.", request: "First explicit request arrived in Needs You.", returned: "First attention round-trip complete. Guidance retired.", updated: "Cockpit release guidance is available below Needs You." }[moment];
+    render();
+  }
+
+  document.querySelectorAll("#moment-control button").forEach(button => button.addEventListener("click", () => setOnboardingMoment(button.dataset.moment)));
+  document.querySelectorAll("#width-control button").forEach(button => button.addEventListener("click", () => {
+    state.width = Number(button.dataset.width);
+    state.workspaceOpen = false;
+    state.evidenceOpen = false;
+    state.feedback = "";
+    document.querySelectorAll("#width-control button").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+    render();
+  }));
+  document.getElementById("grid-toggle").addEventListener("change", event => { state.grid = event.target.checked; render(); });
+  document.addEventListener("keydown", event => {
+    if (state.paletteOpen) {
+      if (event.key === "Escape") { event.preventDefault(); state.paletteOpen = false; state.paletteQuery = ""; render(); return; }
+      if (event.key === "ArrowDown" || (event.ctrlKey && event.key === "n")) { event.preventDefault(); const items = paletteItems(); if (items.length) state.paletteIndex = (state.paletteIndex + 1) % items.length; render(); return; }
+      if (event.key === "ArrowUp" || (event.ctrlKey && event.key === "p")) { event.preventDefault(); const items = paletteItems(); if (items.length) state.paletteIndex = (state.paletteIndex - 1 + items.length) % items.length; render(); return; }
+      if (event.key === "Enter") { event.preventDefault(); runPaletteItem(paletteItems()[state.paletteIndex]); return; }
+      return;
+    }
+    const inControls = event.target.closest(".controls, .inspection-tools");
+    const pinLayout = state.pins.length > 0;
+    if (event.target.closest("[data-release-dismiss]") && ["Enter", " "].includes(event.key)) return;
+    if (state.onboardingMoment === "empty" && !inControls) {
+      if (event.key === "n") { event.preventDefault(); setOnboardingMoment("first"); return; }
+      if (event.key === "?" || event.key === ":") { event.preventDefault(); state.activePlate = event.target.closest(".plate")?.dataset.plate || state.activePlate; state.palettePlate = state.activePlate; state.paletteOpen = true; state.paletteQuery = event.key === "?" ? "help" : ""; state.paletteIndex = 0; render(); return; }
+      return;
+    }
+    if (event.altKey && event.key.toLowerCase() === "q" && !inControls) {
+      event.preventDefault();
+      state.paneFocused[state.activePlate] = false;
+      if (state.onboardingMoment === "request" && state.onboardingOpened) {
+        setOnboardingMoment("returned");
+        state.feedback = "first attention round-trip complete · guidance retired";
+        render();
+        return;
+      }
+      state.feedback = `returned to cockpit row · ${selected().title}`;
+      render();
+      return;
+    }
+    if (event.altKey && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) && pinLayout && !inControls) {
+      event.preventDefault();
+      const plateId = state.activePlate;
+      const current = Math.max(0, state.pins.indexOf(state.activePins[plateId]));
+      const next = spatialDestination(current, event.key);
+      if (next < 0) {
+        state.paneFocused[plateId] = false;
+        state.feedback = "spatial focus returned left to cockpit";
+      } else {
+        const id = state.pins[next];
+        state.activePins[plateId] = id;
+        state.selectedId = id;
+        state.paneFocused[plateId] = true;
+        state.feedback = `spatial focus · ${allRows().find(row => row.id === id)?.title}`;
+      }
+      render();
+      return;
+    }
+    if (state.paneFocused[state.activePlate] && !inControls) return;
+    if (event.key === "a" && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls && activeDeliveryRequests().length) { event.preventDefault(); acknowledgeDelivery(); return; }
+    if (event.key === ":" && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls) { event.preventDefault(); state.palettePlate = state.activePlate; state.paletteOpen = true; state.paletteQuery = ""; state.paletteIndex = 0; render(); return; }
+    if (event.key === "Escape" && state.workspaceOpen) { event.preventDefault(); state.workspaceOpen = false; render(); return; }
+    if (event.key === "P" && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls) { event.preventDefault(); pinOrFocusSelected(); return; }
+    if (event.key === "x" && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls && state.pins.includes(selected().id)) { event.preventDefault(); closePin(selected().id); return; }
+    if (["+", "-"].includes(event.key) && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls && pinLayout && state.pins.length > 1) { event.preventDefault(); const delta = event.key === "+" ? 10 : -10; state.paneBias = Math.max(-20, Math.min(20, state.paneBias + delta)); state.feedback = `dry run · resized active tmux boundary to ${50 + state.paneBias}/${50 - state.paneBias}`; render(); focusPlate(); return; }
+    if (event.key === "i" && !event.metaKey && !event.ctrlKey && !event.altKey && !inControls && pinLayout) { event.preventDefault(); state.evidenceOpen = !state.evidenceOpen; state.feedback = `${state.evidenceOpen ? "showing" : "hiding"} live status evidence in the cockpit strip`; render(); focusPlate(); return; }
+    if (event.key === "Enter" && !inControls && deliveryTargets(selected().id)) markDeliverySeen(selected().id, "opened selected session");
+    if (event.key === "Enter" && !inControls && ["error", "stopped"].includes(selected().status)) { event.preventDefault(); state.feedback = `dry run · restart ${selected().title} before attach`; render(); focusPlate(); return; }
+    if (event.key === "Enter" && !inControls && pinLayout) { event.preventDefault(); state.feedback = `dry run · full-screen handoff to ${selected().title}`; render(); focusPlate(); return; }
+    if (event.key === "Enter" && state.width < 120 && !state.workspaceOpen && !inControls && !pinLayout) { event.preventDefault(); state.workspaceOpen = true; render(); return; }
+    if (inControls || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "Enter" && state.width >= 120 && !event.target.closest(".ws-action, input")) { event.preventDefault(); runPaletteItem({ type: "action", key: "Enter", label: "Open" }); return; }
+    if (event.key === "i") { event.preventDefault(); if (state.width < 120) state.workspaceOpen = true; state.evidenceOpen = !state.evidenceOpen; state.feedback = `${state.evidenceOpen ? "showing" : "hiding"} live status evidence`; render(); return; }
+    if (event.key === "?") { event.preventDefault(); state.palettePlate = state.activePlate; state.paletteOpen = true; state.paletteQuery = "help"; state.paletteIndex = 0; render(); return; }
+    if (state.workspaceOpen && state.width < 120) return;
+    if (event.key === "S") { event.preventDefault(); const nextMode = state.plateModes[state.activePlate] === "board" ? "integrated" : "board"; state.plateModes[state.activePlate] = nextMode; state.feedback = `${nextMode === "board" ? "workflow board" : "attention cockpit"} active`; render(); return; }
+    if (event.key === " " && state.plateModes[state.activePlate] === "board") { event.preventDefault(); const owner = selectedOwnerId(); if (owner) toggleTree(owner); return; }
+    if (event.key === "b") { event.preventDefault(); state.showQuietBacklog = !state.showQuietBacklog; render(); return; }
+    if (["ArrowDown", "j"].includes(event.key)) { event.preventDefault(); selectOffset(1); }
+    if (["ArrowUp", "k"].includes(event.key)) { event.preventDefault(); selectOffset(-1); }
+    if (event.key === "ArrowLeft") { event.preventDefault(); toggleTree(selectedOwnerId(), false); }
+    if (event.key === "ArrowRight") { event.preventDefault(); toggleTree(selectedOwnerId(), true); }
+  });
+  render();
+  announcementTimer = setTimeout(() => {
+    if (state.deliveryEvent !== "initial" || !state.announcementRequestKeys.size) return;
+    state.announcementVisible = false;
+    render();
+  }, 6000);
+})();
+</script>
+</body>
+</html>

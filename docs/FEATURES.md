@@ -27,6 +27,7 @@ Ctrl+Q returns to the dashboard
 | Custom dashboard shortcuts | `dashboard.shortcuts` in config | Bind safe Pi slash-command sends, such as `/session-name refresh`, to dashboard keys. |
 | Stable dashboard theme | `t` opens theme settings | Preview Pi global themes, save globally by default, or keep a Hub-only override without following session changes. |
 | Attention-first cockpit | Default project view | See explicit requests first, then runtime health, active work, quiet work, and chronological archives. |
+| Intent palette | `:` in the dashboard | Search target-aware actions, sessions through bounded context, and named filters without replacing direct keys. |
 | Explainable status | `i` in the dashboard or `pi-hub explain <id-or-prefix>` | See the live tmux, heartbeat, read-state, runtime-decision, cockpit-placement, and workflow evidence without changing session state. |
 | Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
 | Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create Git worktrees under hub state for one or more repos and explicitly finish, forget, or discard them. |
@@ -47,6 +48,7 @@ Ctrl+Q returns to the dashboard
 | `Alt+Q` or `Ctrl+Q` | Return from a focused panel to the sidebar |
 | `o` | Reset side panels to the selected session, or close it when it is the only panel |
 | `/` | Filter sessions |
+| `:` | Search actions, sessions, and named lifecycle/status/group filters |
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
@@ -72,6 +74,16 @@ Ctrl+Q returns to the dashboard
 | `t` | Preview and configure the stable dashboard theme; `Enter` applies and `Escape` restores |
 | `v` | Toggle compact rows ↔ all-session junction cards |
 | `S` | Toggle the project cockpit ↔ workflow-stage lanes |
+
+## Intent palette
+
+Press `:` to expand a terminal-native command ledger from the dashboard footer. It preserves the current cockpit order and uses deterministic substring matching; it does not rank results, learn history, or persist queries. Direct keys remain available and `?` still opens full Help.
+
+The palette includes built-in dashboard actions, valid configured dashboard shortcuts, current sessions, named lifecycle/status/group filters, and view/Help commands. Disabled actions stay visible with a concise reason and cannot execute. Action identities bind the exact session or project selected when they open a form or picker, so a later selection change cannot redirect submission.
+
+Session results search only bounded Hub context: session identity and primary/additional project metadata, group, subagent identity/task, lifecycle/status, ticket and explicit-attention metadata, and producer workflow context. Raw pane output, previews, and Pi conversation content are not searched. Activating a session result stays in Hub: it selects and reveals that exact current session, clears a fleet filter only when the filter excludes it, and never attaches, restarts, or acknowledges it. Use `Enter` afterward when you want to open the session.
+
+`/` remains the faster free-text fleet filter. Named palette filters use the same fleet filter state, and `Escape` closes the palette without changing an existing filter.
 
 ## Status vocabulary
 

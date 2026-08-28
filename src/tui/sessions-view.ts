@@ -2,8 +2,18 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import type { ManagedSession } from "../core/types.js";
-import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
+import { projectStateCwd } from "../core/multi-repo.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
+import { buildDashboardCommands, commandForKey, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
+import {
+  createCommandPalette,
+  handleCommandPaletteInput,
+  handleCommandPaletteMouse,
+  normalizeCommandPalette,
+  renderCommandPalette,
+  type CommandPaletteRowTarget,
+  type CommandPaletteState,
+} from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, type DashboardProjection } from "./render-model.js";
 import { renderSessions, renderStatusInfo, type SessionListTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
@@ -71,10 +81,13 @@ export class SessionsView implements Component {
   private selectedSection: CollapsibleSection | undefined;
   private collapsedSections = new Set<CollapsibleSection>();
   private rowTargets: (SessionListTarget | undefined)[] = [];
+  private paletteRowTargets: (CommandPaletteRowTarget | undefined)[] = [];
+  private paletteBounds: { start: number; end: number } | undefined;
   private listWidth = 0;
   private listScrollTop = 0;
   private expandedBoardParentIds = new Set<string>();
   private expandedProjectParentIds = new Set<string>();
+  private revealedSessionId: string | undefined;
   private themeLoadRequest = 0;
   private projection?: DashboardProjection;
   private projectionRegistry?: object;
@@ -104,7 +117,8 @@ export class SessionsView implements Component {
     if (isMouseSequence(data)) {
       this.clearPendingFocusSlot();
       const event = parseMouseEvent(data);
-      if (event && !this.dialog && !this.busy) this.handleMouse(event);
+      if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
+      else if (event && !this.dialog && !this.busy) this.handleMouse(event);
       else if (event) this.lastMouseClick = undefined;
       return;
     }
@@ -114,7 +128,8 @@ export class SessionsView implements Component {
       if (this.dialog.kind === "help") {
         if (data === "q") this.stop();
         else if (matchesKey(data, Key.escape) || data === "?") this.dialog = undefined;
-      } else if (this.dialog.kind === "prompt") this.dialog = handlePromptInput(this.dialog, data, this.dialogContext());
+      } else if (this.dialog.kind === "commandPalette") this.handlePaletteInput(data);
+      else if (this.dialog.kind === "prompt") this.dialog = handlePromptInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "form") this.dialog = handleFormDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
@@ -164,55 +179,27 @@ export class SessionsView implements Component {
         return;
       }
     }
-    if (data === "t") {
-      this.startThemeDialog();
+    if (data === ":") {
+      if (this.lastWidth >= MIN_RENDER_WIDTH) this.executeDashboardCommand("view:palette");
       return;
     }
     if (this.grouping === "stage" && !this.boardRows().length) {
-      if (matchesKey(data, Key.slash)) this.startFilter();
-      else if (data === "n") this.startNewDialog();
-      else if (data === "v") this.toggleDensity();
-      else if (data === "S") this.toggleGrouping();
-      else if (data === "?") this.dialog = { kind: "help" };
-      else if (data === "q") this.stop();
+      const command = commandForKey(this.dashboardCommands(false, "select a visible session first"), data);
+      if (command) this.executeDashboardCommand(command.id);
       return;
     }
-    if (data === "F") {
-      this.clearPendingRestart();
-      this.clearFlash();
-      this.message = undefined;
-      this.pendingFocusSlot = true;
-      this.flashMessage("focus panel: press 1-4");
-      return;
-    }
-    if (data === "x") {
-      this.clearPendingRestart();
-      this.clearFlash();
-      this.message = undefined;
-      this.pendingCloseSlot = true;
-      this.flashMessage("close panel: press 1-4");
-      return;
-    }
-
     if (this.archiveDisclosureSelected || this.selectedSection) {
       if (matchesKey(data, Key.down) || data === "j") this.moveSelection(1);
       else if (matchesKey(data, Key.up) || data === "k") this.moveSelection(-1);
       else if (isEnterKey(data)) this.selectedSection ? this.toggleSection(this.selectedSection) : this.toggleArchiveDisclosure();
-      else if (matchesKey(data, Key.slash)) this.startFilter();
-      else if (data === "n") this.startNewDialog();
       else if (data === "i") this.toggleInfo();
-      else if (data === "v") this.toggleDensity();
-      else if (data === "S") this.toggleGrouping();
-      else if (data === "?") this.dialog = { kind: "help" };
-      else if (data === "q") this.stop();
+      else {
+        const command = commandForKey(this.dashboardCommands(false, "select a session first"), data);
+        if (command) this.executeDashboardCommand(command.id);
+      }
       return;
     }
 
-    const panelSlot = sidePaneSlot(data);
-    if (panelSlot) {
-      this.openSelectedSidePane(panelSlot);
-      return;
-    }
     const filterActive = Boolean(this.controller.snapshot().filter?.trim());
     if (!filterActive && matchesKey(data, Key.shift("right"))) {
       this.setAllSubagents(true);
@@ -234,12 +221,13 @@ export class SessionsView implements Component {
       if (!filterActive) this.toggleBoardSubagents();
       return;
     }
-    if (this.runConfiguredShortcut(data)) return;
+    const command = commandForKey(this.dashboardCommands(), data);
+    if (command) {
+      this.executeDashboardCommand(command.id);
+      return;
+    }
 
-    if (data === "J" || matchesKey(data, Key.shift("down"))) this.reorderSelected(1);
-    else if (data === "K" || matchesKey(data, Key.shift("up"))) this.reorderSelected(-1);
-    else if (data === "N" || matchesKey(data, Key.alt("n"))) this.syncPiNameSelected();
-    else if (matchesKey(data, Key.down) || data === "j") {
+    if (matchesKey(data, Key.down) || data === "j") {
       this.clearPendingRestart();
       this.moveSelection(1);
     }
@@ -247,43 +235,13 @@ export class SessionsView implements Component {
       this.clearPendingRestart();
       this.moveSelection(-1);
     }
-    else if (isEnterKey(data)) this.attachSelected();
-    else if (matchesKey(data, Key.slash)) this.startFilter();
-    else if (data === "n") this.startNewDialog();
-    else if (data === "f") this.startForkDialog();
-    else if (data === "g") this.startGroupDialog();
-    else if (data === "A") this.moveSelectedToBucket("archived");
-    else if (data === "B") this.moveSelectedToBucket("backlog");
-    else if (data === "U") this.restoreSelectedBucket();
-    else if (data === "e" || data === "R") this.startRenameSessionDialog();
-    else if (data === "G") this.startRenameGroupDialog();
-    else if (data === "o") this.openSelectedSidePane();
-    else if (data === "p") this.startSendDialog();
-    else if (data === "r") this.restartSelected();
-    else if (data === "d") this.startDeleteDialog();
-    else if (data === "w") this.startFinishDialog();
-    else if (data === "s") this.startPicker("skills");
-    else if (data === "m") this.startPicker("mcp");
-    else if (data === "i") this.toggleInfo();
-    else if (data === "v") this.toggleDensity();
-    else if (data === "S") this.toggleGrouping();
-    else if (data === "a") {
-      this.clearPendingRestart();
-      this.clearFlash();
-      this.runAction(() => this.actions.acknowledge ? this.actions.acknowledge() : this.controller.acknowledgeSelected(), "marking read...");
-    }
-    else if (data === "?") {
-      this.clearPendingRestart();
-      this.clearFlash();
-      this.dialog = { kind: "help" };
-    }
-    else if (data === "q") this.stop();
   }
 
   render(width: number): string[] {
     this.clearExpiredFlash();
     this.lastWidth = width;
     const selectedId = this.controller.selected()?.id;
+    if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
     if (this.narrowInfoSessionId && selectedId !== this.narrowInfoSessionId) this.narrowInfoSessionId = undefined;
     if (this.narrowInfoSessionId && width >= 80) {
       this.narrowInfoSessionId = undefined;
@@ -293,9 +251,17 @@ export class SessionsView implements Component {
     if (width < MIN_RENDER_WIDTH) {
       this.rowTargets = [];
       this.listWidth = 0;
-      return narrowNotice(width);
+      return limitRows(narrowNotice(width), height, width, this.theme);
     }
-    if (this.dialog?.kind === "help") return limitRows(renderHelp(width, this.theme), height, width, this.theme);
+    if (this.dialog?.kind === "commandPalette" && height && height < 9) {
+      const commands = this.dashboardCommands();
+      this.dialog = { ...this.dialog, state: normalizeCommandPalette(this.dialog.state, commands) };
+      const palette = renderCommandPalette(this.dialog.state, commands, width, height, this.theme);
+      this.paletteRowTargets = palette.rowTargets;
+      this.paletteBounds = { start: 0, end: Math.max(0, height - 1) };
+      return palette.lines;
+    }
+    if (this.dialog?.kind === "help") return limitRows(renderHelp(width, this.theme, this.dashboardCommands()), height, width, this.theme);
     if (this.dialog?.kind === "picker") return limitRows(renderPickerDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "theme") return limitRows(renderThemeDialog(this.dialog, width, height, this.theme), height, width, this.theme);
     if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
@@ -332,6 +298,7 @@ export class SessionsView implements Component {
       hidePreview: Boolean(sidePaneSessionIds?.size),
       expandedBoardParentIds: this.expandedBoardParentIds,
       expandedProjectParentIds: this.expandedProjectParentIds,
+      revealedSessionId: this.revealedSessionId,
       structuralProjection,
     });
     const layout = this.narrowInfoSessionId && model.selected?.id === this.narrowInfoSessionId
@@ -341,9 +308,23 @@ export class SessionsView implements Component {
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
     const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext()) : undefined;
-    const withFooter = footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
-    if (this.message) return replaceFooter(withFooter, this.message, this.theme);
-    return this.flash ? replaceFooter(withFooter, this.flash.text, this.theme) : withFooter;
+    let withFooter = footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
+    this.paletteRowTargets = [];
+    this.paletteBounds = undefined;
+    if (this.dialog?.kind === "commandPalette") {
+      const commands = this.dashboardCommands();
+      this.dialog = { ...this.dialog, state: normalizeCommandPalette(this.dialog.state, commands) };
+      const overlay = overlayCommandPalette(withFooter, this.dialog.state, commands, width, this.theme);
+      withFooter = overlay.lines;
+      this.paletteRowTargets = overlay.rowTargets;
+      this.paletteBounds = overlay.bounds;
+    }
+    const final = this.message
+      ? replaceFooter(withFooter, this.message, this.theme)
+      : this.flash
+        ? replaceFooter(withFooter, this.flash.text, this.theme)
+        : withFooter;
+    return limitRows(final, height, width, this.theme);
   }
 
   invalidate(): void {}
@@ -423,6 +404,7 @@ export class SessionsView implements Component {
   }
 
   private startFilter() {
+    this.revealedSessionId = undefined;
     this.openDialog(openFilterPrompt);
   }
 
@@ -452,31 +434,268 @@ export class SessionsView implements Component {
     this.openDialog(openRenameGroupDialog);
   }
 
-  private runConfiguredShortcut(data: string): boolean {
-    const shortcut = this.actions.dashboardShortcuts?.find((item) => matchesDashboardShortcut(data, item.key));
-    if (!shortcut) return false;
-    const selected = this.controller.selected();
-    if (!selected) return true;
-    if (selected.kind === "subagent") {
-      this.message = "subagent rows cannot receive input";
+  private dashboardCommands(includeSelected = true, interactionBlockedReason?: string): DashboardCommand[] {
+    const snapshot = this.controller.snapshot();
+    const blockedReason = interactionBlockedReason ?? ((this.archiveDisclosureSelected || this.selectedSection || (this.grouping === "stage" && !this.boardRows().length))
+      ? "select a visible session first"
+      : undefined);
+    const selected = includeSelected && !blockedReason ? this.controller.selected() : undefined;
+    const selectedVisible = selected && (this.grouping !== "stage" || this.boardRows().some((row) => row.id === selected.id)) ? selected : undefined;
+    const capabilities: DashboardCommandCapabilities = {
+      openSession: Boolean(this.actions.attachOutsideTmux || this.actions.switchInsideTmux),
+      restart: Boolean(this.actions.restart),
+      deleteSession: Boolean(this.actions.deleteSession),
+      finishWorktree: Boolean(this.actions.finishWorktree),
+      forkSession: Boolean(this.actions.forkSession),
+      renameSession: Boolean(this.actions.renameSession),
+      syncPiName: true,
+      sendMessage: Boolean(this.actions.sendMessage),
+      runConfiguredShortcut: Boolean(this.actions.runDashboardShortcut),
+      skills: Boolean(this.actions.skills),
+      mcp: Boolean(this.actions.mcpServers),
+      theme: Boolean(this.actions.themeSettings),
+      resetSidePane: Boolean(this.actions.resetSidePane),
+      assignSidePane: Boolean(this.actions.assignSidePaneSlot),
+      closeSidePane: Boolean(this.actions.closeSidePaneSlot),
+      focusSidePane: Boolean(this.actions.focusSidePaneSlot),
+      acknowledge: true,
+    };
+    return buildDashboardCommands({
+      sessions: this.commandSessions(snapshot),
+      selectedId: selectedVisible?.id,
+      filter: snapshot.filter,
+      grouping: this.grouping,
+      configuredShortcuts: this.actions.dashboardShortcuts,
+      capabilities,
+      interactionBlockedReason: blockedReason,
+    });
+  }
+
+  private commandSessions(snapshot: ReturnType<SessionsController["snapshot"]>) {
+    const unfiltered = buildDashboardProjection({
+      sessions: snapshot.sessions,
+      grouping: this.grouping,
+      archiveExpanded: this.archiveExpanded,
+      collapsedSections: this.collapsedSections,
+      expandedBoardParentIds: this.expandedBoardParentIds,
+      expandedProjectParentIds: this.expandedProjectParentIds,
+      revealedSessionId: this.revealedSessionId,
+    });
+    const seen = new Set<string>();
+    return [...unfiltered.visible, ...unfiltered.allRows].filter((session) => {
+      if (seen.has(session.id)) return false;
+      seen.add(session.id);
       return true;
+    });
+  }
+
+  private openCommandPalette(): void {
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+    const commands = this.dashboardCommands();
+    this.dialog = { kind: "commandPalette", state: normalizeCommandPalette(createCommandPalette(), commands) };
+  }
+
+  private handlePaletteInput(data: string): void {
+    if (this.dialog?.kind !== "commandPalette") return;
+    const height = this.actions.terminalRows?.() ?? process.stdout.rows;
+    if (height && height < 6 && isEnterKey(data)) return;
+    const commands = this.dashboardCommands();
+    const result = handleCommandPaletteInput(this.dialog.state, data, commands);
+    if (result.kind === "close") {
+      this.dialog = undefined;
+      return;
     }
-    if (selected.status === "stopped" || selected.status === "error") {
+    if (result.kind === "execute") {
+      this.executeDashboardCommand(result.commandId);
+      return;
+    }
+    this.dialog = { ...this.dialog, state: result.state };
+  }
+
+  private handlePaletteMouse(event: MouseEvent): void {
+    if (this.dialog?.kind !== "commandPalette") return;
+    const row = event.kind === "press" ? event.y - 1 : undefined;
+    if (row !== undefined && this.paletteBounds && row >= this.paletteBounds.start && row <= this.paletteBounds.end && !this.paletteRowTargets[row]) return;
+    const commands = this.dashboardCommands();
+    const result = handleCommandPaletteMouse(this.dialog.state, event, this.paletteRowTargets, commands);
+    if (result.kind === "close") {
+      this.dialog = undefined;
+      return;
+    }
+    if (result.kind === "execute") {
+      this.executeDashboardCommand(result.commandId);
+      return;
+    }
+    this.dialog = { ...this.dialog, state: result.state };
+  }
+
+  private executeDashboardCommand(commandId: string): void {
+    const command = this.dashboardCommands().find((item) => item.id === commandId);
+    if (this.dialog?.kind === "commandPalette") this.dialog = undefined;
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+    if (!command) {
+      this.message = "command target changed and is no longer available";
+      return;
+    }
+    if (!command.enabled) {
+      this.message = command.disabledReason ?? "command unavailable";
+      return;
+    }
+    if (command.id.startsWith("session:")) {
+      this.selectPaletteSession(command.targetSessionId);
+      return;
+    }
+    if (command.id.startsWith("shortcut:")) {
+      this.runConfiguredCommand(command);
+      return;
+    }
+    if (command.id.startsWith("filter:")) {
+      this.executeFilterCommand(command.id);
+      return;
+    }
+    if (command.id.startsWith("action:") && command.targetSessionId) {
+      const prefix = `action:${command.targetSessionId}:`;
+      const action = command.id.slice(prefix.length);
+      if (action.startsWith("panel-")) {
+        const slot = sidePaneSlot(action.slice("panel-".length));
+        if (slot) this.openSelectedSidePane(slot);
+        return;
+      }
+      switch (action) {
+        case "open": this.attachSelected(); return;
+        case "restart": this.restartSelected(); return;
+        case "send": this.startSendDialog(); return;
+        case "rename": this.startRenameSessionDialog(); return;
+        case "sync-name": this.syncPiNameSelected(); return;
+        case "fork": this.startForkDialog(); return;
+        case "move-group": this.startGroupDialog(); return;
+        case "rename-group": this.startRenameGroupDialog(); return;
+        case "archive": this.moveSelectedToBucket("archived"); return;
+        case "backlog": this.moveSelectedToBucket("backlog"); return;
+        case "restore": this.restoreSelectedBucket(); return;
+        case "delete": this.startDeleteDialog(); return;
+        case "finish-worktree": this.startFinishDialog(); return;
+        case "skills": this.startPicker("skills"); return;
+        case "mcp": this.startPicker("mcp"); return;
+        case "panel": this.openSelectedSidePane(); return;
+        case "info": this.toggleInfo(); return;
+        case "mark-read":
+          this.runAction(() => this.acknowledgeSession(command.targetSessionId!), "marking read...");
+          return;
+        case "reorder-up": this.reorderSelected(-1); return;
+        case "reorder-down": this.reorderSelected(1); return;
+      }
+    }
+    switch (command.id) {
+      case "project:skills": this.startPicker("skills"); return;
+      case "project:mcp": this.startPicker("mcp"); return;
+      case "action:new": this.startNewDialog(); return;
+      case "view:theme": this.startThemeDialog(); return;
+      case "view:density": this.toggleDensity(); return;
+      case "view:grouping": this.toggleGrouping(); return;
+      case "view:palette": this.openCommandPalette(); return;
+      case "view:focus-panel":
+        this.pendingFocusSlot = true;
+        this.flashMessage("focus panel: press 1-4");
+        return;
+      case "view:close-panel":
+        this.pendingCloseSlot = true;
+        this.flashMessage("close panel: press 1-4");
+        return;
+      case "view:help": this.dialog = { kind: "help" }; return;
+      case "view:quit": this.stop(); return;
+    }
+    this.message = "command is not implemented";
+  }
+
+  private runConfiguredCommand(command: DashboardCommand): void {
+    const targetId = command.targetSessionId;
+    const target = targetId ? this.controller.snapshot().sessions.find((session) => session.id === targetId) : undefined;
+    const prefix = targetId ? `shortcut:${targetId}:` : "";
+    const index = prefix && command.id.startsWith(prefix) ? Number(command.id.slice(prefix.length).split(":", 1)[0]) : -1;
+    const shortcut = this.actions.dashboardShortcuts?.[index];
+    if (!target || !shortcut) {
+      this.message = "shortcut target is no longer available";
+      return;
+    }
+    if (target.kind === "subagent") {
+      this.message = "subagent rows cannot receive input";
+      return;
+    }
+    if (target.status === "stopped" || target.status === "error") {
       this.message = "session is not live; press r to restart";
-      return true;
+      return;
     }
     if (!this.actions.runDashboardShortcut) {
       this.message = "shortcut unavailable";
-      return true;
+      return;
     }
-    this.clearPendingRestart();
-    this.clearFlash();
     this.runAction(
-      () => this.actions.runDashboardShortcut?.(selected.id, shortcut),
+      () => this.actions.runDashboardShortcut?.(target.id, shortcut),
       "running shortcut...",
-      () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} → ${selected.title}`); },
+      () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} → ${target.title}`); },
     );
-    return true;
+  }
+
+  private executeFilterCommand(commandId: string): void {
+    if (commandId === "filter:open") {
+      this.startFilter();
+      return;
+    }
+    let filter: string | undefined;
+    if (commandId === "filter:clear") filter = undefined;
+    else if (commandId.startsWith("filter:lifecycle:")) filter = commandId.slice("filter:lifecycle:".length);
+    else if (commandId.startsWith("filter:status:")) filter = commandId.slice("filter:status:".length);
+    else if (commandId.startsWith("filter:group:")) filter = decodeURIComponent(commandId.slice("filter:group:".length));
+    else {
+      this.message = "filter command is not implemented";
+      return;
+    }
+    this.revealedSessionId = undefined;
+    this.controller.setFilter(filter);
+    this.archiveDisclosureSelected = false;
+    this.selectedSection = undefined;
+    this.listScrollTop = 0;
+    this.actions.selectionChanged?.();
+  }
+
+  private selectPaletteSession(targetId: string | undefined): void {
+    if (!targetId) {
+      this.message = "session is no longer available";
+      return;
+    }
+    const snapshot = this.controller.snapshot();
+    const target = snapshot.sessions.find((session) => session.id === targetId);
+    if (!target) {
+      this.message = "session is no longer available";
+      return;
+    }
+    if (!this.controller.selectSession(targetId)) {
+      this.controller.setFilter(undefined);
+      if (!this.controller.selectSession(targetId)) {
+        this.message = "session is no longer available";
+        return;
+      }
+    }
+    const unfiltered = buildDashboardProjection({ sessions: this.controller.snapshot().sessions, grouping: this.grouping });
+    const current = unfiltered.allTree.get(targetId);
+    const ownerId = current ? (unfiltered.allTree.trace(current).owner ?? unfiltered.allTree.trace(current).terminal).id : targetId;
+    if (this.grouping === "stage") {
+      const expanded = buildDashboardProjection({ sessions: this.controller.snapshot().sessions, grouping: "stage", expandedBoardParentIds: new Set([ownerId]) });
+      if (expanded.visible.some((session) => session.id === targetId)) this.expandedBoardParentIds.add(ownerId);
+      else this.grouping = "project";
+    }
+    if (this.grouping === "project") this.expandedProjectParentIds.add(ownerId);
+    this.revealedSessionId = targetId;
+    this.archiveDisclosureSelected = false;
+    this.selectedSection = undefined;
+    this.listScrollTop = 0;
+    this.viewStateRevision += 1;
+    this.actions.selectionChanged?.();
   }
 
   private startSendDialog() {
@@ -602,6 +821,7 @@ export class SessionsView implements Component {
       this.selectedSection = target.section;
       this.archiveDisclosureSelected = false;
     } else {
+      if (target.id !== this.revealedSessionId) this.revealedSessionId = undefined;
       if (!this.controller.selectSession(target.id)) {
         this.lastMouseClick = undefined;
         return;
@@ -652,7 +872,11 @@ export class SessionsView implements Component {
   private startPicker(mode: "skills" | "mcp") {
     this.clearPendingRestart();
     this.clearFlash();
-    const result = mode === "skills" ? this.actions.skills?.() : this.actions.mcpServers?.();
+    const selected = this.controller.selected();
+    const target = this.actions.pickerTarget?.() ?? (selected
+      ? { sessionId: selected.id, projectCwd: projectStateCwd(selected) }
+      : { projectCwd: process.cwd() });
+    const result = mode === "skills" ? this.actions.skills?.(target) : this.actions.mcpServers?.(target);
     if (!result) {
       this.message = `${mode}: no catalog loaded`;
       return;
@@ -662,18 +886,18 @@ export class SessionsView implements Component {
       this.message = `loading ${mode}...`;
       void result.then((items) => {
         this.busy = false;
-        this.setPickerDialog(mode, items);
+        this.setPickerDialog(mode, items, target);
       }).catch((error: unknown) => {
         this.busy = false;
         this.message = errorMessage(error);
       });
       return;
     }
-    this.setPickerDialog(mode, result);
+    this.setPickerDialog(mode, result, target);
   }
 
-  private setPickerDialog(mode: "skills" | "mcp", items: PickerItem[]) {
-    const dialog = createPickerDialog(mode, items, this.dialogContext());
+  private setPickerDialog(mode: "skills" | "mcp", items: PickerItem[], target: { sessionId?: string; projectCwd: string }) {
+    const dialog = createPickerDialog(mode, items, this.dialogContext(), target);
     if (dialog) this.dialog = dialog;
   }
 
@@ -690,7 +914,7 @@ export class SessionsView implements Component {
     }
     if (selected.status === "waiting") {
       try {
-        const result = this.actions.acknowledge ? this.actions.acknowledge() : this.controller.acknowledgeSelected();
+        const result = this.acknowledgeSession(selected.id);
         if (isPromise(result)) {
           this.busy = true;
           this.message = "marking read...";
@@ -710,6 +934,12 @@ export class SessionsView implements Component {
       }
     }
     this.attachSession(selected);
+  }
+
+  private acknowledgeSession(sessionId: string): unknown {
+    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId);
+    if (this.actions.acknowledge) return this.actions.acknowledge();
+    return this.controller.acknowledgeSession(sessionId);
   }
 
   private attachSession(selected: ManagedSession) {
@@ -738,6 +968,7 @@ export class SessionsView implements Component {
   }
 
   private moveSelection(delta: number) {
+    this.revealedSessionId = undefined;
     const targets = this.visibleListTargets();
     if (!targets.length) return;
     const previousId = this.controller.snapshot().selectedId;
@@ -772,8 +1003,9 @@ export class SessionsView implements Component {
       .map((row) => ({ kind: "session" as const, id: row.id }));
     const allArchived = allRows.filter((row) => sectionOf(row) === "archived");
     if (!allArchived.length) return targets;
+    const revealsArchived = Boolean(this.revealedSessionId && allArchived.some((row) => row.id === this.revealedSessionId));
     targets.push({ kind: "section-header", section: "archived" });
-    if (!this.collapsedSections.has("archived") || filterActive) {
+    if (!this.collapsedSections.has("archived") || filterActive || revealsArchived) {
       targets.push(...visibleRows.filter((row) => sectionOf(row) === "archived").map((row) => ({ kind: "session" as const, id: row.id })));
       if (archive.showDisclosure && !this.collapsedSections.has("archived")) targets.push({ kind: "archive-disclosure" });
     }
@@ -816,12 +1048,14 @@ export class SessionsView implements Component {
   }
 
   private toggleArchiveDisclosure() {
+    this.revealedSessionId = undefined;
     this.archiveExpanded = !this.archiveExpanded;
     this.viewStateRevision += 1;
     this.normalizeListSelection();
   }
 
   private toggleSection(section: CollapsibleSection) {
+    this.revealedSessionId = undefined;
     if (this.collapsedSections.has(section)) this.collapsedSections.delete(section);
     else this.collapsedSections.add(section);
     this.viewStateRevision += 1;
@@ -835,11 +1069,12 @@ export class SessionsView implements Component {
 
   private dashboardProjection(snapshot: ReturnType<SessionsController["snapshot"]>, filterOverride?: string): DashboardProjection {
     const filter = filterOverride === undefined ? snapshot.filter?.trim() || undefined : filterOverride;
-    const key = `${this.grouping}|${this.archiveExpanded}|${snapshot.sessions.length}|${this.viewStateRevision}|${filter ?? ""}|${[...this.collapsedSections].join(",")}|${[...this.expandedBoardParentIds].join(",")}|${[...this.expandedProjectParentIds].join(",")}`;
+    const key = `${this.grouping}|${this.archiveExpanded}|${snapshot.sessions.length}|${this.viewStateRevision}|${filter ?? ""}|${this.revealedSessionId ?? ""}|${[...this.collapsedSections].join(",")}|${[...this.expandedBoardParentIds].join(",")}|${[...this.expandedProjectParentIds].join(",")}`;
     if (this.projection && this.projectionRegistry === snapshot.registry && this.projectionKey === key) return this.projection;
     this.projection = buildDashboardProjection({ sessions: snapshot.sessions, filter, grouping: this.grouping,
       archiveExpanded: this.archiveExpanded, collapsedSections: this.collapsedSections,
-      expandedBoardParentIds: this.expandedBoardParentIds, expandedProjectParentIds: this.expandedProjectParentIds });
+      expandedBoardParentIds: this.expandedBoardParentIds, expandedProjectParentIds: this.expandedProjectParentIds,
+      revealedSessionId: this.revealedSessionId });
     this.projectionRegistry = snapshot.registry;
     this.projectionKey = key;
     return this.projection;
@@ -868,6 +1103,7 @@ export class SessionsView implements Component {
   }
 
   private setSelectedSubagents(expanded: boolean) {
+    this.revealedSessionId = undefined;
     const selectedId = this.controller.snapshot().selectedId;
     const parentId = this.topLevelBoardParentId(selectedId);
     if (!parentId || !this.subagentParentIds().has(parentId)) return;
@@ -880,6 +1116,7 @@ export class SessionsView implements Component {
   }
 
   private setAllSubagents(expanded: boolean) {
+    this.revealedSessionId = undefined;
     const expandedIds = this.grouping === "stage" ? this.expandedBoardParentIds : this.expandedProjectParentIds;
     if (expanded) {
       for (const parentId of this.subagentParentIds()) expandedIds.add(parentId);
@@ -906,6 +1143,7 @@ export class SessionsView implements Component {
   }
 
   private toggleDensity() {
+    this.revealedSessionId = undefined;
     this.clearPendingRestart();
     this.clearFlash();
     this.message = undefined;
@@ -914,6 +1152,7 @@ export class SessionsView implements Component {
   }
 
   private toggleGrouping() {
+    this.revealedSessionId = undefined;
     this.clearPendingRestart();
     this.clearFlash();
     this.message = undefined;
@@ -955,8 +1194,16 @@ export class SessionsView implements Component {
       this.message = "Archived is sorted by archive time";
       return;
     }
-    const reorder = this.actions.reorderSelected;
-    this.runAction(() => reorder ? reorder(delta) : this.controller.reorderSelected(delta), "reordering session...");
+    const selected = this.controller.selected();
+    if (!selected) return;
+    this.runAction(
+      () => this.actions.reorderSession
+        ? this.actions.reorderSession(selected.id, delta)
+        : this.actions.reorderSelected
+          ? this.actions.reorderSelected(delta)
+          : this.controller.reorderSession(selected.id, delta),
+      "reordering session...",
+    );
   }
 
   private moveSelectedToBucket(bucket: "backlog" | "archived") {
@@ -1119,6 +1366,34 @@ export class SessionsView implements Component {
 
 }
 
+function overlayCommandPalette(
+  baseLines: string[],
+  state: CommandPaletteState,
+  commands: readonly DashboardCommand[],
+  width: number,
+  theme?: SessionsTheme,
+): { lines: string[]; rowTargets: (CommandPaletteRowTarget | undefined)[]; bounds?: { start: number; end: number } } {
+  const lines = baseLines.slice();
+  const rowTargets = lines.map(() => undefined as CommandPaletteRowTarget | undefined);
+  if (lines.length < 4) return { lines, rowTargets };
+  const footerIndex = lines.length - 2;
+  const available = Math.max(0, footerIndex - 1);
+  const preferred = width <= 60 ? 30 : 26;
+  const panelHeight = Math.min(preferred, available);
+  if (panelHeight < 3) return { lines, rowTargets };
+  const innerWidth = Math.max(1, width - 2);
+  const palette = renderCommandPalette(state, commands, innerWidth, panelHeight, theme);
+  const start = footerIndex - panelHeight;
+  const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
+  for (let index = 0; index < panelHeight; index += 1) {
+    const panelLine = palette.lines[index] ?? "";
+    const padded = `${panelLine}${" ".repeat(Math.max(0, innerWidth - visibleWidth(panelLine)))}`;
+    lines[start + index] = `${border("│")}${padded}${border("│")}`;
+    rowTargets[start + index] = palette.rowTargets[index];
+  }
+  return { lines, rowTargets, bounds: { start, end: start + panelHeight - 1 } };
+}
+
 function sidePaneSlot(data: string): 1 | 2 | 3 | 4 | undefined {
   if (data === "1" || data === "2" || data === "3" || data === "4") return Number(data) as 1 | 2 | 3 | 4;
   return undefined;
@@ -1132,34 +1407,38 @@ function syncPiNameMessage(result: SyncPiNameResult): string {
   }
 }
 
-function renderHelp(width: number, theme?: SessionsTheme): string[] {
+function renderHelp(width: number, theme: SessionsTheme | undefined, commands: readonly DashboardCommand[]): string[] {
   const heading = (text: string) => theme ? styleToken(theme, "accent", text) : text;
+  const commandLines = commands
+    .filter((command) => command.group !== "sessions")
+    .map((command) => {
+      const keys = command.bindings.map((binding) => binding.key).join("/") || ":";
+      const unavailable = command.enabled ? "" : ` · unavailable: ${command.disabledReason}`;
+      return `  ${padVisibleLine(keys, 12)} ${command.label} · ${command.hint}${unavailable}`;
+    });
   const lines = [
     heading("pi agent hub help"),
     "",
+    heading("Commands"),
+    ...commandLines,
+    "",
     heading("Navigation"),
-    "  ↑↓/j/k move selection     Enter open/switch     / filter",
+    "  ↑↓/j/k move selection     Esc cancel/clear",
     "  1-4 assign (stay here)    x then 1-4 close panel",
-    "  F then 1-4 or Alt+1-4 focus panel     o reset to one panel",
-    "  q quit                     Esc cancel/clear",
-    "  K/J reorder in group      v cycle row density",
-    "  S toggle project/stage grouping",
+    "  F then 1-4 or Alt+1-4 focus panel",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
     "  mouse click select · double-click open/switch · wheel move",
     "",
-    heading("Sessions"),
-    "  n new     p send     r restart choices     N sync Pi name     f fork     w finish worktree",
-    "  R rename     g move group (Ctrl+N/P cycles groups)     G rename group     d delete     a mark read",
-    "  A archive     B backlog     U restore to Active",
-    "  Restart choices: r selected     n new conversation     a all     Esc cancel",
-    "  Delete choices: d delete/forget     D discard worktree     s close subagents     w finish worktree",
+    heading("Choice dialogs"),
+    "  Restart: r selected     n new conversation     a all     Esc cancel",
+    "  Delete: d delete/forget     D discard worktree     s close subagents     w finish worktree",
+    "  Group picker: Ctrl+N/P cycles groups",
     "",
     heading("New-session form"),
     "  Tab/↑↓ move     Space toggles Worktree row     Ctrl+T toggles anywhere     Ctrl+O choose repo",
     "  Alt+A add repo     Alt+X remove extra",
     "",
-    heading("Project state"),
-    "  s skills picker     m MCP picker     t theme settings",
+    heading("Pickers and themes"),
     "  pickers: ←→/Tab switch columns; theme: live preview, Enter apply, Esc cancel",
     "",
     heading("Return from managed sessions and panels"),
@@ -1194,7 +1473,7 @@ function renderHelp(width: number, theme?: SessionsTheme): string[] {
 
 function padVisibleLine(line: string, width: number): string {
   const text = truncateVisible(line, width);
-  return `${text}${" ".repeat(Math.max(0, width - stripAnsi(text).length))}`;
+  return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 
 function limitRows(lines: string[], height: number | undefined, width: number, theme?: SessionsTheme): string[] {

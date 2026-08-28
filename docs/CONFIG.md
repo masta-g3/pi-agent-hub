@@ -121,7 +121,7 @@ pi-hub config unset worktree-default
 
 ## Dashboard shortcuts
 
-`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. They cannot target stopped, error, or subagent rows.
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
 
 ```json
 {
@@ -138,7 +138,7 @@ pi-hub config unset worktree-default
 }
 ```
 
-Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard keys and tmux return/focus keys are reserved, including theme settings `t`, the panel-close prefix `x`, sidebar return `M-q`, and `M-1` through `M-4`; shifted digit characters such as `!` are available for custom shortcuts. `send` must be a single nonblank line; this is not a shell-command or macro facility.
+Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard keys and tmux return/focus keys are reserved, including the intent palette `:`, theme settings `t`, the panel-close prefix `x`, sidebar return `M-q`, and `M-1` through `M-4`; conflicting entries are rejected rather than shadowing Hub behavior. Shifted digit characters such as `!` are available for custom shortcuts. `send` must be a single nonblank line; this is not a shell-command or macro facility.
 
 Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name refresh` is producer-provided and can be configured as an ordinary one-line text send.
 
