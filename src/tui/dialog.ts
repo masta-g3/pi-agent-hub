@@ -93,7 +93,6 @@ export interface NavigationActions {
   attachOutsideTmux: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux: (tmuxSession: string) => void | Promise<void>;
   sendMessage: (tmuxSession: string, message: string) => unknown;
-  selectionChanged: () => void;
   refreshStatusEvidence: () => void | Promise<void>;
 }
 
@@ -123,7 +122,6 @@ export interface SessionsViewActions {
   focusSidePaneSlot?: (slot: 1 | 2 | 3 | 4) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   sidePaneSessionIds?: () => ReadonlyMap<string, number>;
   sidePaneFocusedSlot?: () => number | undefined;
-  selectionChanged?: () => void;
   refreshStatusEvidence?: () => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   restartNew?: (sessionId: string) => unknown;
@@ -162,7 +160,6 @@ export interface SessionsViewActions {
   dashboardShortcuts?: readonly DashboardShortcut[];
   runDashboardShortcut?: (sessionId: string, shortcut: DashboardShortcut) => unknown;
   copy?: (text: string) => void;
-  skillCount?: (cwd: string) => number | undefined;
   now?: () => number;
   terminalRows?: () => number;
 }
@@ -188,7 +185,7 @@ export interface DialogContext {
 /** Context boundary for a dialog family. Only the declared action fields are visible. */
 export type DialogContextFor<Actions extends object> = Omit<DialogContext, "actions"> & { actions: Actions };
 
-export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage" | "selectionChanged">>>;
+export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage">>>;
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
 export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;

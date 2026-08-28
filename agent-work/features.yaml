@@ -854,7 +854,7 @@
   plan_file: agent-work/history/20260827_cockpit-005_intent_palette.md
   completed_at: '2026-08-27'
 - id: cockpit-006
-  status: pending
+  status: done
   title: Action workspace
   subtitle: Lead with decisions and actions
   description: The selected-session workspace leads with explicit requests, recommendations,
@@ -866,6 +866,8 @@
   - cockpit-005
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260828_cockpit-006_action_workspace.md
+  completed_at: '2026-08-28'
 - id: cockpit-007
   status: pending
   title: Direct pinning

@@ -4,8 +4,9 @@ import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionT
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
+import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
-import { dashboardFooter } from "./dashboard-commands.js";
+import { dashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
 
 export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
 
@@ -43,7 +44,6 @@ export interface RenderSession {
   error?: string;
   sessionFile?: string;
   enabledMcpServers: string[];
-  skillCount?: number;
   kind: "main" | "subagent";
   depth: number;
   parentId?: string;
@@ -125,6 +125,14 @@ export interface BoardHiddenCounts {
   nonActive: number;
 }
 
+export interface RenderWorkspace extends WorkspaceCommandSelection {
+  session: RenderSession;
+  owner?: RenderSession;
+  descendants: RenderSession[];
+  evidenceVisible: boolean;
+  fullScreen: boolean;
+}
+
 export interface RenderModel {
   width: number;
   now: number;
@@ -133,7 +141,7 @@ export interface RenderModel {
   empty: boolean;
   noMatches: boolean;
   noBoardSessions: boolean;
-  showPreview: boolean;
+  showWorkspace: boolean;
   compactFooter: boolean;
   sections: RenderSection[];
   summary: RenderSummary;
@@ -141,10 +149,9 @@ export interface RenderModel {
   boardStatusCounts: StatusCounts;
   boardHidden: BoardHiddenCounts;
   selected?: RenderSession;
+  workspace?: RenderWorkspace;
   footer: string;
   filter?: string;
-  preview: string;
-  detailsExpanded: boolean;
   grouping: "project" | "stage";
   density: "compact" | "all-cards";
   panelStrip?: PanelStripItem[];
@@ -288,9 +295,9 @@ export interface BuildRenderModelInput {
   listScrollTop?: number;
   filter?: string;
   filterEditing?: boolean;
-  preview?: string;
-  detailsExpanded?: boolean;
-  selectedSkillCount?: number;
+  workspaceCommands?: WorkspaceCommandSelection;
+  workspaceEvidenceVisible?: boolean;
+  workspaceFullScreen?: boolean;
   grouping?: "project" | "stage";
   density?: "compact" | "all-cards";
   now?: number;
@@ -300,7 +307,6 @@ export interface BuildRenderModelInput {
   archiveDisclosureSelected?: boolean;
   selectedSection?: CollapsibleSection;
   collapsedSections?: ReadonlySet<CollapsibleSection>;
-  hidePreview?: boolean;
   expandedBoardParentIds?: ReadonlySet<string>;
   expandedProjectParentIds?: ReadonlySet<string>;
   revealedSessionId?: string;
@@ -331,8 +337,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   // headers and archive disclosure can suppress the list highlight while keeping
   // the selected row available to the details pane.
   const allMapped = allRows.map((session) => toRenderSession(
-    session, session.id === selectedId, allRows, allTree,
-    session.id === selectedId ? input.selectedSkillCount : undefined, input.now,
+    session, session.id === selectedId, allRows, allTree, input.now,
     sidePaneSessionIds?.get(session.id), board, density, subagentStats.get(session.id), treeExpanded(session.id),
     cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!,
   ));
@@ -353,6 +358,19 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
+  const selectedSource = selected ? allTree.get(selected.id) : undefined;
+  const ownerSource = selectedSource ? allTree.trace(selectedSource).owner : undefined;
+  const workspace = selected && input.workspaceCommands ? {
+    ...input.workspaceCommands,
+    session: selected,
+    ...(ownerSource && ownerSource.id !== selected.id ? { owner: mappedById.get(ownerSource.id) } : {}),
+    descendants: selectedSource ? allTree.descendants(selected.id).flatMap((row) => {
+      const rendered = mappedById.get(row.id);
+      return rendered ? [rendered] : [];
+    }) : [],
+    evidenceVisible: input.workspaceEvidenceVisible ?? false,
+    fullScreen: input.workspaceFullScreen ?? false,
+  } : undefined;
   const boardParents = mapped.filter((session) => session.kind !== "subagent");
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
@@ -361,7 +379,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     empty: input.sessions.length === 0,
     noMatches: input.sessions.length > 0 && (allRows.length === 0 || noBoardMatches),
     noBoardSessions: board && !filterActive && mapped.length === 0,
-    showPreview: input.width >= 80 && !input.hidePreview,
+    showWorkspace: Boolean(workspace && (input.width >= 120 || input.workspaceFullScreen)),
     compactFooter,
     sections,
     summary: {
@@ -375,10 +393,9 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.height ? { height: input.height } : {}),
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
+    ...(workspace ? { workspace } : {}),
     footer: dashboardFooter(input.width),
     filter: input.filter,
-    preview: input.preview ?? "",
-    detailsExpanded: input.detailsExpanded ?? false,
     grouping,
     density,
     ...(panelStrip ? { panelStrip } : {}),
@@ -640,7 +657,7 @@ function descendantSubagentStats(
   return stats;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, skillCount: number | undefined, now: number | undefined, sidePaneSlot: number | undefined, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, sidePaneSlot: number | undefined, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -672,7 +689,6 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     error: session.error,
     sessionFile: session.sessionFile,
     enabledMcpServers: session.enabledMcpServers ?? [],
-    ...(skillCount !== undefined ? { skillCount } : {}),
     kind: session.kind ?? "main",
     depth: sessionDepth(session, sessions, tree),
     parentId: session.parentId,
@@ -705,14 +721,14 @@ function archiveTimingFor(section: SessionSection, changedAt: number | undefined
   const elapsed = Math.max(0, now - changedAt);
   const remaining = ARCHIVE_PRUNE_AFTER_MS - elapsed;
   return {
-    archivedAge: ageLabel(elapsed),
-    archiveRetentionIn: remaining <= 0 ? "now" : remaining < 60_000 ? "<1m" : ageLabel(remaining),
+    archivedAge: ageLabel(elapsed, "now"),
+    archiveRetentionIn: remaining <= 0 ? "now" : remaining < 60_000 ? "<1m" : ageLabel(remaining, "now"),
   };
 }
 
 function activityAge(lastActivityAt: number | undefined, now: number | undefined): string | undefined {
   if (lastActivityAt === undefined || now === undefined) return undefined;
-  return ageLabel(Math.max(0, now - lastActivityAt));
+  return ageLabel(Math.max(0, now - lastActivityAt), "now");
 }
 
 function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
@@ -739,16 +755,6 @@ function planSummary(plan: NonNullable<WorkflowRuntimeSnapshot["plan"]>): Render
     nextStep: plan.nextStep,
   };
   return summary.phase || summary.tasks || summary.phases || summary.nextStep ? summary : undefined;
-}
-
-function ageLabel(ageMs: number): string {
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (ageMs < minute) return "now";
-  if (ageMs < hour) return `${Math.floor(ageMs / minute)}m`;
-  if (ageMs < day) return `${Math.floor(ageMs / hour)}h`;
-  return `${Math.floor(ageMs / day)}d`;
 }
 
 function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"] {

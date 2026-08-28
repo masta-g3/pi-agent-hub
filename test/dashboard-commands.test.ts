@@ -5,6 +5,7 @@ import {
   buildDashboardCommands,
   commandForKey,
   searchDashboardCommands,
+  selectWorkspaceCommands,
   type DashboardCommandCapabilities,
 } from "../src/tui/dashboard-commands.js";
 
@@ -95,6 +96,64 @@ test("session search composes bounded matchesFilter context and preserves fleet 
   }
   assert.deepEqual(searchDashboardCommands(commands, "secret pane").filter((command) => command.group === "sessions"), []);
   assert.deepEqual(searchDashboardCommands(commands, "plain").filter((command) => command.group === "sessions").map((command) => command.id), ["session:preview"]);
+});
+
+test("workspace selection follows frozen recommendation and action precedence", () => {
+  const cases: Array<{
+    name: string;
+    values: Partial<RuntimeSession>;
+    recommendation: string;
+    actions: string[];
+  }> = [
+    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, recommendation: "Answer the producer's explicit question.", actions: ["send", "open", "mark-read"] },
+    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, recommendation: "Review the producer's completed result.", actions: ["send", "open", "mark-read"] },
+    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, recommendation: "Resolve the producer's explicit blocker.", actions: ["send", "open", "mark-read"] },
+    { name: "error", values: { status: "error" }, recommendation: "Inspect live evidence before deciding whether to restart.", actions: ["open", "restart", "info"] },
+    { name: "stopped", values: { status: "stopped", bucket: "backlog" }, recommendation: "Restart the session when this work should continue.", actions: ["open", "restart", "restore"] },
+    { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, recommendation: "Let the owner coordinate this task unless direct inspection is needed.", actions: ["open", "info"] },
+    { name: "archived", values: { bucket: "archived", status: "idle" }, recommendation: "No intervention requested while this work remains Archived.", actions: ["open", "restore", "delete"] },
+    { name: "backlog", values: { bucket: "backlog", status: "idle" }, recommendation: "No intervention requested while this work remains in Backlog.", actions: ["open", "restore", "archive"] },
+    { name: "idle", values: { status: "idle" }, recommendation: "No intervention requested.", actions: ["open", "send", "archive"] },
+    { name: "active", values: { status: "running" }, recommendation: "Let the session continue; open it only when more context is needed.", actions: ["open", "panel", "send"] },
+  ];
+
+  for (const item of cases) {
+    const selected = session(item.name, item.values);
+    const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities });
+    const workspace = selectWorkspaceCommands(selected, commands, 3);
+    assert.equal(workspace.recommendation, item.recommendation, item.name);
+    assert.deepEqual(workspace.actions.map((command) => command.id), item.actions.map((name) => `action:${selected.id}:${name}`), item.name);
+    assert.equal(workspace.moreCommand.id, "view:palette", item.name);
+    assert.equal(workspace.moreCommand.displayKey, ":", item.name);
+  }
+});
+
+test("workspace selection reuses exact enabled descriptors and respects the action cap", () => {
+  const selected = session("exact", { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Choose" } } });
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: { ...allCapabilities, sendMessage: false } });
+  const workspace = selectWorkspaceCommands(selected, commands, 2);
+  const open = commands.find((command) => command.id === "action:exact:open")!;
+  const markRead = commands.find((command) => command.id === "action:exact:mark-read")!;
+  const palette = commands.find((command) => command.id === "view:palette")!;
+
+  assert.deepEqual(workspace.actions, [open, markRead]);
+  assert.strictEqual(workspace.actions[0], open);
+  assert.strictEqual(workspace.moreCommand, palette);
+  assert.ok(workspace.actions.every((command) => command.enabled && command.targetSessionId === selected.id));
+  assert.equal(workspace.actions.some((command) => command.id === "action:exact:send"), false);
+  assert.deepEqual(
+    workspace.actions.map(({ label, displayKey, hint, enabled }) => ({ label, displayKey, hint, enabled })),
+    [open, markRead].map(({ label, displayKey, hint, enabled }) => ({ label, displayKey, hint, enabled })),
+  );
+  assert.deepEqual(selectWorkspaceCommands(selected, commands, 0).actions, []);
+});
+
+test("workspace selection ignores attention outside waiting and idle states", () => {
+  const selected = session("running-attention", { status: "running", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Old question" } } });
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities });
+  assert.deepEqual(selectWorkspaceCommands(selected, commands, 3).actions.map((command) => command.id), [
+    "action:running-attention:open", "action:running-attention:panel", "action:running-attention:send",
+  ]);
 });
 
 test("named filters include lifecycle, status, and sorted current groups", () => {

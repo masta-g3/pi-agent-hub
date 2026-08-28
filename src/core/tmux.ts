@@ -225,20 +225,6 @@ export async function clientSessionByTty(tty: string, exec: TmuxExec = realTmuxE
   return (await clientSessionsByTty(exec)).get(tty);
 }
 
-export interface CapturePaneOptions {
-  preserveStyles?: boolean;
-}
-
-export async function capturePane(name: string, lines = 160, optionsOrExec: CapturePaneOptions | TmuxExec = {}, exec: TmuxExec = realTmuxExec): Promise<string> {
-  const options = "exec" in optionsOrExec ? {} : optionsOrExec;
-  const runner = "exec" in optionsOrExec ? optionsOrExec : exec;
-  const args = ["capture-pane", "-p"];
-  if (options.preserveStyles) args.push("-e");
-  args.push("-t", name, "-S", `-${lines}`);
-  const result = await runner.exec("tmux", args);
-  return result.stdout;
-}
-
 export async function sendTextToSession(name: string, text: string, exec: TmuxExec = realTmuxExec): Promise<void> {
   const buffer = `pi-agent-hub-send-${process.pid}`;
   await exec.exec("tmux", ["set-buffer", "-b", buffer, "--", text]);

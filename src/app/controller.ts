@@ -9,7 +9,7 @@ import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSess
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
 import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
-import { capturePane, sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
+import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
 
@@ -17,7 +17,6 @@ export interface SessionsSnapshot {
   registry: SessionsRegistry;
   sessions: RuntimeSession[];
   selectedId?: string;
-  preview: string;
   filter?: string;
 }
 
@@ -32,13 +31,10 @@ export class SessionsController {
   private workflowModes = new Map<string, WorkflowModeDisplay>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
-  private preview = "";
-  private previewRequest = 0;
   private filter: string | undefined;
 
   constructor(
     registry: SessionsRegistry = { version: 1, sessions: [] },
-    private capture: typeof capturePane = capturePane,
     private presence: typeof sessionPresence = sessionPresence,
     private presenceSnapshot: (names: readonly string[]) => Promise<Map<string, TmuxPresenceResult>> = (names) => sessionPresenceSnapshot(names),
   ) {
@@ -113,19 +109,8 @@ export class SessionsController {
     this.repairSelection();
   }
 
-  async refreshPreview(lines = 160): Promise<void> {
-    const request = ++this.previewRequest;
-    const selected = this.selected();
-    if (!selected || selected.status === "stopped" || selected.status === "error") {
-      this.preview = "";
-      return;
-    }
-    const preview = await this.capture(selected.tmuxSession, lines, { preserveStyles: true });
-    if (request === this.previewRequest && this.selectedId === selected.id) this.preview = preview;
-  }
-
   snapshot(): SessionsSnapshot {
-    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, preview: this.preview, filter: this.filter };
+    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, filter: this.filter };
   }
 
   move(delta: number): void {
@@ -137,21 +122,12 @@ export class SessionsController {
     const index = Math.max(0, sessions.findIndex((session) => session.id === this.selectedId));
     const next = (index + delta + sessions.length) % sessions.length;
     const nextId = sessions[next]?.id;
-    if (nextId !== this.selectedId) {
-      this.selectedId = nextId;
-      this.preview = "";
-      this.previewRequest += 1;
-    }
+    if (nextId !== this.selectedId) this.selectedId = nextId;
   }
 
   setFilter(filter: string | undefined): void {
-    const previousId = this.selectedId;
     this.filter = filter?.trim() || undefined;
     this.selectedId = keepSelection(this.visibleSessions(), this.selectedId);
-    if (this.selectedId !== previousId) {
-      this.preview = "";
-      this.previewRequest += 1;
-    }
   }
 
   async acknowledgeSelected(now = Date.now()): Promise<void> {
@@ -278,16 +254,11 @@ export class SessionsController {
     this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
     const after = this.visibleSessions();
     this.selectedId = wasSelected ? after[Math.min(oldIndex, after.length - 1)]?.id : keepSelection(after, this.selectedId);
-    if (wasSelected) this.preview = "";
   }
 
   selectSession(id: string): boolean {
     if (!this.visibleSessions().some((session) => session.id === id)) return false;
-    if (id !== this.selectedId) {
-      this.selectedId = id;
-      this.preview = "";
-      this.previewRequest += 1;
-    }
+    if (id !== this.selectedId) this.selectedId = id;
     return true;
   }
 
@@ -305,8 +276,6 @@ export class SessionsController {
     const selectedId = keepSelection(this.visibleSessions(), this.selectedId);
     if (selectedId === this.selectedId) return;
     this.selectedId = selectedId;
-    this.preview = "";
-    this.previewRequest += 1;
   }
 
   private visibleSessions(): RuntimeSession[] {

@@ -38,7 +38,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | Key | Action |
 | --- | --- |
 | `n` | Create a new Pi session |
-| `Enter` | Open/switch to the selected live session while keeping any panel attached, or restart a stopped/error session |
+| `Enter` | Below 120 columns, open the selected session's action workspace first; at 120+ columns, open/switch directly or restart a stopped/error session |
 | `1`–`4` | Assign, replace, move, or swap a fixed quadrant panel; press its current number again to close it |
 | `x`, then `1`–`4` | Close the corresponding panel |
 | `F`, then `1`–`4`, or `Alt+1`–`Alt+4` | Focus the corresponding open panel |
@@ -65,15 +65,17 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `g` / `G` | Move a session to a group (Ctrl+N/P cycles visible groups) or rename its group |
 | `K` / `J` | Move the selected Active/Backlog session up/down within its group |
 | `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
-| Click / double-click | Select / open, switch, or restart from any visible card line |
+| Click / double-click | Select / open the action workspace below 120 columns, or open/switch/restart directly at 120+ |
 
 The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
 
-Press `i` to explain the selected session from one current observation: tmux presence, heartbeat freshness and Pi state, read state, the runtime decision, cockpit placement, and separate workflow provenance. At 80 columns or wider this expands the details pane. From 40–79 columns it opens a gated full-width Info screen; only `i` or `Escape` returns to the cockpit.
+The selected-session action workspace leads with the explicit request, a deterministic maintainer recommendation, and enabled target-bound actions. It then shows bounded producer context, runtime state, workflow position, and tree context. Raw tmux pane output and Pi conversation content never enter this workspace. The workspace is persistent at 120+ columns. Below 120 columns, the first `Enter` or double-click opens it without attaching or acknowledging; `Enter` inside the workspace runs Open/Restart and `Escape` returns to the fleet. Workspace action rows also support a single mouse click.
+
+Press `i` to show live evidence in the same workspace: tmux presence, heartbeat freshness and Pi state, read state, the runtime decision, cockpit placement, and separate workflow provenance. Missing evidence refreshes through the normal observation path before display. Press `i` again to hide evidence.
 
 Press `:` to search the same actions exposed by direct keys, jump to sessions through bounded title/group/project/task/ticket/attention/workflow context, or apply named lifecycle, status, and group filters. Unavailable actions remain visible with a reason. Selecting a session only reveals and selects its current row in Hub; it does not attach, restart, or mark it read. `/` remains the fast free-text fleet filter, and `?` remains direct Help.
 
-`v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The right pane keeps full available plan context.
+`v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow context separate from Hub's maintainer recommendation.
 
 ## Install
 

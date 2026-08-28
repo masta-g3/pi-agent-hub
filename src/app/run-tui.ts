@@ -201,21 +201,6 @@ export async function runTui(): Promise<void> {
     density: saved.density === "all-cards" ? "all-cards" : "compact",
     collapsedSections,
   };
-  const skillCountCache = new Map<string, number>();
-  const skillCountLoads = new Set<string>();
-  const skillCount = (projectCwd: string): number | undefined => {
-    const cached = skillCountCache.get(projectCwd);
-    if (cached !== undefined) return cached;
-    if (!skillCountLoads.has(projectCwd)) {
-      skillCountLoads.add(projectCwd);
-      void loadProjectSkillsState(projectCwd).then((state) => {
-        skillCountCache.set(projectCwd, state.attached.length);
-        skillCountLoads.delete(projectCwd);
-        tui.requestRender();
-      }).catch(() => { skillCountLoads.delete(projectCwd); });
-    }
-    return undefined;
-  };
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
   let stopActionLoop: (() => void) | undefined;
@@ -304,11 +289,6 @@ export async function runTui(): Promise<void> {
       return mapSidePaneSessionIds(sidePanes!.snapshot().slots, controller.snapshot().registry.sessions);
     },
     sidePaneFocusedSlot: () => sidePanes!.snapshot().focusedSlot,
-    selectionChanged() {
-      void controller.refreshPreview()
-        .then(() => { if (!stopped) tui.requestRender(); })
-        .catch(() => {});
-    },
     refreshStatusEvidence() {
       return stopLoop?.refresh() ?? controller.refresh();
     },
@@ -429,11 +409,10 @@ export async function runTui(): Promise<void> {
     },
     async applySkills(items, target) {
       const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
-      const state = await setProjectSkills(projectCwd, items.flatMap((item) => {
+      await setProjectSkills(projectCwd, items.flatMap((item) => {
         const skill = skillPool.find((entry) => entry.name === item.name);
         return skill ? [{ name: item.name, sourcePath: skill.path, enabled: item.enabled }] : [];
       }));
-      skillCountCache.set(projectCwd, state.attached.length);
     },
     async mcpServers(target) {
       const state = await loadProjectMcpState(resolveProjectPickerTarget(target, controller.snapshot().registry.sessions));
@@ -481,7 +460,6 @@ export async function runTui(): Promise<void> {
       child.stdin.on("error", () => {});
       child.stdin.end(text);
     },
-    skillCount,
     terminalRows: () => terminal.rows,
   }, theme);
   stopThemeLoop = startThemeRefreshLoop({

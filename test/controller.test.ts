@@ -26,33 +26,12 @@ function session(status: ManagedSession["status"], overrides: Partial<ManagedSes
   };
 }
 
-test("refreshPreview skips sessions with error status", async () => {
-  const controller = new SessionsController({ version: 1, sessions: [session("error")] });
+test("controller snapshots expose bounded session state without raw pane output", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("idle")] });
 
-  await controller.refreshPreview();
-
-  assert.equal(controller.snapshot().preview, "");
-});
-
-test("selection changes clear stale preview and ignore late captures", async () => {
-  let resolveCapture!: (preview: string) => void;
-  const capture = new Promise<string>((resolve) => { resolveCapture = resolve; });
-  let captures = 0;
-  const controller = new SessionsController({
-    version: 1,
-    sessions: [session("idle", { id: "api" }), session("idle", { id: "docs" })],
-  }, async () => ++captures === 1 ? "api preview" : capture);
-
-  await controller.refreshPreview();
-  assert.equal(controller.snapshot().preview, "api preview");
-  const refreshing = controller.refreshPreview();
+  assert.equal("preview" in controller.snapshot(), false);
   controller.move(1);
-
-  assert.equal(controller.snapshot().selectedId, "docs");
-  assert.equal(controller.snapshot().preview, "");
-  resolveCapture("late api preview");
-  await refreshing;
-  assert.equal(controller.snapshot().preview, "");
+  assert.equal("preview" in controller.snapshot(), false);
 });
 
 test("movement keeps errors ahead of the activity-sorted tier", () => {
@@ -274,7 +253,7 @@ test("runtime status evidence is transient and follows causal session changes", 
   await withTempSessionsDir(async () => {
     const registry = { version: 1 as const, sessions: [session("running", { id: "api" })] };
     await updateRegistry(() => registry);
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
 
     await controller.refresh(100);
     assert.equal(controller.snapshot().sessions[0]?.statusEvidence?.reason, "fallback-waiting");
@@ -297,7 +276,7 @@ test("refresh preserves unknown tmux failures as errors instead of stopped", asy
   await withTempSessionsDir(async () => {
     const registry = { version: 1 as const, sessions: [session("running", { id: "api" })] };
     await updateRegistry(() => registry);
-    const controller = new SessionsController(registry, async () => "", async () => "unknown");
+    const controller = new SessionsController(registry, async () => "unknown");
     await controller.refresh(10);
     assert.equal(controller.snapshot().registry.sessions[0]?.status, "error");
     assert.match(controller.snapshot().registry.sessions[0]?.error ?? "", /presence was not observed|tmux session is missing/);
@@ -326,7 +305,7 @@ test("stable refreshes do not rewrite the registry", async () => {
   await withTempSessionsDir(async () => {
     const registry = { version: 1 as const, sessions: [session("running", { id: "api" })] };
     await updateRegistry(() => registry);
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
 
     await controller.refresh(100);
     const path = join(process.env.PI_AGENT_HUB_DIR!, "registry.json");
@@ -349,7 +328,7 @@ test("refresh rejects mismatched heartbeat identity and falls back to tmux", asy
       managedSessionId: "other", cwd: "/tmp/api", state: "error", stateSince: now, updatedAt: now,
       message: "must not reach status",
     })}\n`, "utf8");
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
 
     await controller.refresh(now);
 
@@ -371,7 +350,7 @@ test("refresh keeps live status while dropping malformed optional metadata", asy
       workflow: { steps: [], activeIndex: 0, updatedAt: now },
       activeTheme: { name: 1, tokens: { unknown: "ignored" } },
     })}\n`, "utf8");
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
 
     await controller.refresh(now);
 
@@ -398,7 +377,7 @@ test("refresh projects active workflow mode only from a fresh heartbeat with con
     await updateRegistry(() => registry);
     await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
     let presence: TmuxPresence = "present";
-    const controller = new SessionsController(registry, async () => "", async () => presence);
+    const controller = new SessionsController(registry, async () => presence);
     const writeHeartbeat = async (overrides: Record<string, unknown> = {}) => {
       await writeFile(heartbeatPath("api"), `${JSON.stringify({
         managedSessionId: "api",
@@ -453,7 +432,7 @@ test("refresh caches the native Pi name and projects generic context without per
       piSessionName: "Canonical Name",
       context: { version: 1, updatedAt: now, ticket: { id: "metadata-redesign-001", subtitle: "Simplify session context" } },
     })}\n`, "utf8");
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
     await controller.refresh(now);
     assert.equal(controller.snapshot().registry.sessions[0]?.title, "Canonical Name");
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "Simplify session context");
@@ -486,7 +465,7 @@ test("refresh advances the row version when only the Pi name changes", async () 
       managedSessionId: "api", cwd: "/tmp/api", state: "waiting", stateSince: 1, updatedAt: now,
       piSessionName: "Canonical Name",
     })}\n`, "utf8");
-    const controller = new SessionsController(registry, async () => "", async () => "present");
+    const controller = new SessionsController(registry, async () => "present");
 
     await controller.refresh(now);
     assert.equal(controller.snapshot().registry.sessions[0]?.title, "Canonical Name");
@@ -514,7 +493,7 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
       })}\n`, "utf8");
     };
     let duringPresence: (() => Promise<void>) | undefined;
-    const controller = new SessionsController(registry, async () => "", async () => {
+    const controller = new SessionsController(registry, async () => {
       await duringPresence?.();
       duringPresence = undefined;
       return "present";
@@ -566,7 +545,7 @@ test("pruning clears cached runtime metadata", async () => {
       workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: now, activeMode: { id: "focus", short: "FOC" } },
     })}\n`, "utf8");
     let childPresence: TmuxPresence = "present";
-    const controller = new SessionsController(registry, async () => "", async (name) => name === "child-target" ? childPresence : "present");
+    const controller = new SessionsController(registry, async (name) => name === "child-target" ? childPresence : "present");
 
     await controller.refresh(now);
     childPresence = "missing";
@@ -667,7 +646,7 @@ test("refresh reuses the main presence snapshot for expired archive pruning", as
     };
     await updateRegistry(() => registry);
     let calls = 0;
-    const controller = new SessionsController(registry, async () => "", async (tmuxSession) => {
+    const controller = new SessionsController(registry, async (tmuxSession) => {
       calls += 1;
       return tmuxSession.includes("present") ? "present" : "missing";
     });
@@ -798,7 +777,7 @@ test("refresh merges observations into latest rows and leaves new rows untouched
     await updateRegistry(() => ({ version: 1, sessions: [original] }));
     const external = session("stopped", { id: "external", title: "external" });
     let changed = false;
-    const controller = new SessionsController({ version: 1, sessions: [original] }, async () => "", async () => {
+    const controller = new SessionsController({ version: 1, sessions: [original] }, async () => {
       if (!changed) {
         changed = true;
         await updateRegistry((latest) => ({
@@ -826,7 +805,7 @@ test("refresh pruning uses latest bucket and cascade state", async () => {
     await updateRegistry(() => ({ version: 1, sessions: [archived] }));
     const lateChild = session("running", { id: "late-child", title: "late-child", kind: "subagent", parentId: "archived", bucket: "archived", bucketChangedAt: 1 });
     let changed = false;
-    const controller = new SessionsController({ version: 1, sessions: [archived] }, async () => "", async () => {
+    const controller = new SessionsController({ version: 1, sessions: [archived] }, async () => {
       if (!changed) {
         changed = true;
         await updateRegistry((latest) => ({
@@ -848,7 +827,7 @@ test("refresh ignores observations when the tmux target changed", async () => {
   await withTempSessionsDir(async () => {
     const original = session("waiting", { id: "child", kind: "subagent", parentId: "parent", tmuxSession: "old-target" });
     await updateRegistry(() => ({ version: 1, sessions: [original] }));
-    const controller = new SessionsController({ version: 1, sessions: [original] }, async () => "", async () => {
+    const controller = new SessionsController({ version: 1, sessions: [original] }, async () => {
       await updateRegistry((latest) => ({
         ...latest,
         sessions: latest.sessions.map((item) => item.id === "child" ? { ...item, tmuxSession: "new-target", status: "running" as const } : item),
@@ -877,7 +856,7 @@ test("refresh ignores an observation after the row version changes", async () =>
     let release!: () => void;
     const started = new Promise<void>((resolve) => { entered = resolve; });
     const blocked = new Promise<void>((resolve) => { release = resolve; });
-    const controller = new SessionsController(registry, async () => "", async () => {
+    const controller = new SessionsController(registry, async () => {
       entered();
       await blocked;
       return "present";

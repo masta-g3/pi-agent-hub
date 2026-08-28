@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { buildDashboardProjection, buildRenderModel, type RenderModel } from "../src/tui/render-model.js";
 import { renderSessions } from "../src/tui/layout.js";
+import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { darkTheme, lightTheme, stripAnsi, type SessionsTheme } from "../src/tui/theme.js";
 import { cockpitFleet, cockpitFrameFleet, COCKPIT_NOW } from "./fixtures/cockpit.js";
 import { COCKPIT_EXPECTED_FRAMES } from "./fixtures/cockpit-frames.js";
@@ -119,15 +120,18 @@ test("cyclic subagents remain visible as standalone terminal fallbacks", () => {
 });
 
 function cockpitFrame(width: 60 | 100 | 160, theme?: SessionsTheme): string {
+  const sessions = cockpitFrameFleet();
+  const selected = sessions.find((session) => session.id === "docs")!;
+  const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true, restart: true, sendMessage: true, resetSidePane: true, acknowledge: true } });
   const model = buildRenderModel({
-    sessions: cockpitFrameFleet(),
+    sessions,
     selectedId: "docs",
     width,
     height: 24,
     now: COCKPIT_NOW,
-    preview: "Pi preview\nwaiting for your reply",
     sidePaneSessionIds: new Map([["docs", 2]]),
     expandedProjectParentIds: new Set(["dashboard"]),
+    ...(width >= 120 ? { workspaceCommands: selectWorkspaceCommands(selected, commands, 3) } : {}),
   });
   return renderSessions(model, theme).lines.map(stripAnsi).map((line) => line.trimEnd()).join("\n");
 }

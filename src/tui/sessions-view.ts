@@ -4,7 +4,7 @@ import type { SessionsController, SyncPiNameResult } from "../app/controller.js"
 import type { ManagedSession } from "../core/types.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
-import { buildDashboardCommands, commandForKey, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
+import { buildDashboardCommands, commandForKey, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
 import {
   createCommandPalette,
   handleCommandPaletteInput,
@@ -15,7 +15,7 @@ import {
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, type DashboardProjection } from "./render-model.js";
-import { renderSessions, renderStatusInfo, type SessionListTarget } from "./layout.js";
+import { renderSessions, type SessionListTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -66,9 +66,9 @@ export class SessionsView implements Component {
   private dialog: SessionDialog | undefined;
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
-  private detailsExpanded = false;
-  private narrowInfoSessionId: string | undefined;
-  private lastWidth = 80;
+  private workspaceSessionId: string | undefined;
+  private workspaceEvidenceSessionId: string | undefined;
+  private lastWidth = 120;
   private grouping: "project" | "stage";
   private density: "compact" | "all-cards";
   private pendingRestart: { sessionId: string } | undefined;
@@ -81,6 +81,8 @@ export class SessionsView implements Component {
   private selectedSection: CollapsibleSection | undefined;
   private collapsedSections = new Set<CollapsibleSection>();
   private rowTargets: (SessionListTarget | undefined)[] = [];
+  private workspaceRowTargets: (string | undefined)[] = [];
+  private workspaceStartX: number | undefined;
   private paletteRowTargets: (CommandPaletteRowTarget | undefined)[] = [];
   private paletteBounds: { start: number; end: number } | undefined;
   private listWidth = 0;
@@ -109,11 +111,7 @@ export class SessionsView implements Component {
   }
 
   handleInput(data: string): void {
-    if (this.narrowInfoSessionId && this.controller.selected()?.id !== this.narrowInfoSessionId) this.narrowInfoSessionId = undefined;
-    if (this.narrowInfoSessionId) {
-      if (data === "i" || matchesKey(data, Key.escape)) this.narrowInfoSessionId = undefined;
-      return;
-    }
+    if (this.workspaceSessionId && this.controller.selected()?.id !== this.workspaceSessionId) this.closeWorkspace();
     if (isMouseSequence(data)) {
       this.clearPendingFocusSlot();
       const event = parseMouseEvent(data);
@@ -143,6 +141,16 @@ export class SessionsView implements Component {
         this.themeLoadRequest += 1;
         this.stop();
       }
+      return;
+    }
+
+    if (this.workspaceSessionId) {
+      if (matchesKey(data, Key.escape)) {
+        this.closeWorkspace();
+        return;
+      }
+      const command = commandForKey(this.dashboardCommands(), data);
+      if (command) this.executeDashboardCommand(command.id);
       return;
     }
 
@@ -223,7 +231,8 @@ export class SessionsView implements Component {
     }
     const command = commandForKey(this.dashboardCommands(), data);
     if (command) {
-      this.executeDashboardCommand(command.id);
+      if (isEnterKey(data) && this.lastWidth < 120 && command.id.endsWith(":open")) this.openWorkspace(false);
+      else this.executeDashboardCommand(command.id);
       return;
     }
 
@@ -242,14 +251,14 @@ export class SessionsView implements Component {
     this.lastWidth = width;
     const selectedId = this.controller.selected()?.id;
     if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
-    if (this.narrowInfoSessionId && selectedId !== this.narrowInfoSessionId) this.narrowInfoSessionId = undefined;
-    if (this.narrowInfoSessionId && width >= 80) {
-      this.narrowInfoSessionId = undefined;
-      this.detailsExpanded = true;
-    }
+    if (this.workspaceSessionId && selectedId !== this.workspaceSessionId) this.closeWorkspace();
+    if (this.workspaceSessionId && width >= 120) this.workspaceSessionId = undefined;
+    if (this.workspaceEvidenceSessionId && selectedId !== this.workspaceEvidenceSessionId) this.workspaceEvidenceSessionId = undefined;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
       this.rowTargets = [];
+      this.workspaceRowTargets = [];
+      this.workspaceStartX = undefined;
       this.listWidth = 0;
       return limitRows(narrowNotice(width), height, width, this.theme);
     }
@@ -275,17 +284,20 @@ export class SessionsView implements Component {
     const sidePaneSessionIds = this.actions.sidePaneSessionIds?.();
     const filter = (this.dialog?.kind === "prompt" ? (promptFilterValue(this.dialog) ?? snapshot.filter) : snapshot.filter)?.trim() || undefined;
     const structuralProjection = this.dashboardProjection(snapshot);
+    const workspaceSelected = selected && structuralProjection.visible.some((session) => session.id === selected.id) ? selected : undefined;
     const model = buildRenderModel({
       sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
       width,
       filter,
       filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter",
-      preview: snapshot.preview,
-      detailsExpanded: this.detailsExpanded,
+      workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection
+        ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), width >= 160 || width < 120 ? 3 : 2)
+        : undefined,
+      workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
+      workspaceFullScreen: width < 120 && workspaceSelected?.id === this.workspaceSessionId,
       height,
       listScrollTop: this.listScrollTop,
-      selectedSkillCount: selected ? this.actions.skillCount?.(selected.cwd) : undefined,
       grouping: this.grouping,
       density: this.density,
       now,
@@ -295,16 +307,15 @@ export class SessionsView implements Component {
       archiveDisclosureSelected: this.archiveDisclosureSelected,
       selectedSection: this.selectedSection,
       collapsedSections: this.collapsedSections,
-      hidePreview: Boolean(sidePaneSessionIds?.size),
       expandedBoardParentIds: this.expandedBoardParentIds,
       expandedProjectParentIds: this.expandedProjectParentIds,
       revealedSessionId: this.revealedSessionId,
       structuralProjection,
     });
-    const layout = this.narrowInfoSessionId && model.selected?.id === this.narrowInfoSessionId
-      ? renderStatusInfo(model.selected, width, height, now, this.theme)
-      : renderSessions(model, this.theme);
+    const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
+    this.workspaceRowTargets = layout.workspaceRowTargets;
+    this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
     const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext()) : undefined;
@@ -335,20 +346,13 @@ export class SessionsView implements Component {
       this.message = `session not found: ${tmuxSession}`;
       return false;
     }
-    const previousId = this.controller.snapshot().selectedId;
     this.controller.setFilter(undefined);
     if (!this.controller.selectSession(target.id)) return false;
-    if (target.id !== previousId) this.actions.selectionChanged?.();
     this.startRenameSessionDialog(tmuxSession);
     return this.dialog?.kind === "form" && this.dialog.purpose === "renameSession";
   }
 
   private toggleInfo(): void {
-    if (this.lastWidth >= 80 && this.detailsExpanded) {
-      this.detailsExpanded = false;
-      return;
-    }
-    if (this.lastWidth < 80) this.detailsExpanded = false;
     if (this.archiveDisclosureSelected || this.selectedSection) {
       this.flashMessage("select a session to show status evidence");
       return;
@@ -356,24 +360,44 @@ export class SessionsView implements Component {
     const selected = this.controller.selected();
     if (!selected) return;
     const selectedId = selected.id;
-    const open = (requireEvidence = false) => {
+    if (this.workspaceEvidenceSessionId === selectedId) {
+      this.workspaceEvidenceSessionId = undefined;
+      return;
+    }
+    const reveal = (requireEvidence = false) => {
       const current = this.controller.selected();
       if (current?.id !== selectedId) return;
       if (requireEvidence && !current.statusEvidence) {
         this.message = "status evidence unavailable after refresh";
         return;
       }
-      if (this.lastWidth < 80) this.narrowInfoSessionId = selectedId;
-      else this.detailsExpanded = true;
+      if (this.lastWidth < 120) this.workspaceSessionId = selectedId;
+      this.workspaceEvidenceSessionId = selectedId;
     };
     const refresh = this.actions.navigationActions?.refreshStatusEvidence ?? this.actions.refreshStatusEvidence;
     if (selected.statusEvidence || !refresh) {
-      open();
+      reveal();
       return;
     }
     this.clearPendingRestart();
     this.clearFlash();
-    this.runAction(() => refresh(), "refreshing status evidence...", () => open(true));
+    this.runAction(() => refresh(), "refreshing status evidence...", () => reveal(true));
+  }
+
+  private openWorkspace(showEvidence: boolean): void {
+    if (this.archiveDisclosureSelected || this.selectedSection) return;
+    const selected = this.controller.selected();
+    if (!selected) return;
+    this.workspaceSessionId = selected.id;
+    this.workspaceEvidenceSessionId = showEvidence ? selected.id : undefined;
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+  }
+
+  private closeWorkspace(): void {
+    this.workspaceSessionId = undefined;
+    this.workspaceEvidenceSessionId = undefined;
   }
 
   private dialogContext(): DialogContext {
@@ -660,7 +684,6 @@ export class SessionsView implements Component {
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
     this.listScrollTop = 0;
-    this.actions.selectionChanged?.();
   }
 
   private selectPaletteSession(targetId: string | undefined): void {
@@ -695,7 +718,6 @@ export class SessionsView implements Component {
     this.selectedSection = undefined;
     this.listScrollTop = 0;
     this.viewStateRevision += 1;
-    this.actions.selectionChanged?.();
   }
 
   private startSendDialog() {
@@ -804,7 +826,15 @@ export class SessionsView implements Component {
     }
     if (event.kind === "wheel") {
       this.lastMouseClick = undefined;
-      this.moveSelection(event.delta);
+      if (!this.workspaceSessionId) this.moveSelection(event.delta);
+      return;
+    }
+    const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX
+      ? this.workspaceRowTargets[event.y - 1]
+      : undefined;
+    if (workspaceTarget) {
+      this.lastMouseClick = undefined;
+      this.executeDashboardCommand(workspaceTarget);
       return;
     }
     const inList = event.x >= 2 && event.x <= 1 + this.listWidth;
@@ -813,7 +843,6 @@ export class SessionsView implements Component {
       this.lastMouseClick = undefined;
       return;
     }
-    const previousId = this.controller.snapshot().selectedId;
     if (target.kind === "archive-disclosure") {
       this.archiveDisclosureSelected = true;
       this.selectedSection = undefined;
@@ -828,7 +857,6 @@ export class SessionsView implements Component {
       }
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
-      if (target.id !== previousId) this.actions.selectionChanged?.();
     }
     const targetKey = target.kind === "archive-disclosure" ? target.kind : target.kind === "section-header" ? `section:${target.section}` : `session:${target.id}`;
     const now = this.actions.now?.() ?? Date.now();
@@ -838,7 +866,7 @@ export class SessionsView implements Component {
     if (doubleClick) {
       if (target.kind === "archive-disclosure") this.toggleArchiveDisclosure();
       else if (target.kind === "section-header") this.toggleSection(target.section);
-      else this.attachSelected();
+      else this.activateFleetSelection();
     }
   }
 
@@ -899,6 +927,15 @@ export class SessionsView implements Component {
   private setPickerDialog(mode: "skills" | "mcp", items: PickerItem[], target: { sessionId?: string; projectCwd: string }) {
     const dialog = createPickerDialog(mode, items, this.dialogContext(), target);
     if (dialog) this.dialog = dialog;
+  }
+
+  private activateFleetSelection(): void {
+    if (this.lastWidth < 120) {
+      this.openWorkspace(false);
+      return;
+    }
+    const command = commandForKey(this.dashboardCommands(), "\r");
+    if (command) this.executeDashboardCommand(command.id);
   }
 
   private attachSelected() {
@@ -989,7 +1026,6 @@ export class SessionsView implements Component {
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
       this.controller.selectSession(next.id);
-      if (next.id !== previousId) this.actions.selectionChanged?.();
     }
   }
 
@@ -1040,11 +1076,11 @@ export class SessionsView implements Component {
     }
     const boardParentId = this.topLevelBoardParentId(selectedId);
     if (boardParentId && targets.some((target) => target.kind === "session" && target.id === boardParentId)) {
-      if (this.controller.selectSession(boardParentId) && boardParentId !== selectedId) this.actions.selectionChanged?.();
+      this.controller.selectSession(boardParentId);
       return;
     }
     const fallback = [...targets].reverse().find((target): target is Extract<SessionListTarget, { kind: "session" }> => target.kind === "session");
-    if (fallback && this.controller.selectSession(fallback.id) && fallback.id !== selectedId) this.actions.selectionChanged?.();
+    if (fallback) this.controller.selectSession(fallback.id);
   }
 
   private toggleArchiveDisclosure() {
@@ -1110,8 +1146,8 @@ export class SessionsView implements Component {
     const expandedIds = this.grouping === "stage" ? this.expandedBoardParentIds : this.expandedProjectParentIds;
     if (expanded) expandedIds.add(parentId);
     else expandedIds.delete(parentId);
+    if (!expanded && selectedId !== parentId) this.controller.selectSession(parentId);
     this.viewStateRevision += 1;
-    if (!expanded && selectedId !== parentId && this.controller.selectSession(parentId)) this.actions.selectionChanged?.();
     this.listScrollTop = 0;
   }
 
@@ -1125,7 +1161,7 @@ export class SessionsView implements Component {
     if (!expanded) {
       const selectedId = this.controller.snapshot().selectedId;
       const parentId = this.topLevelBoardParentId(selectedId);
-      if (parentId && selectedId !== parentId && this.controller.selectSession(parentId)) this.actions.selectionChanged?.();
+      if (parentId && selectedId !== parentId) this.controller.selectSession(parentId);
     }
     this.listScrollTop = 0;
   }
@@ -1170,7 +1206,6 @@ export class SessionsView implements Component {
       const parentId = this.topLevelBoardParentId(previousId);
       const nextId = rows.find((row) => row.id === parentId)?.id ?? rows[0]?.id ?? "";
       this.controller.selectSession(nextId);
-      if (this.controller.snapshot().selectedId !== previousId) this.actions.selectionChanged?.();
     }
   }
 
@@ -1427,7 +1462,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  1-4 assign/toggle (stay here)    x then 1-4 close panel",
     "  F then 1-4 or Alt+1-4 focus panel",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
-    "  mouse click select · double-click open/switch · wheel move",
+    "  mouse click select · double-click workspace below 120, open/switch at 120+ · wheel move",
     "",
     heading("Choice dialogs"),
     "  Restart: r selected     n new conversation     a all     Esc cancel",
@@ -1458,9 +1493,10 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  ● running/starting     ◐ waiting     ○ idle     × error     - stopped",
     "  zero counts are hidden from tier and top summaries",
     "",
-    heading("Metadata"),
-    "  i toggle compact/full selected-session info; full info explains runtime and cockpit status",
-    "  below 80 columns, i opens a full-width status explanation; i/Esc returns",
+    heading("Action workspace"),
+    "  selected session: request · recommended next · enabled actions · bounded context",
+    "  below 120 columns, Enter/double-click opens the workspace first; Enter then runs Open/Restart",
+    "  i toggles live evidence in the same workspace; Esc returns to the fleet",
   ];
   const inner = Math.max(40, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;

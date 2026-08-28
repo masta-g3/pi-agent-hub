@@ -7,23 +7,10 @@ export interface RefreshLoopHandle {
 }
 
 export function startRefreshLoop(controller: SessionsController, tui: TUI): RefreshLoopHandle {
-  let lastPreviewId: string | undefined;
-  let lastPreviewAt = 0;
   let inFlight: Promise<void> | undefined;
 
   const tick = async () => {
     await controller.refresh();
-    const selectedId = controller.snapshot().selectedId;
-    const now = Date.now();
-    if (selectedId !== lastPreviewId || now - lastPreviewAt > 2_000) {
-      try {
-        await controller.refreshPreview();
-        lastPreviewId = selectedId;
-        lastPreviewAt = now;
-      } catch {
-        tui.requestRender();
-      }
-    }
     tui.requestRender();
   };
 

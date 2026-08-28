@@ -1,4 +1,5 @@
 import type { RuntimeStatusEvidence } from "../core/types.js";
+import { ageLabel } from "./age.js";
 import type { CockpitPlacementReason, CockpitTier, RenderSession } from "./render-model.js";
 
 export type StatusEvidenceField =
@@ -103,14 +104,4 @@ function attentionReason(kind: "ready" | "question" | "blocked"): string {
   if (kind === "ready") return "producer marked work ready";
   if (kind === "question") return "producer asked a question";
   return "producer reported a blocker";
-}
-
-function ageLabel(ageMs: number): string {
-  const minute = 60_000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (ageMs < minute) return `${Math.floor(ageMs / 1_000)}s`;
-  if (ageMs < hour) return `${Math.floor(ageMs / minute)}m`;
-  if (ageMs < day) return `${Math.floor(ageMs / hour)}h`;
-  return `${Math.floor(ageMs / day)}d`;
 }

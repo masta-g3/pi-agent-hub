@@ -22,6 +22,13 @@ export interface DashboardCommand {
   searchText: string;
 }
 
+export interface WorkspaceCommandSelection {
+  recommendation: string;
+  actions: DashboardCommand[];
+  evidenceCommand: DashboardCommand;
+  moreCommand: DashboardCommand;
+}
+
 export interface DashboardCommandCapabilities {
   openSession?: boolean;
   restart?: boolean;
@@ -121,6 +128,60 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
   return commands;
 }
 
+export function selectWorkspaceCommands(
+  session: RuntimeSession,
+  commands: readonly DashboardCommand[],
+  maxCount: number,
+): WorkspaceCommandSelection {
+  const attention = session.status === "waiting" || session.status === "idle" ? session.context?.attention : undefined;
+  let recommendation: string;
+  let actionNames: string[];
+
+  if (attention) {
+    recommendation = attention.kind === "question"
+      ? "Answer the producer's explicit question."
+      : attention.kind === "ready"
+        ? "Review the producer's completed result."
+        : "Resolve the producer's explicit blocker.";
+    actionNames = ["send", "open", "mark-read"];
+  } else if (session.status === "error") {
+    recommendation = "Inspect live evidence before deciding whether to restart.";
+    actionNames = ["open", "restart", "info"];
+  } else if (session.status === "stopped") {
+    recommendation = "Restart the session when this work should continue.";
+    actionNames = ["open", "restart", "restore"];
+  } else if (session.kind === "subagent") {
+    recommendation = "Let the owner coordinate this task unless direct inspection is needed.";
+    actionNames = ["open", "info"];
+  } else if (session.bucket === "archived") {
+    recommendation = "No intervention requested while this work remains Archived.";
+    actionNames = ["open", "restore", "delete"];
+  } else if (session.bucket === "backlog") {
+    recommendation = "No intervention requested while this work remains in Backlog.";
+    actionNames = ["open", "restore", "archive"];
+  } else if (session.status === "idle" || session.status === "waiting") {
+    recommendation = "No intervention requested.";
+    actionNames = ["open", "send", "archive"];
+  } else {
+    recommendation = "Let the session continue; open it only when more context is needed.";
+    actionNames = ["open", "panel", "send"];
+  }
+
+  const actionsByName = new Map(
+    commands
+      .filter((command) => command.group === "actions" && command.targetSessionId === session.id && command.enabled)
+      .map((command) => [command.id.slice(`action:${session.id}:`.length), command]),
+  );
+  const actions = actionNames
+    .map((name) => actionsByName.get(name))
+    .filter((command): command is DashboardCommand => command !== undefined)
+    .slice(0, Math.max(0, maxCount));
+  const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
+  const moreCommand = commands.find((command) => command.id === "view:palette");
+  if (!evidenceCommand || !moreCommand) throw new Error("workspace commands require evidence and palette descriptors");
+  return { recommendation, actions, evidenceCommand, moreCommand };
+}
+
 export function searchDashboardCommands(commands: readonly DashboardCommand[], query: string): DashboardCommand[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [...commands];
@@ -142,7 +203,7 @@ export function dashboardFooter(width: number): string {
     const command = global.find((candidate) => candidate.id === id)!;
     return item(command.displayKey ?? "", label);
   };
-  const openItem = item(open.keys[0]!, open.label);
+  const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
   const palette = fromView("view:palette", "Actions");
   const help = fromView("view:help", "Help");
   if (width < 60) return ["↑↓", item("/", "Filter"), palette, help].join(" · ");

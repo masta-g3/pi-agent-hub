@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { boardLaneRows, buildDashboardProjection, buildRenderModel, retainSelectionAfterRefresh } from "../src/tui/render-model.js";
+import { boardLaneRows, buildDashboardProjection, buildRenderModel, retainSelectionAfterRefresh, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { computeStatus } from "../src/core/status.js";
-import { renderSessions, renderStatusInfo, workflowStepMarker } from "../src/tui/layout.js";
+import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
+import { renderSessions, workflowStepMarker } from "../src/tui/layout.js";
 import { darkTheme, lightTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
-import type { ManagedSession, SessionStatus } from "../src/core/types.js";
+import type { ManagedSession, RuntimeSession, SessionStatus } from "../src/core/types.js";
 
 function session(id: string, group: string, status: SessionStatus, title = id): ManagedSession {
   return {
@@ -22,6 +23,22 @@ function session(id: string, group: string, status: SessionStatus, title = id): 
 
 function modelRows(model: ReturnType<typeof buildRenderModel>) {
   return model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
+}
+
+const workspaceCapabilities = {
+  openSession: true, restart: true, sendMessage: true, deleteSession: true,
+  resetSidePane: true, acknowledge: true,
+};
+
+function workspaceModel(input: BuildRenderModelInput) {
+  const selected = input.sessions.find((item) => item.id === input.selectedId) as RuntimeSession | undefined;
+  if (!selected) return buildRenderModel(input);
+  const commands = buildDashboardCommands({ sessions: input.sessions, selectedId: selected.id, capabilities: workspaceCapabilities });
+  return buildRenderModel({
+    ...input,
+    workspaceCommands: selectWorkspaceCommands(selected, commands, input.width >= 160 || input.width < 120 ? 3 : 2),
+    workspaceFullScreen: input.width < 120,
+  });
 }
 
 test("dashboard projection supplies the same visible rows as rendering", () => {
@@ -49,25 +66,17 @@ const FOCUSED_WORKFLOW = {
   activeMode: { id: "focus", short: "FOC", label: "Focus", detail: "turn 4" },
 };
 
-test("active workflow mode replaces the Execute short and adds expanded detail", () => {
+test("active workflow mode replaces the Execute short in rows and workspace workflow", () => {
   const focused = { ...session("focus", "agents", "waiting"), workflow: FOCUSED_WORKFLOW };
   const compact = buildRenderModel({ sessions: [focused], selectedId: "focus", width: 110, now: 1_000 });
   assert.equal(compact.selected?.workflow?.activeMode?.short, "FOC");
-  const compactText = renderSessions(compact).lines.map(stripAnsi).join("\n");
-  const compactRow = compactText.split("\n").find((line) => /^│▌/.test(line)) ?? "";
+  const compactRow = renderSessions(compact).lines.map(stripAnsi).find((line) => /^│▌/.test(line)) ?? "";
   assert.match(compactRow, /FOC/);
   assert.doesNotMatch(compactRow, /EX/);
-  assert.match(compactText, /✓ PL─◉ FOC─· RV─· RF─· CM · auth-003/);
-  assert.doesNotMatch(compactText, /mode\s+Focus/);
 
-  const expandedText = renderSessions(buildRenderModel({
-    sessions: [focused],
-    selectedId: "focus",
-    width: 110,
-    now: 1_000,
-    detailsExpanded: true,
-  })).lines.map(stripAnsi).join("\n");
-  assert.match(expandedText, /mode\s+Focus · turn 4/);
+  const workspace = renderSessions(workspaceModel({ sessions: [focused], selectedId: "focus", width: 160, now: 1_000 })).lines.map(stripAnsi).join("\n");
+  assert.match(workspace, /✓ PL─◉ FOC─· RV─· RF─· CM · auth-003/);
+  assert.doesNotMatch(workspace, /mode\s+Focus/);
 });
 
 test("focused cards stay in Execute and preserve FOC without row group adornments", () => {
@@ -107,11 +116,10 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
 
 test("stopped focus snapshots render as ordinary Execute sessions", () => {
   const stopped = { ...session("focus", "agents", "stopped"), workflow: FOCUSED_WORKFLOW };
-  const groupsText = renderSessions(buildRenderModel({
+  const groupsText = renderSessions(workspaceModel({
     sessions: [stopped],
     selectedId: "focus",
-    width: 110,
-    detailsExpanded: true,
+    width: 160,
   })).lines.map(stripAnsi).join("\n");
   assert.match(groupsText, /✓ PL─◉ EX─· RV─· RF─· CM/);
   assert.doesNotMatch(groupsText, /FOC|mode\s+Focus/);
@@ -148,10 +156,10 @@ test("workflow markers are a pure positional cue", () => {
   assert.deepEqual(complete.steps.map((_step, index) => workflowStepMarker(complete, index)), ["✓", "✓", "✓", "·", "·"]);
 });
 
-test("workflow rail renders positional markers in compact rows and details", () => {
-  const active = buildRenderModel({ sessions: [{ ...session("a", "default", "running"), workflow: WORKFLOW }], selectedId: "a", width: 110 });
+test("workflow rail renders positional markers in compact rows and workspace", () => {
+  const active = workspaceModel({ sessions: [{ ...session("a", "default", "running"), workflow: WORKFLOW }], selectedId: "a", width: 160 });
   const completeWorkflow = { ...WORKFLOW, currentStepComplete: true, activity: { id: "done", label: "Execute complete" } };
-  const complete = buildRenderModel({ sessions: [{ ...session("a", "default", "stopped"), workflow: completeWorkflow }], selectedId: "a", width: 110 });
+  const complete = workspaceModel({ sessions: [{ ...session("a", "default", "stopped"), workflow: completeWorkflow }], selectedId: "a", width: 160 });
 
   const activeLines = renderSessions(active).lines.map(stripAnsi);
   const activeRow = activeLines.find((line) => /^│▌/.test(line));
@@ -162,7 +170,7 @@ test("workflow rail renders positional markers in compact rows and details", () 
   const completeRow = completeLines.find((line) => /^│▌/.test(line));
   assert.match(completeRow ?? "", /- a.*default · ✓EX/);
   assert.match(completeLines.join("\n"), /✓ PL─✓ EX─· RV─· RF─· CM · auth-003/);
-  for (const line of [...renderSessions(active).lines, ...renderSessions(complete).lines]) assert.ok(visibleWidth(line) <= 110, line);
+  for (const line of [...renderSessions(active).lines, ...renderSessions(complete).lines]) assert.ok(visibleWidth(line) <= 160, line);
 });
 
 test("junction markers are positional for direct, complete, terminal, and replacement snapshots", () => {
@@ -220,12 +228,11 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
   assert.match(focused, /default · ◉FOC · 14m/);
   assert.match(idle, /default · 14m/);
   assert.doesNotMatch(idle, /EX/);
-  assert.match(backlog, /backlog · default · ◉EX/);
-  assert.doesNotMatch(backlog, /14m/);
+  assert.match(backlog, /backlog · default · ◉EX · 14m/);
 });
 
 test("expanded details include the full workflow rail", () => {
-  const model = buildRenderModel({ sessions: [{ ...session("a", "default", "running"), workflow: { ...WORKFLOW, ticketId: undefined } }], selectedId: "a", width: 110, detailsExpanded: true });
+  const model = workspaceModel({ sessions: [{ ...session("a", "default", "running"), workflow: { ...WORKFLOW, ticketId: undefined } }], selectedId: "a", width: 110 });
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(text, /✓ PL─◉ EX─· RV─· RF─· CM/);
   assert.doesNotMatch(text, /· auth-003/);
@@ -245,7 +252,7 @@ test("archive age takes priority over the compact rail", () => {
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
   assert.match(row ?? "", /a\s+2d/);
   assert.doesNotMatch(row ?? "", /\[exp|EX/);
-  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /archived 2d ago · cleanup eligible in 5d/);
+  assert.equal(model.selected?.archiveRetentionIn, "5d");
 });
 
 test("archive labels remain width-safe at sidebar widths and show retention eligibility", () => {
@@ -262,12 +269,8 @@ test("archive labels remain width-safe at sidebar widths and show retention elig
     for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
   const expired = { ...session("expired", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 0 };
-  const details = renderSessions(buildRenderModel({ sessions: [expired], selectedId: "expired", width: 100, now: 8 * day })).lines.map(stripAnsi).join("\n");
-  assert.match(details, /archived 8d ago · cleanup eligible now/);
-
   const almostEligible = buildRenderModel({ sessions: [expired], selectedId: "expired", width: 100, now: 7 * day - 30_000 });
   assert.equal(almostEligible.selected?.archiveRetentionIn, "<1m");
-  assert.match(renderSessions(almostEligible).lines.map(stripAnsi).join("\n"), /cleanup eligible in <1m/);
 });
 
 test("workflow rail stays width-safe at narrow and wide sizes", () => {
@@ -557,12 +560,6 @@ test("side pane glyphs stay width-safe with workflow rails", () => {
   }
 });
 
-test("wide layout can suppress the built-in preview independently of width", () => {
-  const model = buildRenderModel({ sessions: [session("api", "default", "idle")], width: 120, hidePreview: true });
-  assert.equal(model.showPreview, false);
-  assert.doesNotMatch(renderSessions(model).lines.map(stripAnsi).join("\n"), /── preview/);
-});
-
 test("layout hit map marks only rendered session rows", () => {
   const sessions = [
     session("active", "default", "idle", "active-api"),
@@ -586,24 +583,23 @@ test("layout hit map marks only rendered session rows", () => {
   assert.equal(layout.rowTargets.at(-1), undefined);
 });
 
-test("board preview keeps the list between 40 and 60 cells without changing groups-view proportions", () => {
+test("workspace uses frozen responsive geometry", () => {
   const planned = { ...session("planned", "default", "idle"), workflow: WORKFLOW };
-  for (const [width, expected] of [[80, 40], [100, 40], [160, 60]] as const) {
-    const layout = renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", grouping: "stage", density: "all-cards", width }));
-    assert.equal(layout.listWidth, expected);
-  }
-  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 80 })).listWidth, 29);
-  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 40);
+  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 98);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 83);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 113);
 });
 
-test("layout hit map handles empty and wide preview layouts", () => {
+test("layout hit maps handle empty and persistent workspace layouts", () => {
   const empty = renderSessions(buildRenderModel({ sessions: [], width: 80 }));
   assert.ok(empty.rowTargets.every((target) => target === undefined));
   assert.equal(empty.listWidth, 0);
 
-  const wide = renderSessions(buildRenderModel({ sessions: [session("a", "default", "idle")], width: 110 }));
+  const wide = renderSessions(workspaceModel({ sessions: [session("a", "default", "idle")], selectedId: "a", width: 120 }));
   assert.equal(wide.lines.length, wide.rowTargets.length);
-  assert.ok(wide.listWidth < 108);
+  assert.equal(wide.lines.length, wide.workspaceRowTargets.length);
+  assert.equal(wide.listWidth, 83);
+  assert.ok(wide.workspaceRowTargets.some(Boolean));
 });
 
 function manySessions(count: number): ManagedSession[] {
@@ -852,7 +848,7 @@ test("session order puts unread waiting before running and idle rows", () => {
 
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
-  assert.equal(model.showPreview, false);
+  assert.equal(model.showWorkspace, false);
   assert.equal(model.footer, "↑↓ · / Filter · : Actions · ? Help");
 });
 
@@ -876,30 +872,6 @@ test("long titles/cwd truncate without exceeding width", () => {
 });
 
 
-test("long paths truncate from the start and keep basename", () => {
-  const longPath = `/tmp/${"deep/".repeat(20)}project-api`;
-  const model = buildRenderModel({ sessions: [{ ...session("a", "default", "idle", "api"), cwd: longPath }], selectedId: "a", width: 80 });
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /….*project-api/);
-  for (const line of renderSessions(model).lines) assert.ok(visibleWidth(line) <= 80, line);
-});
-
-test("wide preview glyphs do not exceed terminal width", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 80, preview: " - npm test ✅\n - npm run package:check ✅" });
-  for (const line of renderSessions(model).lines) assert.ok(visibleWidth(line) <= 80, line);
-});
-
-test("styled preview lines keep italics only", () => {
-  const preview = "\u001b[1;38;5;244mHeading\u001b[0m\n\u001b[3;38;2;1;2;3m- thought\u001b[0m\n\u001b[4munderlined\u001b[0m";
-  const rendered = renderSessions(buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview })).lines.join("\n");
-
-  assert.doesNotMatch(rendered, /\u001b\[1mHeading/);
-  assert.match(rendered, /\u001b\[3m- thought\u001b\[0m/);
-  assert.doesNotMatch(rendered, /\u001b\[4munderlined/);
-  assert.doesNotMatch(rendered, /38;[25];/);
-  for (const line of rendered.split("\n")) assert.ok(visibleWidth(line) <= 120, line);
-});
-
 test("top summary shows visible totals attention counts and filter", () => {
   const model = buildRenderModel({
     sessions: [session("api", "default", "running"), session("docs", "default", "waiting"), session("web", "default", "error")],
@@ -915,58 +887,10 @@ test("top summary shows visible totals attention counts and filter", () => {
 });
 
 
-test("expanded details explain runtime status, cockpit placement, and workflow provenance", () => {
-  const now = 100_000;
-  const base = session("api", "default", "waiting", "Project API");
-  const heartbeat = {
-    managedSessionId: base.id, cwd: base.cwd, state: "waiting" as const,
-    stateSince: now - 3_000, updatedAt: now - 7_000,
-    workflow: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, updatedAt: now },
-  };
-  const statusEvidence = computeStatus({ session: base, tmux: { exists: true }, heartbeat, now }).evidence;
-  const explained = {
-    ...base,
-    statusEvidence,
-    context: { version: 1 as const, updatedAt: now, attention: { kind: "question" as const, text: "Choose rollout order" } },
-    workflow: heartbeat.workflow,
-  };
-
-  const compact = renderSessions(buildRenderModel({ sessions: [explained], selectedId: base.id, width: 100, now })).lines.map(stripAnsi).join("\n");
-  assert.doesNotMatch(compact, /why this status|tmux session present/);
-
-  for (const width of [100, 160]) {
-    const model = buildRenderModel({ sessions: [explained], selectedId: base.id, width, detailsExpanded: true, now });
-    const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-    assert.match(rendered, /why this status/);
-    assert.match(rendered, /tmux\s+✓ tmux session present/);
-    assert.match(rendered, /heartbeat\s+✓ heartbeat fresh · 7s old · Pi state waiting/);
-    assert.match(rendered, /read\s+✓ agent result is newer than your last read/);
-    assert.match(rendered, /result\s+→ waiting · NEEDS YOU · fresh heartbeat reports an/);
-    assert.match(rendered, /unread result; producer asked a question/);
-    assert.match(rendered, /workflow\s+· producer step 1\/1 · Execute · fresh/);
-    const darkLines = renderSessions(model, darkTheme).lines;
-    const resultLine = darkLines.find((line) => stripAnsi(line).includes("result    →"))!;
-    assert.ok(resultLine.includes(styleToken(darkTheme, "warning", "waiting")));
-    assert.ok(resultLine.includes(styleToken(darkTheme, "warning", "NEEDS YOU")));
-    for (const line of darkLines) assert.equal(visibleWidth(line), width);
-    assert.equal(darkLines.map(stripAnsi).join("\n"), renderSessions(model, lightTheme).lines.map(stripAnsi).join("\n"));
-  }
-
-  const narrowSession = buildRenderModel({ sessions: [explained], selectedId: base.id, width: 60, now }).selected!;
-  for (const width of [40, 60, 79]) {
-    const dark = renderStatusInfo(narrowSession, width, 24, now, darkTheme);
-    const light = renderStatusInfo(narrowSession, width, 24, now, lightTheme);
-    assert.equal(dark.lines.map(stripAnsi).join("\n"), light.lines.map(stripAnsi).join("\n"));
-    assert.match(dark.lines.map(stripAnsi).join("\n"), /why this status/);
-    for (const line of dark.lines) assert.equal(visibleWidth(line), width);
-    assert.ok(dark.rowTargets.every((target) => target === undefined));
-  }
-});
-
 test("error reason appears in selected metadata", () => {
   const broken = { ...session("a", "default", "error", "api"), error: "MCP failed" };
-  const lines = renderSessions(buildRenderModel({ sessions: [broken], selectedId: "a", width: 120 })).lines;
-  assert.match(lines.join("\n"), /error\s+MCP failed/);
+  const lines = renderSessions(workspaceModel({ sessions: [broken], selectedId: "a", width: 120 })).lines;
+  assert.match(lines.join("\n"), /error · MCP failed/);
 });
 
 test("selected and stopped rows have distinct treatments with stopped rows last", () => {
@@ -1040,17 +964,6 @@ test("filter reveals rows in collapsed lifecycle sections without changing state
   assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /needle/);
 });
 
-test("preview renders captured tmux output with empty state", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "one\ntwo" });
-  const lines = renderSessions(model).lines.join("\n");
-  assert.match(lines, /one/);
-  assert.match(lines, /two/);
-  assert.doesNotMatch(lines, /preview loads from tmux/);
-
-  const empty = renderSessions(buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "" })).lines.join("\n");
-  assert.match(empty, /preview empty/);
-});
-
 test("filter matches across title group cwd basename and status", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api"), session("b", "work", "waiting", "docs")], width: 100, filter: "wait" });
   assert.deepEqual(modelRows(model).map((row) => row.id), ["b"]);
@@ -1068,7 +981,7 @@ test("board filter matches workflow ticket ids after compact titles replace tick
   assert.equal(model.selected?.id, "a");
 });
 
-test("multi-repo sessions render repo badge and compact details", () => {
+test("multi-repo sessions render repo badge and workspace identity", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),
     cwd: "/repo/api",
@@ -1076,7 +989,7 @@ test("multi-repo sessions render repo badge and compact details", () => {
     workspaceCwd: "/state/workspaces/a",
     worktreeBranch: "feature/api",
   };
-  const model = buildRenderModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared", sidePaneSessionIds: new Map([["a", 1]]) });
+  const model = workspaceModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared", sidePaneSessionIds: new Map([["a", 1]]) });
 
   assert.equal(model.selected?.repoCount, 3);
   const rendered = renderSessions(model, { ...darkTheme, accent: "#010203" }).lines.join("\n");
@@ -1084,67 +997,23 @@ test("multi-repo sessions render repo badge and compact details", () => {
   assert.match(plain, /○ ◫1 ⎇ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.match(rendered, /\u001b\[38;2;1;2;3m⎇/);
-  assert.match(plain, /\/repo\/api · ⎇ feature\/api · 3 repos/);
-  assert.doesNotMatch(rendered, /group default/);
+  assert.match(plain, /default · ⧉3 · ⎇ feature\/api/);
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });
 
 
-test("single-repo compact details omit repo count and group", () => {
-  const model = buildRenderModel({
-    sessions: [{ ...session("a", "default", "idle", "api"), cwd: "/repo/api" }],
-    selectedId: "a",
-    width: 120,
-  });
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /\/repo\/api/);
-  assert.doesNotMatch(rendered, /1 repo/);
-  assert.doesNotMatch(rendered, /group default/);
-});
-
-test("compact details surface selected skills and MCP when present", () => {
-  const withTools = {
-    ...session("a", "default", "idle", "api"),
-    cwd: "/repo/api",
-    enabledMcpServers: ["filesystem", "github"],
-  };
-  const model = buildRenderModel({ sessions: [withTools], selectedId: "a", width: 120, selectedSkillCount: 3 });
-
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /skills 3 · mcp 2\s+s\/m edit/);
-  assert.doesNotMatch(rendered, /filesystem, github/);
-});
-
-
-test("compact details hide capabilities line when no skills or MCP are attached", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, selectedSkillCount: 0 });
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.doesNotMatch(rendered, /skills 0/);
-  assert.doesNotMatch(rendered, /mcp 0/);
-  assert.doesNotMatch(rendered, /s\/m edit/);
-});
-
-
-test("preview divider has no read-only label", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], selectedId: "a", width: 120, preview: "hi" });
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /── preview ─/);
-  assert.doesNotMatch(rendered, /read-only/);
-});
-
-
 test("selected title and status render inline on the same line", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "running", "c-bridge")], selectedId: "a", width: 200 });
-  const rendered = renderSessions(model).lines.join("\n");
-  const titleLine = rendered.split("\n").find((line) => line.includes("c-bridge") && !line.includes("▌"));
+  const model = workspaceModel({ sessions: [session("a", "default", "running", "c-bridge")], selectedId: "a", width: 200 });
+  const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
+  const titleLine = rendered.split("\n").find((line) => /│c-bridge\s+● running/.test(line));
   assert.ok(titleLine, "expected an inline title row in the right pane");
   assert.match(titleLine!, /c-bridge\s{1,}● running/);
 });
 
 
 test("long selected title preserves inline status", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "waiting", "selected-title-".repeat(10))], selectedId: "a", width: 80 });
+  const model = workspaceModel({ sessions: [session("a", "default", "waiting", "selected-title-".repeat(10))], selectedId: "a", width: 80 });
   const lines = renderSessions(model).lines;
   const titleLine = lines.find((line) => line.includes("◐ waiting") && !line.includes("▌"));
   assert.ok(titleLine, "expected selected details to keep the status badge");
@@ -1208,21 +1077,6 @@ test("group row tags remain visible when space permits", () => {
   for (const line of lines) assert.ok(visibleWidth(line) <= 100, line);
 });
 
-
-test("expanded multi-repo details show full metadata", () => {
-  const multi = {
-    ...session("a", "default", "idle", "api"),
-    cwd: "/repo/api",
-    additionalCwds: ["/repo/web", "/repo/shared"],
-    workspaceCwd: "/state/workspaces/a",
-  };
-  const model = buildRenderModel({ sessions: [multi], selectedId: "a", width: 120, detailsExpanded: true });
-
-  const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /extra\s+\/repo\/web/);
-  assert.match(rendered, /extra\s+\/repo\/shared/);
-  assert.match(rendered, /runtime\s+\/state\/workspaces\/a/);
-});
 
 test("filter with zero matches renders no-match state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
@@ -1348,14 +1202,14 @@ test("all-card generic richness stays Active-main-only and ANSI width safe", () 
   }
 });
 
-test("all-card preview preserves card width and height-neighbor windowing", () => {
+test("all-card list preserves selected height-neighbor windowing", () => {
   const sessions = Array.from({ length: 6 }, (_, index) => ({
     ...session(`s${index}`, "agents", "idle", `Stored session ${index}`),
     workflow: { ...WORKFLOW, ticketId: `scan-${index}`, activity: { id: `scan-${index}`, label: `Activity ${index}` } },
   }));
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", density: "all-cards", width: 120, height: 12 }));
   const text = layout.lines.map(stripAnsi).join("\n");
-  assert.ok(layout.listWidth >= 40 && layout.listWidth <= 60, String(layout.listWidth));
+  assert.equal(layout.listWidth, 118);
   assert.match(text, /Stored session 3/);
   assert.match(text, /Stored session [24]/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
@@ -1425,15 +1279,6 @@ test("workflowless Active board keeps generic attention and distinct empty state
   assert.match(renderSessions(filtered).lines.map(stripAnsi).join("\n"), /No sessions match "backlog"/);
 });
 
-test("wide preview suppression keeps producer plan context inline", () => {
-  const planned = { ...session("planned", "agents", "stopped"), workflow: { ...WORKFLOW, plan: { phase: { title: "Inline phase context", index: 1, count: 1 }, tasks: { completed: 1, total: 2 }, nextStep: "Open the panel" } } };
-  const model = buildRenderModel({ sessions: [planned], selectedId: "planned", grouping: "stage", density: "all-cards", width: 120, hidePreview: true });
-  const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.equal(model.showPreview, false);
-  assert.match(text, /✓◉···  ▰▱ p1\/1/);
-  assert.doesNotMatch(text, /── preview/);
-});
-
 test("filter matches generic context and deterministic producer plan", () => {
   const context = buildRenderModel({
     sessions: [{ ...session("a", "default", "idle", "api"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "context-001", description: "Implement generic context filtering" } } }, session("b", "default", "idle", "docs")],
@@ -1445,6 +1290,96 @@ test("filter matches generic context and deterministic producer plan", () => {
     width: 100, filter: "narrow",
   });
   assert.equal(modelRows(plan)[0]?.id, "a");
+});
+
+test("action workspace follows frozen Layer 05 order across responsive widths", () => {
+  const now = 120_000;
+  const parent = {
+    ...session("parent", "Release", "waiting", "Release decision"),
+    context: {
+      version: 1 as const,
+      updatedAt: now - 12_000,
+      ticket: { id: "release-019", subtitle: "Package the macOS release", description: "Ship once notarization and installer smoke checks pass." },
+      attention: { kind: "question" as const, text: "Approve the package rollout?" },
+    },
+    workflow: WORKFLOW,
+  };
+  const child = { ...session("child", "Release", "running", "designer"), kind: "subagent" as const, parentId: "parent", agentName: "frontend-designer", taskPreview: "Review cockpit geometry" };
+
+  for (const width of [40, 60, 100, 120, 160]) {
+    const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
+    const layout = renderSessions(model, darkTheme);
+    const text = layout.lines.map(stripAnsi).join("\n");
+    const positions = ["SELECTED SESSION", "? QUESTION", "RECOMMENDED NEXT", "CONTEXT", "STATE", "LIVE EVIDENCE", "WORKFLOW", "TREE"].map((label) => text.indexOf(label));
+    assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
+    assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: block order`);
+    assert.match(text, /producer context · 12s ago/);
+    assert.doesNotMatch(text, /context.*stale|raw pane|preview/i);
+    assert.ok(layout.workspaceRowTargets.filter(Boolean).length >= 3);
+    for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
+  }
+});
+
+test("workspace evidence preserves workflow provenance without duplicating Explain status", () => {
+  const selected = {
+    ...session("api", "default", "error", "api"),
+    error: "build failed",
+    workflow: WORKFLOW,
+    statusEvidence: {
+      observedAt: 20_000,
+      reason: "heartbeat-error" as const,
+      tmux: { state: "present" as const },
+      heartbeat: { freshness: "fresh" as const, state: "error" as const, updatedAt: 19_000 },
+      acknowledgement: { state: "not-applicable" as const },
+      workflow: { source: "retained" as const, activeIndex: 1, stepCount: 5, stepLabel: "Execute" },
+    },
+  };
+  const text = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now: 20_000, workspaceEvidenceVisible: true })).lines.map(stripAnsi).join("\n");
+  assert.equal(text.match(/Explain status/g)?.length, 1);
+  assert.match(text, /workflow  · producer step 2\/5 · Execute ·[\s\S]*retained from last fresh heartbeat/);
+});
+
+test("attention-only producer context reports provenance instead of absence", () => {
+  const now = 30_000;
+  const selected = {
+    ...session("api", "default", "waiting", "api"),
+    context: { version: 1 as const, updatedAt: 20_000, attention: { kind: "question" as const, text: "Choose the rollout" } },
+  };
+  const text = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })).lines.map(stripAnsi).join("\n");
+  assert.match(text, /CONTEXT · bounded producer fields/);
+  assert.match(text, /producer context · 10s ago/);
+  assert.doesNotMatch(text, /no producer context/);
+});
+
+test("subagent workspace keeps producer task and owner context without promotion", () => {
+  const owner = { ...session("owner", "agents", "idle", "Owner session"), workflow: WORKFLOW };
+  const child = { ...session("child", "agents", "idle", "worker"), kind: "subagent" as const, parentId: "owner", agentName: "worker", taskPreview: "Inspect the API boundary" };
+  const layout = renderSessions(workspaceModel({ sessions: [owner, child], selectedId: "child", width: 160, expandedProjectParentIds: new Set(["owner"]) }));
+  const text = layout.lines.map(stripAnsi).join("\n");
+  assert.match(text, /CONTEXT · subagent task/);
+  assert.match(text, /Inspect the API boundary/);
+  assert.match(text, /subagent of Owner session/);
+  assert.match(text, /Let the owner coordinate this task/);
+  assert.match(text, /✓ PL─◉ EX─· RV─· RF─· CM · auth-003/);
+  assert.doesNotMatch(text, /NEEDS YOU/);
+});
+
+test("workspace height pruning removes hidden action targets", () => {
+  const selected = session("api", "default", "idle", "api");
+  for (const height of [8, 12, 18]) {
+    const layout = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 60, height, workspaceEvidenceVisible: true }));
+    assert.equal(layout.lines.length, height);
+    const text = layout.lines.map(stripAnsi).join("\n");
+    assert.match(text, /Open/);
+    assert.match(text, /next[: ·]/);
+    if (height === 8) assert.match(text, /live evidence unavailable/);
+    else assert.match(text, /LIVE EVIDENCE/);
+    if (height >= 12) assert.match(text, /Actions/);
+    assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
+    for (const [index, target] of layout.workspaceRowTargets.entries()) {
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|Actions/);
+    }
+  }
 });
 
 test("generic context and producer activity define canonical junction hierarchy", () => {
@@ -1463,14 +1398,15 @@ test("generic context and producer activity define canonical junction hierarchy"
       attention: { kind: "question" as const, text: "Choose the rollout order" },
     },
   };
-  const model = buildRenderModel({ sessions: [named], selectedId: "named", width: 160, grouping: "project", density: "all-cards" });
+  const model = workspaceModel({ sessions: [named], selectedId: "named", width: 160, grouping: "project", density: "all-cards", now: 2 });
   const output = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
   assert.match(output, /Canonical Name/);
   assert.match(output, /#metadata-redesign-001 · Simplify session context/);
   assert.match(output, /Reviewing implementation \(pass 2\)/);
   assert.doesNotMatch(output, /ticket:/);
-  assert.match(output, /context\s+Use one generic contract/);
-  assert.match(output, /attention\s+\? Choose the rollout order/);
+  assert.match(output, /CONTEXT · bounded producer fields/);
+  assert.match(output, /Use one generic contract/);
+  assert.match(output, /\? QUESTION[\s\S]*Choose the rollout order/);
 });
 
 test("activity-free alternate producer workflows show the adaptive plan grid", () => {

@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, capturePane, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -320,20 +320,6 @@ test("currentTmuxClient reads and trims the current tmux client", async () => {
 
   await assert.equal(await currentTmuxClient(exec), "/dev/ttys011");
   assert.deepEqual(exec.calls, [{ command: "tmux", args: ["display-message", "-p", "#{client_name}"] }]);
-});
-
-test("capturePane captures plain text by default", async () => {
-  const exec = fakeTmux(() => ({ stdout: "plain\n", stderr: "" }));
-
-  assert.equal(await capturePane("pi-agent-hub-api", 80, exec), "plain\n");
-  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["capture-pane", "-p", "-t", "pi-agent-hub-api", "-S", "-80"] }]);
-});
-
-test("capturePane can preserve pane styles", async () => {
-  const exec = fakeTmux(() => ({ stdout: "\u001b[1mheading\u001b[0m\n", stderr: "" }));
-
-  assert.equal(await capturePane("pi-agent-hub-api", 80, { preserveStyles: true }, exec), "\u001b[1mheading\u001b[0m\n");
-  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["capture-pane", "-p", "-e", "-t", "pi-agent-hub-api", "-S", "-80"] }]);
 });
 
 test("sendTextToSession pastes text into target and submits", async () => {
