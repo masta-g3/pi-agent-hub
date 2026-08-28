@@ -8,7 +8,7 @@ const MIN_CONTENT_WIDTH = 40;
 
 export type SidePaneSlot = 1 | 2 | 3 | 4;
 export type SidePaneResult =
-  | { kind: "opened" | "retargeted" | "moved" | "unchanged"; slot: SidePaneSlot }
+  | { kind: "opened" | "retargeted" | "moved"; slot: SidePaneSlot }
   | { kind: "closed" }
   | { kind: "too-narrow"; panels: number };
 export type CloseSidePaneResult = { kind: "closed" } | { kind: "unavailable" };
@@ -59,8 +59,10 @@ export async function assignSidePaneSlot(options: {
   const occupied = inspected.slots.get(options.slot);
 
   if (existing === options.slot && occupied) {
-    await selectPane(options.ownPane, exec);
-    return { kind: "unchanged", slot: options.slot };
+    const sessions = sessionSlots(inspected.slots);
+    sessions.delete(options.slot);
+    await rebuildSidePanes(options.ownPane, inspected, sessions, exec, options.titleFor);
+    return { kind: "closed" };
   }
 
   if (existing !== undefined) {

@@ -327,16 +327,16 @@ test("presence reconciliation restores removed footers before hiding additions a
   assert.ok(rendered < eventIndex(value.events, "managed:docs:off"));
 });
 
-test("an unchanged assignment leaves sidebar focus and does not render or reconfigure managed chrome", async (t) => {
+test("assigning a session to its current slot closes the panel", async (t) => {
   const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
   await startAndSettle(value);
   value.events.length = 0;
 
-  assert.deepEqual(await value.lifecycle.assign("api", 1), { kind: "unchanged", slot: 1 });
+  assert.deepEqual(await value.lifecycle.assign("api", 1), { kind: "closed" });
 
-  assert.ok(value.events.includes("focus:%1"));
-  assert.equal(value.events.includes("render"), false);
+  assert.ok(value.events.includes("render"));
   assert.equal(value.events.some((event) => event.startsWith("managed:")), false);
+  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, undefined]);
 });
 
 test("assign acknowledges waiting before first-panel chrome and opens with actual tmux operations", async (t) => {
@@ -444,7 +444,7 @@ test("too-narrow first assignment restores normal dashboard chrome without openi
   assert.equal(value.lifecycle.snapshot().dashboardStatusVisible, true);
 });
 
-test("handoff restores managed chrome before switching and closes only the matching panel on return", async (t) => {
+test("handoff restores managed chrome before switching and keeps the matching panel", async (t) => {
   const value = await harness(t, {
     initialPanes: [
       { session: "pi-agent-hub-api", slot: 1 },
@@ -460,10 +460,9 @@ test("handoff restores managed chrome before switching and closes only the match
   const managed = eventIndex(value.events, "managed:api:on");
   const unbound = eventIndex(value.events, "unbind:C-q");
   const switched = eventIndex(value.events, "switch:pi-agent-hub-api");
-  const closed = eventIndex(value.events, "kill:%2");
-  assert.ok(managed < unbound && unbound < switched && switched < closed);
-  assert.equal(value.events.includes("kill:%3"), false);
-  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, "pi-agent-hub-docs"]);
+  assert.ok(managed < unbound && unbound < switched);
+  assert.equal(value.events.some((event) => event.startsWith("kill:")), false);
+  assert.deepEqual(value.lifecycle.snapshot().slots, ["pi-agent-hub-api", undefined, undefined, "pi-agent-hub-docs"]);
   assert.ok(value.exec.commands.includes("switch-client -c /dev/ttys001 -t pi-agent-hub-api"));
   assert.ok(value.exec.commands.includes("resize-window -t pi-agent-hub-api -x 160 -y 59"));
   assert.ok(value.exec.commands.includes("set-option -w -t pi-agent-hub-api window-size latest"));
@@ -474,6 +473,23 @@ test("handoff restores managed chrome before switching and closes only the match
   assert.match(returnBinding ?? "", /PI_AGENT_HUB_DIR/);
   assert.match(returnBinding ?? "", /\/tmp\/hub/);
   assert.match(renameBinding ?? "", /dashboard-action\.json/);
+});
+
+test("detach closes only the panel showing the target session", async (t) => {
+  const value = await harness(t, {
+    initialPanes: [
+      { session: "pi-agent-hub-api", slot: 1 },
+      { session: "pi-agent-hub-docs", slot: 4 },
+    ],
+  });
+  await startAndSettle(value);
+  value.events.length = 0;
+
+  assert.equal(await value.lifecycle.detach("pi-agent-hub-api"), true);
+
+  assert.ok(value.events.includes("kill:%2"));
+  assert.equal(value.events.includes("kill:%3"), false);
+  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, "pi-agent-hub-docs"]);
 });
 
 test("handoff preserves the full-screen binding and resumes presence after reset failure", async (t) => {

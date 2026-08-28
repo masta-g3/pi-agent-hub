@@ -62,6 +62,7 @@ export interface SidePaneLifecycle {
   reset(sessionId: string): Promise<SidePaneResult>;
   close(slot: SidePaneSlot): Promise<CloseSidePaneResult>;
   focus(slot: SidePaneSlot): Promise<FocusSidePaneResult>;
+  detach(tmuxSession: string): Promise<boolean>;
   handoff(tmuxSession: string): Promise<void>;
   refreshPanelChrome(): void;
   syncOpenSessionChrome(): void;
@@ -311,29 +312,38 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       }));
     },
 
+    detach(tmuxSession) {
+      if (stopped) return Promise.resolve(false);
+      return trackIntent(withPausedPresence(async () => {
+        const ownPane = deps.ownPane();
+        if (!ownPane) return false;
+        const closed = await closeSidePaneShowing({ target: tmuxSession, ownPane }, exec);
+        if (closed && await refreshPresence()) deps.render();
+        return closed;
+      }));
+    },
+
     handoff(tmuxSession) {
       return trackIntent(withPausedPresence(async () => {
-            if (stopped) return;
-            const session = sessionByTmux(tmuxSession);
-            const ownPane = deps.ownPane();
-            if (session) await deps.configureManagedSession(session, true);
-            if (stopped) return;
-            await removeSidebarReturnBinding({
-              stateDir: deps.sidebarBindingStateDir,
-              onlyOwnerPid: process.pid,
-            }, exec);
-            await switchClientWithReturn({
-              targetSession: tmuxSession,
-              stateDir: deps.switchBindingStateDir,
-              renameKey: "M-r",
-              returnSession: {
-                name: deps.dashboardSession,
-                cwd: deps.dashboardCwd,
-                command: deps.dashboardCommand,
-                env: deps.dashboardEnv(),
-              },
-            }, exec);
-            if (ownPane && await closeSidePaneShowing({ target: tmuxSession, ownPane }, exec)) await refreshPresence();
+        if (stopped) return;
+        const session = sessionByTmux(tmuxSession);
+        if (session) await deps.configureManagedSession(session, true);
+        if (stopped) return;
+        await removeSidebarReturnBinding({
+          stateDir: deps.sidebarBindingStateDir,
+          onlyOwnerPid: process.pid,
+        }, exec);
+        await switchClientWithReturn({
+          targetSession: tmuxSession,
+          stateDir: deps.switchBindingStateDir,
+          renameKey: "M-r",
+          returnSession: {
+            name: deps.dashboardSession,
+            cwd: deps.dashboardCwd,
+            command: deps.dashboardCommand,
+            env: deps.dashboardEnv(),
+          },
+        }, exec);
       }));
     },
 

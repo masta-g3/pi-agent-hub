@@ -1424,7 +1424,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "",
     heading("Navigation"),
     "  ↑↓/j/k move selection     Esc cancel/clear",
-    "  1-4 assign (stay here)    x then 1-4 close panel",
+    "  1-4 assign/toggle (stay here)    x then 1-4 close panel",
     "  F then 1-4 or Alt+1-4 focus panel",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
     "  mouse click select · double-click open/switch · wheel move",

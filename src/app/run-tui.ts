@@ -359,7 +359,11 @@ export async function runTui(): Promise<void> {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));
     },
     archiveSession(sessionId) {
-      return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "archived"));
+      return mutateRegistry(async () => {
+        const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
+        if (session) await sidePanes!.detach(session.tmuxSession);
+        await controller.moveSessionToBucket(sessionId, "archived");
+      });
     },
     backlogSession(sessionId) {
       return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "backlog"));
