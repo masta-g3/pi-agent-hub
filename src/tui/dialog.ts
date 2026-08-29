@@ -1,5 +1,5 @@
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
-import type { CloseSidePaneResult, FocusSidePaneResult, SidePaneResult } from "../app/side-pane.js";
+import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
 import type { NewFormContext, NewFormSubmission } from "./new-form.js";
@@ -20,9 +20,7 @@ export interface SessionDialogInput {
   worktree?: { branch: string };
 }
 
-/** Compatibility aliases. The result contracts are owned by app/side-pane. */
-export type SidePaneActionResult = SidePaneResult;
-export type { CloseSidePaneResult, FocusSidePaneResult, SidePaneResult };
+export type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult };
 
 export type CollapsibleSection = "backlog" | "archived";
 
@@ -55,11 +53,23 @@ export interface SessionLifecycleActions {
   acknowledgeSession: (sessionId: string) => unknown;
 }
 
+export interface SidePaneViewState {
+  slots: readonly (string | undefined)[];
+  activeSessionId?: string;
+  capacity: number;
+  constrained: boolean;
+  splitPercent: number;
+}
+
 export interface SidePaneActions {
-  assignSidePaneSlot: (sessionId: string, slot: 1 | 2 | 3 | 4) => SidePaneResult | Promise<SidePaneResult>;
-  closeSidePaneSlot: (slot: 1 | 2 | 3 | 4) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
-  resetSidePane: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
-  focusSidePaneSlot: (slot: 1 | 2 | 3 | 4) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  pinSidePane: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
+  assignSidePaneSlot: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
+  focusSidePaneSlot: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  closeSidePane: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  resizeSidePane: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
+  focusSidePaneDirection: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  returnToCockpit: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  sidePaneState: () => SidePaneViewState;
 }
 
 export interface ProjectPickerTarget {
@@ -116,12 +126,14 @@ export interface SessionsViewActions {
   saveViewState?: (state: SessionsViewState) => void;
   attachOutsideTmux?: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
-  assignSidePaneSlot?: (sessionId: string, slot: 1 | 2 | 3 | 4) => SidePaneActionResult | Promise<SidePaneActionResult>;
-  closeSidePaneSlot?: (slot: 1 | 2 | 3 | 4) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
-  resetSidePane?: (sessionId: string) => SidePaneActionResult | Promise<SidePaneActionResult>;
-  focusSidePaneSlot?: (slot: 1 | 2 | 3 | 4) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
-  sidePaneSessionIds?: () => ReadonlyMap<string, number>;
-  sidePaneFocusedSlot?: () => number | undefined;
+  pinSidePane?: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
+  assignSidePaneSlot?: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
+  focusSidePaneSlot?: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  closeSidePane?: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  resizeSidePane?: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
+  focusSidePaneDirection?: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  returnToCockpit?: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  sidePaneState?: () => SidePaneViewState;
   refreshStatusEvidence?: () => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   restartNew?: (sessionId: string) => unknown;

@@ -27,13 +27,25 @@ function modelRows(model: ReturnType<typeof buildRenderModel>) {
 
 const workspaceCapabilities = {
   openSession: true, restart: true, sendMessage: true, deleteSession: true,
-  resetSidePane: true, acknowledge: true,
+  pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, closeSidePane: true, resizeSidePane: true, acknowledge: true,
 };
 
 function workspaceModel(input: BuildRenderModelInput) {
   const selected = input.sessions.find((item) => item.id === input.selectedId) as RuntimeSession | undefined;
   if (!selected) return buildRenderModel(input);
-  const commands = buildDashboardCommands({ sessions: input.sessions, selectedId: selected.id, capabilities: workspaceCapabilities });
+  const pinSlots = input.pinSlots ?? [];
+  const commands = buildDashboardCommands({
+    sessions: input.sessions,
+    selectedId: selected.id,
+    capabilities: workspaceCapabilities,
+    pinState: {
+      slots: pinSlots,
+      activeSessionId: input.activePinnedSessionId,
+      count: pinSlots.filter(Boolean).length,
+      capacity: input.pinCapacity ?? 2,
+      constrained: input.pinConstrained ?? false,
+    },
+  });
   return buildRenderModel({
     ...input,
     workspaceCommands: selectWorkspaceCommands(selected, commands, input.width >= 160 || input.width < 120 ? 3 : 2),
@@ -466,98 +478,78 @@ test("all-card window does not orphan continuation lines around a compact select
   assert.equal(twoRowLayout.rowTargets.filter((target) => target?.kind === "session" && target.id === "child").length, 1);
 });
 
-test("render model records side pane slots by session id", () => {
-  const model = buildRenderModel({
-    sessions: [session("api", "default", "running"), session("docs", "default", "running")],
-    width: 120,
-    sidePaneSessionIds: new Map([["api", 2]]),
-  });
-
-  assert.equal(modelRows(model).find((item) => item.id === "api")?.sidePaneSlot, 2);
-  assert.equal(modelRows(model).find((item) => item.id === "docs")?.sidePaneSlot, undefined);
-});
-
-test("panel strip uses all sessions and records the focused slot", () => {
-  const model = buildRenderModel({
-    sessions: [session("api", "default", "running"), session("docs", "default", "idle")],
-    filter: "api",
-    width: 100,
-    sidePaneSessionIds: new Map([["api", 2], ["docs", 1]]),
-    sidePaneFocusedSlot: 2,
-  });
-  assert.deepEqual(model.panelStrip, [
-    { slot: 1, title: "docs" },
-    { slot: 2, title: "api" },
-    { slot: 3 },
-    { slot: 4 },
-  ]);
-  assert.equal(model.sidePaneFocusedSlot, 2);
-  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /◫1 docs  ◫2 api  ·3  ·4/);
-});
-
-test("render model omits the panel strip when no panels are open", () => {
-  assert.equal(buildRenderModel({ sessions: [session("api", "default", "running")], width: 100 }).panelStrip, undefined);
-});
-
-test("side pane glyphs render numbered slots on the left", () => {
+test("render model records named pin and focused identity", () => {
   const model = buildRenderModel({
     sessions: [session("api", "default", "running"), session("docs", "default", "idle")],
     width: 100,
-    sidePaneSessionIds: new Map([["api", 2], ["docs", 1]]),
+    pinSlots: ["docs", "api", undefined, undefined],
+    activePinnedSessionId: "api",
+    pinCapacity: 2,
   });
-  const rendered = renderSessions(model).lines.map(stripAnsi);
-  assert.match(rendered.find((line) => /● ◫2 api/.test(line)) ?? "", /● ◫2 api/);
-  assert.match(rendered.find((line) => /○ ◫1 docs/.test(line)) ?? "", /○ ◫1 docs/);
+  const api = modelRows(model).find((item) => item.id === "api");
+  const docs = modelRows(model).find((item) => item.id === "docs");
+  assert.deepEqual([api?.pinSlot, api?.pinned, api?.pinFocused, docs?.pinSlot, docs?.pinned], [2, true, true, 1, true]);
+  assert.deepEqual(model.pinSummary, {
+    slots: [{ slot: 1, title: "docs", active: false }, { slot: 2, title: "api", active: true }],
+    constrained: false,
+  });
+  const text = renderSessions(model).lines.map(stripAnsi).join("\n");
+  assert.match(text, /PINNED · ▢1 docs · ▣2 api/);
+  assert.match(text, /● ▣2 api/);
+  assert.match(text, /○ ▢1 docs/);
 });
 
-test("side pane glyphs do not crowd compact workflow rails", () => {
-  const model = buildRenderModel({
-    sessions: [{ ...session("api", "default", "running"), workflow: WORKFLOW }],
-    selectedId: "api",
-    width: 110,
-    sidePaneSessionIds: new Map([["api", 1]]),
-  });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
-  assert.match(row ?? "", /● ◫1 api.*default · ◉EX/);
-  assert.doesNotMatch(row ?? "", /4\/7|EX ◫1/);
+test("named pin summary reports constraint and unpinned rows gain title width", () => {
+  const sessions = [session("api", "default", "running", "long-api-title"), session("docs", "default", "idle", "long-docs-title")];
+  const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "api", width: 40, pinSlots: ["api"], pinCapacity: 0, pinConstrained: true })).lines.map(stripAnsi).join("\n");
+  const unpinned = renderSessions(buildRenderModel({ sessions, selectedId: "docs", width: 40 })).lines.map(stripAnsi).join("\n");
+  assert.match(pinned, /PINNED · ▢1 long-api.*constrai/);
+  assert.match(pinned, /▢1 long-api/);
+  assert.match(unpinned, /long-docs/);
+  assert.doesNotMatch(unpinned, /[▢▣]/);
 });
 
-test("side pane glyphs and group tags remain left-visible at narrow widths", () => {
-  const workflow = { ...WORKFLOW, steps: WORKFLOW.steps.map((step) => step.id === "execute" ? { ...step, short: "EXECUTE-LONG-LABEL" } : step) };
-  const model = buildRenderModel({
-    sessions: [{ ...session("api", "default", "running", "long-title-".repeat(4)), workflow }],
-    selectedId: "api",
-    width: 40,
-    sidePaneSessionIds: new Map([["api", 1]]),
-  });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
-  assert.match(row ?? "", /● ◫1 long-t/);
-  assert.match(row ?? "", /default/);
-  assert.doesNotMatch(row ?? "", /EXECUTE-LONG-LABEL|4\/7/);
-});
-
-test("stage grouping keeps side pane glyphs separate from group adornments", () => {
-  const model = buildRenderModel({
-    sessions: [{ ...session("api", "long-group-name-that-does-not-fit", "running", "long-title-".repeat(4)), workflow: WORKFLOW }],
-    selectedId: "api",
-    width: 40,
-    grouping: "stage", density: "all-cards",
-    sidePaneSessionIds: new Map([["api", 1]]),
-  });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => /[┣┗] ● ◫1 long-title/.test(line));
-  assert.match(row ?? "", /● ◫1 long-title/);
-});
-
-test("side pane glyphs stay width-safe with workflow rails", () => {
+test("named pin rendering remains ANSI width safe with workflow rails", () => {
   const sessions = [
     { ...session("api", "default", "running", "long-title-".repeat(6)), workflow: WORKFLOW },
     session("docs", "default", "idle", "docs-title-".repeat(6)),
   ];
-  for (const width of [42, 70, 120]) {
-    for (const line of renderSessions(buildRenderModel({ sessions, selectedId: "api", width, sidePaneSessionIds: new Map([["api", 1], ["docs", 2]]) })).lines) {
+  for (const width of [40, 60, 100, 120, 160]) {
+    for (const line of renderSessions(buildRenderModel({ sessions, selectedId: "api", width, pinSlots: ["api", "docs"], activePinnedSessionId: "docs", pinCapacity: width >= 160 ? 4 : 2 })).lines) {
       assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
     }
   }
+});
+
+test("pinned cockpit uses deterministic decision strip pruning and visible exact targets", () => {
+  const selected = session("api", "default", "running", "api");
+  const renderAt = (height: number, evidence = false) => renderSessions(workspaceModel({
+    sessions: [selected], selectedId: "api", width: 100, height,
+    pinSlots: ["api"], activePinnedSessionId: "api", pinCapacity: 2,
+    workspaceEvidenceVisible: evidence,
+  }));
+
+  const three = renderAt(11);
+  const threeText = three.lines.map(stripAnsi).join("\n");
+  assert.match(threeText, /running · ACTIVE/);
+  assert.match(threeText, /no explicit request/);
+  assert.match(threeText, /Enter Open · : Actions/);
+  assert.deepEqual(three.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
+  const evidenceText = renderAt(11, true).lines.map(stripAnsi).join("\n");
+  assert.match(evidenceText, /tmux|heartbeat/i);
+  assert.doesNotMatch(evidenceText, /no explicit request/);
+  assert.deepEqual(renderAt(11, true).workspaceRowTargets.filter(Boolean), []);
+
+  const twoText = renderAt(9).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(twoText, /running · ACTIVE/);
+  assert.match(twoText, /no explicit request[\s\S]*Enter Open/);
+  const one = renderAt(8);
+  assert.doesNotMatch(one.lines.map(stripAnsi).join("\n"), /no explicit request|running · ACTIVE/);
+  assert.deepEqual(one.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
+  const none = renderAt(7);
+  assert.deepEqual(none.workspaceRowTargets.filter(Boolean), []);
+  assert.equal(none.lines.length, 7);
+  assert.match(stripAnsi(none.lines.at(-2) ?? ""), /1–4 Assign/);
 });
 
 test("layout hit map marks only rendered session rows", () => {
@@ -981,7 +973,7 @@ test("board filter matches workflow ticket ids after compact titles replace tick
   assert.equal(model.selected?.id, "a");
 });
 
-test("multi-repo sessions render repo badge and workspace identity", () => {
+test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),
     cwd: "/repo/api",
@@ -989,15 +981,14 @@ test("multi-repo sessions render repo badge and workspace identity", () => {
     workspaceCwd: "/state/workspaces/a",
     worktreeBranch: "feature/api",
   };
-  const model = workspaceModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared", sidePaneSessionIds: new Map([["a", 1]]) });
+  const model = workspaceModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared", pinSlots: ["a"] });
 
   assert.equal(model.selected?.repoCount, 3);
   const rendered = renderSessions(model, { ...darkTheme, accent: "#010203" }).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ◫1 ⎇ api ⧉ 3/);
+  assert.match(plain, /○ ▢1 ⎇ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.match(rendered, /\u001b\[38;2;1;2;3m⎇/);
-  assert.match(plain, /default · ⧉3 · ⎇ feature\/api/);
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });
@@ -1059,7 +1050,7 @@ test("fixed row badges cannot preserve metadata by crowding out the title", () =
   const child = { ...session("child", "engineering-x", "idle", "worker"), kind: "subagent" as const, parentId: "parent" };
   const lines = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "parent", width: 40,
-    sidePaneSessionIds: new Map([["parent", 1]]),
+    pinSlots: ["parent"],
   })).lines.map(stripAnsi);
   const row = lines.find((line) => line.includes("Authoritative title")) ?? "";
 

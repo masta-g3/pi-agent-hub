@@ -227,11 +227,11 @@ test("help overlay opens and closes", () => {
   assert.match(help, /i toggle/);
   assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
-  assert.match(help, /1-4 assign\/toggle \(stay here\)/);
-  assert.match(help, /x then 1-4 close panel/);
-  assert.match(help, /F then 1-4 or Alt\+1-4 focus panel/);
-  assert.match(help, /F\s+Focus panel…/);
-  assert.match(help, /double-click workspace below 120, open\/switch at 120\+/);
+  assert.match(help, /P pin\/focus selected/);
+  assert.match(help, /x close selected pin/);
+  assert.match(help, /Alt\+arrows move spatially/);
+  assert.doesNotMatch(help, /1-4 assign|Focus panel/);
+  assert.match(help, /double-click opens the workspace first unless pins are visible/);
   assert.match(help, /Density · toggle compact and all-card rows/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
@@ -722,304 +722,189 @@ test("stage grouping snaps selection to the first eligible Active row", () => {
   assert.equal(controller.snapshot().selectedId, "a");
 });
 
-test("board empty state blocks actions on hidden non-Active selections", () => {
-  const opened: string[] = [];
+test("board empty state blocks pin actions on hidden non-Active selections", () => {
+  const pinned: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("plain", "plain"), bucket: "backlog", bucketChangedAt: 1 }] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => { opened.push(sessionId); return { kind: "opened", slot: 1 }; },
+    pinSidePane: (sessionId) => { pinned.push(sessionId); return { kind: "pinned", session: `pi-agent-hub-${sessionId}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
   view.handleInput("S");
-  view.handleInput("1");
-  assert.deepEqual(opened, []);
+  view.handleInput("P");
+  assert.deepEqual(pinned, []);
   assert.match(stripAnsi(view.render(80).join("\n")), /No Active sessions/);
-
   view.handleInput("S");
-  view.handleInput("1");
-  assert.deepEqual(opened, ["plain"]);
+  view.handleInput("P");
+  assert.deepEqual(pinned, ["plain"]);
 });
 
-test("side pane presence snapshots render numbered slot glyphs", () => {
+test("named pin presence updates rendering without registry mutation", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const sidePaneSessionIds = new Map([["api", 2], ["docs", 1]]);
-  const view = new SessionsView(controller, () => {}, { sidePaneSessionIds: () => sidePaneSessionIds });
-
-  const rendered = stripAnsi(view.render(100).join("\n"));
-  assert.match(rendered, /○ ◫2 api/);
-  assert.match(rendered, /○ ◫1 docs/);
-  assert.doesNotMatch(rendered, /raw pane|preview/);
-});
-
-test("side pane presence snapshots update without registry mutation", () => {
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  let sidePaneSessionIds = new Map<string, number>();
-  const view = new SessionsView(controller, () => {}, { sidePaneSessionIds: () => sidePaneSessionIds });
-
+  let state = { slots: [undefined, undefined, undefined, undefined] as (string | undefined)[], capacity: 2, constrained: false, splitPercent: 50, activeSessionId: undefined as string | undefined };
+  const view = new SessionsView(controller, () => {}, { sidePaneState: () => state });
   const before = controller.snapshot().registry;
-  const withoutPanels = stripAnsi(view.render(100).join("\n"));
-  assert.doesNotMatch(withoutPanels, /◫/);
-  sidePaneSessionIds = new Map([["api", 1]]);
-  const withPanel = stripAnsi(view.render(100).join("\n"));
-  assert.match(withPanel, /○ ◫1 api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /[▢▣]/);
+  state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.match(rendered, /PINNED · ▢1 docs · ▣2 api/);
+  assert.match(rendered, /○ ▣2 api/);
+  assert.match(rendered, /○ ▢1 docs/);
   assert.strictEqual(controller.snapshot().registry, before);
 });
 
-test("number keys assign the selected live session to matching panel slots", () => {
-  const opened: { id: string; slot: number }[] = [];
+test("number keys assign exact slots and Alt+number focuses occupied slots", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  controller.selectSession("docs");
+  const view = new SessionsView(controller, () => {}, {
+    assignSidePaneSlot: (id, slot) => { events.push(`assign:${id}:${slot}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot }; },
+    focusSidePaneSlot: (slot) => { events.push(`focus:${slot}`); return { kind: "focused" }; },
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("4");
+  view.handleInput("\u001b1");
+  assert.deepEqual(events, ["assign:docs:4", "focus:1"]);
+});
+
+test("occupied slot refusal names its occupant and does not retarget", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "API"), session("docs", "Docs")] });
+  controller.selectSession("docs");
+  const view = new SessionsView(controller, () => {}, {
+    assignSidePaneSlot: () => ({ kind: "occupied", slot: 1, session: "pi-agent-hub-api" }),
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("1");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Slot 1 contains API; close it first/);
+});
+
+test("P pins or focuses exact selected identity and x closes only that selected pin", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  let pinned = ["api"];
+  const view = new SessionsView(controller, () => {}, {
+    pinSidePane: (id) => { events.push(`pin:${id}`); return { kind: pinned.includes(id) ? "focused" : "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    closeSidePane: (id) => { events.push(`close:${id}`); return { kind: "closed" }; },
+    sidePaneState: () => ({ slots: [...pinned, undefined, undefined], activeSessionId: "api", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("P");
+  view.handleInput("x");
+  controller.move(1);
+  view.handleInput("x");
+  pinned = ["api", "docs"];
+  view.handleInput("x");
+  assert.deepEqual(events, ["pin:api", "close:api", "close:docs"]);
+});
+
+test("slot badges and summary preserve holes and focused identity", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "API"), session("docs", "Docs")] });
+  const view = new SessionsView(controller, () => {}, {
+    sidePaneState: () => ({ slots: ["api", undefined, "docs", undefined], activeSessionId: "docs", capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.match(rendered, /PINNED · ▢1 API · 2 empty · ▣3 Docs · 4 empty/);
+  assert.match(rendered, /▢1 API/);
+  assert.match(rendered, /▣3 Docs/);
+});
+
+test("canonical Alt+Arrow intents move spatially and Alt+Q returns", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    focusSidePaneDirection: (direction) => { events.push(direction); return { kind: "focused" }; },
+    returnToCockpit: () => { events.push("return"); return { kind: "focused" }; },
+  });
+  for (const sequence of ["\u001b[1;3D", "\u001b[1;3C", "\u001b[1;3A", "\u001b[1;3B", "\u001bq"]) view.handleInput(sequence);
+  assert.deepEqual(events, ["left", "right", "up", "down", "return"]);
+});
+
+test("pin mode Enter opens directly below 120 instead of opening the full workspace", () => {
+  const opened: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], activeSessionId: "api", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.render(60);
+  view.handleInput("\r");
+  assert.deepEqual(opened, ["pi-agent-hub-api"]);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /SELECTED SESSION/);
+});
+
+test("pinning from the narrow workspace returns input to fleet navigation", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  let pinned: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    pinSidePane: (id) => { pinned = [id]; return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [...pinned, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.render(60);
+  view.handleInput("\r");
+  view.handleInput("P");
+  view.handleInput("j");
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("plus and minus resize through the catalog only when two pins are available", () => {
+  const deltas: number[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId, slot) => {
-      opened.push({ id: sessionId, slot });
-      return { kind: "opened", slot };
-    },
+    resizeSidePane: (delta) => { deltas.push(delta); return { kind: "resized", splitPercent: delta > 0 ? 60 : 50 }; },
+    sidePaneState: () => ({ slots: ["api", "docs", undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  for (const key of ["1", "2", "3", "4"]) view.handleInput(key);
-
-  assert.deepEqual(opened, [1, 2, 3, 4].map((slot) => ({ id: "api", slot })));
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 4: api/);
+  view.handleInput("+");
+  view.handleInput("-");
+  assert.deepEqual(deltas, [1, -1]);
 });
 
-test("shift-number keys no longer focus panel slots", () => {
-  const focused: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-  });
-
-  for (const key of ["!", "@", "#", "$"]) view.handleInput(key);
-
-  assert.deepEqual(focused, []);
-});
-
-test("F then a digit focuses the matching panel instead of toggling it", () => {
-  const focused: number[] = [];
-  const toggled: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      toggled.push(slot);
-      return { kind: "opened", slot };
-    },
-  });
-
-  view.handleInput("F");
-  assert.match(stripAnsi(view.render(100).join("\n")), /focus panel: press 1-4/);
-  view.handleInput("2");
-
-  assert.deepEqual(focused, [2]);
-  assert.deepEqual(toggled, []);
-});
-
-test("the F focus chord cancels on non-digits and dialog or mouse input", () => {
-  const focused: number[] = [];
-  const toggled: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      toggled.push(slot);
-      return { kind: "opened", slot };
-    },
-  });
-
-  view.handleInput("F");
-  view.handleInput("?");
-  view.handleInput("?");
-  view.handleInput("2");
-
-  view.render(100);
-  view.handleInput("F");
-  view.handleInput("\u001b[<0;3;4M");
-  view.handleInput("3");
-
-  view.handleInput("F");
-  view.handleInput("j");
-  view.handleInput("4");
-
-  assert.deepEqual(focused, []);
-  assert.deepEqual(toggled, [2, 3, 4]);
-});
-
-test("x then a digit closes that panel and reports unavailable slots", () => {
-  const closed: number[] = [];
-  const results = [{ kind: "closed" as const }, { kind: "unavailable" as const }];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    closeSidePaneSlot: (slot) => {
-      closed.push(slot);
-      return results.shift()!;
-    },
-  });
-
-  view.handleInput("x");
-  assert.match(stripAnsi(view.render(100).join("\n")), /close panel: press 1-4/);
-  view.handleInput("2");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 2 closed/);
-  view.handleInput("x");
-  view.handleInput("3");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 3 is not open/);
-  assert.deepEqual(closed, [2, 3]);
-});
-
-test("x close chord disarms on other input and falls through", () => {
-  const closed: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    closeSidePaneSlot: (slot) => { closed.push(slot); return { kind: "closed" }; },
-  });
-  view.handleInput("x");
-  view.handleInput("j");
-  view.handleInput("2");
-  assert.deepEqual(closed, []);
-  assert.equal(controller.snapshot().selectedId, "api");
-});
-
-test("number keys override configured dashboard shortcuts", () => {
-  const panelSlots: number[] = [];
+test("F and o remain available for explicit configured sends while 1 is reserved", () => {
   const sent: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
-    dashboardShortcuts: [{ key: "1", send: "legacy" }, { key: "!", send: "legacy focus" }],
+    dashboardShortcuts: ["1", "F", "o"].map((key) => ({ key, send: `send-${key}` })),
     runDashboardShortcut: (_id, shortcut) => { sent.push(shortcut.send); },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      panelSlots.push(slot);
-      return { kind: "opened", slot };
-    },
-    focusSidePaneSlot: () => ({ kind: "focused" }),
   });
-
-  view.handleInput("1");
-  view.handleInput("!");
-
-  assert.deepEqual(panelSlots, [1]);
-  assert.deepEqual(sent, ["legacy focus"]);
+  for (const key of ["1", "F", "o"]) view.handleInput(key);
+  assert.deepEqual(sent, ["send-F", "send-o"]);
 });
 
-test("o resets side panels to the selected session", async () => {
-  const reset: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    resetSidePane: async (sessionId) => {
-      reset.push(sessionId);
-      return { kind: "retargeted", slot: 1 };
-    },
-  });
-
-  view.handleInput("o");
-  await new Promise((resolve) => setImmediate(resolve));
-
-  assert.deepEqual(reset, ["api"]);
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel: api/);
-});
-
-test("panel shortcuts flash closed and assigned fixed slots without implying focus", () => {
-  const results = [{ kind: "closed" as const }, { kind: "opened" as const, slot: 3 as const }];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: () => results.shift() ?? { kind: "opened", slot: 1 },
-  });
-
-  view.handleInput("1");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel closed/);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /focused/);
-  view.handleInput("3");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 3: api/);
-});
-
-test("panel shortcuts explain narrow-window refusals", () => {
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: () => ({ kind: "too-narrow", panels: 3 }),
-  });
-
-  view.handleInput("3");
-
-  assert.match(stripAnsi(view.render(100).join("\n")), /window too narrow for 3 panels/);
-});
-
-test("panel shortcuts block stopped and error sessions", () => {
-  const opened: string[] = [];
+test("pin commands block stopped and error sessions but allow live subagents", () => {
+  const pinned: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
-  ] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-    resetSidePane: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-  });
-
-  view.handleInput("1");
-  controller.move(1);
-  view.handleInput("o");
-
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /session is not live/);
-});
-
-test("panel shortcuts allow live subagent rows", () => {
-  const opened: { id: string; slot: number }[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [
     session("parent", "parent"),
     { ...session("child", "child"), kind: "subagent" as const, parentId: "parent", agentName: "scout" },
   ] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId, slot) => {
-      opened.push({ id: sessionId, slot });
-      return { kind: "opened", slot };
-    },
+    pinSidePane: (id) => { pinned.push(id); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  controller.move(1);
-  view.handleInput("2");
-
-  assert.deepEqual(opened, [{ id: "child", slot: 2 }]);
+  view.revealSession("stopped");
+  view.handleInput("P");
+  view.revealSession("error");
+  view.handleInput("P");
+  view.revealSession("child");
+  view.handleInput("P");
+  assert.deepEqual(pinned, ["child"]);
 });
 
-test("panel shortcuts flash tmux guidance from the action", async () => {
+test("pin commands surface capacity and tmux transport failures", async () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  let fail = false;
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: async () => { throw new Error("side pane needs tmux — run pi-hub"); },
+    pinSidePane: async () => {
+      if (fail) throw new Error("side pane needs tmux — run pi-hub");
+      return { kind: "capacity", capacity: 0, pins: 0 };
+    },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  view.handleInput("1");
+  view.handleInput("P");
   await new Promise((resolve) => setImmediate(resolve));
-
-  assert.match(stripAnsi(view.render(100).join("\n")), /side pane needs tmux — run pi-hub/);
-});
-
-test("panel shortcuts are swallowed while a dialog is open", () => {
-  const opened: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-  });
-
-  view.handleInput("?");
-  view.handleInput("1");
-  view.handleInput("o");
-
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /pi agent hub help/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /pinning needs 100 columns/);
+  fail = true;
+  view.handleInput("P");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(stripAnsi(view.render(100).join("\n")), /side pane needs tmux/);
 });
 
 function mousePressAtLine(lineIndex: number, x = 3): string {
@@ -1225,14 +1110,15 @@ test("archive disclosure toggles with keyboard and blocks stale session actions"
   const view = new SessionsView(controller, () => {}, {
     archiveSession: (id) => { events.push(`archive:${id}`); },
     reorderSelected: () => { events.push("reorder"); },
-    assignSidePaneSlot: (id) => { events.push(`panel:${id}`); return { kind: "opened", slot: 1 }; },
+    pinSidePane: (id) => { events.push(`pin:${id}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
     restart: (id) => { events.push(`restart:${id}`); },
   });
 
   for (let index = 0; index < 5; index += 1) view.handleInput("j");
   assert.match(stripAnsi(view.render(80).join("\n")), /… 2 older archived/);
 
-  for (const key of ["A", "J", "1", "r"]) view.handleInput(key);
+  for (const key of ["A", "J", "P", "r"]) view.handleInput(key);
   assert.deepEqual(events, []);
 
   view.handleInput("\r");
@@ -1250,7 +1136,7 @@ test("every session-dependent route is inert while archive disclosure is selecte
     bucket: "archived" as const,
     bucketChangedAt: 700 - index,
   }));
-  const keys = ["x", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "d", "r", "R", "p", "1", "o", "J"];
+  const keys = ["x", "+", "-", "P", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "d", "r", "R", "p", "J"];
 
   for (const key of keys) {
     const events: string[] = [];
@@ -1264,8 +1150,10 @@ test("every session-dependent route is inert while archive disclosure is selecte
       archiveSession: () => { events.push("archive"); },
       backlogSession: () => { events.push("backlog"); },
       restoreSession: () => { events.push("restore"); },
-      assignSidePaneSlot: () => { events.push("panel"); return { kind: "opened", slot: 1 }; },
-      resetSidePane: () => { events.push("reset"); return { kind: "opened", slot: 1 }; },
+      pinSidePane: () => { events.push("pin"); return { kind: "pinned", session: "pi-agent-hub-archive", slot: 1 }; },
+      closeSidePane: () => { events.push("close-pin"); return { kind: "closed" }; },
+      resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 50 }; },
+      sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
       reorderSelected: () => { events.push("reorder"); },
     });
     for (let index = 0; index < 5; index += 1) view.handleInput("j");
@@ -1548,10 +1436,13 @@ test("short dashboard renders to terminal rows and clicks visible rows", () => {
 
 test("sidebar dashboard renders readable primary controls", () => {
   const controller = new SessionsController({ version: 1, sessions: manyViewSessions(3) });
-  const view = new SessionsView(controller, () => {}, { terminalRows: () => 15, sidePaneSessionIds: () => new Map([["s0", 1]]) });
+  const view = new SessionsView(controller, () => {}, {
+    terminalRows: () => 15,
+    sidePaneState: () => ({ slots: ["s0", undefined, undefined, undefined], activeSessionId: "s0", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-2) ?? "", /↑↓ · \/ Filter · : Actions · \? Help/);
+  assert.match(rendered.at(-2) ?? "", /1–4 Slot · x Close/);
   assert.doesNotMatch(rendered.at(-2) ?? "", /…/);
 });
 

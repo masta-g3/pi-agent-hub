@@ -138,7 +138,7 @@ pi-hub config unset worktree-default
 }
 ```
 
-Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard keys and tmux return/focus keys are reserved, including the intent palette `:`, theme settings `t`, the panel-close prefix `x`, sidebar return `M-q`, and `M-1` through `M-4`; conflicting entries are rejected rather than shadowing Hub behavior. Shifted digit characters such as `!` are available for custom shortcuts. `send` must be a single nonblank line; this is not a shell-command or macro facility.
+Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard and tmux focus/return keys are reserved, including `1`–`4` exact slot assignment, `M-1`–`M-4` (`Alt+1`–`Alt+4`) slot focus, `P` next-free/focus, `x` selected-pin close, `+`/`-` resize, `M-q`/`C-q` return, the intent palette `:`, and theme settings `t`; conflicting entries are rejected rather than shadowing Hub behavior. `F` and `o` are available for explicit configured sends. Shifted digit characters such as `!` are also available. `send` must be one nonblank line; this is not a shell-command or macro facility.
 
 Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name refresh` is producer-provided and can be configured as an ordinary one-line text send.
 

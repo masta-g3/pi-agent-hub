@@ -42,11 +42,20 @@ export interface DashboardCommandCapabilities {
   skills?: boolean;
   mcp?: boolean;
   theme?: boolean;
-  resetSidePane?: boolean;
-  assignSidePane?: boolean;
+  pinSidePane?: boolean;
+  assignSidePaneSlot?: boolean;
+  focusSidePaneSlot?: boolean;
   closeSidePane?: boolean;
-  focusSidePane?: boolean;
+  resizeSidePane?: boolean;
   acknowledge?: boolean;
+}
+
+export interface DashboardPinState {
+  slots: readonly (string | undefined)[];
+  activeSessionId?: string;
+  count: number;
+  capacity: number;
+  constrained: boolean;
 }
 
 export interface DashboardCommandInput {
@@ -56,6 +65,7 @@ export interface DashboardCommandInput {
   grouping?: "project" | "stage";
   configuredShortcuts?: readonly DashboardShortcut[];
   capabilities?: DashboardCommandCapabilities;
+  pinState?: DashboardPinState;
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
 }
@@ -68,6 +78,7 @@ interface Availability {
 interface ActionSpec {
   name: string;
   label: string;
+  footerLabel?: string;
   hint: string;
   keys: string[];
   available(session: RuntimeSession, input: DashboardCommandInput): Availability;
@@ -76,8 +87,17 @@ interface ActionSpec {
 const sessionSearchTargets = new WeakMap<DashboardCommand, RuntimeSession>();
 const statuses: SessionStatus[] = ["starting", "running", "waiting", "idle", "error", "stopped"];
 
+const slotActionSpecs: ActionSpec[] = [1, 2, 3, 4].map((slot) => ({
+  name: `slot-${slot}`,
+  label: `Assign slot ${slot}`,
+  footerLabel: "Assign",
+  hint: `pin the selected live session in exact slot ${slot}`,
+  keys: [String(slot)],
+  available: slotAvailability(slot),
+}));
+
 const actionSpecs: ActionSpec[] = [
-  { name: "open", label: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
+  { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: "Restart choices…", hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: "Send text…", hint: "send one line without opening the session", keys: ["p"], available: liveMainCapability("sendMessage", "send transport unavailable") },
   { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
@@ -92,8 +112,11 @@ const actionSpecs: ActionSpec[] = [
   { name: "finish-worktree", label: "Finish worktree…", hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },
   { name: "skills", label: "Skills…", hint: "edit project skills", keys: ["s"], available: mainCapability("skills", "Skills catalog unavailable") },
   { name: "mcp", label: "MCP…", hint: "edit project MCP servers", keys: ["m"], available: mainCapability("mcp", "MCP catalog unavailable") },
-  { name: "panel", label: "Open panel", hint: "show this live session beside the cockpit", keys: ["o"], available: liveCapability("resetSidePane", "side pane unavailable") },
-  ...([1, 2, 3, 4] as const).map((slot): ActionSpec => ({ name: `panel-${slot}`, label: `Open in panel ${slot}`, hint: `assign this live session to panel ${slot}`, keys: [`${slot}`], available: liveCapability("assignSidePane", "side pane unavailable") })),
+  { name: "pin", label: "Pin next free slot", footerLabel: "Next", hint: "show this live session in the lowest free slot", keys: ["P"], available: pinAvailability },
+  ...slotActionSpecs,
+  { name: "close-pin", label: "Close pin", footerLabel: "Close", hint: "close this session's pinned pane without stopping Pi", keys: ["x"], available: closePinAvailability },
+  { name: "size-increase", label: "Size +", footerLabel: "Size", hint: "increase the main pinned-pane split", keys: ["+"], available: resizeAvailability },
+  { name: "size-decrease", label: "Size -", footerLabel: "Size", hint: "decrease the main pinned-pane split", keys: ["-"], available: resizeAvailability },
   { name: "info", label: "Explain status", hint: "show runtime and cockpit evidence", keys: ["i"], available: () => enabled() },
   { name: "mark-read", label: "Mark read", hint: "acknowledge the selected waiting session", keys: ["a"], available: markReadAvailability },
   { name: "reorder-up", label: "Move up", hint: "reorder inside the current priority tie", keys: ["K", "Shift+Up"], available: reorderAvailability },
@@ -164,7 +187,7 @@ export function selectWorkspaceCommands(
     actionNames = ["open", "send", "archive"];
   } else {
     recommendation = "Let the session continue; open it only when more context is needed.";
-    actionNames = ["open", "panel", "send"];
+    actionNames = ["open", "pin", "send"];
   }
 
   const actionsByName = new Map(
@@ -195,6 +218,24 @@ export function commandForKey(commands: readonly DashboardCommand[], data: strin
   return commands.find((command) => command.bindings.some((binding) => matchesDashboardShortcut(data, binding.key)));
 }
 
+export function pinnedDashboardFooter(width: number): string {
+  const action = (name: string) => {
+    const spec = actionSpecs.find((candidate) => candidate.name === name);
+    if (!spec) throw new Error(`missing pinned footer action: ${name}`);
+    return spec;
+  };
+  const pin = action("pin");
+  const close = action("close-pin");
+  const view = viewCommands({ sessions: [] });
+  const palette = view.find((command) => command.id === "view:palette")!;
+  const help = view.find((command) => command.id === "view:help")!;
+  const item = (key: string, label: string) => `${key} ${label}`;
+  if (width < 80) return [item("1–4", "Slot"), item(close.keys[0]!, close.footerLabel!), "Ctrl+Q", palette.displayKey, help.displayKey].join(" · ");
+  const controls = [item("1–4", "Assign"), item("Alt+1–4", "Focus"), item(close.keys[0]!, close.footerLabel!), item("Ctrl+Q", "Return")];
+  if (width < 100) return [...controls, palette.displayKey, help.displayKey].join(" · ");
+  return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(" · ");
+}
+
 export function dashboardFooter(width: number): string {
   const global = viewCommands({ sessions: [], capabilities: { theme: true } });
   const open = actionSpecs.find((spec) => spec.name === "open")!;
@@ -214,17 +255,25 @@ export function dashboardFooter(width: number): string {
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
   const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
+  const isPinned = input.pinState?.slots.includes(session.id) === true;
+  const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
+  const label = spec.name === "pin" && isPinned
+    ? `Focus slot ${(currentSlot ?? 0) + 1}`
+    : spec.name === "pin" ? spec.label
+    : spec.name.startsWith("slot-") && currentSlot === Number(spec.name.slice(5)) - 1 ? `Focus slot ${currentSlot + 1}`
+    : spec.label;
+  const hint = spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
   return makeCommand({
     id: `action:${session.id}:${spec.name}`,
     group: "actions",
-    label: spec.label,
-    hint: spec.hint,
+    label,
+    hint,
     displayKey: spec.keys[0],
     bindings: spec.keys.map((key) => ({ key })),
     targetSessionId: session.id,
     enabled: availability.enabled,
     disabledReason: availability.reason,
-    searchText: `${spec.keys.join(" ")} ${spec.label} ${spec.hint}`,
+    searchText: `${spec.keys.join(" ")} ${label} ${hint}`,
   });
 }
 
@@ -284,13 +333,26 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
-    makeCommand({ id: "view:focus-panel", group: "views", label: "Focus panel…", hint: "choose a numbered panel to focus", displayKey: "F", bindings: [{ key: "F" }], enabled: input.capabilities?.focusSidePane === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.focusSidePane === true ? undefined : "side pane unavailable"), searchText: "F focus panel pane" }),
-    makeCommand({ id: "view:close-panel", group: "views", label: "Close panel…", hint: "choose a numbered panel to close", displayKey: "x", bindings: [{ key: "x" }], enabled: input.capabilities?.closeSidePane === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.closeSidePane === true ? undefined : "side pane unavailable"), searchText: "x close panel pane" }),
     makeCommand({ id: "view:theme", group: "views", label: "Theme…", hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
     makeCommand({ id: "view:density", group: "views", label: "Density", hint: "toggle compact and all-card rows", displayKey: "v", bindings: [{ key: "v" }], enabled: true, searchText: "v density compact cards view" }),
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle project and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board project stage grouping view" }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),
     makeCommand({ id: "view:quit", group: "views", label: "Quit", hint: "close the dashboard", displayKey: "q", bindings: [{ key: "q" }], enabled: true, searchText: "q quit close dashboard" }),
+    ...[1, 2, 3, 4].map((slot) => {
+      const sessionId = input.pinState?.slots?.[slot - 1];
+      const enabled = Boolean(sessionId && input.capabilities?.focusSidePaneSlot === true && !input.interactionBlockedReason);
+      return makeCommand({
+        id: `view:focus-slot-${slot}`,
+        group: "views",
+        label: `Focus slot ${slot}`,
+        hint: `focus the live session in slot ${slot}`,
+        displayKey: `Alt+${slot}`,
+        bindings: [{ key: `M-${slot}` }],
+        enabled,
+        disabledReason: input.interactionBlockedReason ?? (sessionId ? "slot focus transport unavailable" : `slot ${slot} is empty`),
+        searchText: `M-${slot} Alt+${slot} focus slot ${slot}`,
+      });
+    }),
   ];
 }
 
@@ -344,6 +406,52 @@ function restoreAvailability(session: RuntimeSession): Availability {
 function markReadAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
   if (session.status !== "waiting" || session.acknowledgedAt !== undefined) return disabled("session has no unread attention");
   return input.capabilities?.acknowledge === true ? enabled() : disabled("acknowledge unavailable");
+}
+
+function slotAvailability(slot: number): ActionSpec["available"] {
+  return (session, input) => {
+    if (!isLive(session)) return disabled("session is not live");
+    if (input.capabilities?.assignSidePaneSlot !== true) return disabled("slot assignment transport unavailable");
+    const state = input.pinState;
+    if (!state) return disabled("pin state unavailable");
+    const existingSlot = state.slots?.findIndex((id) => id === session.id) ?? -1;
+    if (existingSlot === slot - 1) return enabled();
+    const occupantId = state.slots?.[slot - 1];
+    if (occupantId) {
+      const title = input.sessions.find((candidate) => candidate.id === occupantId)?.title ?? occupantId;
+      return disabled(`Slot ${slot} contains ${title}; close it first`);
+    }
+    if (state.constrained) return disabled("pin layout is constrained; widen the dashboard or close a pin");
+    if (slot > state.capacity) return disabled(`slot ${slot} needs 160 columns`);
+    return enabled();
+  };
+}
+
+function pinAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (!isLive(session)) return disabled("session is not live");
+  if (input.capabilities?.pinSidePane !== true) return disabled("pin transport unavailable");
+  const state = input.pinState;
+  if (!state) return disabled("pin state unavailable");
+  if (state.slots.includes(session.id)) return enabled();
+  if (state.constrained) return disabled("pin layout is constrained; widen the dashboard or close a pin");
+  if (state.capacity < 1) return disabled("pinning needs 100 columns; use Enter instead");
+  if (state.count >= state.capacity) {
+    return state.capacity === 2
+      ? disabled("a third pin needs 160 columns; close a pin or use Enter instead")
+      : disabled(`${state.capacity} sessions are already pinned; close a pin or use Enter instead`);
+  }
+  return enabled();
+}
+
+function closePinAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (!input.pinState?.slots.includes(session.id)) return disabled("session is not pinned");
+  return input.capabilities?.closeSidePane === true ? enabled() : disabled("close pin transport unavailable");
+}
+
+function resizeAvailability(_session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if ((input.pinState?.count ?? 0) < 2) return disabled("pin at least two sessions to resize");
+  if (input.pinState?.constrained) return disabled("pin layout is constrained; widen the dashboard before resizing");
+  return input.capabilities?.resizeSidePane === true ? enabled() : disabled("resize transport unavailable");
 }
 
 function worktreeAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {

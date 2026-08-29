@@ -239,6 +239,7 @@ export async function runTui(): Promise<void> {
     ownPane: () => process.env.TMUX_PANE,
     insideTmux: () => Boolean(process.env.TMUX),
     sessions: () => controller.snapshot().registry.sessions,
+    revealSession: (sessionId) => view.revealSession(sessionId),
     acknowledgeSession: (sessionId) => mutateRegistry(() => controller.acknowledgeSession(sessionId)),
     configureManagedSession: applyManagedSessionTheme,
     syncManagedSessionStatusBars,
@@ -260,7 +261,7 @@ export async function runTui(): Promise<void> {
     tui.requestRender();
   };
   const applyThemeToLiveManagedChrome = async (nextTheme: SessionsTheme) => {
-    const paneledSessions = new Set(sidePanes?.snapshot().slots.filter((session): session is string => Boolean(session)) ?? []);
+    const paneledSessions = new Set(sidePanes?.snapshot().pins.map((pin) => pin.tmuxSession) ?? []);
     for (const session of controller.snapshot().registry.sessions) {
       if (session.kind === "subagent" || session.status === "stopped" || session.status === "error") continue;
       await configureManagedSessionStatusBar({
@@ -281,14 +282,23 @@ export async function runTui(): Promise<void> {
       spawn(attach.command, attach.args, { stdio: "inherit" });
     },
     switchInsideTmux: (tmuxSession) => sidePanes!.handoff(tmuxSession),
+    pinSidePane: (sessionId) => sidePanes!.pin(sessionId),
     assignSidePaneSlot: (sessionId, slot) => sidePanes!.assign(sessionId, slot),
-    closeSidePaneSlot: (slot) => sidePanes!.close(slot),
-    resetSidePane: (sessionId) => sidePanes!.reset(sessionId),
     focusSidePaneSlot: (slot) => sidePanes!.focus(slot),
-    sidePaneSessionIds() {
-      return mapSidePaneSessionIds(sidePanes!.snapshot().slots, controller.snapshot().registry.sessions);
+    closeSidePane: (sessionId) => sidePanes!.close(sessionId),
+    resizeSidePane: (delta) => sidePanes!.resize(delta),
+    focusSidePaneDirection: (direction) => sidePanes!.focusDirection(direction),
+    returnToCockpit: () => sidePanes!.returnToCockpit(),
+    sidePaneState() {
+      const state = sidePanes!.snapshot();
+      return {
+        slots: [1, 2, 3, 4].map((slot) => state.pins.find((pin) => pin.slot === slot)?.sessionId),
+        ...(state.activeSessionId ? { activeSessionId: state.activeSessionId } : {}),
+        capacity: state.capacity,
+        constrained: state.constrained,
+        splitPercent: state.splitPercent,
+      };
     },
-    sidePaneFocusedSlot: () => sidePanes!.snapshot().focusedSlot,
     refreshStatusEvidence() {
       return stopLoop?.refresh() ?? controller.refresh();
     },
@@ -472,7 +482,7 @@ export async function runTui(): Promise<void> {
     },
     apply(nextTheme) {
       applyDashboardThemeLocal(nextTheme);
-      sidePanes?.syncOpenSessionChrome();
+      sidePanes?.sync();
     },
   });
   stopActionLoop = startDashboardActionLoop(async () => {
@@ -505,15 +515,6 @@ function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs
     stopped = true;
     clearInterval(timer);
   };
-}
-
-export function mapSidePaneSessionIds(slots: readonly (string | undefined)[], sessions: readonly ManagedSession[]): Map<string, number> {
-  const ids = new Map<string, number>();
-  for (const [index, tmuxSession] of slots.entries()) {
-    const session = tmuxSession ? sessions.find((item) => item.tmuxSession === tmuxSession) : undefined;
-    if (session) ids.set(session.id, index + 1);
-  }
-  return ids;
 }
 
 export function resolveProjectPickerTarget(target: ProjectPickerTarget, sessions: readonly ManagedSession[]): string {

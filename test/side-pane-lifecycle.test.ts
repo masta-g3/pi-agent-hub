@@ -1,6 +1,6 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSidePaneLifecycle } from "../src/app/side-pane-lifecycle.js";
@@ -8,73 +8,48 @@ import { darkTmuxChrome } from "../src/core/chrome.js";
 import type { TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult, ManagedSession } from "../src/core/types.js";
 
-interface FakePane {
-  id: string;
-  tty: string;
-  session: string;
-  slot?: number;
-  title?: string;
-  active: boolean;
-}
+interface FakePane { id: string; tty: string; session: string; slot?: 1 | 2 | 3 | 4; title?: string; active: boolean }
 
-interface InitialPane {
-  session: string;
-  slot?: number;
-  title?: string;
-  active?: boolean;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
-}
-
-class SidePaneTmux implements TmuxExec {
-  readonly events: string[];
+class NamedPaneTmux implements TmuxExec {
   readonly commands: string[] = [];
+  readonly events: string[] = [];
   readonly panes: FakePane[];
-  ownActive: boolean;
-  ownTitle = "";
+  ownActive = true;
+  ownTitle = "Dashboard";
   ownWidth = 42;
   windowWidth = 160;
-  splitFailure?: { afterCreate: boolean; error: Error };
-  failCommand?: (args: readonly string[]) => Error | undefined;
+  failSplit?: Error;
+  failPinTitle?: Error;
+  failBorder?: Error;
+  nextSplit?: Promise<void>;
   nextListPanes?: Promise<CommandResult>;
   private nextPane = 10;
 
-  constructor(events: string[], initial: InitialPane[] = []) {
-    this.events = events;
-    this.panes = initial.map((pane, index) => ({
-      id: `%${index + 2}`,
-      tty: `/dev/ttys00${index + 2}`,
-      session: pane.session,
-      ...(pane.slot === undefined ? {} : { slot: pane.slot }),
-      ...(pane.title === undefined ? {} : { title: pane.title }),
-      active: pane.active ?? false,
-    }));
+  constructor(initial: { session: string; slot?: 1 | 2 | 3 | 4; active?: boolean; title?: string }[] = []) {
+    this.panes = initial.map((pane, index) => ({ id: `%${index + 2}`, tty: `/dev/ttys00${index + 2}`, slot: (index + 1) as 1 | 2 | 3 | 4, active: pane.active ?? false, ...pane }));
     this.ownActive = !this.panes.some((pane) => pane.active);
   }
 
   paneOutput(): string {
     const own = `%1\t/dev/ttys001\t${this.ownActive ? 1 : 0}\t0\t0\t${this.ownWidth}\t59\t${this.windowWidth}\t60\t\t${this.ownTitle}\n`;
-    return own + this.panes.map((pane, index) =>
-      `${pane.id}\t${pane.tty}\t${pane.active ? 1 : 0}\t${this.ownWidth + 1}\t${index * 30}\t${this.windowWidth - this.ownWidth - 1}\t${this.panes.length > 1 ? 29 : 59}\t${this.windowWidth}\t60\t${pane.slot ?? ""}\t${pane.title ?? ""}\n`,
-    ).join("");
+    const contentWidth = this.windowWidth - this.ownWidth - 1;
+    return own + this.panes.map((pane, index) => {
+      const count = this.panes.length;
+      const twoColumns = this.windowWidth >= 120 && count > 1;
+      const left = this.ownWidth + 1 + (twoColumns && index % 2 ? Math.floor(contentWidth / 2) + 1 : 0);
+      const top = count > 2 && index > 1 ? 30 : count === 2 && !twoColumns && index === 1 ? 30 : 0;
+      const width = twoColumns ? Math.floor((contentWidth - 1) / 2) : contentWidth;
+      const height = count > 2 || (count === 2 && !twoColumns) ? 29 : 59;
+      return `${pane.id}\t${pane.tty}\t${pane.active ? 1 : 0}\t${left}\t${top}\t${width}\t${height}\t${this.windowWidth}\t60\t${pane.slot ?? ""}\t${pane.title ?? ""}\n`;
+    }).join("");
   }
 
   async exec(command: string, args: string[]): Promise<CommandResult> {
     assert.equal(command, "tmux");
     this.commands.push(args.join(" "));
-    const failure = this.failCommand?.(args);
-    if (failure) throw failure;
     const action = args[0];
     if (action === "list-panes") {
-      this.events.push("inspect:panes");
+      this.events.push("inspect");
       if (this.nextListPanes) {
         const pending = this.nextListPanes;
         this.nextListPanes = undefined;
@@ -82,515 +57,341 @@ class SidePaneTmux implements TmuxExec {
       }
       return { stdout: this.paneOutput(), stderr: "" };
     }
-    if (action === "list-clients") {
-      this.events.push("inspect:clients");
-      return { stdout: this.panes.map((pane) => `${pane.tty} ${pane.session}\n`).join(""), stderr: "" };
-    }
-    if (action === "list-keys") {
-      this.events.push(`keys:${args.at(-1)}`);
-      return { stdout: "", stderr: "" };
-    }
+    if (action === "list-clients") return { stdout: this.panes.map((pane) => `${pane.tty} ${pane.session}\n`).join(""), stderr: "" };
+    if (action === "list-keys") return { stdout: "", stderr: "" };
     if (action === "split-window") {
-      const attach = args.at(-1)?.match(/attach-session -t '([^']+)'/);
-      const target = attach?.[1] ?? "unknown";
-      this.events.push(`split:${target}`);
-      if (this.splitFailure && !this.splitFailure.afterCreate) throw this.splitFailure.error;
-      const pane: FakePane = {
-        id: `%${this.nextPane++}`,
-        tty: `/dev/ttys${this.nextPane + 100}`,
-        session: target,
-        active: false,
-      };
+      if (this.failSplit) throw this.failSplit;
+      const target = args.at(-1)?.match(/attach-session -t '([^']+)'/)?.[1] ?? "unknown";
+      this.events.push(`split:start:${target}`);
+      if (this.nextSplit) {
+        const pending = this.nextSplit;
+        this.nextSplit = undefined;
+        await pending;
+      }
+      const pane = { id: `%${this.nextPane++}`, tty: `/dev/ttys${this.nextPane + 100}`, session: target, active: false };
       this.panes.push(pane);
-      if (this.splitFailure?.afterCreate) throw this.splitFailure.error;
+      this.events.push(`split:${target}`);
       return { stdout: `${pane.id}\n`, stderr: "" };
     }
     if (action === "kill-pane") {
-      const paneId = args.at(-1)!;
-      this.events.push(`kill:${paneId}`);
-      const index = this.panes.findIndex((pane) => pane.id === paneId);
+      const id = args.at(-1)!;
+      this.events.push(`kill:${id}`);
+      const index = this.panes.findIndex((pane) => pane.id === id);
       if (index >= 0) this.panes.splice(index, 1);
       return { stdout: "", stderr: "" };
     }
     if (action === "select-pane" && args.includes("-T")) {
-      const paneId = args[args.indexOf("-t") + 1]!;
-      const title = args.at(-1)!;
-      if (paneId === "%1") this.ownTitle = title;
-      else this.panes.find((pane) => pane.id === paneId)!.title = title;
-      this.events.push(`title:${paneId}:${title}`);
-      return { stdout: "", stderr: "" };
-    }
-    if (action === "select-pane") {
-      const paneId = args.at(-1)!;
-      this.events.push(`focus:${paneId}`);
-      this.ownActive = paneId === "%1";
-      for (const pane of this.panes) pane.active = pane.id === paneId;
-      return { stdout: "", stderr: "" };
-    }
-    if (action === "switch-client" && args.includes("-c")) {
-      const tty = args[args.indexOf("-c") + 1];
-      const target = args.at(-1)!;
-      const pane = this.panes.find((item) => item.tty === tty);
-      if (pane) {
-        this.events.push(`retarget:${target}`);
-        pane.session = target;
-      } else {
-        this.events.push(`switch:${target}`);
+      const id = args[args.indexOf("-t") + 1]!;
+      if (id === "%1") this.ownTitle = args.at(-1)!;
+      else {
+        if (this.failPinTitle) throw this.failPinTitle;
+        const pane = this.panes.find((item) => item.id === id);
+        if (pane) pane.title = args.at(-1)!;
       }
       return { stdout: "", stderr: "" };
     }
-    if (action === "resize-pane") {
-      this.events.push(`resize:${args.at(-1)}`);
-      if (args[args.indexOf("-t") + 1] === "%1") this.ownWidth = Number(args.at(-1));
+    if (action === "select-pane") {
+      const id = args.at(-1)!;
+      this.events.push(`focus:${id}`);
+      this.ownActive = id === "%1";
+      for (const pane of this.panes) pane.active = pane.id === id;
       return { stdout: "", stderr: "" };
     }
     if (action === "set-option" && args.includes("@pi_hub_slot")) {
-      const paneId = args[args.indexOf("-t") + 1]!;
-      const slot = Number(args.at(-1));
-      this.events.push(`slot:${paneId}:${slot}`);
-      const pane = this.panes.find((item) => item.id === paneId);
-      if (pane) pane.slot = slot;
-      return { stdout: "", stderr: "" };
+      const pane = this.panes.find((item) => item.id === args[args.indexOf("-t") + 1]);
+      if (pane) pane.slot = Number(args.at(-1)) as 1 | 2 | 3 | 4;
     }
+    if (action === "set-option" && args.includes("status")) this.events.push(`status:${args[args.indexOf("-t") + 1]}:${args.at(-1)}`);
     if (action === "set-option" && args.includes("pane-border-status")) {
       this.events.push(`border:${args.at(-1)}`);
-      return { stdout: "", stderr: "" };
+      if (this.failBorder && args.at(-1) === "top") throw this.failBorder;
     }
-    if (action === "set-option" && args.includes("status")) {
-      const target = args[args.indexOf("-t") + 1]!;
-      this.events.push(`status:${target}:${args.at(-1)}`);
-      return { stdout: "", stderr: "" };
-    }
-    if (action === "bind-key") {
-      this.events.push(`bind:${args[2]}`);
-      return { stdout: "", stderr: "" };
-    }
-    if (action === "unbind-key") {
-      this.events.push(`unbind:${args.at(-1)}`);
-      return { stdout: "", stderr: "" };
-    }
+    if (action === "resize-pane") this.ownWidth = Number(args.at(-1));
+    if (action === "switch-client") this.events.push(`switch:${args.at(-1)}`);
     if (action === "display-message") {
       const format = args.at(-1);
       if (format === "#{session_name}") return { stdout: "pi-agent-hub\n", stderr: "" };
       if (format === "#{client_name}") return { stdout: "/dev/ttys001\n", stderr: "" };
       if (format === "#{client_width} #{client_height}") return { stdout: "160 60\n", stderr: "" };
     }
-    this.events.push(`tmux:${args.join(" ")}`);
     return { stdout: "", stderr: "" };
   }
 }
 
-function managedSession(id: string, status: ManagedSession["status"] = "idle"): ManagedSession {
-  return {
-    id,
-    title: id.toUpperCase(),
-    cwd: `/repo/${id}`,
-    group: "test",
-    tmuxSession: `pi-agent-hub-${id}`,
-    status,
-    createdAt: 1,
-    updatedAt: 1,
-  };
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function session(id: string, status: ManagedSession["status"] = "idle"): ManagedSession {
+  return { id, title: id.toUpperCase(), cwd: `/repo/${id}`, group: "test", tmuxSession: `pi-agent-hub-${id}`,
+    status, createdAt: 1, updatedAt: 1 };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 1_000;
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error("timed out waiting for lifecycle event");
+    if (Date.now() > deadline) throw new Error("timed out");
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
 }
 
 async function harness(t: TestContext, options: {
-  initialPanes?: InitialPane[];
+  initial?: { session: string; slot?: 1 | 2 | 3 | 4; active?: boolean; title?: string }[];
   sessions?: ManagedSession[];
-  windowWidth?: number;
-  presenceIntervalMs?: number;
+  width?: number;
 } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-lifecycle-"));
-  const events: string[] = [];
-  const sessions = options.sessions ?? [managedSession("api"), managedSession("docs")];
-  const exec = new SidePaneTmux(events, options.initialPanes);
-  if (options.windowWidth !== undefined) exec.windowWidth = options.windowWidth;
-  const sidebarStateDir = join(root, "sidebar-return");
-  const switchStateDir = join(root, "switch-return");
+  const root = await mkdtemp(join(tmpdir(), "pi-hub-named-lifecycle-"));
+  const sessions = options.sessions ?? [session("api"), session("docs")];
+  const tmux = new NamedPaneTmux(options.initial);
+  if (options.width) tmux.windowWidth = options.width;
+  const events = tmux.events;
   const lifecycle = createSidePaneLifecycle({
-    exec,
-    ownPane: () => "%1",
-    insideTmux: () => true,
-    dashboardSession: "pi-agent-hub",
-    dashboardCwd: "/repo/dashboard",
-    dashboardCommand: "pi-agent-hub tui",
-    dashboardEnv: () => ({ PI_AGENT_HUB_DIR: "/tmp/hub" }),
-    sidebarBindingStateDir: sidebarStateDir,
-    switchBindingStateDir: switchStateDir,
-    render: () => { events.push("render"); },
-    sessions: () => sessions,
-    acknowledgeSession: async (id: string) => {
-      events.push(`ack:${id}`);
-      const session = sessions.find((item) => item.id === id);
-      if (session) session.status = "idle";
-    },
-    configureManagedSession: async (session: ManagedSession, visible: boolean) => {
-      events.push(`managed:${session.id}:${visible ? "on" : "off"}`);
-    },
-    syncManagedSessionStatusBars: async (openTargets: ReadonlySet<string>) => {
-      events.push(`sync:${[...openTargets].join(",")}`);
-    },
-    currentChrome: () => darkTmuxChrome,
-    presenceIntervalMs: options.presenceIntervalMs,
+    dashboardSession: "pi-agent-hub", dashboardCwd: "/repo", dashboardCommand: "pi-hub tui", dashboardEnv: () => ({}),
+    ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux,
+    revealSession: (id) => { events.push(`reveal:${id}`); return true; },
+    acknowledgeSession: async (id) => { events.push(`ack:${id}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
+    configureManagedSession: async (item, visible) => { events.push(`managed:${item.id}:${visible}`); },
+    syncManagedSessionStatusBars: async (hidden) => { events.push(`sync:${[...hidden].join(",")}`); },
+    currentChrome: () => darkTmuxChrome, render: () => { events.push("render"); },
+    sidebarBindingStateDir: join(root, "sidebar"), switchBindingStateDir: join(root, "switch"), presenceIntervalMs: 10,
   });
-  t.after(async () => {
-    await lifecycle.stop();
-    await rm(root, { recursive: true, force: true });
-  });
-  return { events, sessions, exec, lifecycle, sidebarStateDir, switchStateDir };
+  lifecycle.start();
+  await waitFor(() => events.includes("inspect"));
+  t.after(async () => { await lifecycle.stop(); await rm(root, { recursive: true, force: true }); });
+  return { lifecycle, tmux, events, sessions };
 }
 
-async function startAndSettle(value: Awaited<ReturnType<typeof harness>>): Promise<void> {
-  value.lifecycle.start();
-  await waitFor(() => value.events.includes("inspect:panes"));
-  await waitFor(() => value.events.includes("render") || !value.exec.panes.length);
+function before(events: readonly string[], first: string, second: string) {
+  assert.ok(events.indexOf(first) >= 0, `missing ${first}`);
+  assert.ok(events.indexOf(first) < events.indexOf(second), `${first} must precede ${second}`);
 }
 
-function eventIndex(events: readonly string[], event: string): number {
-  const index = events.indexOf(event);
-  assert.notEqual(index, -1, `missing event ${event}\n${events.join("\n")}`);
-  return index;
-}
-
-async function seedSwitchBinding(stateDir: string): Promise<void> {
-  await mkdir(stateDir, { recursive: true });
-  const returnRestore = join(stateDir, "previous.tmux");
-  const renameRestore = join(stateDir, "rename.previous.tmux");
-  await writeFile(returnRestore, "");
-  await writeFile(renameRestore, "");
-  await writeFile(join(stateDir, "active.json"), JSON.stringify({
-    ownerPid: process.pid,
-    controlSession: "pi-agent-hub",
-    targetSession: "pi-agent-hub-api",
-    returnKey: "C-q",
-    restorePath: returnRestore,
-    keyBindings: [
-      { key: "C-q", restorePath: returnRestore },
-      { key: "M-r", restorePath: renameRestore },
-    ],
-  }));
-}
-
-test("startup restores managed chrome before immediately adopting inherited panes", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  value.exec.ownWidth = 70;
-
-  await startAndSettle(value);
-
-  assert.ok(eventIndex(value.events, "sync:") < eventIndex(value.events, "inspect:panes"));
-  assert.ok(eventIndex(value.events, "resize:60") < eventIndex(value.events, "title:%2:[1] API"));
-  assert.ok(eventIndex(value.events, "status:pi-agent-hub:off") < eventIndex(value.events, "status:pi-agent-hub-api:off"));
-  assert.ok(eventIndex(value.events, "status:pi-agent-hub-api:off") < eventIndex(value.events, "render"));
+test("presence adopts named pins and publishes the complete live snapshot", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api", active: true, title: "old" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
   assert.deepEqual(value.lifecycle.snapshot(), {
-    slots: ["pi-agent-hub-api", undefined, undefined, undefined],
-    dashboardStatusVisible: false,
+    pins: [{ slot: 1, sessionId: "api", tmuxSession: "pi-agent-hub-api", paneId: "%2", title: "API", active: true,
+      rect: { left: 43, top: 0, width: 117, height: 59 } }],
+    activeSessionId: "api", capacity: 4, constrained: false, splitPercent: 50, dashboardStatusVisible: false,
   });
+  assert.equal(value.tmux.ownTitle, "PI HUB / PINNED FLEET");
+  assert.equal(value.tmux.panes[0]?.title, "LIVE 1 · API · Alt+1–4 · Ctrl+Q");
 });
 
-test("presence reconciliation repairs changed titles without repeating stable writes", async (t) => {
-  const value = await harness(t, {
-    initialPanes: [{ session: "pi-agent-hub-api", slot: 1, title: "[1] API" }],
-    presenceIntervalMs: 5,
-  });
-  await startAndSettle(value);
-  value.events.length = 0;
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(value.events.some((event) => event.startsWith("title:")), false);
-
-  value.exec.ownTitle = "changed sidebar";
-  value.exec.panes[0]!.title = "changed panel";
-  await waitFor(() => value.events.includes("title:%1:") && value.events.includes("title:%2:[1] API"));
-  value.events.length = 0;
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(value.events.some((event) => event.startsWith("title:")), false);
+test("named pane title adds subagent owner and ticket when width permits", async (t) => {
+  const parent = { ...session("parent"), workflow: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, ticketId: "cockpit-007", updatedAt: 1 } };
+  const child = { ...session("child"), kind: "subagent" as const, parentId: "parent" };
+  const value = await harness(t, { sessions: [parent, child], initial: [{ session: "pi-agent-hub-child" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  assert.equal(value.tmux.panes[0]?.title, "LIVE 1 · CHILD ← PARENT #cockpit-007");
 });
 
-test("presence reconciliation restores removed footers before hiding additions and renders the committed state", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
+test("slot assignment preserves holes, refuses occupants, and numeric focus acknowledges", async (t) => {
+  const api = session("api");
+  const docs = session("docs", "waiting");
+  const value = await harness(t, { sessions: [api, docs], initial: [{ session: "pi-agent-hub-api", slot: 1 }] });
+  assert.deepEqual(await value.lifecycle.assign("docs", 1), { kind: "occupied", slot: 1, session: "pi-agent-hub-api" });
+  assert.deepEqual(await value.lifecycle.assign("docs", 4), { kind: "pinned", slot: 4, session: "pi-agent-hub-docs" });
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => [pin.slot, pin.sessionId]), [[1, "api"], [4, "docs"]]);
   value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.assign("docs", 1), { kind: "retargeted", slot: 1 });
-
-  const restored = eventIndex(value.events, "status:pi-agent-hub-api:on");
-  const hidden = eventIndex(value.events, "status:pi-agent-hub-docs:off");
-  const rendered = eventIndex(value.events, "render");
-  assert.ok(restored < hidden && hidden < rendered);
-  assert.deepEqual(value.lifecycle.snapshot().slots, ["pi-agent-hub-docs", undefined, undefined, undefined]);
-  assert.ok(rendered < eventIndex(value.events, "managed:docs:off"));
-});
-
-test("assigning a session to its current slot closes the panel", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.assign("api", 1), { kind: "closed" });
-
-  assert.ok(value.events.includes("render"));
-  assert.equal(value.events.some((event) => event.startsWith("managed:")), false);
-  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, undefined]);
-});
-
-test("assign acknowledges waiting before first-panel chrome and opens with actual tmux operations", async (t) => {
-  const waiting = managedSession("api", "waiting");
-  const value = await harness(t, { sessions: [waiting] });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.assign("api", 4), { kind: "opened", slot: 4 });
-
-  assert.ok(eventIndex(value.events, "ack:api") < eventIndex(value.events, "status:pi-agent-hub:off"));
-  assert.ok(eventIndex(value.events, "status:pi-agent-hub:off") < eventIndex(value.events, "split:pi-agent-hub-api"));
-  assert.ok(eventIndex(value.events, "split:pi-agent-hub-api") < eventIndex(value.events, "focus:%1"));
-  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, "pi-agent-hub-api"]);
-  assert.equal(value.exec.ownActive, true);
-});
-
-test("close rebuilds survivors, restores the removed footer, and commits sparse state", async (t) => {
-  const value = await harness(t, {
-    initialPanes: [
-      { session: "pi-agent-hub-api", slot: 1 },
-      { session: "pi-agent-hub-docs", slot: 4 },
-    ],
-  });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.close(4), { kind: "closed" });
-
-  assert.equal(value.events.filter((event) => event.startsWith("kill:")).length, 2);
-  assert.ok(value.events.includes("split:pi-agent-hub-api"));
-  assert.ok(value.events.includes("status:pi-agent-hub-docs:on"));
-  assert.deepEqual(value.lifecycle.snapshot().slots, ["pi-agent-hub-api", undefined, undefined, undefined]);
-  assert.ok(value.events.includes("render"));
-});
-
-test("closing the final pane restores dashboard chrome, bindings, and the managed footer", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.close(1), { kind: "closed" });
-
-  assert.ok(value.events.includes("status:pi-agent-hub:on"));
-  assert.ok(value.events.includes("border:off"));
-  assert.ok(value.events.includes("unbind:C-q"));
-  assert.ok(value.events.includes("status:pi-agent-hub-api:on"));
-  assert.ok(value.events.includes("render"));
-  assert.deepEqual(value.lifecycle.snapshot(), {
-    slots: [undefined, undefined, undefined, undefined],
-    dashboardStatusVisible: true,
-  });
-});
-
-test("focus remains serialized and usable after a rejected operation", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 4 }] });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  await assert.rejects(() => value.lifecycle.assign("missing", 1), /session not found/);
   assert.deepEqual(await value.lifecycle.focus(4), { kind: "focused" });
-
-  assert.ok(value.events.includes("focus:%2"));
+  before(value.events, "reveal:docs", "ack:docs");
+  before(value.events, "ack:docs", value.events.find((event) => event.startsWith("focus:"))!);
 });
 
-test("a failed first open with no surviving pane rolls panel chrome back and preserves the original error", async (t) => {
-  const value = await harness(t);
-  await startAndSettle(value);
+test("new pin does not acknowledge and keeps cockpit focus", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting] });
   value.events.length = 0;
-  value.exec.splitFailure = { afterCreate: false, error: new Error("split failed") };
+  assert.deepEqual(await value.lifecycle.pin("api"), { kind: "pinned", session: "pi-agent-hub-api", slot: 1 });
+  assert.equal(value.events.includes("ack:api"), false);
+  assert.ok(value.events.includes("focus:%1"));
+  assert.equal(value.lifecycle.snapshot().pins[0]?.sessionId, "api");
+});
 
-  await assert.rejects(() => value.lifecycle.assign("api", 1), /split failed/);
+test("pinning an existing waiting identity reveals and acknowledges before pane focus", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting], initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.pin("api"), { kind: "focused", session: "pi-agent-hub-api", slot: 1 });
+  before(value.events, "reveal:api", "ack:api");
+  before(value.events, "ack:api", "focus:%2");
+});
 
-  assert.ok(eventIndex(value.events, "status:pi-agent-hub:off") < eventIndex(value.events, "status:pi-agent-hub:on"));
-  assert.ok(eventIndex(value.events, "border:top") < eventIndex(value.events, "border:off"));
-  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, undefined]);
+test("close and resize use managed identity and commit a re-inspected snapshot", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  assert.deepEqual(await value.lifecycle.resize(1), { kind: "resized", splitPercent: 60 });
+  assert.equal(value.lifecycle.snapshot().splitPercent, 50, "fake tmux does not apply split geometry");
+  assert.deepEqual(await value.lifecycle.close("docs"), { kind: "closed" });
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api"]);
+  assert.ok(value.events.includes("status:pi-agent-hub-docs:on"));
+});
+
+test("spatial focus treats cockpit as a synthetic left neighbor", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting], initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focusDirection("right"), { kind: "focused" });
+  before(value.events, "reveal:api", "ack:api");
+  before(value.events, "ack:api", "focus:%2");
+  assert.deepEqual(await value.lifecycle.focusDirection("left"), { kind: "focused" });
+  assert.equal(value.events.at(-2) === "focus:%1" || value.events.includes("focus:%1"), true);
+});
+
+test("presence follows externally focused pane identity and acknowledges waiting", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting], initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  value.tmux.ownActive = false;
+  value.tmux.panes[0]!.active = true;
+  await waitFor(() => value.lifecycle.snapshot().activeSessionId === "api");
+  before(value.events, "reveal:api", "ack:api");
+});
+
+test("return to cockpit reveals the exact active managed session before focus", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api", active: true }] });
+  await waitFor(() => value.lifecycle.snapshot().activeSessionId === "api");
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.returnToCockpit(), { kind: "focused" });
+  before(value.events, "reveal:api", "focus:%1");
+});
+
+test("duplicate panes are removed before a named focus mutation", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  await value.lifecycle.pin("api");
+  before(value.events, "kill:%3", "focus:%2");
+});
+
+test("capacity refusal preserves chrome and existing pins", async (t) => {
+  const value = await harness(t, { width: 100, initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  value.sessions.push(session("more"));
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  assert.deepEqual(await value.lifecycle.pin("more"), { kind: "capacity", capacity: 2, pins: 2 });
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api", "docs"]);
+  assert.equal(value.tmux.panes.length, 2);
+});
+
+test("handoff reveals and acknowledges before managed chrome and switch", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting], initial: [{ session: "pi-agent-hub-api" }] });
+  value.events.length = 0;
+  await value.lifecycle.handoff("pi-agent-hub-api");
+  before(value.events, "reveal:api", "ack:api");
+  before(value.events, "ack:api", "managed:api:true");
+  before(value.events, "managed:api:true", "switch:pi-agent-hub-api");
+});
+
+test("failed first pin rolls panel chrome back without hiding the original failure", async (t) => {
+  const value = await harness(t);
+  value.events.length = 0;
+  value.tmux.failSplit = new Error("split failed");
+  await assert.rejects(() => value.lifecycle.pin("api"), /split failed/);
+  before(value.events, "status:pi-agent-hub:off", "status:pi-agent-hub:on");
+  before(value.events, "border:top", "border:off");
   assert.equal(value.lifecycle.snapshot().dashboardStatusVisible, true);
+  assert.equal(value.tmux.ownTitle, "");
 });
 
-test("a failed first open keeps panel mode and bindings when tmux reports a surviving pane", async (t) => {
+test("failed first-pin chrome setup restores dashboard visibility", async (t) => {
   const value = await harness(t);
-  await startAndSettle(value);
   value.events.length = 0;
-  value.exec.splitFailure = { afterCreate: true, error: new Error("attach failed") };
-
-  await assert.rejects(() => value.lifecycle.assign("api", 1), /attach failed/);
-
-  assert.deepEqual(value.lifecycle.snapshot().slots, ["pi-agent-hub-api", undefined, undefined, undefined]);
-  assert.equal(value.lifecycle.snapshot().dashboardStatusVisible, false);
-  assert.equal(value.events.includes("status:pi-agent-hub:on"), false);
-  assert.equal(value.events.includes("border:off"), false);
-  assert.ok(value.events.includes("bind:C-q"));
+  value.tmux.failBorder = new Error("border failed");
+  await assert.rejects(() => value.lifecycle.pin("api"), /border failed/);
+  assert.deepEqual(value.tmux.panes, []);
+  assert.equal(value.lifecycle.snapshot().dashboardStatusVisible, true);
+  assert.equal(value.tmux.ownTitle, "");
+  before(value.events, "status:pi-agent-hub:off", "status:pi-agent-hub:on");
 });
 
-test("too-narrow first assignment restores normal dashboard chrome without opening a pane", async (t) => {
-  const value = await harness(t, { windowWidth: 80 });
-  await startAndSettle(value);
+test("failed first pin after pane creation removes the partial attachment", async (t) => {
+  const value = await harness(t);
   value.events.length = 0;
-
-  assert.deepEqual(await value.lifecycle.assign("api", 1), { kind: "too-narrow", panels: 1 });
-
-  assert.equal(value.events.some((event) => event.startsWith("split:")), false);
+  value.tmux.failPinTitle = new Error("title failed");
+  await assert.rejects(() => value.lifecycle.pin("api"), /title failed/);
+  assert.deepEqual(value.tmux.panes, []);
+  assert.deepEqual(value.lifecycle.snapshot().pins, []);
+  assert.equal(value.tmux.ownTitle, "");
   assert.ok(value.events.includes("status:pi-agent-hub:on"));
   assert.ok(value.events.includes("border:off"));
-  assert.equal(value.lifecycle.snapshot().dashboardStatusVisible, true);
 });
 
-test("handoff restores managed chrome before switching and keeps the matching panel", async (t) => {
-  const value = await harness(t, {
-    initialPanes: [
-      { session: "pi-agent-hub-api", slot: 1 },
-      { session: "pi-agent-hub-docs", slot: 4 },
-    ],
-  });
-  await startAndSettle(value);
+test("detach, theme refresh, and managed chrome sync stay on the serialized lifecycle", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
   value.events.length = 0;
-  value.exec.commands.length = 0;
-
-  await value.lifecycle.handoff("pi-agent-hub-api");
-
-  const managed = eventIndex(value.events, "managed:api:on");
-  const unbound = eventIndex(value.events, "unbind:C-q");
-  const switched = eventIndex(value.events, "switch:pi-agent-hub-api");
-  assert.ok(managed < unbound && unbound < switched);
-  assert.equal(value.events.some((event) => event.startsWith("kill:")), false);
-  assert.deepEqual(value.lifecycle.snapshot().slots, ["pi-agent-hub-api", undefined, undefined, "pi-agent-hub-docs"]);
-  assert.ok(value.exec.commands.includes("switch-client -c /dev/ttys001 -t pi-agent-hub-api"));
-  assert.ok(value.exec.commands.includes("resize-window -t pi-agent-hub-api -x 160 -y 59"));
-  assert.ok(value.exec.commands.includes("set-option -w -t pi-agent-hub-api window-size latest"));
-  const returnBinding = value.exec.commands.find((command) => command.startsWith("bind-key -n C-q "));
-  const renameBinding = value.exec.commands.find((command) => command.startsWith("bind-key -n M-r "));
-  assert.match(returnBinding ?? "", /pi-agent-hub tui/);
-  assert.match(returnBinding ?? "", /\/repo\/dashboard/);
-  assert.match(returnBinding ?? "", /PI_AGENT_HUB_DIR/);
-  assert.match(returnBinding ?? "", /\/tmp\/hub/);
-  assert.match(renameBinding ?? "", /dashboard-action\.json/);
-});
-
-test("detach closes only the panel showing the target session", async (t) => {
-  const value = await harness(t, {
-    initialPanes: [
-      { session: "pi-agent-hub-api", slot: 1 },
-      { session: "pi-agent-hub-docs", slot: 4 },
-    ],
-  });
-  await startAndSettle(value);
-  value.events.length = 0;
-
-  assert.equal(await value.lifecycle.detach("pi-agent-hub-api"), true);
-
-  assert.ok(value.events.includes("kill:%2"));
-  assert.equal(value.events.includes("kill:%3"), false);
-  assert.deepEqual(value.lifecycle.snapshot().slots, [undefined, undefined, undefined, "pi-agent-hub-docs"]);
-});
-
-test("handoff preserves the full-screen binding and resumes presence after reset failure", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
-  value.events.length = 0;
-  value.exec.commands.length = 0;
-  value.exec.failCommand = (args) => args.join(" ") === "set-option -w -t pi-agent-hub-api window-size latest"
-    ? new Error("reset failed")
-    : undefined;
-
-  await assert.rejects(() => value.lifecycle.handoff("pi-agent-hub-api"), /reset failed/);
-  await access(join(value.switchStateDir, "active.json"));
-  await waitFor(() => value.events.includes("inspect:panes"));
-
-  assert.ok(value.events.includes("switch:pi-agent-hub-api"));
-  assert.equal(value.events.includes("kill:%2"), false);
-  value.exec.failCommand = undefined;
-});
-
-test("theme hooks keep border preview separate from queued managed-session synchronization", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
-  value.events.length = 0;
-
   value.lifecycle.refreshPanelChrome();
-  value.lifecycle.syncOpenSessionChrome();
-  await waitFor(() => value.events.includes("sync:pi-agent-hub-api"));
-
-  assert.ok(eventIndex(value.events, "border:top") < eventIndex(value.events, "sync:pi-agent-hub-api"));
-  assert.equal(value.events.some((event) => event.startsWith("managed:")), false);
+  value.lifecycle.sync();
+  await waitFor(() => value.events.includes("sync:pi-agent-hub-api,pi-agent-hub-docs"));
+  before(value.events, "border:top", "sync:pi-agent-hub-api,pi-agent-hub-docs");
+  assert.equal(await value.lifecycle.detach("pi-agent-hub-api"), true);
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["docs"]);
 });
 
-test("teardown restores both bindings then continues past footer failure through pane and chrome cleanup", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  await startAndSettle(value);
-  await seedSwitchBinding(value.switchStateDir);
+test("overlapping named mutations stay serialized behind one live split", async (t) => {
+  const value = await harness(t);
+  const gate = deferred<void>();
+  value.tmux.nextSplit = gate.promise;
   value.events.length = 0;
-  value.exec.commands.length = 0;
-  value.exec.failCommand = (args) => args.join(" ") === "set-option -t pi-agent-hub-api status on"
-    ? new Error("footer failed")
-    : undefined;
-
-  await value.lifecycle.stop();
-
-  const firstReturnUnbind = eventIndex(value.events, "unbind:C-q");
-  const renameUnbind = eventIndex(value.events, "unbind:M-r");
-  const sidebarReturnUnbind = value.events.indexOf("unbind:C-q", firstReturnUnbind + 1);
-  assert.ok(firstReturnUnbind < renameUnbind && renameUnbind < sidebarReturnUnbind);
-  const footerAttempt = value.exec.commands.indexOf("set-option -t pi-agent-hub-api status on");
-  const killed = eventIndex(value.events, "kill:%2");
-  const dashboardShown = eventIndex(value.events, "status:pi-agent-hub:on");
-  const borderCleared = eventIndex(value.events, "border:off");
-  assert.ok(sidebarReturnUnbind < footerAttempt && footerAttempt < killed && killed < dashboardShown && dashboardShown < borderCleared);
-  await assert.rejects(() => access(join(value.switchStateDir, "active.json")));
-  await assert.rejects(() => access(join(value.sidebarStateDir, "active.json")));
+  const first = value.lifecycle.pin("api");
+  await waitFor(() => value.events.includes("split:start:pi-agent-hub-api"));
+  const second = value.lifecycle.pin("docs");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(value.events.filter((event) => event.startsWith("split:start:")).length, 1);
+  gate.resolve();
+  await Promise.all([first, second]);
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api", "docs"]);
 });
 
-test("stop waits for a close intent that is still draining presence", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  const gate = deferred<CommandResult>();
-  value.exec.nextListPanes = gate.promise;
-  value.lifecycle.start();
-  await waitFor(() => value.events.includes("inspect:panes"));
-
-  const closing = value.lifecycle.close(1).then((result) => {
-    value.events.push("close:done");
-    return result;
-  });
-  await seedSwitchBinding(value.switchStateDir);
-  const stopping = value.lifecycle.stop();
-  gate.resolve({ stdout: value.exec.paneOutput(), stderr: "" });
-
-  assert.deepEqual(await closing, { kind: "closed" });
-  await stopping;
-  assert.ok(eventIndex(value.events, "close:done") < eventIndex(value.events, "unbind:M-r"));
-});
-
-test("stop drains an in-flight presence refresh and performs teardown only once", async (t) => {
-  const value = await harness(t, { initialPanes: [{ session: "pi-agent-hub-api", slot: 1 }] });
-  const gate = deferred<CommandResult>();
-  value.exec.nextListPanes = gate.promise;
-  value.lifecycle.start();
-  await waitFor(() => value.events.includes("inspect:panes"));
-
+test("shutdown drains an in-flight pane mutation before restoring chrome", async (t) => {
+  const value = await harness(t);
+  const gate = deferred<void>();
+  value.tmux.nextSplit = gate.promise;
+  value.events.length = 0;
+  const pinning = value.lifecycle.pin("api").then((result) => { value.events.push("pin:done"); return result; });
+  await waitFor(() => value.events.includes("split:start:pi-agent-hub-api"));
   let stopped = false;
-  const first = value.lifecycle.stop().then(() => { stopped = true; });
-  const second = value.lifecycle.stop();
-  assert.deepEqual(await value.lifecycle.close(1), { kind: "unavailable" });
+  const stopping = value.lifecycle.stop().then(() => { stopped = true; });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(stopped, false);
+  gate.resolve();
+  assert.deepEqual(await pinning, { kind: "pinned", session: "pi-agent-hub-api", slot: 1 });
+  await stopping;
+  before(value.events, "pin:done", "status:pi-agent-hub:on");
+});
 
-  gate.resolve({ stdout: value.exec.paneOutput(), stderr: "" });
-  await Promise.all([first, second]);
-
+test("shutdown drains an in-flight presence read before restoring chrome and panes", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  const gate = deferred<CommandResult>();
+  value.tmux.nextListPanes = gate.promise;
+  value.events.length = 0;
+  await waitFor(() => value.events.includes("inspect"));
+  let stopped = false;
+  const stopping = value.lifecycle.stop().then(() => { stopped = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, false);
+  gate.resolve({ stdout: value.tmux.paneOutput(), stderr: "" });
+  await stopping;
   assert.equal(stopped, true);
-  assert.ok(value.events.includes("status:pi-agent-hub-api:on"));
   assert.ok(value.events.includes("kill:%2"));
-  assert.ok(value.events.includes("status:pi-agent-hub:on"));
-  assert.ok(value.events.includes("border:off"));
-  const commandCount = value.events.length;
+});
+
+test("shutdown rejects new mutations and restores footer, panes, and dashboard chrome", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
   await value.lifecycle.stop();
-  assert.equal(value.events.length, commandCount);
+  assert.deepEqual(await value.lifecycle.close("api"), { kind: "unavailable" });
+  before(value.events, "status:pi-agent-hub-api:on", "kill:%2");
+  assert.ok(value.events.includes("status:pi-agent-hub:on"));
+  assert.equal(value.tmux.ownTitle, "");
+  assert.ok(value.events.includes("border:off"));
 });

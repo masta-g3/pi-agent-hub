@@ -35,11 +35,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
 
   const bodyWidth = width - 2;
   if (model.noMatches) {
-    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.panelStrip ? [renderPanelStrip(model, bodyWidth, styles)] : []), ...noMatchLines(width, model.filter ?? "", styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noMatchLines(width, model.filter ?? "", styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
     return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
   }
   if (model.noBoardSessions) {
-    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.panelStrip ? [renderPanelStrip(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
     return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
   }
   if (model.showWorkspace && model.workspace?.fullScreen) {
@@ -48,7 +48,10 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
 
   const workspaceWidth = model.showWorkspace ? (width >= 160 ? 44 : 34) : 0;
   const split = model.showWorkspace ? bodyWidth - workspaceWidth - 1 : bodyWidth;
-  const stripLines = model.panelStrip ? 1 : 0;
+  const decision = model.pinMode && model.workspace
+    ? renderPinnedDecisionStrip(model.workspace, bodyWidth, pinnedDecisionRows(model.height), model.now, styles)
+    : { lines: [] as string[], targets: [] as (string | undefined)[] };
+  const stripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
   const targetRows = bodyRowsFromHeight(model.height, stripLines);
   const left = renderSessionList(model, split, styles);
   const workspace = model.showWorkspace && model.workspace
@@ -57,7 +60,8 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const rows = targetRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
   const body: string[] = [renderTopSummary(model, bodyWidth, styles)];
-  if (model.panelStrip) body.push(renderPanelStrip(model, bodyWidth, styles));
+  if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
+  body.push(...decision.lines);
   for (let i = 0; i < rows; i += 1) {
     const padded = pad(windowedLeft.lines[i] ?? "", split);
     const leftLine = i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex ? styles.selected(padded) : padded;
@@ -68,6 +72,8 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const lines = box(width, body, styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
+  const decisionStart = 2 + (model.pinSummary ? 1 : 0);
+  for (let i = 0; i < decision.targets.length; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
     const lineIndex = 2 + stripLines + i;
     rowTargets[lineIndex] = windowedLeft.targets[i];
@@ -77,7 +83,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     lines,
     rowTargets,
     workspaceRowTargets,
-    ...(model.showWorkspace ? { workspaceStartX: split + 3 } : {}),
+    ...(model.showWorkspace ? { workspaceStartX: split + 3 } : decision.lines.length ? { workspaceStartX: 2 } : {}),
     listWidth: split,
     listScrollTop: windowedLeft.top,
   };
@@ -228,13 +234,44 @@ function groupBoardCounts(group: RenderModel["sections"][number]["groups"][numbe
   return [groupAttentionCount(group.attentionCount, styles), styles.dim(`·${parentCount}`)].filter(Boolean).join(" ");
 }
 
-function renderPanelStrip(model: RenderModel, width: number, styles: LayoutStyles): string {
-  const segments = model.panelStrip?.map(({ slot, title }) => {
-    if (!title) return styles.dim(`·${slot}`);
-    const text = `◫${slot} ${title}`;
-    return slot === model.sidePaneFocusedSlot ? styles.accent(text) : `${styles.muted(`◫${slot}`)} ${title}`;
-  }) ?? [];
-  return truncate(segments.join("  "), width);
+function renderPinSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
+  const summary = model.pinSummary;
+  if (!summary) return "";
+  const slots = summary.slots.map((slot) => slot.title
+    ? `${slot.active ? styles.accent(`▣${slot.slot}`) : styles.muted(`▢${slot.slot}`)} ${slot.title}`
+    : styles.dim(`${slot.slot} empty`));
+  const constrained = summary.constrained ? ` · ${styles.warning("constrained")}` : "";
+  return truncate(`${styles.dim("PINNED")} · ${slots.join(" · ")}${constrained}`, width);
+}
+
+function pinnedDecisionRows(height: number | undefined): number {
+  if (height === undefined || height <= 0 || height >= 10) return 3;
+  if (height >= 9) return 2;
+  if (height >= 8) return 1;
+  return 0;
+}
+
+function renderPinnedDecisionStrip(workspace: RenderWorkspace, width: number, rows: number, now: number, styles: LayoutStyles): WorkspaceRendered {
+  if (rows <= 0) return { lines: [], targets: [] };
+  const session = workspace.session;
+  const command = workspace.actions[0] ?? workspace.moreCommand;
+  const action = truncate(`${styles.accent(command.displayKey ?? ":")} ${command.label} · ${styles.accent(":")} Actions`, width);
+  if (rows === 1) return { lines: [action], targets: [command.id] };
+  const attention = session.attention ?? workspace.owner?.attention;
+  const request = truncate(attention
+    ? `${attentionGlyph(attention.kind, styles)} ${stripAnsi(attention.text)}`
+    : styles.dim("· no explicit request"), width);
+  if (rows === 2) return { lines: [request, action], targets: [undefined, command.id] };
+  const tier = session.cockpitTier.toUpperCase().replace("-", " ");
+  const state = `${styles.status(session.displayStatus, session.symbol)} ${session.displayStatus} · ${cockpitTone(session.cockpitTier, styles)(tier)}`;
+  if (!workspace.evidenceVisible) return { lines: [truncate(state, width), request, action], targets: [undefined, undefined, command.id] };
+  const facts = statusEvidenceFields(session, now)
+    .filter((field) => field.kind === "fact")
+    .flatMap((field) => renderStatusEvidenceField(field, width, styles));
+  return {
+    lines: [truncate(state, width), ...facts.slice(0, 2)].slice(0, rows),
+    targets: Array.from({ length: Math.min(rows, 1 + facts.length) }, () => undefined),
+  };
 }
 
 interface SessionListContent {
@@ -268,7 +305,6 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       const titlePrefix = `${branchText} ${attention}`;
       const title = renderSessionRow(session, Math.max(0, width - displayWidth(titlePrefix)), styles, {
         board,
-        focusedSlot: model.sidePaneFocusedSlot,
         selectionMarker: false,
         titleSource: "stored",
         prefixMode: "none",
@@ -287,7 +323,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       return;
     }
     if (session.selected) selectedIndex = lines.length;
-    pushLine(renderSessionRow(session, width, styles, { board, focusedSlot: model.sidePaneFocusedSlot }), { kind: "session", id: session.id });
+    pushLine(renderSessionRow(session, width, styles, { board }), { kind: "session", id: session.id });
     if (model.density === "all-cards") contextIndexes.set(lines.length - 1, context);
     if (session.selected) selectedEndIndex = lines.length - 1;
   };
@@ -864,9 +900,9 @@ function railCompact(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDispla
   return short ? `${styledWorkflowMarker(workflow, workflow.activeIndex, styles)}${styles.accent(short)}` : "";
 }
 
-function sidePaneGlyph(slot: number | undefined, focusedSlot: number | undefined, styles: LayoutStyles): string {
-  if (slot === undefined) return "";
-  return `${slot === focusedSlot ? styles.accent(`◫${slot}`) : styles.muted(`◫${slot}`)} `;
+function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
+  if (!session.pinned) return "";
+  return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
 }
 
 function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, width: number): string {
@@ -999,7 +1035,6 @@ function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], s
 
 interface SessionRowOptions {
   board?: boolean;
-  focusedSlot?: number;
   selectionMarker?: boolean;
   titleSource?: "context" | "stored";
   prefixMode?: "default" | "none";
@@ -1016,7 +1051,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     : styles.muted(session.symbol);
   const titleText = session.kind === "subagent" ? (session.agentName ?? "subagent") : session.title;
   const styleTitle = (value: string) => session.status === "stopped" ? styles.dim(value) : value;
-  const sidePaneMarker = sidePaneGlyph(session.sidePaneSlot, options.focusedSlot, styles);
+  const sidePaneMarker = pinGlyph(session, styles);
   const repoBadge = !board && session.repoCount > 1 && session.kind !== "subagent" ? styles.dim(` ⧉ ${session.repoCount}`) : "";
   const worktreeMarker = !board && session.worktreeBranch && session.kind !== "subagent" ? styles.accent("⎇ ") : "";
   const disclosureBadge = session.kind !== "subagent" && session.boardDescendantCount

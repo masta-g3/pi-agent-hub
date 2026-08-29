@@ -6,7 +6,7 @@ import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStat
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
-import { dashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
+import { dashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
 
 export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
 
@@ -65,7 +65,9 @@ export interface RenderSession {
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
   worktreeCount?: number;
-  sidePaneSlot?: number;
+  pinned?: boolean;
+  pinSlot?: number;
+  pinFocused?: boolean;
 }
 
 export interface StatusCounts {
@@ -108,9 +110,9 @@ export interface RenderSummary {
   statusCounts: StatusCounts;
 }
 
-export interface PanelStripItem {
-  slot: 1 | 2 | 3 | 4;
-  title?: string;
+export interface RenderPinSummary {
+  slots: readonly { slot: number; title?: string; active: boolean }[];
+  constrained: boolean;
 }
 
 export interface RenderPlanSummary {
@@ -154,8 +156,8 @@ export interface RenderModel {
   filter?: string;
   grouping: "project" | "stage";
   density: "compact" | "all-cards";
-  panelStrip?: PanelStripItem[];
-  sidePaneFocusedSlot?: number;
+  pinMode: boolean;
+  pinSummary?: RenderPinSummary;
 }
 
 export interface DashboardProjection {
@@ -301,8 +303,10 @@ export interface BuildRenderModelInput {
   grouping?: "project" | "stage";
   density?: "compact" | "all-cards";
   now?: number;
-  sidePaneSessionIds?: ReadonlyMap<string, number>;
-  sidePaneFocusedSlot?: number;
+  pinSlots?: readonly (string | undefined)[];
+  activePinnedSessionId?: string;
+  pinCapacity?: number;
+  pinConstrained?: boolean;
   archiveExpanded?: boolean;
   archiveDisclosureSelected?: boolean;
   selectedSection?: CollapsibleSection;
@@ -320,16 +324,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const { allRows, allTree, boardProjection, archive, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById } = projection;
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const selectedId = pickSelectedId(input.archiveDisclosureSelected || input.selectedSection ? allRows : visible, input.selectedId);
-  const sidePaneSessionIds = input.sidePaneSessionIds;
+  const pinSlots = input.pinSlots ?? [];
+  const pinned = new Set(pinSlots.filter((id): id is string => Boolean(id)));
+  const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
+  const pinMode = pinned.size > 0;
   const subagentStats = descendantSubagentStats(input.sessions, createSessionTreeIndex(input.sessions));
-  const occupiedSlots = new Map<number, string>();
-  for (const session of input.sessions) {
-    const slot = sidePaneSessionIds?.get(session.id);
-    if (slot !== undefined) occupiedSlots.set(slot, session.title);
-  }
-  const panelStrip = occupiedSlots.size
-    ? ([1, 2, 3, 4] as const).map((slot) => ({ slot, ...(occupiedSlots.has(slot) ? { title: occupiedSlots.get(slot) } : {}) }))
-    : undefined;
   const treeExpanded = (id: string) => filterActive || (board
     ? input.expandedBoardParentIds?.has(id) === true
     : input.expandedProjectParentIds?.has(id) === true);
@@ -338,7 +337,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   // the selected row available to the details pane.
   const allMapped = allRows.map((session) => toRenderSession(
     session, session.id === selectedId, allRows, allTree, input.now,
-    sidePaneSessionIds?.get(session.id), board, density, subagentStats.get(session.id), treeExpanded(session.id),
+    slotBySession.get(session.id), pinned.has(session.id), session.id === input.activePinnedSessionId, board, density, subagentStats.get(session.id), treeExpanded(session.id),
     cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!,
   ));
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
@@ -379,7 +378,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     empty: input.sessions.length === 0,
     noMatches: input.sessions.length > 0 && (allRows.length === 0 || noBoardMatches),
     noBoardSessions: board && !filterActive && mapped.length === 0,
-    showWorkspace: Boolean(workspace && (input.width >= 120 || input.workspaceFullScreen)),
+    showWorkspace: Boolean(workspace && !pinMode && (input.width >= 120 || input.workspaceFullScreen)),
     compactFooter,
     sections,
     summary: {
@@ -394,12 +393,20 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
     ...(workspace ? { workspace } : {}),
-    footer: dashboardFooter(input.width),
+    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width),
     filter: input.filter,
     grouping,
     density,
-    ...(panelStrip ? { panelStrip } : {}),
-    ...(input.sidePaneFocusedSlot !== undefined ? { sidePaneFocusedSlot: input.sidePaneFocusedSlot } : {}),
+    pinMode,
+    ...(pinMode ? {
+      pinSummary: {
+        slots: [1, 2, 3, 4].slice(0, Math.max(input.pinCapacity ?? 0, pinSlots.reduce((highest, id, index) => id ? index + 1 : highest, 0))).map((slot) => {
+          const id = pinSlots[slot - 1];
+          return { slot, ...(id ? { title: input.sessions.find((session) => session.id === id)?.title } : {}), active: id === input.activePinnedSessionId };
+        }),
+        constrained: input.pinConstrained ?? false,
+      },
+    } : {}),
   };
 }
 
@@ -657,7 +664,7 @@ function descendantSubagentStats(
   return stats;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, sidePaneSlot: number | undefined, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, density: RenderModel["density"], subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -712,7 +719,9 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,
     worktreeOwnedByHub: session.worktreeOwnedByHub,
     worktreeCount: worktrees.length || undefined,
-    sidePaneSlot,
+    ...(pinned ? { pinned: true } : {}),
+    ...(pinSlot !== undefined ? { pinSlot } : {}),
+    ...(pinFocused ? { pinFocused: true } : {}),
   };
 }
 

@@ -494,7 +494,7 @@ export async function installSidebarReturnBinding(options: {
   await withFileLock(activePath, async () => {
     const restorePath = join(stateDir, "previous.tmux");
     const returnKey = options.returnKey ?? "C-q";
-    const keys = [...new Set([returnKey, "M-q", "M-1", "M-2", "M-3", "M-4"])];
+    const keys = [...new Set([returnKey, "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"])];
     await removeSidebarReturnBindingUnlocked({ stateDir, refuseLiveForeignOwner: true }, exec);
     const previous = await Promise.all(keys.map((key) => currentKeyBinding(key, exec)));
     await writeFile(restorePath, previous.filter(Boolean).join("\n"), "utf8");
@@ -508,20 +508,19 @@ export async function installSidebarReturnBinding(options: {
     } satisfies ActiveSidebarReturnBinding);
 
     const dashboardGuard = `#{==:#{session_name},${options.dashboardSession}}`;
-    const focusSidebar = `select-pane -t ${shellQuote(options.sidebarPane)}`;
+    const bindIntent = (key: string, delivered = key) => exec.exec("tmux", [
+      "bind-key", "-n", key,
+      "if-shell", "-F", dashboardGuard,
+      `send-keys -t ${shellQuote(options.sidebarPane)} ${delivered}`,
+      `send-keys ${key}`,
+    ]);
     try {
-      await exec.exec("tmux", ["bind-key", "-n", returnKey, "if-shell", "-F", dashboardGuard, focusSidebar, `send-keys ${returnKey}`]);
-      if (returnKey !== "M-q") {
-        await exec.exec("tmux", ["bind-key", "-n", "M-q", "if-shell", "-F", dashboardGuard, focusSidebar, "send-keys Escape q"]);
-      }
-      for (const slot of [1, 2, 3, 4]) {
-        const script = `P=$(tmux list-panes -t ${shellQuote(options.dashboardSession)} -F '##{pane_id} ##{@pi_hub_slot}' | awk -v s=${slot} '$2==s{print $1; exit}'); if [ -n "$P" ]; then tmux select-pane -t "$P"; fi`;
-        await exec.exec("tmux", [
-          "bind-key", "-n", `M-${slot}`,
-          "if-shell", "-F", dashboardGuard,
-          `run-shell ${shellQuote(script)}`,
-          `send-keys Escape ${slot}`,
-        ]);
+      await bindIntent(returnKey);
+      if (returnKey !== "M-q") await bindIntent("M-q");
+      for (const slot of [1, 2, 3, 4]) await bindIntent(`M-${slot}`, `Escape '${slot}'`);
+      const arrows = { Left: "D", Right: "C", Up: "A", Down: "B" } as const;
+      for (const [direction, suffix] of Object.entries(arrows)) {
+        await bindIntent(`M-${direction}`, `Escape '[1;3${suffix}'`);
       }
     } catch (error) {
       await removeSidebarReturnBindingUnlocked({ stateDir, onlyOwnerPid: process.pid }, exec);

@@ -122,16 +122,20 @@ test("cyclic subagents remain visible as standalone terminal fallbacks", () => {
 function cockpitFrame(width: 60 | 100 | 160, theme?: SessionsTheme): string {
   const sessions = cockpitFrameFleet();
   const selected = sessions.find((session) => session.id === "docs")!;
-  const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true, restart: true, sendMessage: true, resetSidePane: true, acknowledge: true } });
+  const capacity = width < 100 ? 0 : width < 160 ? 2 : 4;
+  const constrained = capacity === 0;
+  const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true, restart: true, sendMessage: true, pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, acknowledge: true }, pinState: { slots: ["docs", undefined, undefined, undefined], count: 1, capacity, constrained } });
   const model = buildRenderModel({
     sessions,
     selectedId: "docs",
     width,
     height: 24,
     now: COCKPIT_NOW,
-    sidePaneSessionIds: new Map([["docs", 2]]),
+    pinSlots: ["docs", undefined, undefined, undefined],
+    pinCapacity: capacity,
+    pinConstrained: constrained,
+    workspaceCommands: selectWorkspaceCommands(selected, commands, 3),
     expandedProjectParentIds: new Set(["dashboard"]),
-    ...(width >= 120 ? { workspaceCommands: selectWorkspaceCommands(selected, commands, 3) } : {}),
   });
   return renderSessions(model, theme).lines.map(stripAnsi).map((line) => line.trimEnd()).join("\n");
 }

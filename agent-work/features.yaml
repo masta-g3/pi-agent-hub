@@ -869,18 +869,20 @@
   plan_file: agent-work/history/20260828_cockpit-006_action_workspace.md
   completed_at: '2026-08-28'
 - id: cockpit-007
-  status: pending
+  status: done
   title: Direct pinning
-  subtitle: Pin named live sessions spatially
-  description: Named transient panes replace numbered-slot grammar with safe pin,
-    focus, resize, close, guarded spatial movement, Alt+Q return, automatic geometry,
-    a compact decision strip, and capacity refusal without eviction.
+  subtitle: Pin live sessions into safe slots
+  description: Transient numbered slots combine exact session identity with visible
+    placement, guarded numeric focus, safe assignment refusal, resize, close, optional
+    spatial movement, and a compact decision strip.
   priority: 2
   created_at: '2026-08-24'
   depends_on:
   - cockpit-006
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260828_cockpit-007_safe_slot_pinning.md
+  completed_at: '2026-08-28'
 - id: cockpit-008
   status: pending
   title: Adaptive cockpit
