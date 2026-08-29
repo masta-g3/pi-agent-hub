@@ -58,6 +58,7 @@ export interface RenderSession {
   boardDescendantCount?: number;
   boardExpanded?: boolean;
   runningSubagentCount?: number;
+  hiddenChildRequestCount?: number;
   plan?: RenderPlanSummary;
   workflow?: WorkflowRuntimeSnapshot;
   worktreePath?: string;
@@ -102,11 +103,14 @@ export interface RenderSection {
   collapsed?: boolean;
   selected?: boolean;
   archiveDisclosure?: ArchiveDisclosure;
+  hiddenChildRequestCount: number;
 }
 
 export interface RenderSummary {
   total: number;
   visibleTotal: number;
+  ownerTotal: number;
+  visibleOwnerTotal: number;
   statusCounts: StatusCounts;
 }
 
@@ -160,7 +164,7 @@ export interface RenderModel {
   cockpitNavigation: RenderCockpitNavigationEntry[];
   summary: RenderSummary;
   boardCardCount: number;
-  boardStatusCounts: StatusCounts;
+  boardTotalCardCount: number;
   boardHidden: BoardHiddenCounts;
   selected?: RenderSession;
   workspace?: RenderWorkspace;
@@ -176,6 +180,7 @@ export interface DashboardProjection {
   allTree: SessionTreeIndex<RuntimeSession>;
   activeRows: RuntimeSession[];
   boardProjection: BoardProjection<RuntimeSession>;
+  boardTotalCardCount: number;
   archive: ReturnType<typeof archiveSectionRows>;
   cockpitNavigation: CockpitNavigationEntry[];
   visible: RuntimeSession[];
@@ -206,7 +211,11 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   const { tierById: cockpitTierById, ownerById: cockpitOwnerById, placementById: cockpitPlacementById } = cockpitIndex(sourceRows, sourceTree);
   const allRows = filterActive ? orderedSessionRows(input.sessions, input.filter) : sourceRows;
   const allTree = filterActive ? createSessionTreeIndex(allRows) : sourceTree;
-  const activeRows = allRows.filter((session) => effectiveSessionLifecycle(session, allRows, allTree).section === "active");
+  const sourceActiveRows = sourceRows.filter((session) => effectiveSessionLifecycle(session, sourceRows, sourceTree).section === "active");
+  const activeRows = filterActive
+    ? allRows.filter((session) => effectiveSessionLifecycle(session, allRows, allTree).section === "active")
+    : sourceActiveRows;
+  const boardTotalCardCount = sourceActiveRows.filter((session) => session.kind !== "subagent").length;
   const boardProjection = projectExpandedBoardRows(
     projectBoardRows(activeRows, allRows), input.expandedBoardParentIds ?? new Set(), filterActive,
   );
@@ -240,7 +249,7 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     const section = effectiveSessionLifecycle(session, allRows, allTree).section;
     return section !== "archived" || !collapsedSections.has("archived") || revealedArchiveIds.has(session.id);
   });
-  return { allRows, allTree, activeRows, boardProjection, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
+  return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
 }
 
 function cockpitIndex(
@@ -348,7 +357,7 @@ export interface BuildRenderModelInput {
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const grouping = input.grouping ?? "project";
   const projection = input.structuralProjection ?? buildDashboardProjection(input);
-  const { allRows, allTree, boardProjection, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById } = projection;
+  const { allRows, allTree, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById } = projection;
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const selectedId = pickSelectedId(input.archiveDisclosureSelected || input.selectedSection ? allRows : visible, input.selectedId);
   const pinSlots = input.pinSlots ?? [];
@@ -356,6 +365,10 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
   const pinMode = pinned.size > 0;
   const subagentStats = descendantSubagentStats(input.sessions, createSessionTreeIndex(input.sessions));
+  const attentiveDescendantIds = descendantAttentionIds(input.sessions, cockpitOwnerById);
+  const visibleIds = new Set(visible.map((session) => session.id));
+  const hiddenAttentionCount = (id: string) => [...(attentiveDescendantIds.get(id) ?? [])]
+    .filter((descendantId) => !visibleIds.has(descendantId)).length;
   const treeExpanded = (id: string) => filterActive || (board
     ? input.expandedBoardParentIds?.has(id) === true
     : input.expandedProjectParentIds?.has(id) === true);
@@ -365,7 +378,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const allMapped = allRows.map((session) => toRenderSession(
     session, session.id === selectedId, allRows, allTree, input.now,
     slotBySession.get(session.id), pinned.has(session.id), session.id === input.activePinnedSessionId, board, subagentStats.get(session.id), treeExpanded(session.id),
-    cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!,
+    cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id),
   ));
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection;
@@ -415,10 +428,12 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     summary: {
       total: input.sessions.length,
       visibleTotal: allRows.length,
+      ownerTotal: new Set(input.sessions.map((session) => cockpitOwnerById.get(session.id) ?? session.id)).size,
+      visibleOwnerTotal: cockpitNavigation.reduce((sum, entry) => sum + entry.ownerCount, 0),
       statusCounts: countRenderSessions(allMapped),
     },
     boardCardCount: boardParents.length,
-    boardStatusCounts: countRenderSessions(boardParents),
+    boardTotalCardCount,
     boardHidden: boardProjection.hidden,
     ...(input.height ? { height: input.height } : {}),
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
@@ -585,6 +600,7 @@ function lanesForBoard(sessions: RenderSession[], projection: BoardProjection<Ru
       title: lane.title,
       statusCounts: countRenderSessions(rows),
       sessionsTotal: lane.parentCount,
+      hiddenChildRequestCount: 0,
       groups: boardGroupsForSessions(rows),
     } satisfies RenderSection;
   });
@@ -651,6 +667,9 @@ function cockpitSectionsForSessions(
       title: COCKPIT_TIER_LABELS[tier],
       statusCounts: countRenderSessions(allSectionSessions),
       sessionsTotal: new Set(allSectionSessions.map((session) => session.cockpitOwnerId)).size,
+      hiddenChildRequestCount: allSectionSessions
+        .filter((session) => session.id === session.cockpitOwnerId)
+        .reduce((sum, session) => sum + (session.hiddenChildRequestCount ?? 0), 0),
       groups: collapsed && !filterActive ? [] : [{
         name: "",
         statusCounts: countRenderSessions(allSectionSessions),
@@ -687,7 +706,23 @@ function descendantSubagentStats(
   return stats;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason): RenderSession {
+function descendantAttentionIds(
+  sessions: RuntimeSession[],
+  ownerById: ReadonlyMap<string, string>,
+): Map<string, Set<string>> {
+  const ids = new Map<string, Set<string>>();
+  for (const session of sessions) {
+    if (session.kind !== "subagent" || !visibleAttention(session)) continue;
+    const ownerId = ownerById.get(session.id);
+    if (!ownerId || ownerId === session.id) continue;
+    const descendants = ids.get(ownerId) ?? new Set<string>();
+    descendants.add(session.id);
+    ids.set(ownerId, descendants);
+  }
+  return ids;
+}
+
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason, hiddenChildRequestCount: number): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -731,6 +766,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
       boardDescendantCount: subagentStats.total,
       boardExpanded,
       ...(subagentStats.running ? { runningSubagentCount: subagentStats.running } : {}),
+      ...(session.id === cockpitOwnerId && hiddenChildRequestCount ? { hiddenChildRequestCount } : {}),
     } : {}),
     ...(attention ? { attention } : {}),
     ...(lifecycle.section === "active" && session.kind !== "subagent" && session.workflow?.plan

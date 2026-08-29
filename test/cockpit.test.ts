@@ -141,7 +141,7 @@ test("rendering and navigation expose the same cockpit tree order", () => {
   const sessions = cockpitFrameFleet();
   const expandedProjectParentIds = new Set(["dashboard"]);
   const projection = buildDashboardProjection({ sessions, expandedProjectParentIds });
-  assert.deepEqual(projection.visible.map((row) => row.id), ["docs", "qa", "dashboard", "worker", "release", "mcp", "theme", "archive-new"]);
+  assert.deepEqual(projection.visible.map((row) => row.id), ["docs", "qa", "dashboard", "worker", "release", "quiet-parent", "mcp", "theme", "archive-new"]);
 
   const layout = renderSessions(buildRenderModel({
     sessions, selectedId: "docs", width: 60, height: 24, now: COCKPIT_NOW, expandedProjectParentIds,
@@ -149,7 +149,7 @@ test("rendering and navigation expose the same cockpit tree order", () => {
   assert.deepEqual(layout.rowTargets.flatMap((target) => target?.kind === "session"
     ? [target.id]
     : target?.kind === "section-header" ? [`header:${target.section}`] : []),
-  ["docs", "qa", "dashboard", "worker", "release", "mcp", "theme", "header:archived", "archive-new"]);
+  ["docs", "qa", "dashboard", "worker", "release", "quiet-parent", "mcp", "theme", "header:archived", "archive-new"]);
 });
 
 test("live cockpit matches the intended 60, 100, and 160 column frames", () => {

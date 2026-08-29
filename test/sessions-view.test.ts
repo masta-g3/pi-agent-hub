@@ -9,10 +9,26 @@ import type { ManagedSession } from "../src/core/types.js";
 import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
-  return lines.map((line) => {
-    const parts = stripAnsi(line).split("│");
-    return parts.length >= 5 ? parts[2]! : (parts[1] ?? parts[0]!);
-  }).join("\n");
+  const board = stripAnsi(lines[1] ?? "").startsWith("│WORKFLOW");
+  const start = board ? 1 : 19;
+  const width = board ? 83 : 65;
+  return lines.map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
+}
+
+function visibleSlice(value: string, start: number, width: number): string {
+  let column = 0;
+  let result = "";
+  for (const char of value) {
+    const charWidth = visibleWidth(char);
+    if (column + charWidth <= start) {
+      column += charWidth;
+      continue;
+    }
+    if (column >= start + width || column + charWidth > start + width) break;
+    result += char;
+    column += charWidth;
+  }
+  return result;
 }
 
 function session(id: string, title: string): ManagedSession {
@@ -196,7 +212,7 @@ test("committed filter moves to top summary and escape clears", () => {
   view.handleInput("o");
   view.handleInput("\r");
   const rendered = view.render(100).join("\n");
-  assert.match(rendered, /1\/2 sessions .* filter: do/);
+  assert.match(rendered, /FLEET\s+1\/2 trees · filter: do/);
   assert.match(rendered, /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
   view.handleInput("\u001b");
@@ -512,7 +528,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   const view = new SessionsView(controller, () => {});
 
   view.handleInput("S");
-  assert.match(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 Active trees/m);
   assert.equal(controller.snapshot().selectedId, "a");
 
   view.handleInput("j");
@@ -523,7 +539,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   assert.equal(controller.snapshot().selectedId, "b");
 
   view.handleInput("S");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
 });
 
 test("Space expands and collapses the selected board parent tree", () => {
@@ -562,6 +578,28 @@ test("revealing a parent keeps its subagent tree collapsed while revealing a chi
     view.revealSession("child");
     assert.match(fleetText(view.render(120)), /worker/, `${grouping} child reveal stayed hidden`);
   }
+});
+
+test("hidden child request badges clear when the tree becomes visible", () => {
+  const parent = session("parent", "api");
+  const child = {
+    ...session("child", "worker"),
+    kind: "subagent" as const,
+    parentId: "parent",
+    agentName: "worker",
+    context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } },
+  };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
+
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\?1/);
+  view.handleInput("\u001b[C");
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.match(fleetText(view.render(120)), /worker/);
+
+  view.handleInput("\u001b[D");
+  view.revealSession("child");
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.match(fleetText(view.render(120)), /worker/);
 });
 
 test("left and right arrows expand and collapse the selected project tree", () => {
@@ -723,7 +761,7 @@ test("v inside filter mode edits the filter instead of toggling views", () => {
   view.handleInput("v");
 
   assert.equal(controller.snapshot().filter, "v");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
 });
 
 test("stage grouping snaps selection to the first eligible Active row", () => {
@@ -1568,7 +1606,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌ .*session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌│ .*session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog is clipped with a resize marker", () => {
@@ -2561,7 +2599,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌ ·\s+○ api/);
+  assert.match(prompt, /▌│ ·\s+○ api/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;

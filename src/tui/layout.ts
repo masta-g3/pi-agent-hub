@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import { ageLabel } from "./age.js";
-import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace, StatusCounts } from "./render-model.js";
+import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
@@ -73,9 +73,19 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const body: string[] = [renderTopSummary(model, bodyWidth, styles)];
   if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
   body.push(...decision.lines);
+  const visibleLinesByOwner = new Map<string, number>();
+  for (const meta of windowedLeft.lineMeta) {
+    if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
+  }
   for (let i = 0; i < rows; i += 1) {
-    const padded = pad(windowedLeft.lines[i] ?? "", listWidth);
-    const leftLine = i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex ? styles.selected(padded) : padded;
+    const meta = windowedLeft.lineMeta[i];
+    const capped = decorateAttentionSectionCap(windowedLeft.lines[i] ?? "", meta, visibleLinesByOwner, styles);
+    const gutterMeta = meta?.ownerId && (visibleLinesByOwner.get(meta.ownerId) ?? 0) > 1 ? meta : undefined;
+    const decorated = decorateTreeGutter(capped, gutterMeta, styles);
+    const padded = pad(decorated, listWidth);
+    const selected = Boolean(left.selectedOwnerId && meta?.ownerId === left.selectedOwnerId)
+      || (!left.selectedOwnerId && i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex);
+    const leftLine = selected ? styles.selected(padded) : padded;
     const navLine = navigatorWidth ? `${pad(navigator.lines[i] ?? "", navigatorWidth)}${styles.border("│")}` : "";
     const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
     body.push(`${navLine}${leftLine}${workspaceLine}`);
@@ -109,7 +119,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
 
 function renderTierNavigator(model: RenderModel, width: number, rows: number, styles: LayoutStyles): { lines: string[]; targets: (TierNavigatorTarget | undefined)[] } {
   if (!width) return { lines: [], targets: [] };
-  const lines = [styles.dim("FLEET")];
+  const lines = [styles.dim("TIERS")];
   const targets: (TierNavigatorTarget | undefined)[] = [undefined];
   for (const entry of model.cockpitNavigation) {
     const tone = cockpitTone(entry.tier, styles);
@@ -128,15 +138,20 @@ function renderTierNavigator(model: RenderModel, width: number, rows: number, st
 function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height: number | undefined, now: number, styles: LayoutStyles): SessionsLayout {
   const bodyWidth = width - 2;
   const bodyRows = height && height > 0 ? Math.max(2, height - 2) : undefined;
-  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - 2);
+  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - 3);
+  const tier = workspace.session.cockpitTier.toUpperCase().replace("-", " ");
+  const header = renderModeHeader("WORKSPACE", [
+    `${styles.accent(workspace.session.title)}${styles.border(" · ")}${cockpitTone(workspace.session.cockpitTier, styles)(tier)}`,
+    cockpitTone(workspace.session.cockpitTier, styles)(tier),
+  ], bodyWidth, styles);
   const rendered = renderActionWorkspace(workspace, bodyWidth, contentRows, now, styles);
   const footer = workspaceFooter(workspace);
   const content = contentRows === undefined
     ? rendered.lines
     : [...rendered.lines.slice(0, contentRows), ...Array.from({ length: Math.max(0, contentRows - rendered.lines.length) }, () => "")];
-  const lines = box(width, [...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
+  const lines = box(width, [header, ...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
-  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 1] = rendered.targets[i];
+  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 2] = rendered.targets[i];
   return {
     lines,
     rowTargets: lines.map(() => undefined),
@@ -230,34 +245,48 @@ function noBoardLines(width: number, model: RenderModel, styles: LayoutStyles): 
   ].map((line) => truncate(line, inner));
 }
 
-const STATUS_ORDER = [
-  ["running", "●"],
-  ["waiting", "◐"],
-  ["idle", "○"],
-  ["error", "×"],
-  ["stopped", "-"],
-] as const;
-
 function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
   const board = model.grouping === "stage";
-  const countLabel = board
-    ? `${model.boardCardCount} Active ${model.boardCardCount === 1 ? "session" : "sessions"}`
-    : model.filter === undefined
-      ? `${model.summary.total} ${model.summary.total === 1 ? "session" : "sessions"}`
-      : `${model.summary.visibleTotal}/${model.summary.total} sessions`;
-  const parts = [styles.accent(countLabel)];
-  if (board) {
-    const counts = formatStatusCounts(model.boardStatusCounts, styles);
-    if (counts) parts.push(counts);
-    parts.push(styles.dim("view lanes"));
-  } else {
-    const needsYou = model.sections.find((section) => section.cockpitTier === "needs-you")?.sessionsTotal ?? 0;
-    const health = model.sections.find((section) => section.cockpitTier === "health")?.sessionsTotal ?? 0;
-    if (needsYou) parts.push(styles.warning(`?${needsYou} needs you`));
-    if (health) parts.push(styles.error(`×${health} health`));
+  const parentRows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))
+    .filter((session) => session.kind !== "subagent");
+  const mode = model.pinMode ? "PINNED FLEET" : board ? "WORKFLOW" : "FLEET";
+  const visibleTrees = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
+  const totalTrees = board ? model.boardTotalCardCount : model.summary.ownerTotal;
+  const countLabel = model.filter !== undefined
+    ? `${visibleTrees}/${totalTrees}${board ? " Active" : ""} trees`
+    : `${visibleTrees}${board ? " Active" : ""} ${visibleTrees === 1 ? "tree" : "trees"}`;
+  const pinCount = model.pinSummary?.slots.filter((slot) => slot.title).length ?? 0;
+  const needsYou = board
+    ? new Set(parentRows.filter((session) => session.cockpitTier === "needs-you").map((session) => session.cockpitOwnerId)).size
+    : model.cockpitNavigation.find((entry) => entry.tier === "needs-you")?.ownerCount ?? 0;
+  const health = board
+    ? new Set(parentRows.filter((session) => session.cockpitTier === "health").map((session) => session.cockpitOwnerId)).size
+    : model.cockpitNavigation.find((entry) => entry.tier === "health")?.ownerCount ?? 0;
+  const ordered = [
+    styles.accent(countLabel),
+    ...(pinCount ? [styles.muted(`${pinCount} pinned`)] : []),
+    ...(needsYou ? [styles.warning(`${needsYou} needs you`)] : []),
+    ...(health ? [styles.error(`${health} health`)] : []),
+    ...(model.filter !== undefined ? [styles.dim(`filter: ${model.filter}`)] : []),
+  ];
+  const required = ordered[0] ?? "";
+  const needs = needsYou ? ordered.find((part) => stripAnsi(part) === `${needsYou} needs you`) : undefined;
+  const candidates = [
+    ordered,
+    ordered.filter((part) => !stripAnsi(part).startsWith("filter: ")),
+    ordered.filter((part) => !stripAnsi(part).startsWith("filter: ") && !stripAnsi(part).endsWith(" health")),
+    [required, ...(needs ? [needs] : [])],
+    [required],
+  ].map((parts) => parts.join(styles.border(" · ")));
+  return renderModeHeader(mode, candidates, width, styles);
+}
+
+function renderModeHeader(mode: string, rightCandidates: string[], width: number, styles: LayoutStyles): string {
+  const left = styles.accent(mode);
+  for (const right of rightCandidates) {
+    if (right && displayWidth(left) + displayWidth(right) + 1 <= width) return twoColumn(left, right, width);
   }
-  if (model.filter !== undefined) parts.push(styles.dim(`filter: ${model.filter}`));
-  return truncate(parts.join(" · "), width);
+  return truncate(left, width);
 }
 
 function groupAttentionCount(count: number, styles: LayoutStyles, muted = false): string {
@@ -316,9 +345,19 @@ function adaptiveRowShape(session: RenderSession): AdaptiveRowShape {
   return session.section === "active" ? "full-parent" : "single-parent";
 }
 
+interface SessionLineMeta {
+  ownerId?: string;
+  sectionOwnerIds?: string[];
+  tier?: CockpitTier;
+  richTree: boolean;
+  treeEnd: boolean;
+}
+
 interface SessionListContent {
   lines: string[];
   targets: (SessionListTarget | undefined)[];
+  lineMeta: (SessionLineMeta | undefined)[];
+  selectedOwnerId?: string;
   selectedIndex: number;
   selectedEndIndex: number;
   continuationPriorities: Map<number, number>;
@@ -331,6 +370,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     return {
       lines,
       targets: lines.map(() => undefined),
+      lineMeta: lines.map(() => undefined),
       selectedIndex: -1,
       selectedEndIndex: -1,
       continuationPriorities: new Map(),
@@ -339,15 +379,33 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   }
 
   const board = model.grouping === "stage";
+  const visibleSessions = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
+  const selectedOwnerId = visibleSessions.find((session) => session.selected)?.cockpitOwnerId;
+  const richOwners = new Set<string>();
+  if (model.width >= 100 && !model.pinMode) {
+    for (const session of visibleSessions) {
+      if (adaptiveRowShape(session) !== "full-parent") continue;
+      const hasVisibleChild = visibleSessions.some((candidate) => candidate.kind === "subagent" && candidate.cockpitOwnerId === session.cockpitOwnerId);
+      const hasContinuation = adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width).length > 0;
+      if (hasVisibleChild || hasContinuation) richOwners.add(session.cockpitOwnerId);
+    }
+  }
   const lines: string[] = [];
   const targets: (SessionListTarget | undefined)[] = [];
+  const lineMeta: (SessionLineMeta | undefined)[] = [];
   const continuationPriorities = new Map<number, number>();
   const contextIndexes = new Map<number, number[]>();
   let selectedIndex = -1;
   let selectedEndIndex = -1;
-  const pushLine = (line: string, target?: SessionListTarget) => {
+  const pushLine = (line: string, target?: SessionListTarget, owner?: RenderSession, meta?: SessionLineMeta) => {
     lines.push(line);
     targets.push(target);
+    lineMeta.push(meta ?? (owner ? {
+      ownerId: owner.cockpitOwnerId,
+      tier: owner.cockpitTier,
+      richTree: richOwners.has(owner.cockpitOwnerId),
+      treeEnd: false,
+    } : undefined));
   };
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     if (session.selected) selectedIndex = lines.length;
@@ -355,11 +413,12 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const childLast = shape === "micro-child"
       ? !siblings.slice(index + 1).some((candidate) => candidate.kind === "subagent" && candidate.parentId === session.parentId)
       : false;
-    pushLine(renderSessionRow(session, width, styles, { board, terminalWidth: model.width, childLast }), { kind: "session", id: session.id });
+    const gutterColumn = model.width >= 100 && !model.pinMode;
+    pushLine(renderSessionRow(session, width, styles, { board, terminalWidth: model.width, childLast, gutterColumn }), { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
     if (shape === "full-parent" && !model.pinMode) {
-      for (const continuation of adaptiveCardLines(session, Math.max(0, width - 2), styles, board, model.width)) {
-        pushLine(`${styles.border("  ")}${continuation.line}`, { kind: "session-continuation", id: session.id });
+      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width)) {
+        pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
       }
     }
@@ -370,7 +429,10 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     if (!firstSection) pushLine("");
     const headingRight = board
       ? styles.dim(`·${section.sessionsTotal}`)
-      : cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`);
+      : [
+        cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`),
+        ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
+      ].join(styles.border(" · "));
     const sectionHeadingIndex = lines.length;
     const headerTarget = section.collapsible && section.key === "archived"
       ? { kind: "section-header" as const, section: "archived" as const }
@@ -379,7 +441,13 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       selectedIndex = lines.length;
       selectedEndIndex = lines.length;
     }
-    pushLine(sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier), headerTarget);
+    const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
+    pushLine(
+      sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier),
+      headerTarget,
+      undefined,
+      { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
+    );
     firstSection = false;
     for (const [groupIndex, group] of section.groups.entries()) {
       if (groupIndex && model.width >= 100) pushLine("");
@@ -407,7 +475,50 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     pushLine("");
     pushLine(boardHiddenSummary(model, width, styles));
   }
-  return { lines, targets, selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes };
+  const lastLineByOwner = new Map<string, number>();
+  for (const [index, meta] of lineMeta.entries()) {
+    if (meta?.richTree && meta.ownerId) lastLineByOwner.set(meta.ownerId, index);
+  }
+  for (const index of lastLineByOwner.values()) {
+    const meta = lineMeta[index];
+    if (meta) meta.treeEnd = true;
+  }
+  return { lines, targets, lineMeta, ...(selectedOwnerId ? { selectedOwnerId } : {}), selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes };
+}
+
+function decorateAttentionSectionCap(
+  line: string,
+  meta: SessionLineMeta | undefined,
+  visibleLinesByOwner: ReadonlyMap<string, number>,
+  styles: LayoutStyles,
+): string {
+  if (meta?.tier !== "needs-you" || !meta.sectionOwnerIds?.some((id) => (visibleLinesByOwner.get(id) ?? 0) > 1)) return line;
+  return replaceVisibleColumn(line, 1, styles.warning("│"));
+}
+
+function decorateTreeGutter(line: string, meta: SessionLineMeta | undefined, styles: LayoutStyles): string {
+  if (!meta?.richTree) return line;
+  const glyph = meta.treeEnd ? "└" : "│";
+  const styled = meta.tier === "needs-you" ? styles.warning(glyph) : styles.border(glyph);
+  return replaceVisibleColumn(line, 1, styled);
+}
+
+function replaceVisibleColumn(value: string, column: number, replacement: string): string {
+  let visible = 0;
+  for (let index = 0; index < value.length;) {
+    if (value[index] === "\u001b" && value[index + 1] === "[") {
+      const end = value.indexOf("m", index + 2);
+      if (end < 0) return value;
+      index = end + 1;
+      continue;
+    }
+    const char = String.fromCodePoint(value.codePointAt(index)!);
+    const width = displayWidth(char);
+    if (width > 0 && visible === column) return `${value.slice(0, index)}${replacement}${value.slice(index + char.length)}`;
+    visible += width;
+    index += char.length;
+  }
+  return value;
 }
 
 function noMatchListLines(width: number, filter: string, styles: LayoutStyles): string[] {
@@ -426,6 +537,7 @@ function boardHiddenSummary(model: RenderModel, width: number, styles: LayoutSty
 interface ListWindow {
   lines: string[];
   targets: (SessionListTarget | undefined)[];
+  lineMeta: (SessionLineMeta | undefined)[];
   selectedIndex: number;
   selectedEndIndex: number;
   top: number;
@@ -438,6 +550,7 @@ function windowList(list: SessionListContent, capacity: number, scrollTop: numbe
     return {
       lines: list.lines.slice(0, safeCapacity),
       targets: list.targets.slice(0, safeCapacity),
+      lineMeta: list.lineMeta.slice(0, safeCapacity),
       selectedIndex: -1,
       selectedEndIndex: -1,
       top: 0,
@@ -487,6 +600,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
     return {
       lines: [...selectedContext.map((index) => list.lines[index] ?? ""), ...list.lines.slice(list.selectedIndex, list.selectedEndIndex + 1)],
       targets: [...selectedContext.map(() => undefined), ...list.targets.slice(list.selectedIndex, list.selectedEndIndex + 1)],
+      lineMeta: [...selectedContext.map(() => undefined), ...list.lineMeta.slice(list.selectedIndex, list.selectedEndIndex + 1)],
       selectedIndex,
       selectedEndIndex: selectedIndex + selectedLength - 1,
       top: selectedContext[0] ?? list.selectedIndex,
@@ -555,10 +669,16 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
     ...sourceRows.map((index) => list.targets[index]),
     ...(afterIndicator ? [undefined] : []),
   ];
+  const lineMeta = [
+    ...(beforeIndicator ? [undefined] : []),
+    ...sourceRows.map((index) => list.lineMeta[index]),
+    ...(afterIndicator ? [undefined] : []),
+  ];
   const selectedIndex = (beforeIndicator ? 1 : 0) + beforeRows.length + selectedRows.length - selectedLength;
   return {
     lines,
     targets,
+    lineMeta,
     selectedIndex,
     selectedEndIndex: selectedIndex + selectedLength - 1,
     top: sourceRows[0] ?? list.selectedIndex,
@@ -572,7 +692,7 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
   const headerIndex = list.selectedIndex;
   const footerIndex = list.selectedEndIndex;
   if (safeCapacity === 1) {
-    return { lines: [list.lines[headerIndex] ?? ""], targets: [list.targets[headerIndex]], selectedIndex: 0, selectedEndIndex: 0, top: headerIndex };
+    return { lines: [list.lines[headerIndex] ?? ""], targets: [list.targets[headerIndex]], lineMeta: [list.lineMeta[headerIndex]], selectedIndex: 0, selectedEndIndex: 0, top: headerIndex };
   }
 
   const beforeCount = list.targets.slice(0, headerIndex).filter((target) => target?.kind === "session").length;
@@ -610,10 +730,18 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
     list.targets[footerIndex],
     ...(afterIndicator ? [undefined] : []),
   ];
+  const lineMeta = [
+    ...(beforeIndicator ? [undefined] : []),
+    list.lineMeta[headerIndex],
+    ...orderedDetails.map((index) => list.lineMeta[index]),
+    list.lineMeta[footerIndex],
+    ...(afterIndicator ? [undefined] : []),
+  ];
   const selectedIndex = beforeIndicator ? 1 : 0;
   return {
     lines,
     targets,
+    lineMeta,
     selectedIndex,
     selectedEndIndex: selectedIndex + orderedDetails.length + 1,
     top: headerIndex,
@@ -789,8 +917,8 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
 function compactActionWorkspace(workspace: RenderWorkspace, maxRows: number, now: number, width: number, styles: LayoutStyles): WorkspaceRendered {
   if (maxRows <= 0) return { lines: [], targets: [] };
   const session = workspace.session;
-  const lines: string[] = [titleStatusRow(session, width, styles)];
-  const targets: (string | undefined)[] = [undefined];
+  const lines: string[] = workspace.fullScreen ? [] : [titleStatusRow(session, width, styles)];
+  const targets: (string | undefined)[] = lines.map(() => undefined);
   const evidenceLines = workspace.evidenceVisible
     ? [
       styles.dim("LIVE EVIDENCE"),
@@ -799,7 +927,7 @@ function compactActionWorkspace(workspace: RenderWorkspace, maxRows: number, now
         .flatMap((field) => renderStatusEvidenceField(field, width, styles)),
     ]
     : [];
-  const reserveEvidence = evidenceLines.length ? Math.min(evidenceLines.length, maxRows >= 8 ? 2 : 1) : 0;
+  const reserveEvidence = evidenceLines.length ? Math.min(evidenceLines.length, maxRows >= (workspace.fullScreen ? 7 : 8) ? 2 : 1) : 0;
   const reserveState = maxRows >= 6 ? 1 : 0;
   const reserveAction = maxRows - lines.length - reserveEvidence - reserveState > 0 ? 1 : 0;
   const requestText = session.attention
@@ -878,27 +1006,35 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   if (session.kind === "subagent") return "";
   const mode = activeWorkflowMode(session);
   const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 8;
-  if (board) {
-    if (!session.workflow) return "";
-    const compact = railCompact(session.workflow, mode, styles);
-    const rails = terminalWidth >= 120 ? [railFull(session.workflow, mode, styles, false), compact] : [compact];
-    return rails.find(fits) ?? "";
-  }
-  if (session.archivedAge) return fits(styles.dim(session.archivedAge)) ? styles.dim(session.archivedAge) : "";
-
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
-  if (session.section === "backlog") {
-    const candidates = terminalWidth >= 100
-      ? [[styles.muted("backlog"), styles.dim(session.group)], [styles.muted("backlog")]]
-      : [[styles.muted("backlog")]];
-    return candidates.map(join).find(fits) ?? "";
-  }
+  const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
+  const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
-  const rails = session.workflow && terminalWidth >= 120
-    ? [railFull(session.workflow, mode, styles, false), compact]
-    : [compact];
+  const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
   const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
-  return [...rails.map((rail) => [rail, age]), ...rails.map((rail) => [rail]), [age]].map(join).find(fits) ?? "";
+  const hierarchy = (tail: string[]) => [
+    [hidden, running, ...tail, age],
+    [hidden, running, ...tail],
+    [hidden, running, compact],
+    [hidden, compact],
+    [hidden],
+    [running, compact],
+    [compact],
+    [running],
+    [age],
+  ].map(join);
+
+  if (board) return hierarchy(full ? [full] : []).find(fits) ?? "";
+  if (session.archivedAge) {
+    const archived = styles.dim(session.archivedAge);
+    return [join([hidden, archived]), hidden, archived].find(fits) ?? "";
+  }
+  if (session.section === "backlog") {
+    const backlog = styles.muted("backlog");
+    const group = terminalWidth >= 100 ? styles.dim(session.group) : "";
+    return [join([hidden, backlog, group]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
+  }
+  return hierarchy(full ? [full] : []).find(fits) ?? "";
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {
@@ -996,12 +1132,6 @@ function sectionHeader(title: string, right: string, width: number, styles: Layo
   return twoColumn(`${prefix}${tone(` ${title} `)}`, right, width);
 }
 
-function formatStatusCounts(counts: StatusCounts, styles: LayoutStyles, muted = false): string {
-  return STATUS_ORDER
-    .flatMap(([status, symbol]) => counts[status] ? [muted ? styles.muted(`${symbol}${counts[status]}`) : styles.status(status, `${symbol}${counts[status]}`)] : [])
-    .join(" ");
-}
-
 function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], styles: LayoutStyles): string {
   if (kind === "ready") return styles.success("✓");
   if (kind === "question") return styles.warning("?");
@@ -1012,6 +1142,7 @@ interface SessionRowOptions {
   board: boolean;
   terminalWidth: number;
   childLast: boolean;
+  gutterColumn: boolean;
 }
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
@@ -1024,7 +1155,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
 
   if (session.kind === "subagent") {
     const branch = session.depth > 1 ? "│└" : options.childLast ? "└─" : "├─";
-    const prefix = `${selection} ${styles.dim(branch)} ${attention} ${symbol} ${sidePaneMarker}`;
+    const prefix = `${selection}${options.gutterColumn ? "  " : " "}${styles.dim(branch)} ${attention} ${symbol} ${sidePaneMarker}`;
     const available = Math.max(0, width - displayWidth(prefix));
     const task = session.taskPreview?.trim() ?? "";
     const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
@@ -1038,11 +1169,10 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const disclosure = session.boardDescendantCount
     ? styles.accent(session.boardExpanded ? "▾" : "▸")
     : styles.dim("·");
-  const prefix = `${selection} ${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
+  const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
   const worktree = !options.board && session.worktreeBranch ? styles.accent("⎇ ") : "";
   const repo = !options.board && options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
-  const running = session.runningSubagentCount ? styles.success(` ⚙︎${session.runningSubagentCount}`) : "";
-  const suffix = `${running}${repo}`;
+  const suffix = repo;
   const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix));
   const right = rowRightAdornment(session, styles, options.board, rightWidthBase, options.terminalWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;

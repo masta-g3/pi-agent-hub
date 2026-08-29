@@ -53,7 +53,7 @@ export function cockpitFleet(): RuntimeSession[] {
   ];
 }
 
-const FRAME_IDS = new Set(["docs", "qa", "dashboard", "worker", "release", "mcp", "theme", "archive-new"]);
+const FRAME_IDS = new Set(["docs", "qa", "dashboard", "worker", "release", "mcp", "quiet-parent", "child-attention", "theme", "archive-new"]);
 
 export function cockpitFrameFleet(): RuntimeSession[] {
   return cockpitFleet().filter((session) => FRAME_IDS.has(session.id));

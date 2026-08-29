@@ -913,7 +913,7 @@
   references:
   - agent-work/plans/cockpit-000.md
 - id: cockpit-010
-  status: pending
+  status: done
   title: Cockpit parity
   subtitle: Match frozen cockpit visual hierarchy
   description: The steady-state cockpit matches the frozen HTML hierarchy with mode-aware
@@ -926,3 +926,5 @@
   references:
   - agent-work/plans/cockpit-000.md
   - agent-work/decks/cockpit-design-lab.html
+  plan_file: agent-work/history/20260829_cockpit-010_visual_parity.md
+  completed_at: '2026-08-29'

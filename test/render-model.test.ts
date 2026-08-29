@@ -60,6 +60,188 @@ test("dashboard projection supplies the same visible rows as rendering", () => {
   assert.deepEqual(modelRows(model).map((row) => row.id), projection.visible.map((row) => row.id));
 });
 
+test("collapsed owner trees report only hidden explicit child requests", () => {
+  const attention = (kind: "ready" | "question" | "blocked", text: string) => ({ version: 1 as const, updatedAt: 2, attention: { kind, text } });
+  const parent = session("parent", "app", "idle", "Parent");
+  const question = { ...session("question", "app", "idle", "Question child"), kind: "subagent" as const, parentId: "parent", context: attention("question", "Choose") };
+  const blocked = { ...session("blocked", "app", "waiting", "Blocked child"), kind: "subagent" as const, parentId: "parent", context: attention("blocked", "Unblock") };
+  const ready = { ...session("ready", "app", "idle", "Ready child"), kind: "subagent" as const, parentId: "question", context: attention("ready", "Review") };
+  const errorChild = { ...session("error", "app", "error", "Error child"), kind: "subagent" as const, parentId: "parent", context: attention("question", "Not visible while errored") };
+  const sessions = [parent, question, blocked, ready, errorChild];
+
+  const collapsed = buildRenderModel({ sessions, selectedId: "parent", width: 120 });
+  const owner = modelRows(collapsed).find((row) => row.id === "parent");
+  assert.equal(owner?.hiddenChildRequestCount, 3);
+  assert.equal(owner?.cockpitTier, "quiet");
+  assert.equal(owner?.attention, undefined);
+  assert.equal(collapsed.sections.find((section) => section.key === "quiet")?.hiddenChildRequestCount, 3);
+
+  const expanded = buildRenderModel({ sessions, selectedId: "parent", width: 120, expandedProjectParentIds: new Set(["parent"]) });
+  assert.equal(modelRows(expanded).find((row) => row.id === "parent")?.hiddenChildRequestCount, undefined);
+  assert.equal(expanded.sections.find((section) => section.key === "quiet")?.hiddenChildRequestCount, 0);
+
+  const filtered = buildRenderModel({ sessions, selectedId: "question", width: 120, filter: "Question child" });
+  assert.equal(modelRows(filtered).find((row) => row.id === "parent")?.hiddenChildRequestCount, 2);
+  assert.equal(filtered.sections.find((section) => section.key === "quiet")?.hiddenChildRequestCount, 2);
+});
+
+test("hidden child requests attach only to the cockpit presentation owner", () => {
+  const attention = { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } };
+  const ancestor = session("ancestor", "app", "idle", "Ancestor");
+  const linkedMain = { ...session("linked", "app", "idle", "Linked main"), parentId: "ancestor" };
+  const child = { ...session("child", "app", "idle", "Child"), kind: "subagent" as const, parentId: "linked", context: attention };
+  const model = buildRenderModel({ sessions: [ancestor, linkedMain, child], selectedId: "ancestor", width: 120 });
+  const rows = modelRows(model);
+
+  assert.equal(rows.find((row) => row.id === "ancestor")?.hiddenChildRequestCount, undefined);
+  assert.equal(rows.find((row) => row.id === "linked")?.hiddenChildRequestCount, 1);
+  assert.equal(model.sections.find((section) => section.key === "quiet")?.hiddenChildRequestCount, 1);
+});
+
+test("steady-state chrome names every mode and right-aligns primary owner signals", () => {
+  const needs = { ...session("needs", "app", "waiting", "Needs"), context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const health = session("health", "app", "error", "Health");
+  const child = { ...session("child", "app", "idle", "Child"), kind: "subagent" as const, parentId: "needs" };
+  const sessions = [needs, health, child];
+
+  const project = renderSessions(buildRenderModel({ sessions, selectedId: "needs", width: 100 })).lines.map(stripAnsi);
+  assert.match(project[1] ?? "", /^│FLEET\s+2 trees · 1 needs you · 1 health\s*│$/);
+
+  const board = renderSessions(buildRenderModel({ sessions, selectedId: "needs", grouping: "stage", width: 100 })).lines.map(stripAnsi);
+  assert.match(board[1] ?? "", /^│WORKFLOW\s+2 Active trees · 1 needs you · 1 health\s*│$/);
+
+  const filteredBoard = renderSessions(buildRenderModel({ sessions, selectedId: "needs", grouping: "stage", width: 100, filter: "Needs" })).lines.map(stripAnsi);
+  assert.match(filteredBoard[1] ?? "", /^│WORKFLOW\s+1\/2 Active trees · 1 needs you · filter: Needs\s*│$/);
+
+  const allMatchedProject = renderSessions(buildRenderModel({ sessions: [needs, child], selectedId: "needs", width: 100, filter: "Needs" })).lines.map(stripAnsi);
+  assert.match(allMatchedProject[1] ?? "", /^│FLEET\s+1\/1 trees · 1 needs you · filter: Needs\s*│$/);
+  const allMatchedBoard = renderSessions(buildRenderModel({ sessions: [needs, child], selectedId: "needs", grouping: "stage", width: 100, filter: "Needs" })).lines.map(stripAnsi);
+  assert.match(allMatchedBoard[1] ?? "", /^│WORKFLOW\s+1\/1 Active trees · 1 needs you · filter: Needs\s*│$/);
+
+  const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "needs", width: 100, pinSlots: ["needs"], pinCapacity: 2 })).lines.map(stripAnsi);
+  assert.match(pinned[1] ?? "", /^│PINNED FLEET\s+2 trees · 1 pinned · 1 needs you · 1 health\s*│$/);
+
+  const workspace = renderSessions(workspaceModel({ sessions, selectedId: "needs", width: 100 })).lines.map(stripAnsi);
+  assert.match(workspace[1] ?? "", /^│WORKSPACE\s+Needs · NEEDS YOU\s*│$/);
+});
+
+test("selecting a parent or child paints the whole visible owner tree", () => {
+  const parent = { ...session("parent", "app", "running", "Parent"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "tree-001", subtitle: "Tree context" } } };
+  const child = { ...session("child", "app", "running", "Child"), kind: "subagent" as const, parentId: "parent", agentName: "worker", taskPreview: "Inspect" };
+  const sibling = session("sibling", "app", "running", "Sibling");
+  const theme = { ...darkTheme, selectedBg: "#010203" };
+  const selectedBg = "\u001b[48;2;1;2;3m";
+  for (const selectedId of ["parent", "child"]) {
+    const lines = renderSessions(buildRenderModel({
+      sessions: [parent, child, sibling], selectedId, width: 100, expandedProjectParentIds: new Set(["parent"]),
+    }), theme).lines;
+    for (const title of ["Parent", "Tree context", "worker"]) {
+      assert.ok((lines.find((line) => stripAnsi(line).includes(title)) ?? "").includes(selectedBg), `${title} uses selected background`);
+    }
+    assert.ok(!(lines.find((line) => stripAnsi(line).includes("Sibling")) ?? "").includes(selectedBg));
+    const exact = lines.filter((line) => stripAnsi(line).includes("▌"));
+    assert.equal(exact.length, 1);
+    assert.match(stripAnsi(exact[0] ?? ""), new RegExp(selectedId === "parent" ? "Parent" : "worker"));
+  }
+});
+
+test("rich owner trees use truthful gutters without changing compact rows", () => {
+  const parent = { ...session("parent", "app", "running", "Parent"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "tree-001", subtitle: "Tree context" } } };
+  const child = { ...session("child", "app", "idle", "Child"), kind: "subagent" as const, parentId: "parent", agentName: "worker", taskPreview: "Inspect" };
+  const backlog = { ...session("backlog", "app", "idle", "Backlog"), bucket: "backlog" as const };
+  const project = renderSessions(buildRenderModel({
+    sessions: [parent, child, backlog], selectedId: "child", width: 120, expandedProjectParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi);
+  assert.match(project.find((line) => line.includes("Parent")) ?? "", /▌?│ ▾\s+● Parent/);
+  assert.match(project.find((line) => line.includes("Tree context")) ?? "", / │ Tree context/);
+  assert.match(project.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
+  assert.match(project.find((line) => line.includes("Backlog")) ?? "", / ·\s+○ Backlog/);
+
+  const narrow = renderSessions(buildRenderModel({
+    sessions: [parent, child], selectedId: "parent", width: 60, expandedProjectParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(narrow, /[▌ ](?:│|└) [▾▸·├└]/);
+
+  const pinned = renderSessions(buildRenderModel({ sessions: [parent, child], selectedId: "parent", width: 120, pinSlots: ["parent"], pinCapacity: 2 })).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(pinned, /[▌ ](?:│|└) [▾▸·├└]/);
+});
+
+test("tree gutters remain truthful after clipping and on the workflow board", () => {
+  const parent = {
+    ...session("parent", "app", "running", "Parent"),
+    workflow: { ...WORKFLOW, activity: { id: "working", label: "Working" }, plan: { tasks: { completed: 0, total: 1 } } },
+    context: { version: 1 as const, updatedAt: 2, ticket: { id: "tree-001", subtitle: "Tree context" } },
+  };
+  const child = { ...session("child", "app", "idle", "Child"), kind: "subagent" as const, parentId: "parent", agentName: "worker", taskPreview: "Inspect" };
+  const clipped = renderSessions(buildRenderModel({
+    sessions: [parent, child, ...Array.from({ length: 4 }, (_, index) => session(`s${index}`, "app", "idle"))],
+    selectedId: "parent", width: 120, height: 7, expandedProjectParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi).join("\n");
+  assert.match(clipped, /▌│ ▾.*Parent/);
+  assert.doesNotMatch(clipped, /└/);
+
+  const oneVisibleLine = renderSessions(buildRenderModel({
+    sessions: [parent, child, ...Array.from({ length: 4 }, (_, index) => session(`n${index}`, "app", "idle"))],
+    selectedId: "parent", width: 120, height: 6, expandedProjectParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi).find((line) => line.includes("Parent")) ?? "";
+  assert.match(oneVisibleLine, /▌  ▾.*Parent/);
+  assert.doesNotMatch(oneVisibleLine, /▌[│└]/);
+
+  const board = renderSessions(buildRenderModel({
+    sessions: [parent, child], selectedId: "child", grouping: "stage", width: 120, expandedBoardParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi);
+  assert.match(board.find((line) => line.includes("Parent")) ?? "", /│ ▾\s+● Parent/);
+  assert.match(board.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
+});
+
+test("tree gutter tones reuse warning and border theme tokens", () => {
+  const attention = { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" }, ticket: { id: "tree-001", subtitle: "Tree context" } };
+  const needs = { ...session("needs", "app", "waiting", "Needs"), context: attention };
+  const quiet = { ...session("quiet", "app", "idle", "Quiet"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "tree-002", subtitle: "Quiet context" } } };
+  const theme = { ...darkTheme, warning: "#010203", border: "#040506" };
+  const lines = renderSessions(buildRenderModel({ sessions: [needs, quiet], selectedId: "quiet", width: 120 }), theme).lines;
+  assert.ok((lines.find((line) => stripAnsi(line).includes("Needs")) ?? "").includes(styleToken(theme, "warning", "│")));
+  assert.ok((lines.find((line) => stripAnsi(line).includes("Quiet")) ?? "").includes(styleToken(theme, "border", "│")));
+  assert.match(lines.map(stripAnsi).find((line) => line.includes("NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
+
+  const active = { ...session("active", "app", "running", "Active"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "active-001", subtitle: "Active context" } } };
+  const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 11 })).lines.map(stripAnsi);
+  assert.match(clipped.find((line) => line.includes("NEEDS YOU") && line.includes("·1")) ?? "", /── NEEDS YOU/);
+  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /[│└] · \? ◐ Needs/);
+});
+
+test("mode labels survive every 40-column signal combination", () => {
+  const needs = { ...session("needs", "app", "waiting", "Needs"), context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const health = session("health", "app", "error", "Health");
+  const modes = [
+    ["FLEET", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, filter: "Needs" })],
+    ["WORKFLOW", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, grouping: "stage" })],
+    ["PINNED FLEET", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, pinSlots: ["needs"], pinCapacity: 0 })],
+    ["WORKSPACE", workspaceModel({ sessions: [needs, health], selectedId: "needs", width: 40 })],
+  ] as const;
+  for (const [mode, model] of modes) {
+    const header = stripAnsi(renderSessions(model).lines[1] ?? "");
+    assert.match(header, new RegExp(`^│${mode}`));
+    assert.equal(visibleWidth(header), 40);
+  }
+});
+
+test("hidden child requests lead right-aligned parent signals and tier totals", () => {
+  const attention = { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } };
+  const parent = { ...session("parent", "app", "idle", "Parent"), lastActivityAt: 1, workflow: WORKFLOW };
+  const request = { ...session("request", "app", "idle", "Request"), kind: "subagent" as const, parentId: "parent", context: attention };
+  const worker = { ...session("worker", "app", "running", "Worker"), kind: "subagent" as const, parentId: "parent" };
+  const collapsed = renderSessions(buildRenderModel({ sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1 })).lines.map(stripAnsi);
+  assert.match(collapsed.find((line) => line.includes("── ACTIVE")) ?? "", /·1 · \?1 child/);
+  assert.match(collapsed.find((line) => line.includes("Parent")) ?? "", /Parent\s+\?1 · ⚙︎1 · .*EX.* · 8m/);
+
+  const expanded = renderSessions(buildRenderModel({
+    sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1, expandedProjectParentIds: new Set(["parent"]),
+  })).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(expanded, /\?1 child/);
+  assert.doesNotMatch(expanded.split("\n").find((line) => line.includes("Parent")) ?? "", /\?1/);
+});
+
 const WORKFLOW = {
   steps: [
     { id: "plan-md", short: "PL", label: "Plan" },
@@ -312,7 +494,7 @@ test("stage grouping keeps canonical workflow trees in producer lanes and every 
   assert.match(rendered, /experiments\s+·1/);
   assert.doesNotMatch(rendered, /NO WORKFLOW|without workflow/);
   assert.match(rendered, /1 backlog\/archived/);
-  assert.match(rendered, /view lanes/);
+  assert.match(rendered, /WORKFLOW\s+3 Active trees/);
 });
 
 test("board projection omits orphan and cyclic subagent rows from every lane", () => {
@@ -350,13 +532,13 @@ test("board collapses descendant rows by default and reveals them through epheme
   assert.equal(collapsed.selected?.boardDescendantCount, 2);
   assert.equal(collapsed.selected?.boardExpanded, false);
   const collapsedLayout = renderSessions(collapsed);
-  assert.match(collapsedLayout.lines.map(stripAnsi).join("\n"), /▸\s+◐ Parent task ⚙︎1/);
+  assert.match(collapsedLayout.lines.map(stripAnsi).join("\n"), /▸\s+◐ Parent task.*⚙︎1/);
   assert.deepEqual(collapsedLayout.rowTargets.flatMap((target) => target?.kind === "session" ? [target.id] : []), ["parent"]);
 
   const expanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", width: 60, expandedBoardParentIds: new Set(["parent"]) });
   assert.deepEqual(expanded.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
   assert.equal(expanded.selected?.boardExpanded, true);
-  assert.match(renderSessions(expanded).lines.map(stripAnsi).join("\n"), /▾\s+◐ Parent task ⚙︎1/);
+  assert.match(renderSessions(expanded).lines.map(stripAnsi).join("\n"), /▾\s+◐ Parent task.*⚙︎1/);
 
   const filtered = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", width: 60, filter: "nested-worker" });
   assert.deepEqual(filtered.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
@@ -408,7 +590,7 @@ test("parent board rows show the count of starting and running descendants only"
   assert.equal(model.selected?.runningSubagentCount, 2);
   assert.equal(model.selected?.displayStatus, "waiting");
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(text, /▸\s+◐ Parent task ⚙︎2.*FOC/);
+  assert.match(text, /▸\s+◐ Parent task.*⚙︎2.*FOC/);
   assert.doesNotMatch(text, /starting ⚙︎|running ⚙︎|waiting ⚙︎|error ⚙︎/);
   assert.equal(visibleWidth("⚙︎2"), 2);
 
@@ -859,7 +1041,7 @@ test("top summary shows visible totals attention counts and filter", () => {
   assert.equal(model.summary.total, 3);
   assert.equal(model.summary.visibleTotal, 1);
   assert.deepEqual(model.summary.statusCounts, { running: 0, waiting: 1, idle: 0, error: 0, stopped: 0 });
-  assert.match(renderSessions(model).lines.join("\n"), /1\/3 sessions · filter: doc/);
+  assert.match(renderSessions(model).lines.join("\n"), /FLEET\s+1\/3 trees · filter: doc/);
   assert.doesNotMatch(renderSessions(model).lines.join("\n"), /◐1/);
 });
 
@@ -873,7 +1055,7 @@ test("error reason appears in selected metadata", () => {
 test("selected and stopped rows have distinct treatments with stopped rows last", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "stopped", "api"), session("b", "default", "idle", "docs")], selectedId: "b", width: 100 });
   const lines = renderSessions(model).lines.join("\n");
-  assert.match(lines, /▌ ·\s+○ docs[\s\S]*·\s+- api/);
+  assert.match(lines, /▌│ ·\s+○ docs[\s\S]*│ ·\s+- api/);
   assert.doesNotMatch(lines, /Stopped/);
 });
 
@@ -1043,7 +1225,7 @@ test("fixed row badges cannot preserve metadata by crowding out the title", () =
 test("group row tags remain visible when space permits", () => {
   const group = "release-group";
   const lines = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 })).lines.map(stripAnsi);
-  const titleIndex = lines.findIndex((line) => /▌ ·\s+○ release/.test(line));
+  const titleIndex = lines.findIndex((line) => /▌│ ·\s+○ release/.test(line));
   assert.notEqual(titleIndex, -1);
   assert.match(lines.slice(titleIndex, titleIndex + 2).join("\n"), /release[\s\S]*release-group/);
   for (const line of lines) assert.ok(visibleWidth(line) <= 100, line);
@@ -1054,7 +1236,7 @@ test("filter with zero matches renders no-match state", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
   assert.equal(model.noMatches, true);
   const rendered = renderSessions(model).lines.join("\n");
-  assert.match(rendered, /0\/1 sessions · filter: zzz/);
+  assert.match(rendered, /FLEET\s+0\/1 trees · filter: zzz/);
   assert.match(rendered, /No sessions match/);
   assert.match(rendered, /▶ Use the footer controls below/);
 });
@@ -1166,7 +1348,7 @@ test("adaptive richness stays Active-main-only and ANSI width safe", () => {
     const text = layout.lines.map(stripAnsi).join("\n");
     assert.match(text, /Parent activity|#parent-001/);
     assert.doesNotMatch(text, /Child activity|Backlog activity|Archived activity|#child-001|#backlog-001|#archived-001/);
-    assert.match(text, /▌ ▾\s+◐ Parent title/);
+    assert.match(text, width >= 100 ? /▌│ ▾\s+◐ Parent title/ : /▌ ▾\s+◐ Parent title/);
     assert.match(text, /└─\s+○ worker/);
     assert.match(text, /·\s+○ Backlog/);
     assert.match(text, /- Archived title/);
@@ -1242,7 +1424,7 @@ test("workflowless Active board keeps generic attention and distinct empty state
   const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", width: 60 });
   assert.equal(plain.noBoardSessions, false);
   assert.deepEqual(plain.sections.map((section) => section.key), ["other-active"]);
-  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /1 Active session[\s\S]*OTHER ACTIVE[\s\S]*\? ○ plain/);
+  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? ○ plain/);
 
   const sessions = [{ ...session("backlog", "default", "idle"), bucket: "backlog" as const, workflow: WORKFLOW }];
   const empty = buildRenderModel({ sessions, grouping: "stage", width: 60 });
@@ -1429,7 +1611,7 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   const model = buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", width: 100, expandedProjectParentIds: new Set(["parent"]) });
   const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
 
-  assert.match(text, /▌ ▾ \? ◐ .*Release decision/);
+  assert.match(text, /▌│ ▾ \? ◐ .*Release decision/);
   assert.match(text, /“Use the approved card hierarchy\?”/);
   assert.match(text, /#cockpit-008 · agents/);
   assert.match(text, /└─  .*● .*frontend-designer Review cockpit hierarchy geometry/);
