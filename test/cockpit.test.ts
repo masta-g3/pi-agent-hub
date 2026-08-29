@@ -116,24 +116,21 @@ test("cyclic subagents remain visible as standalone terminal fallbacks", () => {
 
   assert.equal(tierOf(model, "cycle-a"), "health");
   assert.equal(tierOf(model, "cycle-b"), "quiet");
+  assert.equal(model.cockpitNavigation.find((entry) => entry.tier === "health")?.firstOwnerId, "cycle-a");
+  assert.equal(model.cockpitNavigation.find((entry) => entry.tier === "quiet")?.firstOwnerId, "cycle-b");
   assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions.map((row) => row.id))), ["cycle-a", "cycle-b"]);
 });
 
 function cockpitFrame(width: 60 | 100 | 160, theme?: SessionsTheme): string {
   const sessions = cockpitFrameFleet();
   const selected = sessions.find((session) => session.id === "docs")!;
-  const capacity = width < 100 ? 0 : width < 160 ? 2 : 4;
-  const constrained = capacity === 0;
-  const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true, restart: true, sendMessage: true, pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, acknowledge: true }, pinState: { slots: ["docs", undefined, undefined, undefined], count: 1, capacity, constrained } });
+  const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true, restart: true, sendMessage: true, pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, acknowledge: true }, pinState: { slots: [undefined, undefined, undefined, undefined], count: 0, capacity: width < 100 ? 0 : width < 160 ? 2 : 4, constrained: false } });
   const model = buildRenderModel({
     sessions,
     selectedId: "docs",
     width,
     height: 24,
     now: COCKPIT_NOW,
-    pinSlots: ["docs", undefined, undefined, undefined],
-    pinCapacity: capacity,
-    pinConstrained: constrained,
     workspaceCommands: selectWorkspaceCommands(selected, commands, 3),
     expandedProjectParentIds: new Set(["dashboard"]),
   });
@@ -149,9 +146,10 @@ test("rendering and navigation expose the same cockpit tree order", () => {
   const layout = renderSessions(buildRenderModel({
     sessions, selectedId: "docs", width: 60, height: 24, now: COCKPIT_NOW, expandedProjectParentIds,
   }));
-  assert.deepEqual(layout.rowTargets.flatMap((target) => target
-    ? [target.kind === "session" ? target.id : target.kind === "section-header" ? `header:${target.section}` : target.kind]
-    : []), ["docs", "qa", "dashboard", "worker", "release", "mcp", "theme", "header:archived", "archive-new"]);
+  assert.deepEqual(layout.rowTargets.flatMap((target) => target?.kind === "session"
+    ? [target.id]
+    : target?.kind === "section-header" ? [`header:${target.section}`] : []),
+  ["docs", "qa", "dashboard", "worker", "release", "mcp", "theme", "header:archived", "archive-new"]);
 });
 
 test("live cockpit matches the intended 60, 100, and 160 column frames", () => {
@@ -177,7 +175,7 @@ test("cockpit placement does not change lifecycle-owned card richness", () => {
   const plan = { tasks: { completed: 1, total: 2 }, nextStep: "Review output" };
   const activeQuiet = { ...cockpitFleet().find((row) => row.id === "mcp")!, workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1, plan } };
   const promotedBacklog = { ...cockpitFleet().find((row) => row.id === "theme")!, status: "running" as const, workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1, plan } };
-  const model = buildRenderModel({ sessions: [activeQuiet, promotedBacklog], width: 100, density: "all-cards" });
+  const model = buildRenderModel({ sessions: [activeQuiet, promotedBacklog], width: 100 });
   const rows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
 
   assert.equal(rows.find((row) => row.id === "mcp")?.cockpitTier, "quiet");

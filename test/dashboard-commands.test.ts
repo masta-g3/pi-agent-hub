@@ -46,8 +46,10 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   for (const binding of [
     "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "g", "G", "A", "B", "U",
     "d", "w", "s", "m", "P", "1", "2", "3", "4", "x", "+", "-", "i", "a", "K", "Shift+Up", "J", "Shift+Down",
-    "/", "n", "t", "v", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
+    "/", "n", "t", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
   ]) assert.ok(catalogBindings.has(binding), `missing binding ${binding}`);
+  assert.equal(commands.some((command) => command.id === "view:density"), false);
+  assert.equal(catalogBindings.has("v"), false);
 });
 
 test("pinned footer is derived from catalog-owned action metadata", () => {
@@ -123,12 +125,13 @@ test("configured shortcuts bind the exact session and preserve validated order",
   const selected = session("alpha");
   const commands = buildDashboardCommands({
     sessions: [selected], selectedId: selected.id, capabilities: allCapabilities,
-    configuredShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "!", send: "/urgent" }],
+    configuredShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "!", send: "/urgent" }, { key: "v", send: "/verify" }],
   });
   const configured = commands.filter((command) => command.id.startsWith("shortcut:"));
-  assert.deepEqual(configured.map((command) => command.id), ["shortcut:alpha:0:C-x", "shortcut:alpha:1:!"]);
-  assert.deepEqual(configured.map((command) => command.label), ["Summarize", "/urgent"]);
+  assert.deepEqual(configured.map((command) => command.id), ["shortcut:alpha:0:C-x", "shortcut:alpha:1:!", "shortcut:alpha:2:v"]);
+  assert.deepEqual(configured.map((command) => command.label), ["Summarize", "/urgent", "/verify"]);
   assert.equal(commandForKey(commands, "\u0018")?.id, "shortcut:alpha:0:C-x");
+  assert.equal(commandForKey(commands, "v")?.id, "shortcut:alpha:2:v");
 
   const stopped = buildDashboardCommands({ sessions: [{ ...selected, status: "error" }], selectedId: selected.id, capabilities: allCapabilities, configuredShortcuts: [{ key: "!", send: "/urgent" }] });
   assert.equal(stopped.find((command) => command.id.startsWith("shortcut:"))?.disabledReason, "session is not live");

@@ -50,8 +50,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
 | `i` | Explain the selected session's runtime status and cockpit placement |
-| `v` | Toggle compact rows ↔ all-session junction cards |
-| `S` | Toggle the project cockpit ↔ workflow-stage lanes |
+| `S` | Toggle the project cockpit ↔ read-only workflow board |
 | `q` | Quit the dashboard |
 | `r` | Open restart choices (`r` selected, `n` new conversation, `a` all active sessions) |
 | `R` | Rename the selected session |
@@ -76,7 +75,9 @@ Press `i` to show live evidence in the same workspace: tmux presence, heartbeat 
 
 Press `:` to search the same actions exposed by direct keys, jump to sessions through bounded title/group/project/task/ticket/attention/workflow context, or apply named lifecycle, status, and group filters. Unavailable actions remain visible with a reason. Selecting a session only reveals and selects its current row in Hub; it does not attach, restart, or mark it read. `/` remains the fast free-text fleet filter, and `?` remains direct Help.
 
-`v` toggles compact rows and junction-rail cards. `S` switches to workflow-stage lanes, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow context separate from Hub's maintainer recommendation.
+The cockpit uses one adaptive hierarchy whose card richness is derived per render, not saved as a view setting. Active parent sessions gain bounded request, ticket, and group continuation lines as space permits; Backlog and Archived parents remain single-line, and subagents use compact micro rows. At 100+ columns, a mouse-only five-tier navigator shows presentation-owner counts and jumps to the first visible owner without entering keyboard session order. It is hidden in the workflow board, pin mode, narrow layouts, and full-screen workspace.
+
+`S` switches to the read-only workflow board, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. At 100+ columns, board cards add producer activity and an eight-cell `■`/`□` plan bar when valid progress exists; narrow boards keep one-line cards. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow context separate from Hub's maintainer recommendation.
 
 ## Install
 

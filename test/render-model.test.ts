@@ -80,11 +80,11 @@ const FOCUSED_WORKFLOW = {
 
 test("active workflow mode replaces the Execute short in rows and workspace workflow", () => {
   const focused = { ...session("focus", "agents", "waiting"), workflow: FOCUSED_WORKFLOW };
-  const compact = buildRenderModel({ sessions: [focused], selectedId: "focus", width: 110, now: 1_000 });
-  assert.equal(compact.selected?.workflow?.activeMode?.short, "FOC");
-  const compactRow = renderSessions(compact).lines.map(stripAnsi).find((line) => /^│▌/.test(line)) ?? "";
-  assert.match(compactRow, /FOC/);
-  assert.doesNotMatch(compactRow, /EX/);
+  const model = buildRenderModel({ sessions: [focused], selectedId: "focus", width: 110, now: 1_000 });
+  assert.equal(model.selected?.workflow?.activeMode?.short, "FOC");
+  const parentRow = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("focus")) ?? "";
+  assert.match(parentRow, /FOC/);
+  assert.doesNotMatch(parentRow, /EX/);
 
   const workspace = renderSessions(workspaceModel({ sessions: [focused], selectedId: "focus", width: 160, now: 1_000 })).lines.map(stripAnsi).join("\n");
   assert.match(workspace, /✓ PL─◉ FOC─· RV─· RF─· CM · auth-003/);
@@ -93,7 +93,7 @@ test("active workflow mode replaces the Execute short in rows and workspace work
 
 test("focused cards stay in Execute and preserve FOC without row group adornments", () => {
   const focused = { ...session("focus", "agents", "running", "focused-work"), workflow: FOCUSED_WORKFLOW };
-  const wide = buildRenderModel({ sessions: [focused], selectedId: "focus", grouping: "stage", density: "all-cards", width: 120 });
+  const wide = buildRenderModel({ sessions: [focused], selectedId: "focus", grouping: "stage", width: 120 });
   assert.deepEqual(wide.sections.map((section) => section.key), ["execute"]);
   assert.equal(wide.sections[0]?.title, "EXECUTE");
   const wideText = renderSessions(wide).lines.map(stripAnsi).join("\n");
@@ -105,7 +105,7 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
   const narrow = renderSessions(buildRenderModel({
     sessions: [{ ...focused, group: "group-name-that-cannot-fit", title: "focused-title-that-needs-space" }],
     selectedId: "focus",
-    grouping: "stage", density: "all-cards",
+    grouping: "stage",
     width: 40,
   }));
   const narrowText = narrow.lines.map(stripAnsi).join("\n");
@@ -117,7 +117,7 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
   const titleFirst = renderSessions(buildRenderModel({
     sessions: [{ ...focused, group: "agents", title: "focus-title-12345678" }],
     selectedId: "focus",
-    grouping: "stage", density: "all-cards",
+    grouping: "stage",
     width: 40,
   })).lines.map(stripAnsi).join("\n");
   assert.match(titleFirst, /focus-title-12345678/);
@@ -136,10 +136,10 @@ test("stopped focus snapshots render as ordinary Execute sessions", () => {
   assert.match(groupsText, /✓ PL─◉ EX─· RV─· RF─· CM/);
   assert.doesNotMatch(groupsText, /FOC|mode\s+Focus/);
 
-  const board = buildRenderModel({ sessions: [stopped], selectedId: "focus", grouping: "stage", density: "all-cards", width: 120 });
+  const board = buildRenderModel({ sessions: [stopped], selectedId: "focus", grouping: "stage", width: 120 });
   assert.equal(board.sections[0]?.key, "execute");
   const boardText = renderSessions(board).lines.map(stripAnsi).join("\n");
-  const boardCard = boardText.split("\n").find((line) => /[┣┗].*focus/.test(line)) ?? "";
+  const boardCard = boardText.split("\n").find((line) => line.includes("focus")) ?? "";
   assert.match(boardText, /EXECUTE/);
   assert.match(boardText, /agents\s+·1/);
   assert.match(boardCard, /focus/);
@@ -168,24 +168,24 @@ test("workflow markers are a pure positional cue", () => {
   assert.deepEqual(complete.steps.map((_step, index) => workflowStepMarker(complete, index)), ["✓", "✓", "✓", "·", "·"]);
 });
 
-test("workflow rail renders positional markers in compact rows and workspace", () => {
+test("workflow rail renders positional markers in parent rows and workspace", () => {
   const active = workspaceModel({ sessions: [{ ...session("a", "default", "running"), workflow: WORKFLOW }], selectedId: "a", width: 160 });
   const completeWorkflow = { ...WORKFLOW, currentStepComplete: true, activity: { id: "done", label: "Execute complete" } };
   const complete = workspaceModel({ sessions: [{ ...session("a", "default", "stopped"), workflow: completeWorkflow }], selectedId: "a", width: 160 });
 
   const activeLines = renderSessions(active).lines.map(stripAnsi);
-  const activeRow = activeLines.find((line) => /^│▌/.test(line));
-  assert.match(activeRow ?? "", /● a.*default · ◉EX/);
+  const activeRow = activeLines.find((line) => line.includes("● a"));
+  assert.match(activeRow ?? "", /● a.*◉ EX/);
   assert.match(activeLines.join("\n"), /✓ PL─◉ EX─· RV─· RF─· CM · auth-003/);
 
   const completeLines = renderSessions(complete).lines.map(stripAnsi);
-  const completeRow = completeLines.find((line) => /^│▌/.test(line));
-  assert.match(completeRow ?? "", /- a.*default · ✓EX/);
+  const completeRow = completeLines.find((line) => line.includes("- a"));
+  assert.match(completeRow ?? "", /- a.*✓ EX/);
   assert.match(completeLines.join("\n"), /✓ PL─✓ EX─· RV─· RF─· CM · auth-003/);
   for (const line of [...renderSessions(active).lines, ...renderSessions(complete).lines]) assert.ok(visibleWidth(line) <= 160, line);
 });
 
-test("junction markers are positional for direct, complete, terminal, and replacement snapshots", () => {
+test("board card markers are positional for direct, complete, terminal, and replacement snapshots", () => {
   const cases = [
     { activeIndex: 0, currentStepComplete: false, expected: "◉····", activity: "Planning" },
     { activeIndex: 2, currentStepComplete: false, expected: "✓✓◉··", activity: "Reviewing changes" },
@@ -195,16 +195,17 @@ test("junction markers are positional for direct, complete, terminal, and replac
   ];
   for (const item of cases) {
     const workflow = { ...WORKFLOW, activeIndex: item.activeIndex, currentStepComplete: item.currentStepComplete, activity: { id: "producer-state", label: item.activity } };
-    const model = buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow }], selectedId: "a", width: 110, density: "all-cards", grouping: "stage" });
+    const model = buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow }], selectedId: "a", width: 110, grouping: "stage" });
     assert.equal(model.sections[0]?.key, workflow.steps[item.activeIndex]?.id);
     const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-    assert.match(text, new RegExp(`${item.expected}  ${item.activity}`));
+    const activeMarker = item.expected[item.activeIndex];
+    assert.match(text, new RegExp(`${activeMarker}${workflow.steps[item.activeIndex]?.short}[\\s\\S]*${item.activity}`));
   }
 
   const replaced = { ...WORKFLOW, activeIndex: 0, currentStepComplete: false, activity: { id: "start", label: "Inspecting" }, updatedAt: 2 };
-  const text = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow: replaced }], selectedId: "a", width: 40, density: "all-cards" })).lines.map(stripAnsi).join("\n");
-  assert.match(text, /◉····  Inspecting/);
-  assert.doesNotMatch(text, /✓✓✓✓✓/);
+  const text = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow: replaced }], selectedId: "a", width: 40 })).lines.map(stripAnsi).join("\n");
+  assert.match(text, /◉PL/);
+  assert.doesNotMatch(text, /✓CM|✓✓✓✓✓/);
 });
 
 test("sidebar workflow stages use the theme accent color", () => {
@@ -226,21 +227,17 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
     { ...session("backlog", "default", "waiting"), bucket: "backlog" as const, workflow: WORKFLOW, lastActivityAt: now - 14 * 60_000 },
   ];
   const lines = renderSessions(buildRenderModel({ sessions, selectedId: "running", width: 110, now })).lines.map(stripAnsi);
-  const running = lines.find((line) => /^│▌ ● running/.test(line)) ?? "";
-  const waiting = lines.find((line) => /^│  ◐ waiting/.test(line)) ?? "";
-  const focused = lines.find((line) => /^│  ◐ focused/.test(line)) ?? "";
-  const idle = lines.find((line) => /^│  ○ idle/.test(line)) ?? "";
-  const backlog = lines.find((line) => /^│  ◐ backlog/.test(line)) ?? "";
+  const row = (title: string) => lines.find((line) => line.includes(title)) ?? "";
+  const rendered = lines.join("\n");
 
-  assert.match(running, /EX/);
-  assert.doesNotMatch(running, /14m/);
-  assert.match(running, /default · ◉EX/);
-  assert.doesNotMatch(running, /14m/);
-  assert.match(waiting, /default · ◉EX · 14m/);
-  assert.match(focused, /default · ◉FOC · 14m/);
-  assert.match(idle, /default · 14m/);
-  assert.doesNotMatch(idle, /EX/);
-  assert.match(backlog, /backlog · default · ◉EX · 14m/);
+  assert.match(row("running"), /◉EX/);
+  assert.doesNotMatch(row("running"), /14m/);
+  assert.match(row("waiting"), /◉EX/);
+  assert.match(row("focused"), /◉FOC/);
+  assert.doesNotMatch(row("idle"), /EX/);
+  assert.match(row("backlog"), /backlog/);
+  assert.match(rendered, /default/);
+  assert.match(rendered, /14m/);
 });
 
 test("expanded details include the full workflow rail", () => {
@@ -257,11 +254,11 @@ test("sessions without workflow render no rail", () => {
   assert.doesNotMatch(text, /PL─EX/);
 });
 
-test("archive age takes priority over the compact rail", () => {
+test("archive age takes priority over the workflow rail", () => {
   const day = 24 * 60 * 60 * 1000;
   const archived = { ...session("a", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 100, lastActivityAt: 100 + day, workflow: WORKFLOW };
   const model = buildRenderModel({ sessions: [archived, session("b", "default", "running")], selectedId: "a", width: 110, now: 100 + 2 * day });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => /^│▌/.test(line));
+  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("- a"));
   assert.match(row ?? "", /a\s+2d/);
   assert.doesNotMatch(row ?? "", /\[exp|EX/);
   assert.equal(model.selected?.archiveRetentionIn, "5d");
@@ -300,7 +297,7 @@ test("stage grouping keeps canonical workflow trees in producer lanes and every 
   const planning = { ...session("x", "experiments", "running"), workflow: { ...WORKFLOW, activeIndex: 0, ticketId: undefined } };
   const none = session("z", "experiments", "idle");
   const backlog = { ...session("bk", "experiments", "idle"), bucket: "backlog" as const, bucketChangedAt: 1 };
-  const model = buildRenderModel({ sessions: [parent, sub, planning, none, backlog], grouping: "stage", density: "all-cards", width: 120 });
+  const model = buildRenderModel({ sessions: [parent, sub, planning, none, backlog], grouping: "stage", width: 120 });
 
   assert.deepEqual(model.sections.map((item) => item.key), ["plan-md", "execute", "other-active"]);
   assert.deepEqual(model.sections[1]?.groups.flatMap((group) => group.sessions.map((row) => row.id)), ["p"]);
@@ -328,13 +325,13 @@ test("board projection omits orphan and cyclic subagent rows from every lane", (
   const lanes = boardLaneRows(rows, rows, { revealAll: true });
   assert.deepEqual(lanes.map((lane) => [lane.key, lane.rows.map((row) => row.id)]), [["execute", ["parent"]]]);
 
-  const model = buildRenderModel({ sessions: rows, grouping: "stage", density: "all-cards", width: 80, expandedBoardParentIds: new Set(["parent"]) });
+  const model = buildRenderModel({ sessions: rows, grouping: "stage", width: 80, expandedBoardParentIds: new Set(["parent"]) });
   assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions.map((row) => row.id))), ["parent"]);
 });
 
 test("board rows nest under one group heading instead of repeating the group at right", () => {
-  const model = buildRenderModel({ sessions: [{ ...session("p", "agents", "running"), workflow: WORKFLOW }], grouping: "stage", density: "all-cards", width: 120 });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => /[├└┣┗] ● p/.test(line));
+  const model = buildRenderModel({ sessions: [{ ...session("p", "agents", "running"), workflow: WORKFLOW }], grouping: "stage", width: 120 });
+  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("● p"));
   const listCell = row ?? "";
   assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /agents\s+·1/);
   assert.match(listCell, /● p/);
@@ -348,44 +345,44 @@ test("board collapses descendant rows by default and reveals them through epheme
   const nested = { ...session("nested", "api", "running"), kind: "subagent" as const, parentId: "child", agentName: "nested-worker" };
   const sessions = [parent, child, nested];
 
-  const collapsed = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", density: "all-cards", width: 60 });
+  const collapsed = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", width: 60 });
   assert.deepEqual(collapsed.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["parent"]);
   assert.equal(collapsed.selected?.boardDescendantCount, 2);
   assert.equal(collapsed.selected?.boardExpanded, false);
   const collapsedLayout = renderSessions(collapsed);
-  assert.match(collapsedLayout.lines.map(stripAnsi).join("\n"), /Parent task ▸ ⚙︎1/);
+  assert.match(collapsedLayout.lines.map(stripAnsi).join("\n"), /▸\s+◐ Parent task ⚙︎1/);
   assert.deepEqual(collapsedLayout.rowTargets.flatMap((target) => target?.kind === "session" ? [target.id] : []), ["parent"]);
 
-  const expanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", density: "all-cards", width: 60, expandedBoardParentIds: new Set(["parent"]) });
+  const expanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", width: 60, expandedBoardParentIds: new Set(["parent"]) });
   assert.deepEqual(expanded.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
   assert.equal(expanded.selected?.boardExpanded, true);
-  assert.match(renderSessions(expanded).lines.map(stripAnsi).join("\n"), /Parent task ▾ ⚙︎1/);
+  assert.match(renderSessions(expanded).lines.map(stripAnsi).join("\n"), /▾\s+◐ Parent task ⚙︎1/);
 
-  const filtered = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", density: "all-cards", width: 60, filter: "nested-worker" });
+  const filtered = buildRenderModel({ sessions, selectedId: "parent", grouping: "stage", width: 60, filter: "nested-worker" });
   assert.deepEqual(filtered.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["parent", "child", "nested"]);
   assert.equal(filtered.selected?.boardExpanded, true);
 
-  const projectCollapsed = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60 });
+  const projectCollapsed = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", width: 60 });
   assert.deepEqual(modelRows(projectCollapsed).map((row) => row.id), ["parent"]);
-  assert.match(renderSessions(projectCollapsed).lines.map(stripAnsi).join("\n"), /Parent task ▸/);
+  assert.match(renderSessions(projectCollapsed).lines.map(stripAnsi).join("\n"), /▸\s+◐ Parent task/);
 
-  const projectExpanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60, expandedProjectParentIds: new Set(["parent"]) });
+  const projectExpanded = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", width: 60, expandedProjectParentIds: new Set(["parent"]) });
   assert.deepEqual(modelRows(projectExpanded).map((row) => row.id), ["parent", "child", "nested"]);
-  assert.match(renderSessions(projectExpanded).lines.map(stripAnsi).join("\n"), /Parent task ▾/);
+  assert.match(renderSessions(projectExpanded).lines.map(stripAnsi).join("\n"), /▾\s+◐ Parent task/);
 
-  const projectFiltered = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", density: "compact", width: 60, filter: "nested-worker" });
+  const projectFiltered = buildRenderModel({ sessions, selectedId: "parent", grouping: "project", width: 60, filter: "nested-worker" });
   assert.deepEqual(modelRows(projectFiltered).map((row) => row.id), ["parent", "child", "nested"]);
 });
 
 test("board groups child rows by their top-level parent and counts parent cards only", () => {
   const parent = { ...session("parent", "api", "waiting", "Parent task"), workflow: WORKFLOW };
   const child = { ...session("child", "different", "idle"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
-  const model = buildRenderModel({ sessions: [parent, child], grouping: "stage", density: "all-cards", width: 60, expandedBoardParentIds: new Set(["parent"]) });
+  const model = buildRenderModel({ sessions: [parent, child], grouping: "stage", width: 60, expandedBoardParentIds: new Set(["parent"]) });
   const lane = model.sections[0];
   assert.deepEqual(lane?.groups.map((group) => [group.name, group.sessions.map((row) => row.id)]), [["api", ["parent", "child"]]]);
   assert.equal(lane?.sessionsTotal, 1);
   const layout = renderSessions(model);
-  assert.match(layout.lines.map(stripAnsi).join("\n"), /api\s+◐1\s+·1/);
+  assert.match(layout.lines.map(stripAnsi).join("\n"), /── EXECUTE\s+·1/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 2);
 });
 
@@ -395,7 +392,7 @@ test("board group order follows the already ordered lane rows used by navigation
     { ...session("a-review", "alpha", "error"), workflow: { ...WORKFLOW, activeIndex: 2 } },
     { ...session("b-execute", "beta", "running"), workflow: WORKFLOW },
   ];
-  const model = buildRenderModel({ sessions, grouping: "stage", density: "all-cards", width: 60 });
+  const model = buildRenderModel({ sessions, grouping: "stage", width: 60 });
   assert.deepEqual(model.sections.find((section) => section.key === "execute")?.groups.map((group) => group.name), ["alpha", "beta"]);
 });
 
@@ -407,15 +404,15 @@ test("parent board rows show the count of starting and running descendants only"
     { ...session("waiting", "api", "waiting"), kind: "subagent" as const, parentId: "parent" },
     { ...session("error", "api", "error"), kind: "subagent" as const, parentId: "parent" },
   ];
-  const model = buildRenderModel({ sessions: [parent, ...descendants], selectedId: "parent", grouping: "stage", density: "all-cards", width: 60 });
+  const model = buildRenderModel({ sessions: [parent, ...descendants], selectedId: "parent", grouping: "stage", width: 60 });
   assert.equal(model.selected?.runningSubagentCount, 2);
   assert.equal(model.selected?.displayStatus, "waiting");
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(text, /Parent task ▸ ⚙︎2.*FOC/);
+  assert.match(text, /▸\s+◐ Parent task ⚙︎2.*FOC/);
   assert.doesNotMatch(text, /starting ⚙︎|running ⚙︎|waiting ⚙︎|error ⚙︎/);
   assert.equal(visibleWidth("⚙︎2"), 2);
 
-  const zero = renderSessions(buildRenderModel({ sessions: [parent, descendants[2]!], selectedId: "parent", grouping: "stage", density: "all-cards", width: 40 })).lines.map(stripAnsi).join("\n");
+  const zero = renderSessions(buildRenderModel({ sessions: [parent, descendants[2]!], selectedId: "parent", grouping: "stage", width: 40 })).lines.map(stripAnsi).join("\n");
   assert.doesNotMatch(zero, /⚙︎0|⚙︎1/);
 });
 
@@ -423,7 +420,7 @@ test("descendant counts preserve parent links that continue through a main row",
   const ancestor = { ...session("ancestor", "api", "waiting"), workflow: WORKFLOW };
   const parent = { ...session("parent", "api", "waiting"), parentId: "ancestor", workflow: WORKFLOW };
   const child = { ...session("child", "api", "running"), kind: "subagent" as const, parentId: "parent" };
-  const model = buildRenderModel({ sessions: [ancestor, parent, child], grouping: "stage", density: "all-cards", width: 80 });
+  const model = buildRenderModel({ sessions: [ancestor, parent, child], grouping: "stage", width: 80 });
   const rows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
 
   assert.equal(rows.find((row) => row.id === "parent")?.boardDescendantCount, 1);
@@ -446,7 +443,7 @@ test("board chooses the prevalent pipeline deterministically and uses its newest
     { ...session("main-new", "main", "idle"), workflow: { steps: currentSteps, activeIndex: 1, updatedAt: 20 } },
     { ...session("main-third", "main", "waiting"), workflow: { steps, activeIndex: 2, updatedAt: 15 } },
   ];
-  const model = buildRenderModel({ sessions, grouping: "stage", density: "all-cards", width: 120 });
+  const model = buildRenderModel({ sessions, grouping: "stage", width: 120 });
 
   assert.deepEqual(model.sections.map((section) => [section.key, section.title, section.sessionsTotal]), [
     ["plan-md", "PLAN", 1],
@@ -458,21 +455,21 @@ test("board chooses the prevalent pipeline deterministically and uses its newest
   assert.deepEqual(model.sections.filter((section) => section.key !== "other-active").flatMap((section) => section.groups.flatMap((group) => group.sessions.filter((row) => row.kind !== "subagent").map((row) => row.id))), ["main-old", "main-new", "main-third"]);
   assert.deepEqual(model.sections.find((section) => section.key === "other-active")?.groups.flatMap((group) => group.sessions.map((row) => row.id)), ["alt-2", "alt-1"]);
 
-  const tied = buildRenderModel({ sessions: sessions.slice(0, 4), grouping: "stage", density: "all-cards", width: 120 });
+  const tied = buildRenderModel({ sessions: sessions.slice(0, 4), grouping: "stage", width: 120 });
   assert.equal(tied.sections[0]?.key, "discover");
 });
 
-test("all-card window does not orphan continuation lines around a compact selection", () => {
+test("adaptive window does not orphan continuation lines around a micro selection", () => {
   const parent = session("parent", "agents", "idle", "Parent title");
   const child = { ...session("child", "agents", "idle", "Child title"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
   const siblings = Array.from({ length: 6 }, (_, index) => session(`other-${index}`, "agents", "idle", `Other ${index}`));
-  const layout = renderSessions(buildRenderModel({ sessions: [parent, child, ...siblings], selectedId: "child", density: "all-cards", width: 60, height: 10, expandedProjectParentIds: new Set(["parent"]) }));
+  const layout = renderSessions(buildRenderModel({ sessions: [parent, child, ...siblings], selectedId: "child", width: 60, height: 10, expandedProjectParentIds: new Set(["parent"]) }));
   const text = layout.lines.map(stripAnsi).join("\n");
 
   assert.match(text, /worker/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "child").length, 1);
 
-  const twoRowLayout = renderSessions(buildRenderModel({ sessions: [parent, child, ...siblings], selectedId: "child", density: "all-cards", width: 60, height: 7, expandedProjectParentIds: new Set(["parent"]) }));
+  const twoRowLayout = renderSessions(buildRenderModel({ sessions: [parent, child, ...siblings], selectedId: "child", width: 60, height: 7, expandedProjectParentIds: new Set(["parent"]) }));
   const twoRowText = twoRowLayout.lines.map(stripAnsi).join("\n");
   assert.equal(twoRowText.match(/worker/g)?.length, 1);
   assert.equal(twoRowLayout.rowTargets.filter((target) => target?.kind === "session" && target.id === "child").length, 1);
@@ -522,7 +519,10 @@ test("named pin rendering remains ANSI width safe with workflow rails", () => {
 });
 
 test("pinned cockpit uses deterministic decision strip pruning and visible exact targets", () => {
-  const selected = session("api", "default", "running", "api");
+  const selected = {
+    ...session("api", "default", "running", "api"),
+    context: { version: 1 as const, updatedAt: 2, ticket: { id: "cockpit-008", subtitle: "Adaptive cockpit" } },
+  };
   const renderAt = (height: number, evidence = false) => renderSessions(workspaceModel({
     sessions: [selected], selectedId: "api", width: 100, height,
     pinSlots: ["api"], activePinnedSessionId: "api", pinCapacity: 2,
@@ -535,6 +535,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
   assert.match(threeText, /no explicit request/);
   assert.match(threeText, /Enter Open · : Actions/);
   assert.deepEqual(three.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
+  assert.equal(three.rowTargets.filter((target) => target?.kind === "session-continuation").length, 0);
   const evidenceText = renderAt(11, true).lines.map(stripAnsi).join("\n");
   assert.match(evidenceText, /tmux|heartbeat/i);
   assert.doesNotMatch(evidenceText, /no explicit request/);
@@ -577,9 +578,9 @@ test("layout hit map marks only rendered session rows", () => {
 
 test("workspace uses frozen responsive geometry", () => {
   const planned = { ...session("planned", "default", "idle"), workflow: WORKFLOW };
-  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 98);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 83);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 113);
+  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 81);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 65);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 95);
 });
 
 test("layout hit maps handle empty and persistent workspace layouts", () => {
@@ -590,7 +591,7 @@ test("layout hit maps handle empty and persistent workspace layouts", () => {
   const wide = renderSessions(workspaceModel({ sessions: [session("a", "default", "idle")], selectedId: "a", width: 120 }));
   assert.equal(wide.lines.length, wide.rowTargets.length);
   assert.equal(wide.lines.length, wide.workspaceRowTargets.length);
-  assert.equal(wide.listWidth, 83);
+  assert.equal(wide.listWidth, 65);
   assert.ok(wide.workspaceRowTargets.some(Boolean));
 });
 
@@ -619,33 +620,23 @@ test("height-bounded empty and no-match states fit terminal rows", () => {
   assert.equal(noMatches.lines.length, 15);
   assert.equal(empty.rowTargets.length, 15);
   assert.equal(noMatches.rowTargets.length, 15);
+  const shortNoMatch = renderSessions(buildRenderModel({ sessions: manySessions(3), filter: "zzz", width: 80, height: 6 }));
+  assert.match(shortNoMatch.lines.map(stripAnsi).join("\n"), /No sessions match "zzz"/);
 });
 
-test("height-bounded list shows bottom indicator at the top", () => {
+test("height-bounded list keeps a top selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s0", width: 80, height: 15 }));
-  const text = layout.lines.map(stripAnsi).join("\n");
-
-  assert.doesNotMatch(text, /↑ \d+ more/);
-  assert.match(text, /↓ 12 more/);
-  assert.deepEqual(renderedSessionIds(layout), manySessions(8).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(9).map((item) => item.id));
 });
 
-test("height-bounded list shows top indicator at the bottom", () => {
+test("height-bounded list keeps a bottom selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s19", width: 80, height: 15 }));
-  const text = layout.lines.map(stripAnsi).join("\n");
-
-  assert.match(text, /↑ 11 more/);
-  assert.doesNotMatch(text, /↓ \d+ more/);
   assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(11).map((item) => item.id));
 });
 
-test("height-bounded list shows both indicators in the middle", () => {
+test("height-bounded list centers a middle selection among nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s10", width: 80, height: 15 }));
-  const text = layout.lines.map(stripAnsi).join("\n");
-
-  assert.match(text, /↑ 3 more/);
-  assert.match(text, /↓ 9 more/);
-  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(3, 11).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(6, 15).map((item) => item.id));
 });
 
 test("height-bounded list handles exact and one-over capacity", () => {
@@ -655,22 +646,16 @@ test("height-bounded list handles exact and one-over capacity", () => {
   assert.deepEqual(renderedSessionIds(exact), manySessions(9).map((item) => item.id));
 
   const oneOver = renderSessions(buildRenderModel({ sessions: manySessions(10), selectedId: "s0", width: 80, height: 15 }));
-  const oneOverText = oneOver.lines.map(stripAnsi).join("\n");
-  assert.doesNotMatch(oneOverText, /↑ \d+ more/);
-  assert.match(oneOverText, /↓ 2 more/);
-  assert.equal(renderedSessionIds(oneOver).length, 8);
+  assert.deepEqual(renderedSessionIds(oneOver), manySessions(9).map((item) => item.id));
 });
 
-test("height-bounded list preserves scroll top until selection reaches an edge", () => {
+test("height-bounded list derives its adaptive window from selection", () => {
   const sessions = manySessions(30);
   const first = renderSessions(buildRenderModel({ sessions, selectedId: "s10", width: 80, height: 15 }));
-  assert.equal(first.listScrollTop, 4);
+  const next = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 80, height: 15, listScrollTop: 99 }));
 
-  const inside = renderSessions(buildRenderModel({ sessions, selectedId: "s9", width: 80, height: 15, listScrollTop: first.listScrollTop }));
-  assert.equal(inside.listScrollTop, first.listScrollTop);
-
-  const edge = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 80, height: 15, listScrollTop: inside.listScrollTop }));
-  assert.equal(edge.listScrollTop, first.listScrollTop + 1);
+  assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(6, 15).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(7, 16).map((item) => item.id));
 });
 
 test("project view defaults to cockpit tiers with Backlog as row metadata", () => {
@@ -700,7 +685,7 @@ test("grouping order and status counts", () => {
     ["quiet", { running: 0, waiting: 1, idle: 1, error: 0, stopped: 0 }],
   ]);
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /HEALTH[\s\S]*× e.*default[\s\S]*QUIET[\s\S]*◐ a.*default[\s\S]*○ b.*work/);
+  assert.match(rendered, /── HEALTH[\s\S]*× e[\s\S]*default[\s\S]*── QUIET[\s\S]*◐ a[\s\S]*default[\s\S]*○ b[\s\S]*work/);
   assert.doesNotMatch(rendered, /1 waiting · 1 error/);
 });
 
@@ -816,7 +801,7 @@ test("late-created descendants inherit Archived presentation and stay out of the
   const groupsExpanded = buildRenderModel({ sessions: [parent, child], width: 100, now: 200, expandedProjectParentIds: new Set(["parent"]) });
   assert.deepEqual(groupsExpanded.sections.find((section) => section.key === "archived")?.groups[0]?.sessions.map((row) => [row.id, row.section]), [["parent", "archived"], ["child", "archived"]]);
 
-  const board = buildRenderModel({ sessions: [parent, child], width: 100, grouping: "stage", density: "all-cards", now: 200 });
+  const board = buildRenderModel({ sessions: [parent, child], width: 100, grouping: "stage", now: 200 });
   assert.equal(board.sections.length, 0);
   assert.deepEqual(board.boardHidden, { nonActive: 1 });
 });
@@ -888,7 +873,7 @@ test("error reason appears in selected metadata", () => {
 test("selected and stopped rows have distinct treatments with stopped rows last", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "stopped", "api"), session("b", "default", "idle", "docs")], selectedId: "b", width: 100 });
   const lines = renderSessions(model).lines.join("\n");
-  assert.match(lines, /▌ ○ docs[\s\S]*· - api/);
+  assert.match(lines, /▌ ·\s+○ docs[\s\S]*·\s+- api/);
   assert.doesNotMatch(lines, /Stopped/);
 });
 
@@ -913,17 +898,12 @@ test("lifecycle muting stays independent from cockpit tier color", () => {
   assert.match(archived, /\u001b\[38;2;4;5;6m.*ARCHIVED/);
 });
 
-test("legacy Backlog collapse is inert while Archived remains collapsible", () => {
+test("Archived remains the only collapsible cockpit section", () => {
   const sessions = [
     session("active", "default", "running", "active"),
     { ...session("backlog", "default", "idle", "backlog"), bucket: "backlog" as const },
     { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
-  const backlogState = buildRenderModel({ sessions, selectedId: "active", collapsedSections: new Set(["backlog"]), width: 100 });
-  const backlogText = renderSessions(backlogState).lines.map(stripAnsi).join("\n");
-  assert.match(backlogText, /backlog · default/);
-  assert.doesNotMatch(backlogText, /BACKLOG/);
-
   const archivedState = buildRenderModel({ sessions, selectedId: "active", collapsedSections: new Set(["archived"]), width: 100 });
   assert.equal(archivedState.sections.find((section) => section.key === "archived")?.collapsed, true);
   assert.equal(archivedState.sections.find((section) => section.key === "archived")?.sessionsTotal, 1);
@@ -938,11 +918,11 @@ test("cockpit tier headers keep a shared title column", () => {
     { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const lines = renderSessions(buildRenderModel({ sessions, width: 100 })).lines.map(stripAnsi);
-  const active = lines.find((line) => line.includes("ACTIVE")) ?? "";
-  const quiet = lines.find((line) => line.includes("QUIET")) ?? "";
-  const archived = lines.find((line) => line.includes("ARCHIVED")) ?? "";
-  assert.equal(active.indexOf("ACTIVE"), quiet.indexOf("QUIET"));
-  assert.equal(active.indexOf("ACTIVE"), archived.indexOf("ARCHIVED"));
+  const active = lines.find((line) => line.includes("── ACTIVE")) ?? "";
+  const quiet = lines.find((line) => line.includes("── QUIET")) ?? "";
+  const archived = lines.find((line) => line.includes("ARCHIVED") && /─[▾▸] /.test(line)) ?? "";
+  assert.equal(active.indexOf("── ACTIVE"), quiet.indexOf("── QUIET"));
+  assert.equal(active.indexOf("── ACTIVE"), archived.indexOf("─▾ ARCHIVED"));
   assert.match(active, /── ACTIVE/);
   assert.match(quiet, /── QUIET/);
   assert.match(archived, /─▾ ARCHIVED/);
@@ -965,7 +945,7 @@ test("board filter matches workflow ticket ids after compact titles replace tick
   const model = buildRenderModel({
     sessions: [{ ...session("a", "default", "idle", "Rich workflow board"), workflow: WORKFLOW }],
     selectedId: "a",
-    grouping: "stage", density: "all-cards",
+    grouping: "stage",
     width: 60,
     filter: "auth-003",
   });
@@ -1063,8 +1043,9 @@ test("fixed row badges cannot preserve metadata by crowding out the title", () =
 test("group row tags remain visible when space permits", () => {
   const group = "release-group";
   const lines = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 })).lines.map(stripAnsi);
-  const row = lines.find((line) => /▌ ○ release/.test(line)) ?? "";
-  assert.match(row, /release.*release-group/);
+  const titleIndex = lines.findIndex((line) => /▌ ·\s+○ release/.test(line));
+  assert.notEqual(titleIndex, -1);
+  assert.match(lines.slice(titleIndex, titleIndex + 2).join("\n"), /release[\s\S]*release-group/);
   for (const line of lines) assert.ok(visibleWidth(line) <= 100, line);
 });
 
@@ -1105,8 +1086,8 @@ test("subagent rows render directly under their parent", () => {
   assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "sibling"]);
   assert.equal(modelRows(model)[1]?.depth, 1);
   const lines = renderSessions(model).lines.join("\n");
-  assert.match(lines, /└ .*scout/);
-  assert.doesNotMatch(lines, /read auth\.ts/);
+  assert.match(lines, /└─\s+● scout/);
+  assert.match(lines, /scout read auth\.ts/);
 });
 
 test("nested subagent rows render under their subagent parent", () => {
@@ -1128,7 +1109,7 @@ test("nested subagent rows render under their subagent parent", () => {
   assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "grandchild"]);
   assert.equal(modelRows(model)[1]?.depth, 1);
   assert.equal(modelRows(model)[2]?.depth, 2);
-  assert.match(renderSessions(model).lines.join("\n"), /└ .*worker[\s\S]*└ .*code-critic/);
+  assert.match(renderSessions(model).lines.join("\n"), /└─\s+● worker[\s\S]*│└\s+◐ code-critic/);
 });
 
 test("filtering by nested child includes ancestor context", () => {
@@ -1151,7 +1132,7 @@ test("filtering by nested child includes ancestor context", () => {
   assert.deepEqual(modelRows(model).map((item) => item.id), ["parent", "child", "grandchild"]);
 });
 
-test("all-card producer plan projection stays Active-main-only", () => {
+test("producer plan projection stays Active-main-only", () => {
   const withPlan = (row: ReturnType<typeof session>, completed: number) => ({
     ...row,
     workflow: { ...WORKFLOW, plan: { tasks: { completed, total: 3 }, nextStep: `Next ${row.id}` } },
@@ -1161,7 +1142,7 @@ test("all-card producer plan projection stays Active-main-only", () => {
   const child = { ...withPlan(session("child", "agents", "idle", "Child title"), 1), kind: "subagent" as const, parentId: "active", agentName: "worker" };
   const backlog = { ...withPlan(session("backlog", "agents", "idle", "Backlog title"), 1), bucket: "backlog" as const };
 
-  const model = buildRenderModel({ sessions: [active, sibling, child, backlog], selectedId: "active", density: "all-cards", width: 120 });
+  const model = buildRenderModel({ sessions: [active, sibling, child, backlog], selectedId: "active", width: 120 });
   const rows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
   assert.deepEqual(rows.find((row) => row.id === "active")?.plan?.tasks, { completed: 2, total: 3 });
   assert.deepEqual(rows.find((row) => row.id === "sibling")?.plan?.tasks, { completed: 1, total: 3 });
@@ -1169,7 +1150,7 @@ test("all-card producer plan projection stays Active-main-only", () => {
   assert.equal(rows.find((row) => row.id === "backlog")?.plan, undefined);
 });
 
-test("all-card generic richness stays Active-main-only and ANSI width safe", () => {
+test("adaptive richness stays Active-main-only and ANSI width safe", () => {
   const rich = (row: ReturnType<typeof session>, label: string) => ({
     ...row,
     workflow: { ...WORKFLOW, ticketId: `${row.id}-001`, activity: { id: `activity-${row.id}`, label } },
@@ -1181,43 +1162,45 @@ test("all-card generic richness stays Active-main-only and ANSI width safe", () 
   const archived = { ...rich(session("archived", "agents", "stopped", "Archived title"), "Archived activity"), bucket: "archived" as const, bucketChangedAt: 1 };
 
   for (const width of [40, 60, 80, 120]) {
-    const layout = renderSessions(buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", density: "all-cards", width, expandedProjectParentIds: new Set(["parent"]) }), darkTheme);
+    const layout = renderSessions(buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", width, expandedProjectParentIds: new Set(["parent"]) }), darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
     assert.match(text, /Parent activity|#parent-001/);
     assert.doesNotMatch(text, /Child activity|Backlog activity|Archived activity|#child-001|#backlog-001|#archived-001/);
-    assert.match(text, /┣\s+◐ Parent title/);
-    assert.match(text, /└\s+.*worker/);
-    assert.match(text, /└\s+○ Backlog/);
+    assert.match(text, /▌ ▾\s+◐ Parent title/);
+    assert.match(text, /└─\s+○ worker/);
+    assert.match(text, /·\s+○ Backlog/);
     assert.match(text, /- Archived title/);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
 });
 
-test("all-card list preserves selected height-neighbor windowing", () => {
+test("adaptive list preserves selected height-neighbor windowing", () => {
   const sessions = Array.from({ length: 6 }, (_, index) => ({
-    ...session(`s${index}`, "agents", "idle", `Stored session ${index}`),
+    ...session(`s${index}`, "agents", "running", `Stored session ${index}`),
     workflow: { ...WORKFLOW, ticketId: `scan-${index}`, activity: { id: `scan-${index}`, label: `Activity ${index}` } },
   }));
-  const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", density: "all-cards", width: 120, height: 12 }));
+  const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", width: 120, height: 12 }));
   const text = layout.lines.map(stripAnsi).join("\n");
-  assert.equal(layout.listWidth, 118);
+  assert.equal(layout.listWidth, 100);
   assert.match(text, /Stored session 3/);
   assert.match(text, /Stored session [24]/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
-  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 2);
+  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 1);
   assert.equal(layout.lines.length, 12);
 
-  const clipped = renderSessions(buildRenderModel({ sessions: [sessions[0]!], selectedId: "s0", density: "all-cards", width: 60, height: 8 }));
-  assert.match(clipped.lines.map(stripAnsi).join("\n"), /#scan-0[\s\S]*Activity 0/);
-  assert.equal(clipped.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s0").length, 2);
+  const clipped = renderSessions(buildRenderModel({ sessions: [sessions[0]!], selectedId: "s0", width: 60, height: 8 }));
+  assert.match(clipped.lines.map(stripAnsi).join("\n"), /Stored session 0/);
+  assert.equal(clipped.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s0").length, 0);
 
-  const spare = renderSessions(buildRenderModel({ sessions: sessions.slice(0, 2), selectedId: "s0", density: "all-cards", width: 60, height: 12 }));
+  const spare = renderSessions(buildRenderModel({ sessions: sessions.slice(0, 2), selectedId: "s0", width: 60, height: 12 }));
   const spareText = spare.lines.map(stripAnsi).join("\n");
   assert.match(spareText, /Stored session 1/);
-  assert.match(spareText, /Activity 1/);
+  assert.doesNotMatch(spareText, /Activity 1/);
   const crossGroup = sessions.slice(0, 2).map((row, index) => ({ ...row, group: index ? "beta-project" : "alpha-project" }));
-  const grouped = renderSessions(buildRenderModel({ sessions: crossGroup, selectedId: "s1", density: "all-cards", width: 60, height: 10 }));
-  assert.ok(grouped.lines.map(stripAnsi).some((line) => line.includes("beta-project")));
+  const grouped = renderSessions(buildRenderModel({ sessions: crossGroup, selectedId: "s1", width: 60, height: 10 }));
+  const groupedText = grouped.lines.map(stripAnsi).join("\n");
+  assert.match(groupedText, /Stored session 1/);
+  assert.doesNotMatch(groupedText, /beta-project/);
 });
 
 test("generic attention is gated to waiting/idle and stays searchable on its own subagent", () => {
@@ -1228,7 +1211,7 @@ test("generic attention is gated to waiting/idle and stays searchable on its own
     { ...session("running", "agents", "running"), workflow: WORKFLOW, context: attention("ready", "Must stay hidden") },
     { ...session("stopped", "agents", "stopped"), workflow: WORKFLOW, context: attention("blocked", "Must stay hidden") },
   ];
-  const model = buildRenderModel({ sessions, grouping: "stage", density: "all-cards", width: 80 });
+  const model = buildRenderModel({ sessions, grouping: "stage", width: 80 });
   const rows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
   assert.equal(rows.find((row) => row.id === "ready")?.attention?.kind, "ready");
   assert.equal(rows.find((row) => row.id === "question")?.attention?.kind, "question");
@@ -1239,16 +1222,16 @@ test("generic attention is gated to waiting/idle and stays searchable on its own
   assert.match(output, /\? ○ question/);
   assert.doesNotMatch(output, /✓ ● running|! - stopped/);
 
-  const projectCompact = renderSessions(buildRenderModel({ sessions, grouping: "project", density: "compact", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
+  const projectCompact = renderSessions(buildRenderModel({ sessions, grouping: "project", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
   assert.match(projectCompact, /✓ ◐ ready/);
   assert.match(projectCompact, /\? ○ question/);
-  const projectCards = renderSessions(buildRenderModel({ sessions, grouping: "project", density: "all-cards", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
+  const projectCards = renderSessions(buildRenderModel({ sessions, grouping: "project", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
   assert.match(projectCards, /✓ ◐ ready/);
   assert.match(projectCards, /\? ○ question/);
 
   const parent = { ...session("parent", "agents", "waiting"), workflow: WORKFLOW };
   const child = { ...session("child", "agents", "waiting"), kind: "subagent" as const, parentId: "parent", agentName: "worker", context: attention("blocked", "Needs sandbox access") };
-  const filtered = buildRenderModel({ sessions: [parent, child], filter: "sandbox", grouping: "stage", density: "all-cards", width: 80 });
+  const filtered = buildRenderModel({ sessions: [parent, child], filter: "sandbox", grouping: "stage", width: 80 });
   const filteredRows = filtered.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions));
   assert.equal(filteredRows.find((row) => row.id === "parent")?.attention, undefined);
   assert.equal(filteredRows.find((row) => row.id === "child")?.attention?.text, "Needs sandbox access");
@@ -1256,16 +1239,16 @@ test("generic attention is gated to waiting/idle and stays searchable on its own
 
 test("workflowless Active board keeps generic attention and distinct empty states", () => {
   const workflowless = { ...session("plain", "default", "idle"), context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose API version" } } };
-  const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", density: "all-cards", width: 60 });
+  const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", width: 60 });
   assert.equal(plain.noBoardSessions, false);
   assert.deepEqual(plain.sections.map((section) => section.key), ["other-active"]);
   assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /1 Active session[\s\S]*OTHER ACTIVE[\s\S]*\? ○ plain/);
 
   const sessions = [{ ...session("backlog", "default", "idle"), bucket: "backlog" as const, workflow: WORKFLOW }];
-  const empty = buildRenderModel({ sessions, grouping: "stage", density: "all-cards", width: 60 });
+  const empty = buildRenderModel({ sessions, grouping: "stage", width: 60 });
   assert.equal(empty.noBoardSessions, true);
   assert.match(renderSessions(empty).lines.map(stripAnsi).join("\n"), /No Active sessions[\s\S]*S  return to project view/);
-  const filtered = buildRenderModel({ sessions, grouping: "stage", density: "all-cards", width: 60, filter: "backlog" });
+  const filtered = buildRenderModel({ sessions, grouping: "stage", width: 60, filter: "backlog" });
   assert.equal(filtered.noMatches, true);
   assert.match(renderSessions(filtered).lines.map(stripAnsi).join("\n"), /No sessions match "backlog"/);
 });
@@ -1352,7 +1335,7 @@ test("subagent workspace keeps producer task and owner context without promotion
   assert.match(text, /subagent of Owner session/);
   assert.match(text, /Let the owner coordinate this task/);
   assert.match(text, /✓ PL─◉ EX─· RV─· RF─· CM · auth-003/);
-  assert.doesNotMatch(text, /NEEDS YOU/);
+  assert.doesNotMatch(text, /idle · NEEDS YOU/);
 });
 
 test("workspace height pruning removes hidden action targets", () => {
@@ -1373,7 +1356,7 @@ test("workspace height pruning removes hidden action targets", () => {
   }
 });
 
-test("generic context and producer activity define canonical junction hierarchy", () => {
+test("generic context and producer attention define canonical parent hierarchy", () => {
   const named = {
     ...session("named", "agents", "waiting", "Canonical Name"),
     workflow: {
@@ -1389,11 +1372,12 @@ test("generic context and producer activity define canonical junction hierarchy"
       attention: { kind: "question" as const, text: "Choose the rollout order" },
     },
   };
-  const model = workspaceModel({ sessions: [named], selectedId: "named", width: 160, grouping: "project", density: "all-cards", now: 2 });
+  const model = workspaceModel({ sessions: [named], selectedId: "named", width: 160, grouping: "project", now: 2 });
   const output = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
   assert.match(output, /Canonical Name/);
-  assert.match(output, /#metadata-redesign-001 · Simplify session context/);
-  assert.match(output, /Reviewing implementation \(pass 2\)/);
+  assert.match(output, /#metadata-redesign-001 · agents/);
+  assert.match(output, /Simplify session context/);
+  assert.doesNotMatch(output, /Reviewing implementation \(pass 2\)/);
   assert.doesNotMatch(output, /ticket:/);
   assert.match(output, /CONTEXT · bounded producer fields/);
   assert.match(output, /Use one generic contract/);
@@ -1410,15 +1394,15 @@ test("activity-free alternate producer workflows show the adaptive plan grid", (
       updatedAt: 2,
     },
   };
-  const output = stripAnsi(renderSessions(buildRenderModel({ sessions: [neutral], selectedId: "neutral", width: 100, density: "all-cards" }), darkTheme).lines.join("\n"));
-  assert.match(output, /✓◉  ▰▰│▰▱/);
+  const output = stripAnsi(renderSessions(buildRenderModel({ sessions: [neutral], selectedId: "neutral", grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
+  assert.match(output, /■■■■■■□□ 3\/4/);
 
   const large = {
     ...neutral,
     workflow: { ...neutral.workflow, plan: { tasks: { completed: 5_000, total: 10_000 }, phases: Array.from({ length: 100 }, () => ({ completed: 50, total: 100 })) } },
   };
-  const fallback = stripAnsi(renderSessions(buildRenderModel({ sessions: [large], selectedId: "neutral", width: 60, density: "all-cards" }), darkTheme).lines.join("\n"));
-  assert.match(fallback, /▰▰▰▰▰▱▱▱▱▱ 5000\/10000/);
+  const fallback = stripAnsi(renderSessions(buildRenderModel({ sessions: [large], selectedId: "neutral", grouping: "stage", width: 60 }), darkTheme).lines.join("\n"));
+  assert.doesNotMatch(fallback, /■|□|5000\/10000/);
 });
 
 test("ticket mismatch suppresses generic subtitle and activity-free workflow shows plan progress", () => {
@@ -1427,9 +1411,113 @@ test("ticket mismatch suppresses generic subtitle and activity-free workflow sho
     workflow: { ...WORKFLOW, ticketId: "runtime-001", plan: { phase: { title: "Bridge", index: 2, count: 3 }, tasks: { completed: 5, total: 8 }, phases: [{ completed: 3, total: 3 }, { completed: 2, total: 3 }, { completed: 0, total: 2 }] } },
     context: { version: 1 as const, updatedAt: 2, ticket: { id: "other-001", subtitle: "Must not combine" } },
   };
-  const model = buildRenderModel({ sessions: [named], selectedId: "named", width: 100, density: "all-cards" });
+  const model = buildRenderModel({ sessions: [named], selectedId: "named", grouping: "stage", width: 100 });
   const output = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
   assert.match(output, /#runtime-001/);
   assert.doesNotMatch(output, /Must not combine/);
-  assert.match(output, /✓◉···  ▰▰▰│▰▰▱│▱▱/);
+  assert.match(output, /■■■■■□□□ 5\/8/);
+});
+test("adaptive cockpit uses full parents, micro children, and single lifecycle rows", () => {
+  const parent = {
+    ...session("parent", "agents", "waiting", "Release decision"),
+    workflow: { ...WORKFLOW, ticketId: "cockpit-008" },
+    context: { version: 1 as const, updatedAt: 2, ticket: { id: "cockpit-008", subtitle: "Unify the adaptive cockpit" }, attention: { kind: "question" as const, text: "Use the approved card hierarchy?" } },
+  };
+  const child = { ...session("child", "agents", "running", "worker"), kind: "subagent" as const, parentId: "parent", agentName: "frontend-designer", taskPreview: "Review cockpit hierarchy geometry", workflow: WORKFLOW };
+  const backlog = { ...session("backlog", "experiments", "idle", "Theme spike"), bucket: "backlog" as const, workflow: WORKFLOW };
+  const archived = { ...session("archived", "docs", "stopped", "Old notes"), bucket: "archived" as const, bucketChangedAt: 1, workflow: WORKFLOW };
+  const model = buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", width: 100, expandedProjectParentIds: new Set(["parent"]) });
+  const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
+
+  assert.match(text, /▌ ▾ \? ◐ .*Release decision/);
+  assert.match(text, /“Use the approved card hierarchy\?”/);
+  assert.match(text, /#cockpit-008 · agents/);
+  assert.match(text, /└─  .*● .*frontend-designer Review cockpit hierarchy geometry/);
+  assert.doesNotMatch(text, /frontend-designer.*EX|frontend-designer.*agents/);
+  assert.equal(text.match(/Theme spike/g)?.length, 1);
+  assert.equal(text.match(/Old notes/g)?.length, 1);
+});
+
+test("project tier navigator is independent, responsive, and keeps zero tiers", () => {
+  const needs = { ...session("needs", "docs", "waiting", "Needs answer"), context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const active = session("active", "default", "running", "Active work");
+  const model = buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 100 });
+  assert.deepEqual(model.cockpitNavigation.map((entry) => [entry.tier, entry.ownerCount, entry.selected]), [
+    ["needs-you", 1, false], ["health", 0, false], ["active", 1, true], ["quiet", 0, false], ["archived", 0, false],
+  ]);
+  const layout = renderSessions(model, darkTheme);
+  const text = stripAnsi(layout.lines.join("\n"));
+  assert.equal(layout.navigatorWidth, 16);
+  assert.equal(layout.listStartX, 19);
+  assert.equal(layout.listWidth, 81);
+  assert.match(text, /FLEET/);
+  assert.match(text, /NEEDS YOU\s+1/);
+  assert.match(text, /HEALTH\s+0/);
+
+  const wide = renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 120 }), darkTheme);
+  assert.equal(wide.navigatorWidth, 17);
+  assert.equal(wide.listStartX, 20);
+  assert.equal(wide.listWidth, 65);
+  assert.equal(wide.workspaceStartX, 86);
+  const ultra = renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 160 }), darkTheme);
+  assert.equal(ultra.navigatorWidth, 17);
+  assert.equal(ultra.listWidth, 95);
+  assert.equal(ultra.workspaceStartX, 116);
+
+  const narrow = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 60 }), darkTheme);
+  assert.equal(narrow.navigatorWidth, 0);
+  assert.equal(narrow.listStartX, 2);
+  for (const [width, expected] of [[40, 0], [59, 0], [60, 0], [99, 0], [100, 16], [119, 16], [120, 17], [159, 17], [160, 17]] as const) {
+    const responsive = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width }), darkTheme);
+    assert.equal(responsive.navigatorWidth, expected, `width ${width}`);
+    for (const line of responsive.lines) assert.equal(visibleWidth(line), width, `width ${width}: ${line}`);
+  }
+  assert.equal(renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", grouping: "stage", width: 100 })).navigatorWidth, 0);
+  assert.equal(renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", pinSlots: ["active"], width: 100 })).navigatorWidth, 0);
+  assert.equal(renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 100 })).navigatorWidth, 0);
+});
+
+test("tier navigator stays composed for filtered no-match and standalone subagent owners", () => {
+  const parent = session("parent", "default", "idle", "Parent");
+  const orphan = { ...session("orphan", "default", "running", "Orphan"), kind: "subagent" as const, parentId: "missing", agentName: "scout", taskPreview: "Inspect orphan handling" };
+  const orphanModel = buildRenderModel({ sessions: [parent, orphan], selectedId: "parent", width: 100 });
+  const active = orphanModel.cockpitNavigation.find((entry) => entry.tier === "active");
+  assert.equal(active?.ownerCount, 1);
+  assert.equal(active?.firstOwnerId, "orphan");
+
+  const filtered = buildRenderModel({ sessions: [parent, orphan], selectedId: "parent", width: 100, filter: "no-such-session" });
+  assert.equal(filtered.noMatches, true);
+  assert.deepEqual(filtered.cockpitNavigation.map((entry) => entry.ownerCount), [0, 0, 0, 0, 0]);
+  const layout = renderSessions(filtered, darkTheme);
+  const text = stripAnsi(layout.lines.join("\n"));
+  assert.equal(layout.navigatorWidth, 16);
+  assert.match(text, /FLEET/);
+  assert.match(text, /No sessions match "no-such-session"/);
+});
+
+test("workflow board uses activity plus an eight-cell square progress bar", () => {
+  const row = {
+    ...session("release", "release", "running", "Release checks"),
+    workflow: {
+      ...WORKFLOW,
+      ticketId: "release-008",
+      activity: { id: "verify", label: "Verify package" },
+      plan: { tasks: { completed: 3, total: 4 } },
+    },
+  };
+  const wide = stripAnsi(renderSessions(buildRenderModel({ sessions: [row], grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
+  assert.match(wide, /Verify package.*■■■■■■□□ 3\/4/);
+  const longActivity = { ...row, workflow: { ...row.workflow, activity: { id: "long", label: "Verify a very long package compatibility matrix before release" } } };
+  const longText = stripAnsi(renderSessions(buildRenderModel({ sessions: [longActivity], grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
+  assert.match(longText, /Verify a very long.*■■■■■■□□ 3\/4/);
+  const narrow = stripAnsi(renderSessions(buildRenderModel({ sessions: [row], grouping: "stage", width: 60 }), darkTheme).lines.join("\n"));
+  assert.doesNotMatch(narrow, /Verify package|■|□|release-008/);
+
+  const progressOnly = { ...row, workflow: { ...row.workflow, activity: undefined, plan: { tasks: { completed: 1, total: 3 } } } };
+  const progressText = stripAnsi(renderSessions(buildRenderModel({ sessions: [progressOnly], grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
+  assert.match(progressText, /■■■□□□□□ 1\/3/);
+
+  const noTotal = { ...row, workflow: { ...row.workflow, activity: undefined, plan: { tasks: { completed: 0, total: 0 } } } };
+  const noTotalText = stripAnsi(renderSessions(buildRenderModel({ sessions: [noTotal], grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
+  assert.doesNotMatch(noTotalText, /■|□|0\/0/);
 });

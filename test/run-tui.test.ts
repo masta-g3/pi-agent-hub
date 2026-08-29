@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNewFormContext, createRegistryMutator, persistDashboardThemeSelection, restartAllTargets } from "../src/app/run-tui.js";
+import { buildNewFormContext, createRegistryMutator, normalizeSessionsViewState, persistDashboardThemeSelection, restartAllTargets } from "../src/app/run-tui.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function deferred<T = void>() {
@@ -26,6 +26,15 @@ function session(id: string, cwd: string, group: string, additionalCwds?: string
     updatedAt: 1,
   };
 }
+
+test("view state ignores retired density and Backlog collapse values", () => {
+  assert.deepEqual(normalizeSessionsViewState({
+    grouping: "stage",
+    density: "all-cards",
+    collapsedSections: ["backlog", "archived", "archived"],
+  }), { grouping: "stage", collapsedSections: ["archived"] });
+  assert.deepEqual(normalizeSessionsViewState({ grouping: "unknown", density: "compact" }), { grouping: "project" });
+});
 
 test("restartAllTargets includes only active parent sessions", () => {
   const active = session("active", "/repo/active", "one");

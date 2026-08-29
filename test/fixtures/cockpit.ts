@@ -38,7 +38,7 @@ export function cockpitFleet(): RuntimeSession[] {
     { ...session("blocked", "Migration decision", "Data", "waiting"), context: attention("blocked", "Choose the migration boundary") },
     { ...session("qa", "Flaky test investigation", "QA", "error"), error: "three retries failed" },
     { ...session("dashboard", "Dashboard UI polish", "Pi Agent Hub", "waiting"), workflow: COCKPIT_WORKFLOW },
-    { ...session("worker", "code-critic", "Pi Agent Hub", "running"), kind: "subagent", parentId: "dashboard", agentName: "code-critic" },
+    { ...session("worker", "code-critic", "Pi Agent Hub", "running"), kind: "subagent", parentId: "dashboard", agentName: "code-critic", taskPreview: "Review cockpit hierarchy geometry" },
     { ...session("scout", "scout", "Pi Agent Hub", "idle"), kind: "subagent", parentId: "dashboard", agentName: "scout", taskPreview: "needle context" },
     { ...session("release", "Package release checks", "Release", "running"), workflow: { ...COCKPIT_WORKFLOW, activeIndex: 2 } },
     session("waiting", "Waiting without request", "Default", "waiting"),

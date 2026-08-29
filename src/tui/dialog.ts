@@ -22,11 +22,10 @@ export interface SessionDialogInput {
 
 export type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult };
 
-export type CollapsibleSection = "backlog" | "archived";
+export type CollapsibleSection = "archived";
 
 export interface SessionsViewState {
   grouping: "project" | "stage";
-  density: "compact" | "all-cards";
   collapsedSections?: CollapsibleSection[];
 }
 

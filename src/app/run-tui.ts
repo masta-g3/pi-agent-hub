@@ -65,6 +65,17 @@ function isHubWorktree(session: ManagedSession): boolean {
   return session.worktreeOwnedByHub === true && sessionWorktrees(session).length > 0;
 }
 
+export function normalizeSessionsViewState(value: unknown): SessionsViewState {
+  const saved = value && typeof value === "object" ? value as Partial<SessionsViewState> : {};
+  const collapsedSections = Array.isArray(saved.collapsedSections)
+    ? [...new Set(saved.collapsedSections.filter((section): section is "archived" => section === "archived"))]
+    : [];
+  return {
+    grouping: saved.grouping === "stage" ? "stage" : "project",
+    ...(collapsedSections.length ? { collapsedSections } : {}),
+  };
+}
+
 export function restartAllTargets(sessions: ManagedSession[]): ManagedSession[] {
   return sessions.filter((session) => session.kind !== "subagent" && sessionSection(session) === "active");
 }
@@ -192,15 +203,7 @@ export async function runTui(): Promise<void> {
   const mcpCatalog = await loadMcpCatalog();
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
   const savedViewState = await readJsonOr<unknown>(uiStatePath(), {});
-  const saved = savedViewState && typeof savedViewState === "object" ? savedViewState as Partial<SessionsViewState> : {};
-  const collapsedSections = Array.isArray(saved.collapsedSections)
-    ? [...new Set(saved.collapsedSections.filter((section): section is "backlog" | "archived" => section === "backlog" || section === "archived"))]
-    : [];
-  const initialViewState: SessionsViewState = {
-    grouping: saved.grouping === "stage" ? "stage" : "project",
-    density: saved.density === "all-cards" ? "all-cards" : "compact",
-    collapsedSections,
-  };
+  const initialViewState = normalizeSessionsViewState(savedViewState);
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
   let stopActionLoop: (() => void) | undefined;

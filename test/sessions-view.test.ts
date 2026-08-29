@@ -9,7 +9,10 @@ import type { ManagedSession } from "../src/core/types.js";
 import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
-  return lines.map((line) => stripAnsi(line).split("│")[1] ?? stripAnsi(line)).join("\n");
+  return lines.map((line) => {
+    const parts = stripAnsi(line).split("│");
+    return parts.length >= 5 ? parts[2]! : (parts[1] ?? parts[0]!);
+  }).join("\n");
 }
 
 function session(id: string, title: string): ManagedSession {
@@ -232,7 +235,7 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Alt\+arrows move spatially/);
   assert.doesNotMatch(help, /1-4 assign|Focus panel/);
   assert.match(help, /double-click opens the workspace first unless pins are visible/);
-  assert.match(help, /Density · toggle compact and all-card rows/);
+  assert.doesNotMatch(help, /Density|compact and all-card/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
   assert.match(help, /only explicit producer attention enters Needs you/);
@@ -534,7 +537,7 @@ test("Space expands and collapses the selected board parent tree", () => {
   assert.match(fleetText(view.render(120)), /api/);
 
   view.handleInput(" ");
-  assert.match(fleetText(view.render(120)), /api ▾/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api/);
   assert.match(fleetText(view.render(120)), /worker/);
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -586,7 +589,7 @@ test("left and right arrows collapse and expand the selected board tree", () => 
 
   view.handleInput("S");
   view.handleInput("\u001b[C");
-  assert.match(fleetText(view.render(120)), /api ▾[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -700,7 +703,7 @@ test("reorder is disabled in stage grouping", () => {
   assert.match(view.render(120).join("\n"), /switch to project grouping to reorder/);
 });
 
-test("v toggles and persists compact and junction density modes", () => {
+test("v has no built-in view behavior or persisted state", () => {
   const saved: SessionsViewState[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
@@ -708,12 +711,8 @@ test("v toggles and persists compact and junction density modes", () => {
   });
 
   view.handleInput("v");
-  view.handleInput("v");
 
-  assert.deepEqual(saved, [
-    { grouping: "project", density: "all-cards" },
-    { grouping: "project", density: "compact" },
-  ]);
+  assert.deepEqual(saved, []);
 });
 
 test("v inside filter mode edits the filter instead of toggling views", () => {
@@ -924,22 +923,90 @@ test("pin commands surface capacity and tmux transport failures", async () => {
   assert.match(stripAnsi(view.render(100).join("\n")), /side pane needs tmux/);
 });
 
-function mousePressAtLine(lineIndex: number, x = 3): string {
+function mousePressAtLine(lineIndex: number, x = 22): string {
   return `\u001b[<0;${x};${lineIndex + 1}M`;
 }
 
-function mouseReleaseAtLine(lineIndex: number, x = 3): string {
+function mouseReleaseAtLine(lineIndex: number, x = 22): string {
   return `\u001b[<0;${x};${lineIndex + 1}m`;
 }
 
 function rowIndexFor(rendered: string[], title: string): number {
   const index = rendered.findIndex((line) => {
     const text = stripAnsi(line);
-    return text.includes(title) && /^│[▌ ] [●◐○×-]/.test(text);
+    return text.includes(title) && /[▸▾·├└│].*[●◐○×-]/.test(text);
   });
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
 }
+
+test("tier navigator mouse click selects the exact first presentation owner", () => {
+  const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const active = { ...session("active", "active"), status: "running" as const };
+  const archived = { ...session("archived", "archived"), status: "stopped" as const, bucket: "archived" as const, bucketChangedAt: 1 };
+  const controller = new SessionsController({ version: 1, sessions: [needs, active, archived] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", collapsedSections: ["archived"] },
+    saveViewState: (state) => { saved.push(state); },
+  });
+
+  let rendered = view.render(100);
+  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
+  assert.notEqual(activeNav, -1);
+  view.handleInput(mousePressAtLine(activeNav, 3));
+  assert.equal(controller.selected()?.id, "active");
+
+  rendered = view.render(100);
+  const archiveNav = rendered.findIndex((line) => /^│ARCHIVED\s+1/.test(stripAnsi(line)));
+  assert.notEqual(archiveNav, -1);
+  view.handleInput(mousePressAtLine(archiveNav, 3));
+  assert.equal(controller.selected()?.id, "archived");
+  assert.deepEqual(saved.at(-1), { grouping: "project" });
+});
+
+test("tier navigator and fleet hit maps do not overlap at the column boundary", () => {
+  const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const active = { ...session("active", "active"), status: "running" as const };
+  const controller = new SessionsController({ version: 1, sessions: [needs, active] });
+  const view = new SessionsView(controller, () => {});
+  const rendered = view.render(100);
+  const activeRow = rowIndexFor(rendered, "active");
+
+  view.handleInput(mousePressAtLine(activeRow, 18));
+  assert.equal(controller.selected()?.id, "needs");
+  view.handleInput(mousePressAtLine(activeRow, 19));
+  assert.equal(controller.selected()?.id, "active");
+});
+
+test("workspace actions ignore the terminal outer border", () => {
+  const switched: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+  });
+  const rendered = view.render(120);
+  const openRow = rendered.findIndex((line) => stripAnsi(line).includes("Enter Open"));
+  assert.notEqual(openRow, -1);
+
+  view.handleInput(mousePressAtLine(openRow, 120));
+
+  assert.deepEqual(switched, []);
+});
+
+test("tier navigator reaches an orphan subagent presentation owner", () => {
+  const quiet = session("quiet", "quiet");
+  const orphan = { ...session("orphan", "orphan"), status: "running" as const, kind: "subagent" as const, parentId: "missing", agentName: "scout", taskPreview: "Inspect orphan" };
+  const controller = new SessionsController({ version: 1, sessions: [quiet, orphan] });
+  const view = new SessionsView(controller, () => {});
+  const rendered = view.render(100);
+  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
+  assert.notEqual(activeNav, -1);
+
+  view.handleInput(mousePressAtLine(activeNav, 3));
+
+  assert.equal(controller.selected()?.id, "orphan");
+});
 
 test("single mouse click selects without opening", () => {
   const switched: string[] = [];
@@ -1091,7 +1158,7 @@ test("Archived is the only collapsible project section and persists its state", 
   assert.match(collapsed, /▸ ARCHIVED/);
   assert.doesNotMatch(collapsed, /\n.*○ archived/);
   assert.match(collapsed, /backlog/);
-  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["archived"] });
+  assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
 });
 
 test("Archived header selection blocks session actions and Enter collapses it", () => {
@@ -2494,7 +2561,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌ . api/);
+  assert.match(prompt, /▌ ·\s+○ api/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;
@@ -3154,7 +3221,7 @@ test("palette reveals an older collapsed Archived result from the workflow board
   const controller = new SessionsController({ version: 1, sessions: [session("active", "active"), ...archived] });
   const saved: SessionsViewState[] = [];
   const view = new SessionsView(controller, () => {}, {
-    initialViewState: { grouping: "stage", density: "compact", collapsedSections: ["archived"] },
+    initialViewState: { grouping: "stage", collapsedSections: ["archived"] },
     saveViewState: (state) => { saved.push(state); },
     terminalRows: () => 30,
   });
@@ -3206,20 +3273,21 @@ test("palette shows blocked actions with reasons and does not execute them", () 
   assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
 });
 
-test("palette includes and executes configured dashboard shortcuts", () => {
+test("palette and direct v execute configured dashboard shortcuts", () => {
   const sent: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }],
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "v", label: "Verify", send: "/verify" }],
     runDashboardShortcut: (id, shortcut) => { sent.push(`${id}:${shortcut.send}`); },
     terminalRows: () => 30,
   });
 
   view.render(100);
+  view.handleInput("v");
   view.handleInput(":");
   for (const char of "summarize") view.handleInput(char);
   view.handleInput("\r");
 
-  assert.deepEqual(sent, ["api:/summary"]);
+  assert.deepEqual(sent, ["api:/verify", "api:/summary"]);
 });
 
 test("palette exposes named status filters and direct Help", () => {

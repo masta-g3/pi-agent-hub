@@ -14,8 +14,8 @@ import {
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
-import { buildDashboardProjection, buildRenderModel, type DashboardProjection } from "./render-model.js";
-import { renderSessions, type SessionListTarget } from "./layout.js";
+import { buildDashboardProjection, buildRenderModel, type CockpitTier, type DashboardProjection } from "./render-model.js";
+import { renderSessions, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -70,7 +70,6 @@ export class SessionsView implements Component {
   private workspaceEvidenceSessionId: string | undefined;
   private lastWidth = 120;
   private grouping: "project" | "stage";
-  private density: "compact" | "all-cards";
   private pendingRestart: { sessionId: string } | undefined;
   private lastMouseClick: { target: string; at: number } | undefined;
   private busy = false;
@@ -79,7 +78,10 @@ export class SessionsView implements Component {
   private selectedSection: CollapsibleSection | undefined;
   private collapsedSections = new Set<CollapsibleSection>();
   private rowTargets: (SessionListTarget | undefined)[] = [];
+  private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
+  private navigatorWidth = 0;
+  private listStartX = 2;
   private workspaceStartX: number | undefined;
   private paletteRowTargets: (CommandPaletteRowTarget | undefined)[] = [];
   private paletteBounds: { start: number; end: number } | undefined;
@@ -96,7 +98,6 @@ export class SessionsView implements Component {
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {
     this.grouping = actions.initialViewState?.grouping ?? "project";
-    this.density = actions.initialViewState?.density ?? "compact";
     this.collapsedSections = new Set(actions.initialViewState?.collapsedSections ?? []);
   }
 
@@ -247,7 +248,10 @@ export class SessionsView implements Component {
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
       this.rowTargets = [];
+      this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
+      this.navigatorWidth = 0;
+      this.listStartX = 2;
       this.workspaceStartX = undefined;
       this.listWidth = 0;
       return limitRows(narrowNotice(width), height, width, this.theme);
@@ -289,7 +293,6 @@ export class SessionsView implements Component {
       height,
       listScrollTop: this.listScrollTop,
       grouping: this.grouping,
-      density: this.density,
       now,
       pinSlots: sidePaneState.slots,
       activePinnedSessionId: sidePaneState.activeSessionId,
@@ -306,7 +309,10 @@ export class SessionsView implements Component {
     });
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
+    this.navigatorRowTargets = layout.navigatorRowTargets;
     this.workspaceRowTargets = layout.workspaceRowTargets;
+    this.navigatorWidth = layout.navigatorWidth;
+    this.listStartX = layout.listStartX;
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
@@ -640,7 +646,6 @@ export class SessionsView implements Component {
       case "project:mcp": this.startPicker("mcp"); return;
       case "action:new": this.startNewDialog(); return;
       case "view:theme": this.startThemeDialog(); return;
-      case "view:density": this.toggleDensity(); return;
       case "view:grouping": this.toggleGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:help": this.dialog = { kind: "help" }; return;
@@ -869,7 +874,15 @@ export class SessionsView implements Component {
       if (!this.workspaceSessionId) this.moveSelection(event.delta);
       return;
     }
-    const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX
+    const navigatorTarget = this.navigatorWidth && event.x >= 2 && event.x < 2 + this.navigatorWidth
+      ? this.navigatorRowTargets[event.y - 1]
+      : undefined;
+    if (navigatorTarget) {
+      this.lastMouseClick = undefined;
+      this.jumpToCockpitTier(navigatorTarget.tier);
+      return;
+    }
+    const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX && event.x < this.lastWidth
       ? this.workspaceRowTargets[event.y - 1]
       : undefined;
     if (workspaceTarget) {
@@ -877,7 +890,7 @@ export class SessionsView implements Component {
       this.executeDashboardCommand(workspaceTarget);
       return;
     }
-    const inList = event.x >= 2 && event.x <= 1 + this.listWidth;
+    const inList = event.x >= this.listStartX && event.x < this.listStartX + this.listWidth;
     const target = inList ? this.rowTargets[event.y - 1] : undefined;
     if (!target) {
       this.lastMouseClick = undefined;
@@ -908,6 +921,22 @@ export class SessionsView implements Component {
       else if (target.kind === "section-header") this.toggleSection(target.section);
       else this.activateFleetSelection();
     }
+  }
+
+  private jumpToCockpitTier(tier: CockpitTier): void {
+    if (this.grouping !== "project") return;
+    const projection = this.dashboardProjection(this.controller.snapshot());
+    const ownerId = projection.cockpitNavigation.find((entry) => entry.tier === tier)?.firstOwnerId;
+    if (!ownerId) return;
+    this.revealedSessionId = undefined;
+    this.archiveDisclosureSelected = false;
+    this.selectedSection = undefined;
+    if (tier === "archived" && this.collapsedSections.delete("archived")) {
+      this.viewStateRevision += 1;
+      this.saveViewState();
+    }
+    this.controller.selectSession(ownerId);
+    this.listScrollTop = 0;
   }
 
   private startThemeDialog() {
@@ -1213,18 +1242,9 @@ export class SessionsView implements Component {
   }
 
   private saveViewState() {
-    const state: SessionsViewState = { grouping: this.grouping, density: this.density };
+    const state: SessionsViewState = { grouping: this.grouping };
     if (this.collapsedSections.size) state.collapsedSections = [...this.collapsedSections];
     this.actions.saveViewState?.(state);
-  }
-
-  private toggleDensity() {
-    this.revealedSessionId = undefined;
-    this.clearPendingRestart();
-    this.clearFlash();
-    this.message = undefined;
-    this.density = this.density === "compact" ? "all-cards" : "compact";
-    this.saveViewState();
   }
 
   private toggleGrouping() {
@@ -1499,7 +1519,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  P pin/focus selected     x close selected pin     +/- resize split",
     "  Alt+arrows move spatially     Alt+Q return to cockpit",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
-    "  mouse click select · double-click workspace below 120, open/switch at 120+ · wheel move",
+    "  mouse click select · tier navigator jumps at 100+ · double-click workspace below 120, open/switch at 120+ · wheel move",
     "",
     heading("Choice dialogs"),
     "  Restart: r selected     n new conversation     a all     Esc cancel",
@@ -1521,7 +1541,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  only explicit producer attention enters Needs you; Backlog stays labeled in Quiet when inactive",
     "  Archived is flat and chronological; Enter/double-click reveals older rows",
     "  Archived cascades auto-remove after 7d once every tmux session is gone",
-    "  v temporarily cycles row density; S temporarily toggles the producer workflow board",
+    "  S toggles the read-only producer workflow board",
     "  Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE;",
     "  subagent trees start collapsed; Space toggles one board tree; filters reveal matches",
     "  every lane nests project/group labels; Backlog/Archived stay summarized",

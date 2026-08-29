@@ -10,12 +10,19 @@ export type SessionListTarget =
   | { kind: "session"; id: string }
   | { kind: "session-continuation"; id: string }
   | { kind: "archive-disclosure" }
-  | { kind: "section-header"; section: "backlog" | "archived" };
+  | { kind: "section-header"; section: "archived" };
+
+export interface TierNavigatorTarget {
+  tier: CockpitTier;
+}
 
 export interface SessionsLayout {
   lines: string[];
   rowTargets: (SessionListTarget | undefined)[];
+  navigatorRowTargets: (TierNavigatorTarget | undefined)[];
   workspaceRowTargets: (string | undefined)[];
+  navigatorWidth: number;
+  listStartX: number;
   workspaceStartX?: number;
   listWidth: number;
   listScrollTop: number;
@@ -27,17 +34,16 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const emptyLayout = (lines: string[]): SessionsLayout => ({
     lines,
     rowTargets: lines.map(() => undefined),
+    navigatorRowTargets: lines.map(() => undefined),
     workspaceRowTargets: lines.map(() => undefined),
+    navigatorWidth: 0,
+    listStartX: 2,
     listWidth: 0,
     listScrollTop: 0,
   });
   if (model.empty) return emptyLayout(box(width, fitBoxBody(emptyLines(width, styles), model.height), styles));
 
   const bodyWidth = width - 2;
-  if (model.noMatches) {
-    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noMatchLines(width, model.filter ?? "", styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
-    return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
-  }
   if (model.noBoardSessions) {
     const body = [renderTopSummary(model, bodyWidth, styles), ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
     return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
@@ -47,45 +53,75 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   }
 
   const workspaceWidth = model.showWorkspace ? (width >= 160 ? 44 : 34) : 0;
-  const split = model.showWorkspace ? bodyWidth - workspaceWidth - 1 : bodyWidth;
+  const navigatorWidth = model.grouping === "project" && !model.pinMode && width >= 100 ? (width >= 120 ? 17 : 16) : 0;
+  const listWidth = bodyWidth
+    - workspaceWidth - (workspaceWidth ? 1 : 0)
+    - navigatorWidth - (navigatorWidth ? 1 : 0);
+  const listStartX = 2 + navigatorWidth + (navigatorWidth ? 1 : 0);
   const decision = model.pinMode && model.workspace
     ? renderPinnedDecisionStrip(model.workspace, bodyWidth, pinnedDecisionRows(model.height), model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const stripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
   const targetRows = bodyRowsFromHeight(model.height, stripLines);
-  const left = renderSessionList(model, split, styles);
+  const left = renderSessionList(model, listWidth, styles);
   const workspace = model.showWorkspace && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const rows = targetRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
+  const navigator = renderTierNavigator(model, navigatorWidth, rows, styles);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
   const body: string[] = [renderTopSummary(model, bodyWidth, styles)];
   if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
   body.push(...decision.lines);
   for (let i = 0; i < rows; i += 1) {
-    const padded = pad(windowedLeft.lines[i] ?? "", split);
+    const padded = pad(windowedLeft.lines[i] ?? "", listWidth);
     const leftLine = i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex ? styles.selected(padded) : padded;
-    body.push(model.showWorkspace ? `${leftLine}${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : leftLine);
+    const navLine = navigatorWidth ? `${pad(navigator.lines[i] ?? "", navigatorWidth)}${styles.border("│")}` : "";
+    const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
+    body.push(`${navLine}${leftLine}${workspaceLine}`);
   }
   body.push(styles.border("─".repeat(bodyWidth)));
   body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
   const lines = box(width, body, styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
+  const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const decisionStart = 2 + (model.pinSummary ? 1 : 0);
   for (let i = 0; i < decision.targets.length; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
     const lineIndex = 2 + stripLines + i;
     rowTargets[lineIndex] = windowedLeft.targets[i];
+    navigatorRowTargets[lineIndex] = navigator.targets[i];
     workspaceRowTargets[lineIndex] = workspace.targets[i];
   }
   return {
     lines,
     rowTargets,
+    navigatorRowTargets,
     workspaceRowTargets,
-    ...(model.showWorkspace ? { workspaceStartX: split + 3 } : decision.lines.length ? { workspaceStartX: 2 } : {}),
-    listWidth: split,
+    navigatorWidth,
+    listStartX,
+    ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 2 } : {}),
+    listWidth,
     listScrollTop: windowedLeft.top,
+  };
+}
+
+function renderTierNavigator(model: RenderModel, width: number, rows: number, styles: LayoutStyles): { lines: string[]; targets: (TierNavigatorTarget | undefined)[] } {
+  if (!width) return { lines: [], targets: [] };
+  const lines = [styles.dim("FLEET")];
+  const targets: (TierNavigatorTarget | undefined)[] = [undefined];
+  for (const entry of model.cockpitNavigation) {
+    const tone = cockpitTone(entry.tier, styles);
+    const label = entry.ownerCount ? tone(entry.label) : styles.dim(entry.label);
+    const count = styles.dim(String(entry.ownerCount));
+    const line = pad(twoColumn(label, count, width), width);
+    lines.push(entry.selected ? styles.selected(line) : line);
+    targets.push(entry.ownerCount && entry.firstOwnerId ? { tier: entry.tier } : undefined);
+  }
+  return {
+    lines: [...lines, ...Array.from({ length: Math.max(0, rows - lines.length) }, () => "")].slice(0, rows),
+    targets: [...targets, ...Array.from({ length: Math.max(0, rows - targets.length) }, () => undefined)].slice(0, rows),
   };
 }
 
@@ -101,7 +137,17 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height
   const lines = box(width, [...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 1] = rendered.targets[i];
-  return { lines, rowTargets: lines.map(() => undefined), workspaceRowTargets, workspaceStartX: 2, listWidth: 0, listScrollTop: 0 };
+  return {
+    lines,
+    rowTargets: lines.map(() => undefined),
+    navigatorRowTargets: lines.map(() => undefined),
+    workspaceRowTargets,
+    navigatorWidth: 0,
+    listStartX: 2,
+    workspaceStartX: 2,
+    listWidth: 0,
+    listScrollTop: 0,
+  };
 }
 
 // Footer strings stay plain in the render model for testability; keys get
@@ -168,17 +214,6 @@ function emptyLines(width: number, styles: LayoutStyles): string[] {
     `${styles.accent("▶")} ${styles.accent("n")}  create a session here`,
     `  ${styles.accent("?")}  ${styles.dim("show help")}`,
     `  ${styles.accent("q")}  ${styles.dim("quit")}`,
-    "",
-  ].map((line) => truncate(line, inner));
-}
-
-function noMatchLines(width: number, filter: string, styles: LayoutStyles): string[] {
-  const inner = width - 2;
-  return [
-    "",
-    styles.warning(`No sessions match ${JSON.stringify(filter)}.`),
-    "",
-    `${styles.warning("▶")} Use the footer controls below.`,
     "",
   ].map((line) => truncate(line, inner));
 }
@@ -274,6 +309,13 @@ function renderPinnedDecisionStrip(workspace: RenderWorkspace, width: number, ro
   };
 }
 
+type AdaptiveRowShape = "full-parent" | "single-parent" | "micro-child";
+
+function adaptiveRowShape(session: RenderSession): AdaptiveRowShape {
+  if (session.kind === "subagent") return "micro-child";
+  return session.section === "active" ? "full-parent" : "single-parent";
+}
+
 interface SessionListContent {
   lines: string[];
   targets: (SessionListTarget | undefined)[];
@@ -281,10 +323,21 @@ interface SessionListContent {
   selectedEndIndex: number;
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
-  fillAroundSelected?: boolean;
 }
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles): SessionListContent {
+  if (model.noMatches) {
+    const lines = noMatchListLines(width, model.filter ?? "", styles);
+    return {
+      lines,
+      targets: lines.map(() => undefined),
+      selectedIndex: -1,
+      selectedEndIndex: -1,
+      continuationPriorities: new Map(),
+      contextIndexes: new Map(),
+    };
+  }
+
   const board = model.grouping === "stage";
   const lines: string[] = [];
   const targets: (SessionListTarget | undefined)[] = [];
@@ -296,35 +349,20 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     lines.push(line);
     targets.push(target);
   };
-  const pushRow = (session: RenderSession, junction?: { last: boolean; rich: boolean }, context: number[] = []) => {
-    if (model.density === "all-cards" && junction) {
-      if (session.selected) selectedIndex = lines.length;
-      const branch = junction.last ? (session.selected ? "┗" : "└") : session.selected ? "┣" : "├";
-      const branchText = session.selected ? styles.accent(branch) : styles.border(branch);
-      const attention = session.attention ? `${attentionGlyph(session.attention.kind, styles)} ` : "";
-      const titlePrefix = `${branchText} ${attention}`;
-      const title = renderSessionRow(session, Math.max(0, width - displayWidth(titlePrefix)), styles, {
-        board,
-        selectionMarker: false,
-        titleSource: "stored",
-        prefixMode: "none",
-      });
-      pushLine(`${titlePrefix}${title}`, { kind: "session", id: session.id });
-      contextIndexes.set(lines.length - 1, context);
-      if (junction.rich) {
-        const continuationBranch = junction.last ? " " : session.selected ? "┃" : "│";
-        const continuationPrefix = `${session.selected ? styles.accent(continuationBranch) : styles.border(continuationBranch)} `;
-        for (const continuation of allCardLines(session, Math.max(0, width - 2), styles)) {
-          pushLine(`${continuationPrefix}${continuation.line}`, { kind: "session-continuation", id: session.id });
-          continuationPriorities.set(lines.length - 1, continuation.priority);
-        }
-      }
-      if (session.selected) selectedEndIndex = lines.length - 1;
-      return;
-    }
+  const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     if (session.selected) selectedIndex = lines.length;
-    pushLine(renderSessionRow(session, width, styles, { board }), { kind: "session", id: session.id });
-    if (model.density === "all-cards") contextIndexes.set(lines.length - 1, context);
+    const shape = adaptiveRowShape(session);
+    const childLast = shape === "micro-child"
+      ? !siblings.slice(index + 1).some((candidate) => candidate.kind === "subagent" && candidate.parentId === session.parentId)
+      : false;
+    pushLine(renderSessionRow(session, width, styles, { board, terminalWidth: model.width, childLast }), { kind: "session", id: session.id });
+    contextIndexes.set(lines.length - 1, context);
+    if (shape === "full-parent" && !model.pinMode) {
+      for (const continuation of adaptiveCardLines(session, Math.max(0, width - 2), styles, board, model.width)) {
+        pushLine(`${styles.border("  ")}${continuation.line}`, { kind: "session-continuation", id: session.id });
+        continuationPriorities.set(lines.length - 1, continuation.priority);
+      }
+    }
     if (session.selected) selectedEndIndex = lines.length - 1;
   };
   let firstSection = true;
@@ -344,22 +382,15 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     pushLine(sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier), headerTarget);
     firstSection = false;
     for (const [groupIndex, group] of section.groups.entries()) {
-      if (model.density === "all-cards" && groupIndex) pushLine("");
+      if (groupIndex && model.width >= 100) pushLine("");
       let groupHeadingIndex: number | undefined;
-      if (board) {
+      if (board && model.width >= 100) {
         const parentCount = group.sessions.filter((session) => session.kind !== "subagent").length;
-        const groupName = model.density === "all-cards" ? styles.accent(group.name) : styles.muted(group.name);
         groupHeadingIndex = lines.length;
-        pushLine(twoColumn(groupName, groupBoardCounts(group, parentCount, styles), width));
+        pushLine(twoColumn(styles.accent(group.name), groupBoardCounts(group, parentCount, styles), width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
-      const junction = model.density === "all-cards" && section.key !== "archived";
-      for (const [index, session] of group.sessions.entries()) {
-        pushRow(session, junction ? {
-          last: index === group.sessions.length - 1,
-          rich: (board || session.section === "active") && session.kind !== "subagent",
-        } : undefined, context);
-      }
+      for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
     }
     if (section.archiveDisclosure) {
       if (section.archiveDisclosure.selected) {
@@ -369,14 +400,19 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       const label = section.archiveDisclosure.expanded ? "⌃ show fewer" : `… ${section.archiveDisclosure.hiddenParents} older archived`;
       const prefix = section.archiveDisclosure.selected ? `${styles.accent("▌")} ` : "  ";
       pushLine(`${prefix}${styles.dim(truncate(label, Math.max(0, width - 2)))}`, { kind: "archive-disclosure" });
-      if (model.density === "all-cards") contextIndexes.set(lines.length - 1, [sectionHeadingIndex]);
+      contextIndexes.set(lines.length - 1, [sectionHeadingIndex]);
     }
   }
   if (board) {
     pushLine("");
     pushLine(boardHiddenSummary(model, width, styles));
   }
-  return { lines, targets, selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes, fillAroundSelected: model.density === "all-cards" };
+  return { lines, targets, selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes };
+}
+
+function noMatchListLines(width: number, filter: string, styles: LayoutStyles): string[] {
+  return [styles.warning(`No sessions match ${JSON.stringify(filter)}.`), "", `${styles.warning("▶")} Use the footer controls below.`, ""]
+    .map((line) => truncate(line, width));
 }
 
 function boardHiddenSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
@@ -396,59 +432,18 @@ interface ListWindow {
 }
 
 function windowList(list: SessionListContent, capacity: number, scrollTop: number, styles: LayoutStyles): ListWindow {
-  if (list.fillAroundSelected) return windowFilledSelectedSpan(list, capacity, scrollTop, styles);
-  if (capacity <= 0 || list.lines.length <= capacity) return { ...list, top: 0 };
-  const total = list.lines.length;
-  const selectedIndex = Math.max(0, list.selectedIndex);
-  const sessionCount = (from: number, to: number) => list.targets.slice(Math.max(0, from), Math.min(total, to)).filter((target) => target?.kind === "session").length;
-  const indicator = (arrow: "↑" | "↓", count: number) => count > 0 ? styles.dim(`${arrow} ${count} more`) : "";
-  const slice = (top: number, lines: string[], targets: (SessionListTarget | undefined)[], selectedOffset = top): ListWindow => {
-    const visibleSelected = selectedIndex >= selectedOffset && selectedIndex < selectedOffset + lines.length ? selectedIndex - selectedOffset : -1;
-    return { lines, targets, selectedIndex: visibleSelected, selectedEndIndex: visibleSelected, top };
-  };
-
-  if (capacity === 1) return slice(selectedIndex, [list.lines[selectedIndex] ?? ""], [list.targets[selectedIndex]], selectedIndex);
-
-  if (selectedIndex < capacity - 1) {
-    const visibleEnd = capacity - 1;
-    return slice(0, [...list.lines.slice(0, visibleEnd), indicator("↓", sessionCount(visibleEnd, total))], [...list.targets.slice(0, visibleEnd), undefined]);
-  }
-
-  if (selectedIndex >= total - (capacity - 1)) {
-    const top = total - (capacity - 1);
+  const safeCapacity = Math.max(1, capacity);
+  if (list.lines.length <= safeCapacity) return { ...list, top: 0 };
+  if (list.selectedIndex < 0) {
     return {
-      lines: [indicator("↑", sessionCount(0, top)), ...list.lines.slice(top)],
-      targets: [undefined, ...list.targets.slice(top)],
-      selectedIndex: selectedIndex - top + 1,
-      selectedEndIndex: selectedIndex - top + 1,
-      top,
+      lines: list.lines.slice(0, safeCapacity),
+      targets: list.targets.slice(0, safeCapacity),
+      selectedIndex: -1,
+      selectedEndIndex: -1,
+      top: 0,
     };
   }
-
-  if (capacity === 2) {
-    return {
-      lines: [indicator("↑", sessionCount(0, selectedIndex)), list.lines[selectedIndex] ?? ""],
-      targets: [undefined, list.targets[selectedIndex]],
-      selectedIndex: 1,
-      selectedEndIndex: 1,
-      top: selectedIndex,
-    };
-  }
-
-  const lastContent = capacity - 3;
-  const maxTop = total - (capacity - 1);
-  let top = Math.max(1, Math.min(scrollTop, maxTop));
-  if (selectedIndex < top) top = selectedIndex;
-  if (selectedIndex > top + lastContent) top = selectedIndex - lastContent;
-  top = Math.max(1, Math.min(top, maxTop));
-  const bottomStart = top + capacity - 2;
-  return {
-    lines: [indicator("↑", sessionCount(0, top)), ...list.lines.slice(top, bottomStart), indicator("↓", sessionCount(bottomStart, total))],
-    targets: [undefined, ...list.targets.slice(top, bottomStart), undefined],
-    selectedIndex: selectedIndex - top + 1,
-    selectedEndIndex: selectedIndex - top + 1,
-    top,
-  };
+  return windowFilledSelectedSpan(list, safeCapacity, scrollTop, styles);
 }
 
 function windowFilledSelectedSpan(list: SessionListContent, capacity: number, scrollTop: number, styles: LayoutStyles): ListWindow {
@@ -627,7 +622,6 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
 
 const CARD = {
   stepDone: "✓", stepActive: "◉", stepPending: "·",
-  taskDone: "▰", taskPending: "▱", phaseSep: "│",
 } as const;
 
 export function workflowStepMarker(workflow: WorkflowRuntimeSnapshot, index: number): "✓" | "◉" | "·" {
@@ -641,81 +635,56 @@ function styledWorkflowMarker(workflow: WorkflowRuntimeSnapshot, index: number, 
   return styles[marker === CARD.stepDone ? "success" : marker === CARD.stepActive ? "accent" : "dim"](marker);
 }
 
-function workflowVisualLine(session: RenderSession, width: number, styles: LayoutStyles): string | undefined {
-  const workflow = session.workflow;
-  if (!workflow?.steps[workflow.activeIndex]) return undefined;
-  const dots = workflow.steps.map((_step, index) => styledWorkflowMarker(workflow, index, styles)).join("");
-  const activity = workflow.activity;
-  if (activity) {
-    const pass = activity.pass && activity.pass > 1 ? ` (pass ${activity.pass})` : "";
-    return truncate(`${dots}  ${activity.label}${pass}`, width);
+function adaptiveCardLines(
+  session: RenderSession,
+  width: number,
+  styles: LayoutStyles,
+  board: boolean,
+  terminalWidth: number,
+): { line: string; priority: number }[] {
+  if (board) {
+    if (terminalWidth < 100) return [];
+    const lines: { line: string; priority: number }[] = [];
+    const context = session.ticketId
+      ? `#${session.ticketId}${session.ticketSubtitle ? ` · ${session.ticketSubtitle}` : ""}`
+      : session.ticketSubtitle;
+    if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
+    const activity = session.workflow?.activity;
+    const activityText = activity ? `${activity.label}${activity.pass && activity.pass > 1 ? ` (pass ${activity.pass})` : ""}` : "";
+    const progress = boardProgressBar(session.plan, styles);
+    const recap = activityText && progress
+      ? `${styles.accent(truncate(activityText, Math.max(0, width - displayWidth(progress) - 3)))}${styles.border(" · ")}${progress}`
+      : activityText ? styles.accent(truncate(activityText, width)) : truncate(progress, width);
+    if (recap) lines.push({ line: recap, priority: 0 });
+    return lines;
   }
-  const plan = session.plan;
+
+  const lines: { line: string; priority: number }[] = [];
+  const summary = session.attention?.text ?? session.ticketSubtitle ?? session.ticketDescription;
+  if (summary) {
+    const text = session.attention ? `“${summary}”` : summary;
+    lines.push({ line: styles.muted(truncate(text, width)), priority: 0 });
+  }
+  if (terminalWidth >= 80) {
+    const meta = [session.ticketId ? `#${session.ticketId}` : "", terminalWidth >= 100 ? session.group : ""]
+      .filter(Boolean)
+      .join(styles.border(" · "));
+    if (meta) lines.push({ line: styles.dim(truncate(meta, width)), priority: 2 });
+  }
+  return lines;
+}
+
+function boardProgressBar(plan: RenderSession["plan"], styles: LayoutStyles): string {
   const phases = plan?.phases;
-  const taskMarker = (done: boolean) => done ? styles.accent(CARD.taskDone) : styles.dim(CARD.taskPending);
-  const renderCells = (completed: number, total: number) => Array.from(
-    { length: total },
-    (_, index) => taskMarker(index < completed),
-  ).join("");
   const total = phases?.length
     ? phases.reduce((sum, phase) => sum + phase.total, 0)
     : plan?.tasks?.total ?? 0;
   const completed = phases?.length
     ? phases.reduce((sum, phase) => sum + phase.completed, 0)
     : plan?.tasks?.completed ?? 0;
-  if (!total) return truncate(dots, width);
-
-  const base = `${dots}  `;
-  const available = Math.max(0, width - displayWidth(base));
-  let separatedZone = "";
-  let flatZone = "";
-  if (phases?.length) {
-    if (total + phases.length - 1 <= available) {
-      separatedZone = phases.map((phase) => renderCells(phase.completed, phase.total)).join(styles.border(CARD.phaseSep));
-    }
-    if (total <= available) flatZone = renderCells(completed, total);
-  } else if (plan?.tasks) {
-    const suffix = plan.phase ? ` p${plan.phase.index}/${plan.phase.count}` : "";
-    if (total + displayWidth(suffix) <= available) separatedZone = `${renderCells(completed, total)}${styles.dim(suffix)}`;
-  }
-  const ratioDone = Math.round((completed / total) * 10);
-  const ratioZone = Array.from({ length: 10 }, (_, index) => taskMarker(index < ratioDone)).join("");
-  const candidates = [
-    separatedZone ? `${base}${separatedZone}` : "",
-    flatZone ? `${base}${flatZone}` : "",
-    `${base}${ratioZone} ${completed}/${total}`,
-  ];
-  return truncate(candidates.find((candidate) => candidate && displayWidth(candidate) <= width) ?? dots, width);
-}
-
-function allCardLines(session: RenderSession, width: number, styles: LayoutStyles): { line: string; priority: number }[] {
-  const indent = "  ";
-  const contentWidth = Math.max(0, width - indent.length);
-  const lines: { line: string; priority: number }[] = [];
-  if (session.ticketId) {
-    const id = `#${session.ticketId}`;
-    const subtitle = session.ticketSubtitle && normalizedText(session.ticketSubtitle) !== normalizedText(session.title)
-      ? ` · ${session.ticketSubtitle}` : "";
-    const text = displayWidth(`${id}${subtitle}`) <= contentWidth || contentWidth - displayWidth(id) >= 12 ? `${id}${subtitle}` : id;
-    lines.push({ line: `${indent}${styles.dim(truncate(text, contentWidth))}`, priority: 2 });
-  }
-  const recap = allCardRecapLine(session, contentWidth, styles);
-  if (recap) lines.push({ line: `${indent}${recap}`, priority: 0 });
-  return lines;
-}
-
-function allCardRecapLine(session: RenderSession, width: number, styles: LayoutStyles): string | undefined {
-  return session.workflow
-    ? workflowVisualLine(session, width, styles)
-    : session.plan ? planProgressText(session.plan, styles) : undefined;
-}
-
-function planProgressText(plan: NonNullable<RenderSession["plan"]>, styles: LayoutStyles): string {
-  const phaseTasks = plan.phase ? plan.phases?.[plan.phase.index - 1] : undefined;
-  const phase = plan.phase ? `Phase ${plan.phase.index}/${plan.phase.count}${phaseTasks ? ` · ${phaseTasks.completed}/${phaseTasks.total}` : ""}` : undefined;
-  const tasks = plan.tasks ? `${plan.tasks.completed}/${plan.tasks.total}` : undefined;
-  const text = [phase, tasks].filter(Boolean).join(" · ");
-  return text ? styles.dim(text) : "";
+  if (!total || total < 0 || completed < 0) return "";
+  const filled = Math.max(0, Math.min(8, Math.round((completed / total) * 8)));
+  return `${styles.accent("■".repeat(filled))}${styles.dim("□".repeat(8 - filled))} ${completed}/${total}`;
 }
 
 interface WorkspaceRendered {
@@ -905,28 +874,34 @@ function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
   return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
 }
 
-function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, width: number): string {
+function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, width: number, terminalWidth: number): string {
+  if (session.kind === "subagent") return "";
   const mode = activeWorkflowMode(session);
-  const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 12;
+  const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 8;
   if (board) {
-    if (session.kind === "subagent" || !session.workflow) return "";
-    const short = railCompact(session.workflow, mode, styles);
-    return fits(short) ? short : "";
+    if (!session.workflow) return "";
+    const compact = railCompact(session.workflow, mode, styles);
+    const rails = terminalWidth >= 120 ? [railFull(session.workflow, mode, styles, false), compact] : [compact];
+    return rails.find(fits) ?? "";
   }
   if (session.archivedAge) return fits(styles.dim(session.archivedAge)) ? styles.dim(session.archivedAge) : "";
 
-  const lifecycle = session.section === "backlog" ? styles.muted("backlog") : "";
-  const group = styles.dim(session.group);
-  const stage = session.workflow ? railCompact(session.workflow, mode, styles) : "";
-  const activity = session.displayStatus === "running" ? "" : session.activityAge ? styles.dim(session.activityAge) : "";
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
-  const candidates = lifecycle
-    ? [[lifecycle, group, stage, activity], [lifecycle, group, stage], [lifecycle, group], [lifecycle, stage], [lifecycle]]
-    : [[group, stage, activity], [group, stage], [group, activity], [group], [stage, activity], [activity], [stage]];
-  return candidates.map(join).find(fits) ?? "";
+  if (session.section === "backlog") {
+    const candidates = terminalWidth >= 100
+      ? [[styles.muted("backlog"), styles.dim(session.group)], [styles.muted("backlog")]]
+      : [[styles.muted("backlog")]];
+    return candidates.map(join).find(fits) ?? "";
+  }
+  const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
+  const rails = session.workflow && terminalWidth >= 120
+    ? [railFull(session.workflow, mode, styles, false), compact]
+    : [compact];
+  const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
+  return [...rails.map((rail) => [rail, age]), ...rails.map((rail) => [rail]), [age]].map(join).find(fits) ?? "";
 }
 
-function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles): string {
+function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {
   const rail = workflow.steps
     .map((step, index) => {
       const short = index === workflow.activeIndex ? activeStepShort(workflow, mode) : step.short;
@@ -934,7 +909,7 @@ function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay |
       return `${styledWorkflowMarker(workflow, index, styles)} ${styledShort}`;
     })
     .join(styles.border("─"));
-  return workflow.ticketId ? `${rail} ${styles.border("·")} ${styles.muted(workflow.ticketId)}` : rail;
+  return includeTicket && workflow.ticketId ? `${rail} ${styles.border("·")} ${styles.muted(workflow.ticketId)}` : rail;
 }
 
 function railLine(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, width: number, styles: LayoutStyles): string {
@@ -1034,43 +1009,49 @@ function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], s
 }
 
 interface SessionRowOptions {
-  board?: boolean;
-  selectionMarker?: boolean;
-  titleSource?: "context" | "stored";
-  prefixMode?: "default" | "none";
+  board: boolean;
+  terminalWidth: number;
+  childLast: boolean;
 }
 
-function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions = {}): string {
-  const board = options.board ?? false;
-  const selectionMarker = options.selectionMarker ?? true;
-  const attention = selectionMarker && session.attention ? attentionGlyph(session.attention.kind, styles) : "";
-  const selection = session.selected && selectionMarker ? styles.accent("▌") : "";
-  const prefix = selection ? `${selection}${attention ? ` ${attention}` : ""}` : attention || (session.status === "stopped" ? styles.dim("·") : " ");
+function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
+  const selection = session.selected ? styles.accent("▌") : " ";
+  const attention = session.attention ? attentionGlyph(session.attention.kind, styles) : " ";
   const symbol = session.section === "active"
     ? styles.status(session.displayStatus, session.symbol)
     : styles.muted(session.symbol);
-  const titleText = session.kind === "subagent" ? (session.agentName ?? "subagent") : session.title;
-  const styleTitle = (value: string) => session.status === "stopped" ? styles.dim(value) : value;
   const sidePaneMarker = pinGlyph(session, styles);
-  const repoBadge = !board && session.repoCount > 1 && session.kind !== "subagent" ? styles.dim(` ⧉ ${session.repoCount}`) : "";
-  const worktreeMarker = !board && session.worktreeBranch && session.kind !== "subagent" ? styles.accent("⎇ ") : "";
-  const disclosureBadge = session.kind !== "subagent" && session.boardDescendantCount
-    ? ` ${styles.dim(session.boardExpanded ? "▾" : "▸")}`
-    : "";
-  const runningBadge = board && session.kind !== "subagent" && session.runningSubagentCount
-    ? ` ${styles.success(`⚙︎${session.runningSubagentCount}`)}`
-    : "";
-  const indent = session.depth > 0 ? styles.dim(`${"  ".repeat(session.depth)}└ `) : "";
-  const rowPrefix = options.prefixMode === "none" ? "" : board && !selectionMarker && prefix === " " ? prefix : `${prefix} `;
-  const leftPrefix = `${rowPrefix}${indent}${symbol} ${sidePaneMarker}${worktreeMarker}`;
-  const leftSuffix = `${disclosureBadge}${runningBadge}${repoBadge}`;
-  const fixedLeftWidth = displayWidth(leftPrefix) + displayWidth(leftSuffix);
-  const adornmentWidth = board ? width : Math.max(0, width - fixedLeftWidth);
-  const right = rowRightAdornment(session, styles, board, adornmentWidth);
+
+  if (session.kind === "subagent") {
+    const branch = session.depth > 1 ? "│└" : options.childLast ? "└─" : "├─";
+    const prefix = `${selection} ${styles.dim(branch)} ${attention} ${symbol} ${sidePaneMarker}`;
+    const available = Math.max(0, width - displayWidth(prefix));
+    const task = session.taskPreview?.trim() ?? "";
+    const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
+    const nameWidth = Math.max(0, Math.min(20, available - (task ? minTask + 1 : 0)));
+    const name = styles.muted(truncate(session.agentName ?? "subagent", nameWidth));
+    const taskWidth = Math.max(0, available - displayWidth(name) - (task ? 1 : 0));
+    const taskText = task ? ` ${styles.muted(truncate(task, taskWidth))}` : "";
+    return truncate(`${prefix}${name}${taskText}`, width);
+  }
+
+  const disclosure = session.boardDescendantCount
+    ? styles.accent(session.boardExpanded ? "▾" : "▸")
+    : styles.dim("·");
+  const prefix = `${selection} ${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
+  const worktree = !options.board && session.worktreeBranch ? styles.accent("⎇ ") : "";
+  const repo = !options.board && options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
+  const running = session.runningSubagentCount ? styles.success(` ⚙︎${session.runningSubagentCount}`) : "";
+  const suffix = `${running}${repo}`;
+  const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix));
+  const right = rowRightAdornment(session, styles, options.board, rightWidthBase, options.terminalWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;
-  const titleWidth = Math.max(0, width - displayWidth(leftPrefix) - displayWidth(leftSuffix) - rightSpace);
-  const text = `${leftPrefix}${styleTitle(truncate(titleText, titleWidth))}${leftSuffix}`;
-  return right ? twoColumn(text, right, width) : truncate(text, width);
+  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix) - rightSpace);
+  const title = session.status === "stopped"
+    ? styles.dim(truncate(session.title, titleWidth))
+    : truncate(session.title, titleWidth);
+  const left = `${prefix}${worktree}${title}${suffix}`;
+  return right ? twoColumn(left, right, width) : truncate(left, width);
 }
 
 export interface FormField {

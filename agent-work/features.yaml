@@ -884,7 +884,7 @@
   plan_file: agent-work/history/20260828_cockpit-007_safe_slot_pinning.md
   completed_at: '2026-08-28'
 - id: cockpit-008
-  status: pending
+  status: done
   title: Adaptive cockpit
   subtitle: Unify responsive cockpit and workflow board
   description: Approved parent cards, micro children, collapsed trees, and 60/100/160
@@ -897,6 +897,8 @@
   - cockpit-007
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260829_cockpit-008_adaptive_cockpit.md
+  completed_at: '2026-08-29'
 - id: cockpit-009
   status: pending
   title: Cockpit onboarding
@@ -910,3 +912,17 @@
   - cockpit-004
   references:
   - agent-work/plans/cockpit-000.md
+- id: cockpit-010
+  status: pending
+  title: Cockpit parity
+  subtitle: Match frozen cockpit visual hierarchy
+  description: The steady-state cockpit matches the frozen HTML hierarchy with mode-aware
+    chrome, right-aligned signals, attention rails, clear card boundaries, and collapsed-child
+    request counts.
+  priority: 2
+  created_at: '2026-08-29'
+  depends_on:
+  - cockpit-008
+  references:
+  - agent-work/plans/cockpit-000.md
+  - agent-work/decks/cockpit-design-lab.html
