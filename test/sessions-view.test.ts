@@ -544,6 +544,23 @@ test("Space expands and collapses the selected board parent tree", () => {
   assert.doesNotMatch(fleetText(view.render(120)), /worker/);
 });
 
+test("revealing a parent keeps its subagent tree collapsed while revealing a child expands it", () => {
+  const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
+  const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
+
+  for (const grouping of ["project", "stage"] as const) {
+    const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+    const view = new SessionsView(controller, () => {});
+    if (grouping === "stage") view.handleInput("S");
+
+    view.revealSession("parent");
+    assert.doesNotMatch(fleetText(view.render(120)), /worker/, `${grouping} parent reveal expanded descendants`);
+
+    view.revealSession("child");
+    assert.match(fleetText(view.render(120)), /worker/, `${grouping} child reveal stayed hidden`);
+  }
+});
+
 test("left and right arrows expand and collapse the selected project tree", () => {
   const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };

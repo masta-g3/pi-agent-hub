@@ -720,12 +720,15 @@ export class SessionsView implements Component {
     const unfiltered = buildDashboardProjection({ sessions: this.controller.snapshot().sessions, grouping: this.grouping });
     const current = unfiltered.allTree.get(targetId);
     const ownerId = current ? (unfiltered.allTree.trace(current).owner ?? unfiltered.allTree.trace(current).terminal).id : targetId;
+    const revealsDescendant = targetId !== ownerId;
     if (this.grouping === "stage") {
-      const expanded = buildDashboardProjection({ sessions: this.controller.snapshot().sessions, grouping: "stage", expandedBoardParentIds: new Set([ownerId]) });
-      if (expanded.visible.some((session) => session.id === targetId)) this.expandedBoardParentIds.add(ownerId);
-      else this.grouping = "project";
+      const expandedParentIds = revealsDescendant ? new Set([ownerId]) : undefined;
+      const projection = buildDashboardProjection({ sessions: this.controller.snapshot().sessions, grouping: "stage", expandedBoardParentIds: expandedParentIds });
+      if (projection.visible.some((session) => session.id === targetId)) {
+        if (revealsDescendant) this.expandedBoardParentIds.add(ownerId);
+      } else this.grouping = "project";
     }
-    if (this.grouping === "project") this.expandedProjectParentIds.add(ownerId);
+    if (this.grouping === "project" && revealsDescendant) this.expandedProjectParentIds.add(ownerId);
     this.revealedSessionId = targetId;
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
