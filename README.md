@@ -56,6 +56,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `R` | Rename the selected session |
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session |
+| `Shift+F` | Choose a group, fork, name the new Pi session from its primary repo, clear inherited ticket/workflow metadata, and compact |
 | `a` | Mark the selected waiting session read |
 | `A` / `B` / `U` | Archive and close its pin if shown, move to Backlog, or restore the selected session |
 | `w` | Finish a hub-owned worktree session |

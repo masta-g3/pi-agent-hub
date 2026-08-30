@@ -13,11 +13,9 @@ import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
 import type { CommandPaletteDialog } from "./command-palette-dialog.js";
 
-export interface SessionDialogInput {
-  cwd?: string;
+export interface ForkDialogInput {
   group: string;
-  additionalCwds?: string[];
-  worktree?: { branch: string };
+  compact?: boolean;
 }
 
 export type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult };
@@ -38,7 +36,7 @@ export interface SessionLifecycleActions {
   discardWorktree: (sessionId: string) => void | Promise<void>;
   finishWorktree: (sessionId: string) => void | Promise<void>;
   createSession: (input: NewFormSubmission) => unknown;
-  forkSession: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
+  forkSession: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup: (sessionId: string, group: string) => unknown;
   archiveSession: (sessionId: string) => unknown;
   backlogSession: (sessionId: string) => unknown;
@@ -142,7 +140,7 @@ export interface SessionsViewActions {
   discardWorktree?: (sessionId: string) => void | Promise<void>;
   finishWorktree?: (sessionId: string) => void | Promise<void>;
   createSession?: (input: NewFormSubmission) => unknown;
-  forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
+  forkSession?: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   archiveSession?: (sessionId: string) => unknown;
   backlogSession?: (sessionId: string) => unknown;

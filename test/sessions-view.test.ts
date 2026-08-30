@@ -910,7 +910,7 @@ test("plus and minus resize through the catalog only when two pins are available
   assert.deepEqual(deltas, [1, -1]);
 });
 
-test("F and o remain available for explicit configured sends while 1 is reserved", () => {
+test("F and 1 are reserved while o remains available for configured sends", () => {
   const sent: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
@@ -918,7 +918,7 @@ test("F and o remain available for explicit configured sends while 1 is reserved
     runDashboardShortcut: (_id, shortcut) => { sent.push(shortcut.send); },
   });
   for (const key of ["1", "F", "o"]) view.handleInput(key);
-  assert.deepEqual(sent, ["send-F", "send-o"]);
+  assert.deepEqual(sent, ["send-o"]);
 });
 
 test("pin commands block stopped and error sessions but allow live subagents", () => {
@@ -2741,6 +2741,16 @@ test("group rename dialog validates blank group", () => {
 
   assert.equal(renamed, undefined);
   assert.match(view.render(100).join("\n"), /group is required/);
+});
+
+test("Shift+F opens the fork form and submits compact mode", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  let compact: boolean | undefined;
+  const view = new SessionsView(controller, () => {}, { forkSession: (_id, input) => { compact = input.compact; } });
+  view.handleInput("F");
+  assert.match(view.render(120).join("\n"), /Fork and compact/);
+  view.handleInput("\r");
+  assert.equal(compact, true);
 });
 
 test("fork dialog reports async action errors", async () => {

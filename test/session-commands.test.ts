@@ -421,6 +421,32 @@ test("forkManagedSession exports the fork record primary cwd without changing co
   }
 });
 
+test("forkManagedSession marks compact forks for one-time startup handling", async () => {
+  const oldDir = process.env.PI_AGENT_HUB_DIR;
+  const oldPath = process.env.PATH;
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-fork-compact-"));
+  const bin = join(root, "bin");
+  const log = join(root, "tmux.log");
+  const history = join(root, "saved.jsonl");
+  const primary = join(root, "primary");
+  await mkdir(bin);
+  await mkdir(primary);
+  await writeFile(history, "{}\n", "utf8");
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nexit 0\n`, "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
+  process.env.PI_AGENT_HUB_DIR = join(root, "hub");
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  try {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: primary, sessionFile: history })] });
+    await forkManagedSession("source-session", { compact: true });
+    const commands = await readFile(log, "utf8");
+    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='1'/);
+  } finally {
+    if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+  }
+});
+
 test("forkManagedSession keeps worktree-session forks blocked", async () => {
   const oldDir = process.env.PI_AGENT_HUB_DIR;
   const dir = await mkdtemp(join(tmpdir(), "pi-agent-hub-fork-worktree-"));

@@ -5,7 +5,7 @@ import { createForm, editField, moveFocus, setValue, validateRequired, type Form
 import { renderForm } from "./layout.js";
 import type { FormDialogContext } from "./dialog.js";
 
-export type FormDialogPurpose = "fork" | "moveGroup" | "renameSession" | "renameGroup";
+export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup";
 
 export interface FormDialog {
   kind: "form";
@@ -17,6 +17,14 @@ export interface FormDialog {
 }
 
 export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
+  return openForkForm(ctx, "fork");
+}
+
+export function openForkCompactDialog(ctx: FormDialogContext): FormDialog | undefined {
+  return openForkForm(ctx, "forkCompact");
+}
+
+function openForkForm(ctx: FormDialogContext, purpose: "fork" | "forkCompact"): FormDialog | undefined {
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
   if (selected.kind === "subagent") {
@@ -29,7 +37,7 @@ export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
   }
   return {
     kind: "form",
-    purpose: "fork",
+    purpose,
     targetId: selected.id,
     form: createForm([
       { key: "group", label: "group", value: selected.group, hint: "session group label" },
@@ -120,7 +128,8 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
 
 function submitFormDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
   switch (dialog.purpose) {
-    case "fork": return submitForkDialog(dialog, ctx);
+    case "fork":
+    case "forkCompact": return submitForkDialog(dialog, ctx);
     case "moveGroup": return submitGroupDialog(dialog, ctx);
     case "renameSession": return submitRenameSessionDialog(dialog, ctx);
     case "renameGroup": return submitRenameGroupDialog(dialog, ctx);
@@ -137,7 +146,8 @@ function submitForkDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialo
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
-  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group }), "forking session...");
+  const compact = dialog.purpose === "forkCompact";
+  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) }), compact ? "forking and compacting session..." : "forking session...");
   return undefined;
 }
 
@@ -216,6 +226,7 @@ function moveGroupChoices(ctx: FormDialogContext, currentGroup: string | undefin
 function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: string; footer: string; narrowFooter: string } {
   switch (dialog.purpose) {
     case "fork": return { title: "Fork session", footer: "tab next · ←→ edit · enter fork · esc cancel", narrowFooter: "tab · enter · esc" };
+    case "forkCompact": return { title: "Fork and compact", footer: "tab next · ←→ edit · enter fork and compact · esc cancel", narrowFooter: "tab · enter · esc" };
     case "moveGroup": {
       const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
       return {

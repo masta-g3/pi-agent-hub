@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import piAgentHubExtension from "../src/extension/index.js";
-import { SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
+import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../src/core/worktree-context.js";
 import { heartbeatPath } from "../src/core/paths.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
@@ -37,6 +37,62 @@ test("piAgentHubExtension registers handlers once per active process", async () 
     "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+});
+
+test("compact fork startup resets the native name and compacts without custom instructions", async () => {
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-fork-compact-"));
+  const previous = {
+    sessionId: process.env[SESSION_ID_ENV],
+    stateDir: process.env[STATE_ENV],
+    primaryCwd: process.env[PRIMARY_CWD_ENV],
+    forkCompact: process.env[FORK_COMPACT_ENV],
+  };
+  process.env[SESSION_ID_ENV] = "fork-compact";
+  process.env[STATE_ENV] = root;
+  process.env[PRIMARY_CWD_ENV] = "/repos/example-api";
+  process.env[FORK_COMPACT_ENV] = "1";
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const names: string[] = [];
+  const compactions: unknown[] = [];
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+    setSessionName(name: string) { names.push(name); },
+    getSessionName() { return names.at(-1); },
+  };
+  const ctx = {
+    cwd: root,
+    hasUI: false,
+    compact(options: unknown) { compactions.push(options); },
+    sessionManager: {
+      getBranch: () => [
+        { type: "custom", customType: "pi-agent-hub-context", timestamp: 1, data: { version: 1, updatedAt: 1, ticket: { id: "old-001" } } },
+        { type: "custom", customType: "workflow-runtime", timestamp: 1, data: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeStep: "execute", ticketId: "old-001", updatedAt: 1 } },
+      ],
+    },
+  };
+
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    assert.equal(process.env[FORK_COMPACT_ENV], undefined);
+    await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(names, ["example-api"]);
+    assert.equal(compactions.length, 1);
+    assert.deepEqual(Object.keys(compactions[0] as object), ["onError"]);
+    const heartbeat = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(heartbeat.context, undefined);
+    assert.equal(heartbeat.workflow, undefined);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    for (const [key, value] of [
+      [SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], [PRIMARY_CWD_ENV, previous.primaryCwd], [FORK_COMPACT_ENV, previous.forkCompact],
+    ] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
 });
 
 test("compaction publishes transient running and restores or preserves continuation state", async () => {

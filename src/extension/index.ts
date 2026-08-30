@@ -1,6 +1,6 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { join } from "node:path";
-import { KIND_ENV, PARENT_ID_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
+import { basename, join } from "node:path";
+import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
 import { sessionsStateDir } from "../core/paths.js";
 import { loadThemeCommand } from "../core/theme-command.js";
@@ -21,6 +21,7 @@ type PiTheme = {
 type PiContext = {
   cwd: string;
   hasUI?: boolean;
+  compact: (options: { onError?: (error: Error) => void }) => void;
   ui?: {
     theme?: PiTheme;
     getTheme?: (name: string) => Theme | undefined;
@@ -56,9 +57,13 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   const extensionStartedAt = Date.now();
   let currentState: Heartbeat["state"] = "starting";
   let stateSince = extensionStartedAt;
+  let forkCompactPending = process.env[FORK_COMPACT_ENV] === "1";
+  if (forkCompactPending) delete process.env[FORK_COMPACT_ENV];
+  let metadataResetAt: number | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let themeCommandTimer: ReturnType<typeof setInterval> | undefined;
   let startupHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
+  let startupCompactionTimer: ReturnType<typeof setTimeout> | undefined;
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number } | undefined;
   let compactionWatchdog: ReturnType<typeof setTimeout> | undefined;
@@ -114,8 +119,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
         resultPath: process.env.PI_SUBAGENT_RESULT_PATH,
         activeTheme: activeTheme(ctx),
         piSessionName: normalizedName(pi.getSessionName?.()),
-        context: sessionContextSnapshot(ctx),
-        workflow: workflowSnapshot(ctx),
+        context: sessionContextSnapshot(ctx, metadataResetAt),
+        workflow: workflowSnapshot(ctx, metadataResetAt),
       } satisfies Heartbeat);
     });
     heartbeatWrite = write.catch(() => undefined);
@@ -130,11 +135,24 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    await applyThemeAndHeartbeat("waiting", ctx as PiContext);
-    heartbeatTimer = setInterval(() => void heartbeat(currentState, ctx as PiContext), HEARTBEAT_INTERVAL_MS);
-    themeCommandTimer = setInterval(() => void applyThemeCommand(ctx as PiContext).then((applied) => applied ? heartbeat(currentState, ctx as PiContext) : undefined), THEME_COMMAND_INTERVAL_MS);
-    startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, ctx as PiContext), delay));
-    mcpCleanup = await registerMcpTools(pi, (ctx as PiContext).cwd);
+    const piCtx = ctx as PiContext;
+    const compactFork = forkCompactPending;
+    if (compactFork) {
+      forkCompactPending = false;
+      metadataResetAt = extensionStartedAt;
+      const resetName = basename(process.env[PRIMARY_CWD_ENV] ?? "").trim() || "pi-session";
+      pi.setSessionName(resetName);
+    }
+    await applyThemeAndHeartbeat("waiting", piCtx);
+    heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
+    themeCommandTimer = setInterval(() => void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined), THEME_COMMAND_INTERVAL_MS);
+    startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
+    if (compactFork) {
+      startupCompactionTimer = setTimeout(() => piCtx.compact({
+        onError: (error) => void heartbeat("error", piCtx, `Fork compaction failed: ${error.message}`),
+      }), 0);
+    }
+    mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
   });
 
   pi.on("session_info_changed", async (_event, ctx) => applyThemeAndHeartbeat(currentState, ctx as PiContext));
@@ -192,6 +210,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       if (themeCommandTimer) clearInterval(themeCommandTimer);
       for (const timer of startupHeartbeatTimers) clearTimeout(timer);
       startupHeartbeatTimers = [];
+      if (startupCompactionTimer) clearTimeout(startupCompactionTimer);
+      startupCompactionTimer = undefined;
       for (const timer of settledHeartbeatTimers) clearTimeout(timer);
       settledHeartbeatTimers = [];
       await mcpCleanup?.();
@@ -202,26 +222,34 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   });
 }
 
-function workflowSnapshot(ctx: PiContext): WorkflowRuntimeSnapshot | undefined {
+function workflowSnapshot(ctx: PiContext, minimumEntryTime?: number): WorkflowRuntimeSnapshot | undefined {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== WORKFLOW_RUNTIME_ENTRY) continue;
+      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       return parseWorkflowEntry(entry.data);
     }
   } catch {}
   return undefined;
 }
 
-function sessionContextSnapshot(ctx: PiContext) {
+function entryUpdatedAt(data: unknown): number {
+  if (typeof data !== "object" || data === null) return 0;
+  const updatedAt = (data as { updatedAt?: unknown }).updatedAt;
+  return typeof updatedAt === "number" && Number.isFinite(updatedAt) ? updatedAt : 0;
+}
+
+function sessionContextSnapshot(ctx: PiContext, minimumEntryTime?: number) {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== SESSION_CONTEXT_ENTRY) continue;
+      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       return parseSessionContext(entry.data);
     }
   } catch {}

@@ -107,6 +107,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "rename-group", label: "Rename group…", hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
   { name: "archive", label: "Archive", hint: "move to Archived without stopping Pi", keys: ["A"], available: bucketAvailability("archived") },
   { name: "backlog", label: "Backlog", hint: "move to Backlog without stopping Pi", keys: ["B"], available: bucketAvailability("backlog") },
+  { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
   { name: "restore", label: "Restore active", hint: "return this session to Active", keys: ["U"], available: restoreAvailability },
   { name: "delete", label: "Delete…", hint: "remove the Hub session record", keys: ["d"], available: capability("deleteSession", "delete unavailable") },
   { name: "finish-worktree", label: "Finish worktree…", hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },

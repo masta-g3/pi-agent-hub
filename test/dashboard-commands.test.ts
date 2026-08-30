@@ -41,10 +41,11 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   assert.deepEqual(commands.find((command) => command.label === "Sync Pi name")?.bindings.map((binding) => binding.key), ["N", "M-n"]);
   assert.deepEqual(commands.find((command) => command.label === "Open")?.bindings.map((binding) => binding.key), ["Enter", "C-m", "C-j"]);
   assert.equal(commandForKey(commands, "e")?.id, "action:alpha:rename");
+  assert.equal(commandForKey(commands, "F")?.id, "action:alpha:fork-compact");
   assert.equal(commandForKey(commands, "\r")?.id, "action:alpha:open");
   const catalogBindings = new Set(commands.flatMap((command) => command.bindings.map((binding) => binding.key)));
   for (const binding of [
-    "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "g", "G", "A", "B", "U",
+    "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "F", "g", "G", "A", "B", "U",
     "d", "w", "s", "m", "P", "1", "2", "3", "4", "x", "+", "-", "i", "a", "K", "Shift+Up", "J", "Shift+Down",
     "/", "n", "t", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
   ]) assert.ok(catalogBindings.has(binding), `missing binding ${binding}`);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { SessionsController } from "../src/app/controller.js";
 import type { ManagedSession } from "../src/core/types.js";
 import type { DialogContext, SessionDialog } from "../src/tui/dialog.js";
-import { handleFormDialogInput, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm } from "../src/tui/form-dialogs.js";
+import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm } from "../src/tui/form-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput } from "../src/tui/picker-dialog.js";
 
 function session(id: string, group = "default"): ManagedSession {
@@ -35,24 +35,26 @@ test("move-group form keeps the session selected when it opened", () => {
   assert.equal(moved, first.id);
 });
 
-test("fork and rename forms keep the session selected when they opened", () => {
+test("fork forms and rename forms keep the session selected when they opened", () => {
   const first = session("first");
   const second = session("second");
   const controller = new SessionsController({ version: 1, sessions: [first, second] });
-  const forked: string[] = [];
+  const forked: { id: string; compact?: boolean }[] = [];
   const renamed: string[] = [];
   const ctx = context(controller, {
-    forkSession: (id) => { forked.push(id); },
+    forkSession: (id, input) => { forked.push({ id, compact: input.compact }); },
     renameSession: (id) => { renamed.push(id); },
   });
   const fork = openForkDialog(ctx)!;
+  const forkCompact = openForkCompactDialog(ctx)!;
   const rename = openRenameSessionForm(ctx)!;
   controller.selectSession(second.id);
 
   handleFormDialogInput(fork, "\r", ctx);
+  handleFormDialogInput(forkCompact, "\r", ctx);
   handleFormDialogInput(rename, "\r", ctx);
 
-  assert.deepEqual(forked, [first.id]);
+  assert.deepEqual(forked, [{ id: first.id, compact: undefined }, { id: first.id, compact: true }]);
   assert.deepEqual(renamed, [first.id]);
 });
 

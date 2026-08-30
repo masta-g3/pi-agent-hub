@@ -53,7 +53,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 }
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
-import { handleFormDialogInput, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
+import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
 import { handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
@@ -434,8 +434,8 @@ export class SessionsView implements Component {
     this.openDialog(openNewSessionDialog);
   }
 
-  private startForkDialog() {
-    this.openDialog(openForkDialog);
+  private startForkDialog(compact = false) {
+    this.openDialog(compact ? openForkCompactDialog : openForkDialog);
   }
 
   private startGroupDialog() {
@@ -615,6 +615,7 @@ export class SessionsView implements Component {
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
+        case "fork-compact": this.startForkDialog(true); return;
         case "move-group": this.startGroupDialog(); return;
         case "rename-group": this.startRenameGroupDialog(); return;
         case "archive": this.moveSelectedToBucket("archived"); return;
