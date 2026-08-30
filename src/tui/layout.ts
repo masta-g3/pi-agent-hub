@@ -1,9 +1,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
-import { ageLabel } from "./age.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
-import { statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
+import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
 export type SessionListTarget =
@@ -138,20 +137,15 @@ function renderTierNavigator(model: RenderModel, width: number, rows: number, st
 function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height: number | undefined, now: number, styles: LayoutStyles): SessionsLayout {
   const bodyWidth = width - 2;
   const bodyRows = height && height > 0 ? Math.max(2, height - 2) : undefined;
-  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - 3);
-  const tier = workspace.session.cockpitTier.toUpperCase().replace("-", " ");
-  const header = renderModeHeader("WORKSPACE", [
-    `${styles.accent(workspace.session.title)}${styles.border(" · ")}${cockpitTone(workspace.session.cockpitTier, styles)(tier)}`,
-    cockpitTone(workspace.session.cockpitTier, styles)(tier),
-  ], bodyWidth, styles);
+  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - 2);
   const rendered = renderActionWorkspace(workspace, bodyWidth, contentRows, now, styles);
   const footer = workspaceFooter(workspace);
   const content = contentRows === undefined
     ? rendered.lines
     : [...rendered.lines.slice(0, contentRows), ...Array.from({ length: Math.max(0, contentRows - rendered.lines.length) }, () => "")];
-  const lines = box(width, [header, ...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
+  const lines = box(width, [...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
-  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 2] = rendered.targets[i];
+  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 1] = rendered.targets[i];
   return {
     lines,
     rowTargets: lines.map(() => undefined),
@@ -317,25 +311,13 @@ function pinnedDecisionRows(height: number | undefined): number {
 
 function renderPinnedDecisionStrip(workspace: RenderWorkspace, width: number, rows: number, now: number, styles: LayoutStyles): WorkspaceRendered {
   if (rows <= 0) return { lines: [], targets: [] };
-  const session = workspace.session;
-  const command = workspace.actions[0] ?? workspace.moreCommand;
-  const action = truncate(`${styles.accent(command.displayKey ?? ":")} ${command.label} · ${styles.accent(":")} Actions`, width);
-  if (rows === 1) return { lines: [action], targets: [command.id] };
-  const attention = session.attention ?? workspace.owner?.attention;
-  const request = truncate(attention
-    ? `${attentionGlyph(attention.kind, styles)} ${stripAnsi(attention.text)}`
-    : styles.dim("· no explicit request"), width);
-  if (rows === 2) return { lines: [request, action], targets: [undefined, command.id] };
-  const tier = session.cockpitTier.toUpperCase().replace("-", " ");
-  const state = `${styles.status(session.displayStatus, session.symbol)} ${session.displayStatus} · ${cockpitTone(session.cockpitTier, styles)(tier)}`;
-  if (!workspace.evidenceVisible) return { lines: [truncate(state, width), request, action], targets: [undefined, undefined, command.id] };
-  const facts = statusEvidenceFields(session, now)
-    .filter((field) => field.kind === "fact")
-    .flatMap((field) => renderStatusEvidenceField(field, width, styles));
-  return {
-    lines: [truncate(state, width), ...facts.slice(0, 2)].slice(0, rows),
-    targets: Array.from({ length: Math.min(rows, 1 + facts.length) }, () => undefined),
-  };
+  const rendered = renderActionWorkspace(workspace, width, Math.max(2, rows), now, styles);
+  if (rows > 1) return rendered;
+  const primaryId = workspace.actions[0]?.id ?? workspace.moreCommand.id;
+  const index = rendered.targets.indexOf(primaryId);
+  return index < 0
+    ? { lines: [], targets: [] }
+    : { lines: [rendered.lines[index]!], targets: [primaryId] };
 }
 
 type AdaptiveRowShape = "full-parent" | "single-parent" | "micro-child";
@@ -821,7 +803,7 @@ interface WorkspaceRendered {
 }
 
 interface WorkspaceBlock extends WorkspaceRendered {
-  key: "identity" | "request" | "recommendation" | "actions" | "context" | "state" | "evidence" | "workflow" | "tree";
+  key: "identity" | "request" | "task" | "workflow" | "guidance" | "actions" | "evidence";
 }
 
 function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles): WorkspaceRendered {
@@ -831,147 +813,148 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     lines: lines.map((line) => truncate(line, width)),
     targets: lines.map((_, index) => targets[index]),
   });
-  const meta = [session.ticketId ? `#${session.ticketId}` : undefined, session.group, session.repoCount > 1 ? `⧉${session.repoCount}` : undefined, session.worktreeBranch ? `⎇ ${session.worktreeBranch}` : undefined].filter(Boolean).join(" · ");
-  const identity = block("identity", [styles.accent("SELECTED SESSION"), titleStatusRow(session, width, styles), ...(meta ? [styles.dim(meta)] : []), styles.border("─".repeat(width))]);
-
-  const request = session.attention
-    ? block("request", [
-      `${attentionGlyph(session.attention.kind, styles)} ${styles.warning(session.attention.kind.toUpperCase())}`,
-      ...wrapWords(`“${stripAnsi(session.attention.text)}”`, width, width),
-    ])
-    : block("request", [styles.dim("· no explicit request")]);
-
-  const recommendation = block("recommendation", [styles.dim("RECOMMENDED NEXT"), ...wrapWords(stripAnsi(workspace.recommendation), width, width)]);
-  const actionLines: string[] = [];
-  const actionTargets: (string | undefined)[] = [];
-  const action = (command: RenderWorkspace["actions"][number]) => {
-    const key = command.displayKey ?? "";
-    const hint = width >= 40 ? ` · ${command.hint}` : "";
-    actionLines.push(`${styles.accent(pad(key, Math.max(4, displayWidth(key) + 1)))}${command.label}${styles.dim(hint)}`);
-    actionTargets.push(command.id);
-  };
-  for (const command of workspace.actions) action(command);
-  action(workspace.moreCommand);
-  const actions = block("actions", [styles.border("─".repeat(width)), ...actionLines, styles.border("─".repeat(width))], [undefined, ...actionTargets, undefined]);
-
-  const context = session.context
-    ? block("context", [
-      styles.dim("CONTEXT · bounded producer fields"),
-      ...(session.ticketSubtitle ? [session.ticketSubtitle] : []),
-      ...(width >= 40 && session.ticketDescription ? wrapWords(stripAnsi(session.ticketDescription), width, width).slice(0, 2) : []),
-      styles.dim(`· producer context · ${ageLabel(Math.max(0, now - session.context.updatedAt))} ago`),
-    ])
-    : session.kind === "subagent" && session.taskPreview
-      ? block("context", [styles.dim("CONTEXT · subagent task"), ...wrapWords(stripAnsi(session.taskPreview), width, width).slice(0, 2), styles.dim(`· producer-owned${workspace.owner ? ` · subagent of ${workspace.owner.title}` : ""}`)])
-      : block("context", [styles.dim("CONTEXT"), styles.dim("· no producer context · Hub shows runtime state only")]);
-
-  const result = statusEvidenceFields(session, now).find((field): field is Extract<StatusEvidenceField, { kind: "result" }> => field.kind === "result")!;
-  const state = block("state", [
-    styles.dim("STATE"),
-    `${styles.status(result.status, session.symbol)} ${styles.status(result.status, result.status)} · ${cockpitTone(result.tier, styles)(result.tier.toUpperCase().replace("-", " "))}`,
-    ...wrapWords(result.reason, width, width).slice(0, 2),
-    ...(session.error ? wrapWords(`error · ${stripAnsi(session.error)}`, width, width).slice(0, 2).map(styles.error) : []),
-    ...(workspace.actions.some((command) => command.id === workspace.evidenceCommand.id) ? [] : [
-      `${styles.accent(workspace.evidenceCommand.displayKey ?? "i")} ${styles.dim(workspace.evidenceVisible ? "Hide live status" : "Explain live status")}`,
-    ]),
+  const meta = [
+    session.ticketId ? `#${session.ticketId}` : undefined,
+    session.group,
+    session.repoCount > 1 ? `⧉${session.repoCount}` : undefined,
+    session.worktreeBranch ? `⎇ ${session.worktreeBranch}` : undefined,
+    session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
+  ].filter(Boolean).join(" · ");
+  const identity = block("identity", [
+    titleStatusRow(session, width, styles),
+    ...(meta ? [styles.dim(meta)] : []),
+    styles.border("─".repeat(width)),
   ]);
 
-  const evidenceFields = statusEvidenceFields(session, now).filter((field) => field.kind === "fact");
-  const evidence = block("evidence", workspace.evidenceVisible ? [
-    styles.dim("LIVE EVIDENCE"),
-    ...evidenceFields.flatMap((field) => renderStatusEvidenceField(field, width, styles)),
-  ] : []);
+  const request = block("request", session.attention ? prefixedWorkspaceText(
+    attentionGlyph(session.attention.kind, styles),
+    `“${stripAnsi(session.attention.text)}”`,
+    width,
+  ) : []);
+  const taskText = workspaceTaskText(workspace);
+  const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
-  const mode = activeWorkflowMode(workflowSession);
-  const workflow = block("workflow", workflowSession.workflow
-    ? [styles.dim("WORKFLOW"), railLine(workflowSession.workflow, mode, width, styles)]
-    : [styles.dim("WORKFLOW"), styles.dim("· no workflow reported")]);
-  const visibleTree = workspace.descendants.slice(0, 2);
-  const relation = session.kind === "subagent"
-    ? `subagent${workspace.owner ? ` of ${workspace.owner.title}` : ""}`
-    : workspace.descendants.length ? `${workspace.descendants.filter((row) => row.status === "starting" || row.status === "running").length} active of ${workspace.descendants.length} subagents` : "no subagents";
-  const tree = block("tree", [
-    styles.dim(`TREE · ${relation}`),
-    ...visibleTree.map((row) => `${styles.status(row.displayStatus, row.symbol)} ${row.agentName ?? row.title}${row.taskPreview ? ` · ${row.taskPreview}` : ""}`),
-    ...(workspace.descendants.length > visibleTree.length ? [styles.dim(`· +${workspace.descendants.length - visibleTree.length} more descendants`)] : []),
-  ]);
-
-  let blocks = [identity, request, recommendation, actions, context, state, evidence, workflow, tree].filter((candidate) => candidate.lines.length > 0);
-  if (maxRows !== undefined) {
-    for (const key of ["tree", "workflow", "context"] as const) {
-      if (blocks.reduce((sum, candidate) => sum + candidate.lines.length, 0) <= maxRows) break;
-      blocks = blocks.filter((candidate) => candidate.key !== key);
-    }
-    if (blocks.reduce((sum, candidate) => sum + candidate.lines.length, 0) > maxRows) {
-      return compactActionWorkspace(workspace, maxRows, now, width, styles);
-    }
+  const workflow = block("workflow", workspaceWorkflowLine(workflowSession, styles));
+  const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
+  const guidance = block("guidance", guidanceText ? wrapWords(guidanceText, width, width) : []);
+  const hasBody = [request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
+  const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
+  const evidence = block("evidence", workspaceEvidenceLines(workspace, width, now, styles));
+  const blocks = [identity, request, task, workflow, guidance, actions, evidence];
+  const rowCount = blocks.reduce((sum, candidate) => sum + candidate.lines.length, 0);
+  if (maxRows !== undefined && rowCount > maxRows) {
+    return compactActionWorkspace(workspace, blocks, maxRows, width);
   }
-  const lines = blocks.flatMap((candidate) => candidate.lines);
-  const targets = blocks.flatMap((candidate) => candidate.targets);
   return {
-    lines: maxRows === undefined ? lines : lines.slice(0, maxRows),
-    targets: maxRows === undefined ? targets : targets.slice(0, maxRows),
+    lines: blocks.flatMap((candidate) => candidate.lines),
+    targets: blocks.flatMap((candidate) => candidate.targets),
   };
 }
 
-function compactActionWorkspace(workspace: RenderWorkspace, maxRows: number, now: number, width: number, styles: LayoutStyles): WorkspaceRendered {
-  if (maxRows <= 0) return { lines: [], targets: [] };
+function prefixedWorkspaceText(prefix: string, value: string, width: number): string[] {
+  const prefixWidth = displayWidth(prefix) + 1;
+  return wrapWords(value, Math.max(4, width - prefixWidth), Math.max(4, width - prefixWidth))
+    .map((line, index) => `${index ? " ".repeat(prefixWidth) : `${prefix} `}${line}`);
+}
+
+function workspaceTaskText(workspace: RenderWorkspace): string {
   const session = workspace.session;
-  const lines: string[] = workspace.fullScreen ? [] : [titleStatusRow(session, width, styles)];
+  if (session.kind === "subagent") return stripAnsi(session.taskPreview?.trim() ?? "");
+  return stripAnsi(session.ticketSubtitle?.trim() || session.ticketDescription?.trim() || "");
+}
+
+function workspaceWorkflowLine(session: RenderSession, styles: LayoutStyles): string[] {
+  const workflow = session.workflow;
+  const step = workflow?.steps[workflow.activeIndex];
+  if (!workflow || !step) return [];
+  const mode = activeWorkflowMode(session);
+  const label = mode?.label?.trim() || mode?.short.trim() || step.label?.trim() || step.short;
+  return [`${styles.accent(label)}${styles.dim(` · step ${workflow.activeIndex + 1} of ${workflow.steps.length}`)}`];
+}
+
+function workspaceActionBlock(
+  workspace: RenderWorkspace,
+  width: number,
+  styles: LayoutStyles,
+  block: (key: WorkspaceBlock["key"], lines: string[], targets?: (string | undefined)[]) => WorkspaceBlock,
+  includeSeparator: boolean,
+): WorkspaceBlock {
+  const commands = [...workspace.actions];
+  if (!commands.some((command) => command.id === workspace.evidenceCommand.id)) commands.push(workspace.evidenceCommand);
+  if (!commands.some((command) => command.id === workspace.moreCommand.id)) commands.push(workspace.moreCommand);
+  const primaryId = workspace.actions[0]?.id ?? workspace.moreCommand.id;
+  const lines = includeSeparator ? [styles.border("─".repeat(width))] : [];
   const targets: (string | undefined)[] = lines.map(() => undefined);
-  const evidenceLines = workspace.evidenceVisible
-    ? [
-      styles.dim("LIVE EVIDENCE"),
-      ...statusEvidenceFields(session, now)
-        .filter((field) => field.kind === "fact")
-        .flatMap((field) => renderStatusEvidenceField(field, width, styles)),
-    ]
-    : [];
-  const reserveEvidence = evidenceLines.length ? Math.min(evidenceLines.length, maxRows >= (workspace.fullScreen ? 7 : 8) ? 2 : 1) : 0;
-  const reserveState = maxRows >= 6 ? 1 : 0;
-  const reserveAction = maxRows - lines.length - reserveEvidence - reserveState > 0 ? 1 : 0;
-  const requestText = session.attention
-    ? `${attentionGlyph(session.attention.kind, styles)} ${stripAnsi(session.attention.text)}`
-    : styles.dim("· no explicit request");
-  const remainingDecisionRows = maxRows - lines.length - reserveEvidence - reserveState - reserveAction;
-  if (remainingDecisionRows === 1) {
-    lines.push(truncate(`${requestText} · ${styles.dim("next: ")}${workspace.recommendation}`, width));
-    targets.push(undefined);
-  } else if (remainingDecisionRows > 1) {
-    lines.push(truncate(requestText, width));
-    targets.push(undefined);
-    lines.push(truncate(`${styles.dim("next · ")}${workspace.recommendation}`, width));
-    targets.push(undefined);
-  }
-  const actionBudget = Math.max(reserveAction, maxRows - lines.length - reserveEvidence - reserveState);
-  const actionRows = workspace.actions.slice(0, actionBudget);
-  if (actionBudget >= 2) actionRows.splice(actionBudget - 1, 1, workspace.moreCommand);
-  if (actionBudget > 0 && actionRows.length === 0) actionRows.push(workspace.moreCommand);
-  for (const command of actionRows) {
+  for (const command of commands) {
+    const primary = command.id === primaryId;
     const key = command.displayKey ?? "";
-    lines.push(truncate(`${styles.accent(pad(key, Math.max(4, displayWidth(key) + 1)))}${command.label}`, width));
+    const label = command.id === workspace.evidenceCommand.id && workspace.evidenceVisible ? "Hide details" : command.label;
+    const prefix = primary ? `${styles.accent("▸")} ` : "  ";
+    const keyText = primary ? styles.accent(pad(key, 7)) : pad(key, 7);
+    lines.push(`${prefix}${keyText}${label}`);
     targets.push(command.id);
   }
-  if (reserveState && lines.length < maxRows - reserveEvidence) {
-    const tier = session.cockpitTier.toUpperCase().replace("-", " ");
-    lines.push(`${styles.status(session.displayStatus, session.symbol)} ${session.displayStatus} · ${cockpitTone(session.cockpitTier, styles)(tier)}`);
-    targets.push(undefined);
-  }
-  const evidenceBudget = Math.max(0, maxRows - lines.length);
-  const visibleEvidence = evidenceBudget === 1 && evidenceLines.length > 1
-    ? evidenceLines.slice(1, 2)
-    : evidenceLines.slice(0, evidenceBudget);
-  for (const line of visibleEvidence) {
-    lines.push(truncate(line, width));
-    targets.push(undefined);
-  }
-  return { lines: lines.slice(0, maxRows), targets: targets.slice(0, maxRows) };
+  return block("actions", lines, targets);
+}
+
+function workspaceEvidenceLines(workspace: RenderWorkspace, width: number, now: number, styles: LayoutStyles): string[] {
+  if (!workspace.evidenceVisible) return [];
+  const session = workspace.session;
+  const fields = statusEvidenceFields(session, now).filter((field) => {
+    if (field.kind === "result") return hasUsefulStatusResult(session);
+    if (field.label === "workflow" && field.value === "no workflow reported") return false;
+    if (field.label === "read" && field.value === "read state does not affect this result") return false;
+    return true;
+  });
+  return [
+    styles.border("─".repeat(width)),
+    styles.dim("LIVE DETAILS"),
+    ...fields.flatMap((field) => renderStatusEvidenceField(field, width, styles)),
+  ];
+}
+
+function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlock[], maxRows: number, width: number): WorkspaceRendered {
+  if (maxRows <= 0) return { lines: [], targets: [] };
+  const identity = blocks.find((candidate) => candidate.key === "identity")!;
+  const actions = blocks.find((candidate) => candidate.key === "actions")!;
+  const evidence = blocks.find((candidate) => candidate.key === "evidence")!;
+  const title = { line: identity.lines[0] ?? "", target: undefined as string | undefined };
+  const actionRows = actions.lines.flatMap((line, index) => {
+    const target = actions.targets[index];
+    return target ? [{ line, target }] : [];
+  });
+  const primary = actionRows[0];
+  const evidenceFacts = evidence.lines.slice(2);
+  const reservePrimary = primary && maxRows >= 2 ? 1 : 0;
+  const reserveEvidence = evidenceFacts.length && maxRows >= 3 ? 1 : 0;
+  let budget = Math.max(0, maxRows - 1 - reservePrimary - reserveEvidence);
+  const optionalContent = [
+    ...blocks.filter((candidate) => ["request", "task", "workflow", "guidance"].includes(candidate.key))
+      .flatMap((candidate) => candidate.lines.map((line, index) => ({ line, target: candidate.targets[index] }))),
+    ...identity.lines.slice(1, -1).map((line) => ({ line, target: undefined as string | undefined })),
+  ];
+  const content = optionalContent.slice(0, budget);
+  budget -= content.length;
+  const secondary = actionRows.slice(1, 1 + budget);
+  const evidenceBudget = Math.max(0, maxRows - 1 - reservePrimary - content.length - secondary.length);
+  const evidenceLines = evidenceFacts.slice(0, evidenceBudget);
+  const rows = [
+    title,
+    ...content,
+    ...(reservePrimary && primary ? [primary] : []),
+    ...secondary,
+    ...evidenceLines.map((line) => ({ line, target: undefined as string | undefined })),
+  ];
+  return {
+    lines: rows.slice(0, maxRows).map(({ line }) => truncate(line, width)),
+    targets: rows.slice(0, maxRows).map(({ target }) => target),
+  };
 }
 
 function workspaceFooter(workspace: RenderWorkspace): string {
   const evidenceKey = workspace.evidenceCommand.displayKey ?? "i";
   const moreKey = workspace.moreCommand.displayKey ?? ":";
-  return `Esc Back · ${evidenceKey} Evidence · ${moreKey} Actions`;
+  return `Esc Back · ${evidenceKey} Details · ${moreKey} Actions`;
 }
 
 function titleStatusRow(session: RenderSession, width: number, styles: LayoutStyles): string {
@@ -1048,32 +1031,32 @@ function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay |
   return includeTicket && workflow.ticketId ? `${rail} ${styles.border("·")} ${styles.muted(workflow.ticketId)}` : rail;
 }
 
-function railLine(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, width: number, styles: LayoutStyles): string {
-  const full = railFull(workflow, mode, styles);
-  return displayWidth(full) <= width ? full : railCompact(workflow, mode, styles);
-}
-
 function renderStatusEvidenceField(field: StatusEvidenceField, width: number, styles: LayoutStyles): string[] {
+  const label = field.label === "heartbeat" ? "beat" : field.label === "workflow" ? "flow" : field.label;
   if (field.kind === "result") {
     const tier = field.tier.toUpperCase().replace("-", " ");
     const value = `${styles.status(field.status, field.status)} · ${cockpitTone(field.tier, styles)(tier)} · ${field.reason}`;
-    return workField(field.label, value, width, styles, `${styles.accent(field.marker)} `);
+    return workField(label, value, width, styles, `${styles.accent(field.marker)} `);
   }
   const marker = field.tone === "success" ? styles.success(field.marker) : field.tone === "error" ? styles.error(field.marker) : styles.dim(field.marker);
-  return workField(field.label, field.value, width, styles, `${marker} `);
+  const value = field.label === "tmux"
+    ? field.value.replace(/^tmux /, "")
+    : field.label === "heartbeat"
+      ? field.value.replace(/^heartbeat /, "")
+      : field.label === "workflow"
+        ? field.value.replace(/^producer /, "")
+        : field.value;
+  return workField(label, value, width, styles, `${marker} `);
 }
 
 function workField(label: string, value: string, width: number, styles: LayoutStyles, marker = ""): string[] {
-  const labelText = styles.muted(pad(label, 9));
+  const labelWidth = 6;
+  const labelText = styles.muted(pad(label, labelWidth));
   const firstPrefix = `${labelText} `;
-  const nextPrefix = `${pad("", 9)} `;
+  const nextPrefix = `${pad("", labelWidth)} `;
   const firstWidth = Math.max(4, width - displayWidth(firstPrefix) - displayWidth(marker));
   const nextWidth = Math.max(4, width - displayWidth(nextPrefix));
   return wrapWords(value, firstWidth, nextWidth).map((line, index) => index === 0 ? `${firstPrefix}${marker}${line}` : `${nextPrefix}${line}`);
-}
-
-function normalizedText(value: string | undefined): string {
-  return value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
 }
 
 function wrapWords(value: string, firstWidth: number, nextWidth: number): string[] {

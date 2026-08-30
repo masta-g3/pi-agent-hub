@@ -71,19 +71,19 @@ test("narrow workspace keeps evidence behind i and Enter uses a deliberate secon
   view.render(60);
   view.handleInput("i");
   let workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /SELECTED SESSION/);
-  assert.match(workspace, /LIVE EVIDENCE/);
-  assert.match(workspace, /waiting · NEEDS YOU/);
+  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /LIVE DETAILS/);
+  assert.match(workspace, /\? “Choose rollout order”/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /SELECTED SESSION/);
-  assert.doesNotMatch(workspace, /LIVE EVIDENCE/);
+  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
   assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
 
   view.handleInput("\r");
   assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(60).join("\n")), /SELECTED SESSION/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /Project API\s+◐ waiting/);
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
   assert.deepEqual(opened, ["pi-agent-hub-api"]);
@@ -115,11 +115,11 @@ test("info waits for matching evidence from a refresh", async () => {
   view.render(60);
   view.handleInput("i");
   assert.match(stripAnsi(view.render(60).join("\n")), /refreshing status evidence/);
-  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /LIVE EVIDENCE/);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
   resolve();
   await refresh;
   await new Promise((done) => setImmediate(done));
-  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE EVIDENCE/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
 });
 
 test("info stays closed when refresh produces no matching evidence", async () => {
@@ -131,7 +131,7 @@ test("info stays closed when refresh produces no matching evidence", async () =>
   await new Promise((done) => setImmediate(done));
 
   const rendered = stripAnsi(view.render(60).join("\n"));
-  assert.doesNotMatch(rendered, /LIVE EVIDENCE/);
+  assert.doesNotMatch(rendered, /LIVE DETAILS/);
   assert.match(rendered, /status evidence unavailable/);
 });
 
@@ -146,9 +146,9 @@ test("narrow workspace closes when selection changes outside the gated screen", 
 
   view.render(60);
   view.handleInput("i");
-  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE EVIDENCE/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
   controller.selectSession("docs");
-  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /SELECTED SESSION/);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
 });
 
 test("workspace evidence follows width changes and wide Escape still clears filtering", () => {
@@ -160,11 +160,11 @@ test("workspace evidence follows width changes and wide Escape still clears filt
 
   view.render(100);
   view.handleInput("i");
-  assert.match(stripAnsi(view.render(100).join("\n")), /LIVE EVIDENCE/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /LIVE DETAILS/);
   view.render(120);
-  assert.match(stripAnsi(view.render(120).join("\n")), /LIVE EVIDENCE/);
+  assert.match(stripAnsi(view.render(120).join("\n")), /LIVE DETAILS/);
   view.handleInput("i");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /LIVE EVIDENCE/);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /LIVE DETAILS/);
 
   controller.setFilter("api");
   view.handleInput("\u001b");
@@ -1086,7 +1086,7 @@ test("card continuation rows select and double-click open their narrow workspace
   now = 300;
   view.handleInput(mousePressAtLine(continuationIndex));
   assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /SELECTED SESSION/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
   view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
@@ -1110,7 +1110,7 @@ test("double-click opens the narrow workspace before the live session", () => {
 
   assert.equal(controller.snapshot().selectedId, "docs");
   assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /SELECTED SESSION/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
   view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
@@ -1146,7 +1146,9 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   now = 300;
   view.handleInput(apiClick);
 
-  assert.match(stripAnsi(view.render(120).join("\n")), /session transport unavailable/);
+  const workspace = stripAnsi(view.render(120).join("\n"));
+  assert.match(workspace, /▸ A\s+Archive/);
+  assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -1381,7 +1383,8 @@ test("double-click opens the narrow workspace before restarting a stopped sessio
   view.handleInput(click);
 
   assert.deepEqual(restarted, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /SELECTED SESSION/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /api\s+- stopped/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /▸ Enter\s+Restart/);
   view.handleInput("\r");
   assert.deepEqual(restarted, ["api"]);
 });
@@ -1465,7 +1468,7 @@ test("mouse clicks ignore headings and execute exact workspace action rows", () 
   const before = controller.snapshot().selectedId;
 
   const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
-  const openIndex = rendered.findIndex((line) => stripAnsi(line).includes("Enter Open"));
+  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
   assert.notEqual(openIndex, -1, "missing workspace Open action");
   view.handleInput(mousePressAtLine(headerIndex));
@@ -1482,8 +1485,8 @@ test("workspace More commands click opens the palette and stale action IDs stay 
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
   const rendered = view.render(120);
-  const openIndex = rendered.findIndex((line) => stripAnsi(line).includes("Enter Open"));
-  const actionsIndex = rendered.findIndex((line) => stripAnsi(line).includes(":   Actions"));
+  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const actionsIndex = rendered.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
   assert.notEqual(openIndex, -1);
   assert.notEqual(actionsIndex, -1);
 
@@ -1493,7 +1496,7 @@ test("workspace More commands click opens the palette and stale action IDs stay 
   assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
 
   const current = view.render(120);
-  const currentActions = current.findIndex((line) => stripAnsi(line).includes(":   Actions"));
+  const currentActions = current.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(currentActions, 110));
   assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });

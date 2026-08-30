@@ -286,7 +286,7 @@ export class SessionsView implements Component {
       filter,
       filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter",
       workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection
-        ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), width >= 160 || width < 120 ? 3 : 2)
+        ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
       workspaceFullScreen: width < 120 && workspaceSelected?.id === this.workspaceSessionId,
@@ -1551,9 +1551,10 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  zero counts are hidden from tier and top summaries",
     "",
     heading("Action workspace"),
-    "  selected session: request · recommended next · enabled actions · bounded context",
+    "  selected session: request · task · workflow position · exceptional guidance · actions",
+    "  ▸ marks the primary action; i appends or hides live Details",
     "  below 120 columns, Enter/double-click opens the workspace first unless pins are visible",
-    "  with pins, Enter opens directly and i toggles evidence in the compact decision strip",
+    "  with pins, Enter opens directly and i toggles details in the compact decision strip",
   ];
   const inner = Math.max(40, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;

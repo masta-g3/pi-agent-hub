@@ -6,6 +6,20 @@ export type StatusEvidenceField =
   | { kind: "fact"; label: "tmux" | "heartbeat" | "read" | "workflow"; marker: "✓" | "×" | "·"; tone: "success" | "error" | "dim"; value: string }
   | { kind: "result"; label: "result"; marker: "→"; status: RenderSession["displayStatus"]; tier: CockpitTier; reason: string };
 
+export function hasUsefulStatusResult(session: RenderSession): boolean {
+  if (["archived", "owner-error", "descendant-active"].includes(session.cockpitPlacement.kind)) return true;
+  const reason = session.statusEvidence?.reason;
+  return reason === "tmux-stopped"
+    || reason === "tmux-missing"
+    || reason === "tmux-unknown"
+    || reason === "heartbeat-error"
+    || reason === "heartbeat-shutdown"
+    || reason === "fallback-active"
+    || reason === "fallback-starting"
+    || reason === "fallback-waiting"
+    || reason === "fallback-idle";
+}
+
 export function statusEvidenceFields(session: RenderSession, now: number): StatusEvidenceField[] {
   const evidence = session.statusEvidence;
   const fields: StatusEvidenceField[] = [];
@@ -24,7 +38,7 @@ export function statusEvidenceFields(session: RenderSession, now: number): Statu
     marker: "→",
     status: session.displayStatus,
     tier: session.cockpitTier,
-    reason: runtime ? `${runtime}; ${placement}` : placement,
+    reason: [runtime, placement].filter(Boolean).join("; ") || "runtime evidence unavailable",
   });
   fields.push(workflowField(evidence?.workflow));
   return fields;
@@ -94,9 +108,9 @@ function placementReason(placement: CockpitPlacementReason, selectedId: string):
     case "archived": return `lifecycle archived${owner}`;
     case "explicit-attention": return `${attentionReason(placement.attentionKind)}${owner}`;
     case "owner-error": return `owner reported an error${owner}`;
-    case "owner-active": return `owner is ${placement.status}${owner}`;
+    case "owner-active": return placement.ownerId === selectedId ? "" : `owner is ${placement.status}${owner}`;
     case "descendant-active": return `${placement.driverTitle} is ${placement.status}${owner}`;
-    case "quiet": return `no explicit request, error, or active work${owner}`;
+    case "quiet": return placement.ownerId === selectedId ? "" : `owner tree is quiet${owner}`;
   }
 }
 

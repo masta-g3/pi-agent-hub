@@ -23,7 +23,7 @@ export interface DashboardCommand {
 }
 
 export interface WorkspaceCommandSelection {
-  recommendation: string;
+  guidance?: string;
   actions: DashboardCommand[];
   evidenceCommand: DashboardCommand;
   moreCommand: DashboardCommand;
@@ -117,7 +117,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "close-pin", label: "Close pin", footerLabel: "Close", hint: "close this session's pinned pane without stopping Pi", keys: ["x"], available: closePinAvailability },
   { name: "size-increase", label: "Size +", footerLabel: "Size", hint: "increase the main pinned-pane split", keys: ["+"], available: resizeAvailability },
   { name: "size-decrease", label: "Size -", footerLabel: "Size", hint: "decrease the main pinned-pane split", keys: ["-"], available: resizeAvailability },
-  { name: "info", label: "Explain status", hint: "show runtime and cockpit evidence", keys: ["i"], available: () => enabled() },
+  { name: "info", label: "Details", hint: "show runtime and cockpit evidence", keys: ["i"], available: () => enabled() },
   { name: "mark-read", label: "Mark read", hint: "acknowledge the selected waiting session", keys: ["a"], available: markReadAvailability },
   { name: "reorder-up", label: "Move up", hint: "reorder inside the current priority tie", keys: ["K", "Shift+Up"], available: reorderAvailability },
   { name: "reorder-down", label: "Move down", hint: "reorder inside the current priority tie", keys: ["J", "Shift+Down"], available: reorderAvailability },
@@ -157,37 +157,38 @@ export function selectWorkspaceCommands(
   maxCount: number,
 ): WorkspaceCommandSelection {
   const attention = session.status === "waiting" || session.status === "idle" ? session.context?.attention : undefined;
-  let recommendation: string;
+  let guidance: string | undefined;
+  let guidanceAction: string | undefined;
   let actionNames: string[];
 
   if (attention) {
-    recommendation = attention.kind === "question"
-      ? "Answer the producer's explicit question."
-      : attention.kind === "ready"
-        ? "Review the producer's completed result."
-        : "Resolve the producer's explicit blocker.";
-    actionNames = ["send", "open", "mark-read"];
+    if (attention.kind === "ready") {
+      guidance = "Review the completed result.";
+      guidanceAction = "open";
+      actionNames = ["open", "send", "mark-read"];
+    } else {
+      guidance = attention.kind === "blocked" ? "Resolve the reported blocker." : undefined;
+      guidanceAction = attention.kind === "blocked" ? "send" : undefined;
+      actionNames = ["send", "open", "mark-read"];
+    }
   } else if (session.status === "error") {
-    recommendation = "Inspect live evidence before deciding whether to restart.";
-    actionNames = ["open", "restart", "info"];
+    guidance = "Check Details before restarting.";
+    guidanceAction = "info";
+    actionNames = ["info", "open"];
   } else if (session.status === "stopped") {
-    recommendation = "Restart the session when this work should continue.";
-    actionNames = ["open", "restart", "restore"];
+    guidance = "Restart to continue.";
+    guidanceAction = "open";
+    actionNames = ["open", "restore"];
   } else if (session.kind === "subagent") {
-    recommendation = "Let the owner coordinate this task unless direct inspection is needed.";
     actionNames = ["open", "info"];
   } else if (session.bucket === "archived") {
-    recommendation = "No intervention requested while this work remains Archived.";
     actionNames = ["open", "restore", "delete"];
   } else if (session.bucket === "backlog") {
-    recommendation = "No intervention requested while this work remains in Backlog.";
     actionNames = ["open", "restore", "archive"];
   } else if (session.status === "idle" || session.status === "waiting") {
-    recommendation = "No intervention requested.";
     actionNames = ["open", "send", "archive"];
   } else {
-    recommendation = "Let the session continue; open it only when more context is needed.";
-    actionNames = ["open", "pin", "send"];
+    actionNames = ["open", "pin"];
   }
 
   const actionsByName = new Map(
@@ -202,7 +203,8 @@ export function selectWorkspaceCommands(
   const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
   const moreCommand = commands.find((command) => command.id === "view:palette");
   if (!evidenceCommand || !moreCommand) throw new Error("workspace commands require evidence and palette descriptors");
-  return { recommendation, actions, evidenceCommand, moreCommand };
+  const guidanceIsActionable = guidanceAction !== undefined && actions[0]?.id === `action:${session.id}:${guidanceAction}`;
+  return { ...(guidance && guidanceIsActionable ? { guidance } : {}), actions, evidenceCommand, moreCommand };
 }
 
 export function searchDashboardCommands(commands: readonly DashboardCommand[], query: string): DashboardCommand[] {
@@ -257,11 +259,13 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
   const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
-  const label = spec.name === "pin" && isPinned
-    ? `Focus slot ${(currentSlot ?? 0) + 1}`
-    : spec.name === "pin" ? spec.label
-    : spec.name.startsWith("slot-") && currentSlot === Number(spec.name.slice(5)) - 1 ? `Focus slot ${currentSlot + 1}`
-    : spec.label;
+  const label = spec.name === "open" && (session.status === "error" || session.status === "stopped")
+    ? "Restart"
+    : spec.name === "pin" && isPinned
+      ? `Focus slot ${(currentSlot ?? 0) + 1}`
+      : spec.name === "pin" ? spec.label
+      : spec.name.startsWith("slot-") && currentSlot === Number(spec.name.slice(5)) - 1 ? `Focus slot ${currentSlot + 1}`
+      : spec.label;
   const hint = spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
   return makeCommand({
     id: `action:${session.id}:${spec.name}`,

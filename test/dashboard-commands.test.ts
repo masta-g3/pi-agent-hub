@@ -102,7 +102,7 @@ test("selected action availability mirrors row and capability guards with reason
   const stopped = session("stopped", { status: "stopped" });
   const commands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: {} });
   const byLabel = (label: string) => commands.find((command) => command.label === label)!;
-  assert.deepEqual([byLabel("Open").enabled, byLabel("Open").disabledReason], [false, "restart transport unavailable"]);
+  assert.deepEqual([byLabel("Restart").enabled, byLabel("Restart").disabledReason], [false, "restart transport unavailable"]);
   assert.deepEqual([byLabel("Rename…").enabled, byLabel("Rename…").disabledReason], [false, "restart the Pi session before renaming"]);
   assert.deepEqual([byLabel("Send text…").enabled, byLabel("Send text…").disabledReason], [false, "session is not live"]);
   assert.deepEqual([byLabel("Finish worktree…").enabled, byLabel("Finish worktree…").disabledReason], [false, "no Hub-owned worktree"]);
@@ -153,31 +153,33 @@ test("session search composes bounded matchesFilter context and preserves fleet 
   assert.deepEqual(searchDashboardCommands(commands, "plain").filter((command) => command.group === "sessions").map((command) => command.id), ["session:preview"]);
 });
 
-test("workspace selection follows frozen recommendation and action precedence", () => {
+test("workspace selection keeps guidance exceptional and aligns the primary action", () => {
   const cases: Array<{
     name: string;
     values: Partial<RuntimeSession>;
-    recommendation: string;
+    guidance?: string;
     actions: string[];
+    primaryLabel: string;
   }> = [
-    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, recommendation: "Answer the producer's explicit question.", actions: ["send", "open", "mark-read"] },
-    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, recommendation: "Review the producer's completed result.", actions: ["send", "open", "mark-read"] },
-    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, recommendation: "Resolve the producer's explicit blocker.", actions: ["send", "open", "mark-read"] },
-    { name: "error", values: { status: "error" }, recommendation: "Inspect live evidence before deciding whether to restart.", actions: ["open", "restart", "info"] },
-    { name: "stopped", values: { status: "stopped", bucket: "backlog" }, recommendation: "Restart the session when this work should continue.", actions: ["open", "restart", "restore"] },
-    { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, recommendation: "Let the owner coordinate this task unless direct inspection is needed.", actions: ["open", "info"] },
-    { name: "archived", values: { bucket: "archived", status: "idle" }, recommendation: "No intervention requested while this work remains Archived.", actions: ["open", "restore", "delete"] },
-    { name: "backlog", values: { bucket: "backlog", status: "idle" }, recommendation: "No intervention requested while this work remains in Backlog.", actions: ["open", "restore", "archive"] },
-    { name: "idle", values: { status: "idle" }, recommendation: "No intervention requested.", actions: ["open", "send", "archive"] },
-    { name: "active", values: { status: "running" }, recommendation: "Let the session continue; open it only when more context is needed.", actions: ["open", "pin", "send"] },
+    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
+    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open" },
+    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
+    { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open"], primaryLabel: "Details" },
+    { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore"], primaryLabel: "Restart" },
+    { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open" },
+    { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "restore", "delete"], primaryLabel: "Open" },
+    { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open" },
+    { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open" },
+    { name: "active", values: { status: "running" }, actions: ["open", "pin"], primaryLabel: "Open" },
   ];
 
   for (const item of cases) {
     const selected = session(item.name, item.values);
     const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
     const workspace = selectWorkspaceCommands(selected, commands, 3);
-    assert.equal(workspace.recommendation, item.recommendation, item.name);
+    assert.equal(workspace.guidance, item.guidance, item.name);
     assert.deepEqual(workspace.actions.map((command) => command.id), item.actions.map((name) => `action:${selected.id}:${name}`), item.name);
+    assert.equal(workspace.actions[0]?.label, item.primaryLabel, item.name);
     assert.equal(workspace.moreCommand.id, "view:palette", item.name);
     assert.equal(workspace.moreCommand.displayKey, ":", item.name);
   }
@@ -201,13 +203,25 @@ test("workspace selection reuses exact enabled descriptors and respects the acti
     [open, markRead].map(({ label, displayKey, hint, enabled }) => ({ label, displayKey, hint, enabled })),
   );
   assert.deepEqual(selectWorkspaceCommands(selected, commands, 0).actions, []);
+
+  const blocked = session("blocked-no-send", { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } });
+  const blockedCommands = buildDashboardCommands({ sessions: [blocked], selectedId: blocked.id, capabilities: { ...allCapabilities, sendMessage: false } });
+  const blockedWorkspace = selectWorkspaceCommands(blocked, blockedCommands, 3);
+  assert.equal(blockedWorkspace.guidance, undefined);
+  assert.equal(blockedWorkspace.actions[0]?.id, "action:blocked-no-send:open");
+
+  const stopped = session("stopped-no-restart", { status: "stopped", bucket: "backlog" });
+  const stoppedCommands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: {} });
+  const stoppedWorkspace = selectWorkspaceCommands(stopped, stoppedCommands, 3);
+  assert.equal(stoppedWorkspace.guidance, undefined);
+  assert.equal(stoppedWorkspace.actions[0]?.id, "action:stopped-no-restart:restore");
 });
 
 test("workspace selection ignores attention outside waiting and idle states", () => {
   const selected = session("running-attention", { status: "running", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Old question" } } });
   const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
   assert.deepEqual(selectWorkspaceCommands(selected, commands, 3).actions.map((command) => command.id), [
-    "action:running-attention:open", "action:running-attention:pin", "action:running-attention:send",
+    "action:running-attention:open", "action:running-attention:pin",
   ]);
 });
 

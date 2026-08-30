@@ -928,3 +928,13 @@
   - agent-work/decks/cockpit-design-lab.html
   plan_file: agent-work/history/20260829_cockpit-010_visual_parity.md
   completed_at: '2026-08-29'
+- id: cockpit-011
+  status: done
+  title: Action workspace cleanup
+  subtitle: Make selected session decisions obvious
+  description: The selected-session workspace shows only meaningful work context,
+    exceptional guidance, and clear actions by default.
+  priority: 1
+  created_at: '2026-08-29'
+  plan_file: agent-work/history/20260829_cockpit-011_action_workspace_cleanup.md
+  completed_at: '2026-08-29'

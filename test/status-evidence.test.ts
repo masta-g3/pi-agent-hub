@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { computeStatus } from "../src/core/status.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { buildRenderModel } from "../src/tui/render-model.js";
-import { statusEvidenceFields } from "../src/tui/status-evidence.js";
+import { hasUsefulStatusResult, statusEvidenceFields } from "../src/tui/status-evidence.js";
 
 const now = 100_000;
 
@@ -29,6 +29,32 @@ function values(sessions: RuntimeSession[], selectedId: string): string[] {
     : field.value);
 }
 
+test("status evidence without an observation avoids repeating visible status", () => {
+  assert.ok(values([session("quiet")], "quiet").includes("idle · quiet · runtime evidence unavailable"));
+});
+
+test("result relevance keeps exceptional causes and suppresses routine conclusions", () => {
+  const routine = buildRenderModel({ sessions: [session("routine", { status: "running" })], selectedId: "routine", width: 100 }).selected!;
+  assert.equal(hasUsefulStatusResult(routine), false);
+
+  const broken = buildRenderModel({
+    sessions: [session("broken", {
+      status: "error",
+      statusEvidence: {
+        observedAt: now,
+        reason: "heartbeat-error",
+        tmux: { state: "present" },
+        heartbeat: { freshness: "fresh", state: "error", updatedAt: now },
+        acknowledgement: { state: "not-applicable" },
+        workflow: { source: "absent" },
+      },
+    })],
+    selectedId: "broken",
+    width: 100,
+  }).selected!;
+  assert.equal(hasUsefulStatusResult(broken), true);
+});
+
 test("status evidence wording covers missing and stale heartbeat fallbacks", () => {
   const base = session("api", { status: "running" });
   const missingDecision = computeStatus({ session: base, tmux: { exists: true }, now });
@@ -38,8 +64,22 @@ test("status evidence wording covers missing and stale heartbeat fallbacks", () 
   const stale = { ...base, status: staleDecision.status, statusEvidence: staleDecision.evidence };
 
   assert.ok(values([missing], base.id).some((value) => /no heartbeat · using tmux fallback/.test(value)));
-  assert.ok(values([missing], base.id).some((value) => value === "waiting · quiet · heartbeat unavailable; previous running state became waiting; no explicit request, error, or active work"));
+  assert.ok(values([missing], base.id).some((value) => value === "waiting · quiet · heartbeat unavailable; previous running state became waiting"));
   assert.ok(values([stale], base.id).some((value) => /heartbeat stale · 1m old · Pi state waiting/.test(value)));
+});
+
+test("status evidence does not explain a running owner by repeating its status", () => {
+  const base = session("active", { status: "running" });
+  const decision = computeStatus({
+    session: base,
+    tmux: { exists: true },
+    heartbeat: { managedSessionId: base.id, cwd: base.cwd, state: "running", stateSince: 1, updatedAt: now },
+    now,
+  });
+  const active = { ...base, status: decision.status, statusEvidence: decision.evidence };
+  const result = values([active], active.id).find((value) => value.startsWith("running · active ·"));
+  assert.equal(result, "running · active · fresh heartbeat reports running");
+  assert.doesNotMatch(result ?? "", /owner is running/);
 });
 
 test("status evidence names active descendants and inherited quiet placement", () => {
@@ -60,7 +100,7 @@ test("status evidence names active descendants and inherited quiet placement", (
     }).evidence,
   };
   const quietValues = values([quietParent, child], child.id);
-  assert.ok(quietValues.some((value) => value === "error · quiet · Pi heartbeat reported an error; no explicit request, error, or active work with owner \"Quiet parent\""));
+  assert.ok(quietValues.some((value) => value === "error · quiet · Pi heartbeat reported an error; owner tree is quiet with owner \"Quiet parent\""));
 });
 
 test("status evidence explains Health, Archived, and retained workflow independently", () => {
