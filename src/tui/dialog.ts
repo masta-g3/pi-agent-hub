@@ -62,6 +62,7 @@ export interface SidePaneActions {
   pinSidePane: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
   assignSidePaneSlot: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
   focusSidePaneSlot: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  focusPinnedSession: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   closeSidePane: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
   resizeSidePane: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
   focusSidePaneDirection: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
@@ -132,6 +133,7 @@ export interface SessionsViewActions {
   pinSidePane?: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
   assignSidePaneSlot?: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
   focusSidePaneSlot?: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  focusPinnedSession?: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   closeSidePane?: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
   resizeSidePane?: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
   focusSidePaneDirection?: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;

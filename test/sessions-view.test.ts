@@ -1700,6 +1700,106 @@ test("enter on waiting session marks read before switching inside tmux", async (
   }
 });
 
+test("question Answer focuses the exact pinned session without opening another target", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting, session("docs", "docs")] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: async (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id, requestId) => { events.push(`ack:${id}:${requestId}`); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(events, ["focus:api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("question Answer falls back to acknowledge then open when the exact session is not pinned", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: async (id) => { events.push(`focus:${id}`); return { kind: "unavailable" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id, requestId) => { events.push(`ack:${id}:${requestId}`); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(events, ["focus:api", "ack:api:undefined", "switch:pi-agent-hub-api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("Answer revalidates question context before choosing the pin route", () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const selected = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as "question" | "ready", text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [selected] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    });
+
+    selected.context.attention = { requestId: "ready-2", kind: "ready", text: "Review result" };
+    view.handleInput("\r");
+
+    assert.deepEqual(events, ["ack:api", "switch:pi-agent-hub-api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("narrow question flow opens the workspace before Answer routes to Pi", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "idle" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+    });
+
+    view.render(80);
+    view.handleInput("\r");
+    assert.deepEqual(events, []);
+    assert.match(stripAnsi(view.render(80).join("\n")), /Answer in the Pi session/);
+    assert.match(stripAnsi(view.render(80).join("\n")), /Enter  Answer/);
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["focus:api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
 test("external rename action selects the target session and opens rename dialog", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {});

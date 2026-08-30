@@ -940,3 +940,16 @@
   created_at: '2026-08-29'
   plan_file: agent-work/history/20260829_cockpit-011_action_workspace_cleanup.md
   completed_at: '2026-08-29'
+- id: cockpit-012
+  status: done
+  title: Question routing
+  subtitle: Route prompts into real Pi UI
+  description: Blocking Pi prompts report waiting, structured questions enter NEEDS
+    YOU with one bounded summary, and Answer focuses an existing pin or opens the
+    owning managed session.
+  priority: 2
+  created_at: '2026-08-29'
+  depends_on:
+  - cockpit-004
+  plan_file: agent-work/history/20260830_cockpit-012_question_routing.md
+  completed_at: '2026-08-30'

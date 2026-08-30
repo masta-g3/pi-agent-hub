@@ -171,9 +171,13 @@ export function selectWorkspaceCommands(
       guidance = "Review the completed result.";
       guidanceAction = "open";
       actionNames = ["open", "send", "mark-read"];
+    } else if (attention.kind === "question") {
+      guidance = "Answer in the Pi session.";
+      guidanceAction = "open";
+      actionNames = ["open", "mark-read"];
     } else {
-      guidance = attention.kind === "blocked" ? "Resolve the reported blocker." : undefined;
-      guidanceAction = attention.kind === "blocked" ? "send" : undefined;
+      guidance = "Resolve the reported blocker.";
+      guidanceAction = "send";
       actionNames = ["send", "open", "mark-read"];
     }
   } else if (session.status === "error") {
@@ -264,14 +268,19 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
   const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
+  const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question";
   const label = spec.name === "open" && (session.status === "error" || session.status === "stopped")
     ? "Restart"
+    : spec.name === "open" && isQuestion
+      ? "Answer"
     : spec.name === "pin" && isPinned
       ? `Focus slot ${(currentSlot ?? 0) + 1}`
       : spec.name === "pin" ? spec.label
       : spec.name.startsWith("slot-") && currentSlot === Number(spec.name.slice(5)) - 1 ? `Focus slot ${currentSlot + 1}`
       : spec.label;
-  const hint = spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
+  const hint = spec.name === "open" && isQuestion
+    ? "focus the real Pi questionnaire"
+    : spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
   return makeCommand({
     id: `action:${session.id}:${spec.name}`,
     group: "actions",

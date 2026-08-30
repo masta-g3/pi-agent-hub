@@ -27,14 +27,14 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
-  assert.deepEqual(events, ["before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_shutdown"]);
+  assert.deepEqual(events, ["before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
 
   await handlers.get("session_shutdown")?.({}, { cwd: "/repo" });
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
   assert.deepEqual(events, [
-    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_shutdown",
-    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_shutdown",
+    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
@@ -137,6 +137,162 @@ test("compaction publishes transient running and restores or preserves continuat
     else process.env[SESSION_ID_ENV] = previousSessionId;
     if (previousStateDir === undefined) delete process.env[STATE_ENV];
     else process.env[STATE_ENV] = previousStateDir;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
+});
+
+test("blocking Pi prompts publish waiting and restore the prior lifecycle state and activity time", async () => {
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-prompt-"));
+  const previousSessionId = process.env[SESSION_ID_ENV];
+  const previousStateDir = process.env[STATE_ENV];
+  const previousSubagentJobId = process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+  process.env[SESSION_ID_ENV] = "prompt-lifecycle";
+  process.env[STATE_ENV] = root;
+  delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+  };
+  const ctx = { cwd: root, hasUI: false };
+  const readHeartbeat = async () => JSON.parse(await readFile(heartbeatPath("prompt-lifecycle", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    const idleOrigin = await readHeartbeat();
+    await handlers.get("ui_prompt_start")?.({ method: "confirm" }, ctx);
+    let heartbeat = await readHeartbeat();
+    assert.equal(heartbeat.state, "waiting");
+    await handlers.get("ui_prompt_end")?.({ method: "confirm" }, ctx);
+    heartbeat = await readHeartbeat();
+    assert.equal(heartbeat.state, "waiting");
+    assert.equal(heartbeat.stateSince, idleOrigin.stateSince);
+
+    await handlers.get("agent_start")?.({}, ctx);
+    const runningOrigin = await readHeartbeat();
+    await handlers.get("ui_prompt_start")?.({ method: "select" }, ctx);
+    heartbeat = await readHeartbeat();
+    assert.equal(heartbeat.state, "waiting");
+    await handlers.get("ui_prompt_start")?.({ method: "input" }, ctx);
+    await handlers.get("ui_prompt_end")?.({ method: "select" }, ctx);
+    heartbeat = await readHeartbeat();
+    assert.equal(heartbeat.state, "running");
+    assert.equal(heartbeat.stateSince, runningOrigin.stateSince);
+
+    const restored = heartbeat;
+    await handlers.get("ui_prompt_end")?.({ method: "input" }, ctx);
+    assert.deepEqual(await readHeartbeat(), restored);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
+    else process.env[SESSION_ID_ENV] = previousSessionId;
+    if (previousStateDir === undefined) delete process.env[STATE_ENV];
+    else process.env[STATE_ENV] = previousStateDir;
+    if (previousSubagentJobId === undefined) delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+    else process.env.PI_TMUX_SUBAGENTS_JOB_ID = previousSubagentJobId;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
+});
+
+test("newer lifecycle transitions and shutdown reject stale prompt restoration", async () => {
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-prompt-stale-"));
+  const previousSessionId = process.env[SESSION_ID_ENV];
+  const previousStateDir = process.env[STATE_ENV];
+  const previousSubagentJobId = process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+  process.env[SESSION_ID_ENV] = "prompt-stale";
+  process.env[STATE_ENV] = root;
+  delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+  };
+  const ctx = { cwd: root, hasUI: false };
+  const readHeartbeat = async () => JSON.parse(await readFile(heartbeatPath("prompt-stale", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_start")?.({}, ctx);
+    await handlers.get("ui_prompt_start")?.({ method: "editor" }, ctx);
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+    await handlers.get("agent_start")?.({}, ctx);
+    const sameStateOwner = await readHeartbeat();
+    assert.equal(sameStateOwner.state, "running");
+    await handlers.get("ui_prompt_end")?.({ method: "editor" }, ctx);
+    assert.deepEqual(await readHeartbeat(), sameStateOwner);
+
+    await handlers.get("ui_prompt_start")?.({ method: "custom" }, ctx);
+    await handlers.get("agent_end")?.({}, ctx);
+    const differentStateOwner = await readHeartbeat();
+    assert.equal(differentStateOwner.state, "waiting");
+    await handlers.get("ui_prompt_end")?.({ method: "custom" }, ctx);
+    assert.deepEqual(await readHeartbeat(), differentStateOwner);
+
+    await handlers.get("ui_prompt_start")?.({ method: "confirm" }, ctx);
+    await handlers.get("session_shutdown")?.({}, ctx);
+    const shutdown = await readHeartbeat();
+    assert.equal(shutdown.state, "shutdown");
+    await handlers.get("ui_prompt_end")?.({ method: "confirm" }, ctx);
+    assert.deepEqual(await readHeartbeat(), shutdown);
+  } finally {
+    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
+    else process.env[SESSION_ID_ENV] = previousSessionId;
+    if (previousStateDir === undefined) delete process.env[STATE_ENV];
+    else process.env[STATE_ENV] = previousStateDir;
+    if (previousSubagentJobId === undefined) delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+    else process.env.PI_TMUX_SUBAGENTS_JOB_ID = previousSubagentJobId;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
+});
+
+test("an extension error owns lifecycle state over a stale prompt end", async () => {
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-prompt-error-"));
+  const previous = {
+    sessionId: process.env[SESSION_ID_ENV],
+    stateDir: process.env[STATE_ENV],
+    subagentJobId: process.env.PI_TMUX_SUBAGENTS_JOB_ID,
+    forkCompact: process.env[FORK_COMPACT_ENV],
+  };
+  process.env[SESSION_ID_ENV] = "prompt-error";
+  process.env[STATE_ENV] = root;
+  process.env[FORK_COMPACT_ENV] = "1";
+  delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  let compactOptions: { onError?: (error: Error) => void } | undefined;
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+    setSessionName() {},
+  };
+  const ctx = { cwd: root, hasUI: false, compact(options: { onError?: (error: Error) => void }) { compactOptions = options; } };
+  const readHeartbeat = async () => JSON.parse(await readFile(heartbeatPath("prompt-error", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await handlers.get("ui_prompt_start")?.({ method: "confirm" }, ctx);
+    compactOptions?.onError?.(new Error("compact failed"));
+    let error = await readHeartbeat();
+    for (let attempt = 0; error.state !== "error" && attempt < 20; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      error = await readHeartbeat();
+    }
+    assert.equal(error.state, "error");
+    await handlers.get("ui_prompt_end")?.({ method: "confirm" }, ctx);
+    assert.deepEqual(await readHeartbeat(), error);
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    for (const [key, value] of [
+      [SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], ["PI_TMUX_SUBAGENTS_JOB_ID", previous.subagentJobId], [FORK_COMPACT_ENV, previous.forkCompact],
+    ] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   }
 });
@@ -251,14 +407,17 @@ test("piAgentHubExtension leaves tmux subagent prompt and heartbeat ownership to
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
     assert.equal(await handlers.get("before_agent_start")?.({ systemPrompt: "child prompt" }, {}), undefined);
-    await handlers.get("session_start")?.({}, {
+    const childCtx = {
       cwd: root,
       hasUI: true,
       ui: {
         getTheme() { throw new Error("subagent theme command should not be read"); },
         setTheme() { throw new Error("subagent theme command should not be applied"); },
       },
-    });
+    };
+    await handlers.get("session_start")?.({}, childCtx);
+    await handlers.get("ui_prompt_start")?.({ method: "custom" }, childCtx);
+    await handlers.get("ui_prompt_end")?.({ method: "custom" }, childCtx);
 
     assert.equal(await readFile(file, "utf8"), childHeartbeat);
   } finally {
@@ -763,17 +922,18 @@ test("piAgentHubExtension rejects invalid producer workflow definitions", async 
   assert.equal(cleared.workflow, undefined);
 });
 
-test("piAgentHubExtension agent_settled projects context appended after agent_end", async () => {
+test("piAgentHubExtension agent_settled projects request-backed question context appended after agent_end", async () => {
   const branch: unknown[] = [];
+  const requestId = "a".repeat(64);
   const heartbeat = await heartbeatWithSessionManager({ getBranch: () => branch }, async (handlers, ctx) => {
     await handlers.get("agent_end")?.({}, ctx);
     branch.push({ type: "custom", customType: "pi-agent-hub-context", data: {
-      version: 1, updatedAt: 9, attention: { kind: "question", text: "Choose the release target" },
+      version: 1, updatedAt: 9, attention: { requestId, kind: "question", text: "Choose the release target" },
     } });
     await handlers.get("agent_settled")?.({}, ctx);
   });
   assert.equal(heartbeat.state, "waiting");
-  assert.deepEqual(heartbeat.context?.attention, { kind: "question", text: "Choose the release target" });
+  assert.deepEqual(heartbeat.context?.attention, { requestId, kind: "question", text: "Choose the release target" });
 });
 
 test("piAgentHubExtension follows agent_settled for detached context publication", async () => {

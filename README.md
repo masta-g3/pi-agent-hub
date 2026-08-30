@@ -25,7 +25,7 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 
 ## Quick start
 
-Requirements: Pi 0.83+, Node.js 22.19+, and tmux 3.1+.
+Requirements: Pi 0.84.4+, Node.js 22.19+, and tmux 3.1+.
 
 ```bash
 npm install -g pi-agent-hub

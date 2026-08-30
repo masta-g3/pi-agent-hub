@@ -1468,7 +1468,7 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
-    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "▸ p", "LIVE DETAILS"].map((label) => text.indexOf(label));
+    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▸ Enter", "LIVE DETAILS"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);

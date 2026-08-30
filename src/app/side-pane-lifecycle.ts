@@ -82,6 +82,7 @@ export interface SidePaneLifecycle {
   pin(sessionId: string): Promise<SidePaneResult>;
   assign(sessionId: string, slot: SidePaneSlot): Promise<SidePaneResult>;
   focus(slot: SidePaneSlot): Promise<FocusSidePaneResult>;
+  focusPinnedSession(sessionId: string): Promise<FocusSidePaneResult>;
   close(sessionId: string): Promise<CloseSidePaneResult>;
   resize(delta: -1 | 1): Promise<ResizeSidePaneResult>;
   focusDirection(direction: SpatialDirection): Promise<FocusSidePaneResult>;
@@ -350,6 +351,20 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         const session = sessionByTmux(pin.session);
         if (session && !await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
         const result = await focusSidePaneSlot({ slot, ownPane }, exec);
+        if (result.kind === "focused") await afterMutation(undefined);
+        return result;
+      }));
+    },
+    focusPinnedSession(sessionId) {
+      if (stopped || !deps.insideTmux()) return Promise.resolve({ kind: "unavailable" });
+      return trackIntent(withPausedPresence(async () => {
+        const session = sessionById(sessionId);
+        if (!session) return { kind: "unavailable" as const };
+        const ownPane = ownPaneOrThrow();
+        const status = await sidePaneStatus({ ownPane }, exec);
+        if (!status.pins.some((pin) => pin.session === session.tmuxSession)) return { kind: "unavailable" as const };
+        if (!await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
+        const result = await focusSidePane({ target: session.tmuxSession, ownPane }, exec);
         if (result.kind === "focused") await afterMutation(undefined);
         return result;
       }));

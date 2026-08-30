@@ -368,6 +368,7 @@ export async function runTui(): Promise<void> {
     pinSidePane: (sessionId) => sidePanes!.pin(sessionId),
     assignSidePaneSlot: (sessionId, slot) => sidePanes!.assign(sessionId, slot),
     focusSidePaneSlot: (slot) => sidePanes!.focus(slot),
+    focusPinnedSession: (sessionId) => sidePanes!.focusPinnedSession(sessionId),
     closeSidePane: (sessionId) => sidePanes!.close(sessionId),
     resizeSidePane: (delta) => sidePanes!.resize(delta),
     focusSidePaneDirection: (direction) => sidePanes!.focusDirection(direction),

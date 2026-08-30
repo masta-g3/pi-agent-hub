@@ -1077,6 +1077,34 @@ export class SessionsView implements Component {
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
     }
+    const isQuestion = (selected.status === "waiting" || selected.status === "idle") && selected.context?.attention?.kind === "question";
+    const focusPinned = this.actions.focusPinnedSession;
+    if (isQuestion && focusPinned) {
+      runSyncAsyncAction(() => focusPinned(selected.id), {
+        pending: "locating questionnaire...",
+        setBusy: (busy) => { this.busy = busy; },
+        setMessage: (message) => { if (!message || this.message === "locating questionnaire...") this.message = message; },
+        success: (result) => {
+          if (result.kind === "unavailable") this.acknowledgeAndAttach(selected.id);
+        },
+        failure: (error) => { this.message = errorMessage(error); },
+      });
+      return;
+    }
+    this.acknowledgeAndAttach(selected.id);
+  }
+
+  private acknowledgeAndAttach(sessionId: string) {
+    const selected = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
+    if (!selected) {
+      this.message = "session is no longer available";
+      return;
+    }
+    if (selected.status === "stopped" || selected.status === "error") {
+      if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
+      else this.message = `session ${selected.status}; press r twice to restart`;
+      return;
+    }
     const activeRequest = this.activeAttentionAnnouncements().find((announcement) => announcement.sessionId === selected.id);
     if (selected.status === "waiting" || activeRequest) {
       try {
@@ -1087,7 +1115,9 @@ export class SessionsView implements Component {
           void result.then(() => {
             this.busy = false;
             if (this.message === "marking read...") this.message = undefined;
-            this.attachSession(selected);
+            const current = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
+            if (current) this.attachSession(current);
+            else this.message = "session is no longer available";
           }).catch((error: unknown) => {
             this.busy = false;
             this.message = errorMessage(error);

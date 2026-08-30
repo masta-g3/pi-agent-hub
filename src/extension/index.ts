@@ -67,6 +67,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number } | undefined;
   let compactionWatchdog: ReturnType<typeof setTimeout> | undefined;
+  let lifecycleRevision = 0;
+  let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let heartbeatWrite: Promise<void> = Promise.resolve();
   let lastThemeRevision: string | undefined;
   let mcpCleanup: (() => Promise<void>) | undefined;
@@ -90,6 +92,11 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   async function applyThemeAndHeartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string) {
     await applyThemeCommand(ctx);
     await heartbeat(state, ctx, message);
+  }
+
+  async function publishLifecycle(state: Heartbeat["state"], ctx: PiContext, message?: string) {
+    lifecycleRevision += 1;
+    await applyThemeAndHeartbeat(state, ctx, message);
   }
 
   async function heartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string, stateSinceOverride?: number) {
@@ -143,13 +150,13 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       const resetName = basename(process.env[PRIMARY_CWD_ENV] ?? "").trim() || "pi-session";
       pi.setSessionName(resetName);
     }
-    await applyThemeAndHeartbeat("waiting", piCtx);
+    await publishLifecycle("waiting", piCtx);
     heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
     themeCommandTimer = setInterval(() => void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined), THEME_COMMAND_INTERVAL_MS);
     startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
     if (compactFork) {
       startupCompactionTimer = setTimeout(() => piCtx.compact({
-        onError: (error) => void heartbeat("error", piCtx, `Fork compaction failed: ${error.message}`),
+        onError: (error) => void publishLifecycle("error", piCtx, `Fork compaction failed: ${error.message}`),
       }), 0);
     }
     mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
@@ -165,22 +172,25 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   const restoreCompaction = async (ctx: PiContext) => {
     const snapshot = compactionSnapshot;
     clearCompaction();
-    if (snapshot) await heartbeat(snapshot.state, ctx, undefined, snapshot.stateSince);
+    if (snapshot) {
+      lifecycleRevision += 1;
+      await heartbeat(snapshot.state, ctx, undefined, snapshot.stateSince);
+    }
   };
 
   pi.on("agent_start", async (_event, ctx) => {
     clearCompaction();
     for (const timer of settledHeartbeatTimers) clearTimeout(timer);
     settledHeartbeatTimers = [];
-    await applyThemeAndHeartbeat("running", ctx as PiContext);
+    await publishLifecycle("running", ctx as PiContext);
   });
   pi.on("agent_end", async (_event, ctx) => {
     clearCompaction();
-    await applyThemeAndHeartbeat("waiting", ctx as PiContext);
+    await publishLifecycle("waiting", ctx as PiContext);
   });
   pi.on("agent_settled", async (_event, ctx) => {
     clearCompaction();
-    await applyThemeAndHeartbeat("waiting", ctx as PiContext);
+    await publishLifecycle("waiting", ctx as PiContext);
     for (const timer of settledHeartbeatTimers) clearTimeout(timer);
     settledHeartbeatTimers = SETTLED_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void heartbeat(currentState, ctx as PiContext), delay));
   });
@@ -189,6 +199,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     clearCompaction();
     const snapshot = { state: currentState, stateSince };
     compactionSnapshot = snapshot;
+    lifecycleRevision += 1;
     compactionWatchdog = setTimeout(() => {
       if (compactionSnapshot !== snapshot) return;
       void restoreCompaction(ctx as PiContext);
@@ -199,13 +210,30 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     if (event.willRetry) {
       clearCompaction();
+      lifecycleRevision += 1;
       return;
     }
     await restoreCompaction(ctx as PiContext);
   });
+  pi.on("ui_prompt_start", async (_event, ctx) => {
+    if (process.env.PI_TMUX_SUBAGENTS_JOB_ID || promptSnapshot) return;
+    lifecycleRevision += 1;
+    promptSnapshot = { state: currentState, stateSince, ownedRevision: lifecycleRevision };
+    await heartbeat("waiting", ctx as PiContext);
+  });
+  pi.on("ui_prompt_end", async (_event, ctx) => {
+    if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
+    const snapshot = promptSnapshot;
+    promptSnapshot = undefined;
+    if (!snapshot || lifecycleRevision !== snapshot.ownedRevision) return;
+    lifecycleRevision += 1;
+    await heartbeat(snapshot.state, ctx as PiContext, undefined, snapshot.stateSince);
+  });
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
       clearCompaction();
+      promptSnapshot = undefined;
+      lifecycleRevision += 1;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (themeCommandTimer) clearInterval(themeCommandTimer);
       for (const timer of startupHeartbeatTimers) clearTimeout(timer);

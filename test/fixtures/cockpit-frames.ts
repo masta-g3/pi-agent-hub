@@ -54,9 +54,9 @@ export const COCKPIT_EXPECTED_FRAMES: Record<60 | 100 | 160, string> = {
 │HEALTH          1│ │ “Which changelog section wins?”                                                             │────────────────────────────────────────────│
 │ACTIVE          2│ └ #cockpit-001 · Docs                                                                         │? “Which changelog section wins?”           │
 │QUIET           3│── HEALTH                                                                                    ·1│Review · step 3 of 3                        │
-│ARCHIVED        1│ │ ·   × Flaky test investigation                                                            8m│────────────────────────────────────────────│
-│                 │ └ QA                                                                                          │▸ p      Send text…                         │
-│                 │── ACTIVE                                                                                    ·2│  Enter  Open                               │
+│ARCHIVED        1│ │ ·   × Flaky test investigation                                                            8m│Answer in the Pi session.                   │
+│                 │ └ QA                                                                                          │────────────────────────────────────────────│
+│                 │── ACTIVE                                                                                    ·2│▸ Enter  Answer                             │
 │                 │ │ ▾   ◐ Dashboard UI polish                                           ⚙︎1 · ✓ PL─◉ EX─· RV · 8m│  a      Mark read                          │
 │                 │ │ #cockpit-001 · Pi Agent Hub                                                                 │  i      Details                            │
 │                 │ └ └─   ● code-critic Review cockpit hierarchy geometry                                        │  :      Actions                            │

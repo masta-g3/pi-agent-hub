@@ -203,6 +203,22 @@ test("slot assignment preserves holes, refuses occupants, and numeric focus ackn
   before(value.events, "ack:docs", value.events.find((event) => event.startsWith("focus:"))!);
 });
 
+test("exact-session focus re-inspects pin identity and never follows a replaced slot", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting, session("docs")], initial: [{ session: "pi-agent-hub-api", slot: 1 }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focusPinnedSession("api"), { kind: "focused" });
+  before(value.events, "reveal:api", "ack:api");
+  before(value.events, "ack:api", "focus:%2");
+
+  value.tmux.panes[0]!.session = "pi-agent-hub-docs";
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focusPinnedSession("api"), { kind: "unavailable" });
+  assert.equal(value.events.some((event) => event.startsWith("focus:")), false);
+  assert.equal(value.events.some((event) => event.startsWith("ack:")), false);
+});
+
 test("existing idle pin acknowledges only the exact active delivered request", async (t) => {
   const idle = session("api", "idle");
   const value = await harness(t, { sessions: [idle], initial: [{ session: "pi-agent-hub-api" }], activeRequestIds: new Map([["api", "req-2"]]) });
