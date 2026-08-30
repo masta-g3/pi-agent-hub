@@ -59,6 +59,7 @@ export interface SessionPlanSummary {
 export type SessionAttentionKind = "ready" | "question" | "blocked";
 
 export interface SessionAttention {
+  requestId?: string;
   kind: SessionAttentionKind;
   text: string;
 }
@@ -118,9 +119,44 @@ export interface ManagedSession {
   worktrees?: ManagedWorktree[];
 }
 
+export type RuntimeStatusReason =
+  | "tmux-stopped"
+  | "tmux-missing"
+  | "tmux-unknown"
+  | "heartbeat-error"
+  | "heartbeat-shutdown"
+  | "heartbeat-active"
+  | "fallback-active"
+  | "fallback-starting"
+  | "fallback-waiting"
+  | "fallback-idle"
+  | "heartbeat-unread"
+  | "heartbeat-read";
+
+export interface RuntimeStatusEvidence {
+  observedAt: number;
+  reason: RuntimeStatusReason;
+  tmux: { state: "present" | "missing" | "unknown"; error?: string };
+  heartbeat: {
+    freshness: "fresh" | "stale" | "missing";
+    state?: Heartbeat["state"];
+    updatedAt?: number;
+    stateSince?: number;
+    message?: string;
+  };
+  acknowledgement: { state: "unread" | "read" | "not-applicable"; acknowledgedAt?: number };
+  workflow: {
+    source: "fresh" | "retained" | "absent";
+    activeIndex?: number;
+    stepCount?: number;
+    stepLabel?: string;
+  };
+}
+
 export interface RuntimeSession extends ManagedSession {
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
+  statusEvidence?: RuntimeStatusEvidence;
 }
 
 export interface SessionsRegistry {

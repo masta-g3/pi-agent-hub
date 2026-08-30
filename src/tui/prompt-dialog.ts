@@ -71,9 +71,7 @@ function handleFilterInput(dialog: PromptDialog, data: string, ctx: PromptDialog
 }
 
 function setFilter(ctx: PromptDialogContext, value: string | undefined): void {
-  const previousId = ctx.controller.snapshot().selectedId;
   ctx.controller.setFilter(value);
-  if (ctx.controller.snapshot().selectedId !== previousId) ctx.actions.selectionChanged?.();
 }
 
 function handleSendInput(dialog: PromptDialog, data: string, ctx: PromptDialogContext): PromptDialog | undefined {

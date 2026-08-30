@@ -12,6 +12,7 @@ import { loadRegistry } from "./core/registry.js";
 import { dashboardEnv, openDashboard } from "./app/dashboard.js";
 import { runTui } from "./app/run-tui.js";
 import { deleteManagedSession } from "./app/delete-session.js";
+import { explainSession } from "./app/explain-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, startManagedSession, stopManagedSession } from "./app/session-lifecycle.js";
 import { startMcpPool } from "./mcp/pool-daemon.js";
 
@@ -35,6 +36,9 @@ async function main() {
       return;
     case "list":
       await list();
+      return;
+    case "explain":
+      await explain(args[0]);
       return;
     case "add":
       await add(args);
@@ -75,6 +79,7 @@ Usage:
   ${CLI_COMMAND}              open dashboard tmux session
   ${CLI_COMMAND} tui          run TUI directly
   ${CLI_COMMAND} list
+  ${CLI_COMMAND} explain <session-id-or-prefix>
   ${CLI_COMMAND} add <cwd> [-g group] [--add-cwd path ...]
   ${CLI_COMMAND} start <session-id>
   ${CLI_COMMAND} stop <session-id>
@@ -110,6 +115,11 @@ async function list() {
   for (const session of registry.sessions) {
     console.log(`${session.id}\t${session.status}\t${session.group}\t${session.title}\t${session.cwd}`);
   }
+}
+
+async function explain(query: string | undefined) {
+  if (!query) throw new Error(`Usage: ${CLI_COMMAND} explain <session-id-or-prefix>`);
+  console.log(await explainSession(query));
 }
 
 async function add(argv: string[]) {

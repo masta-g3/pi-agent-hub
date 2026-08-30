@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Before and after mockups for five proposed pi-agent-hub UX redesigns inspired by Herdr.">
+<link rel="icon" href="data:,">
+<title>pi-agent-hub redesign mockups</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --paper: #e9edf3;
+  --raise: #f7f9fc;
+  --ink: #12161d;
+  --muted: #414b5c;
+  --dim: #566072;
+  --line: #cdd5e0;
+  --signal: #b45f04;
+  --signal-ink: #7c3d04;
+  --signal-soft: #f7ead6;
+  --focus: #2563eb;
+  --good: #1f7146;
+  --bad: #a83947;
+  --plate: #12141c;
+  --plate-raise: #191c26;
+  --plate-ink: #d6dbe6;
+  --plate-muted: #9aa3b5;
+  --plate-dim: #7b8496;
+  --plate-line: #2a2f3d;
+  --plate-sel: #2c3550;
+  --plate-focus: #4a9eff;
+  --st-running: #7fd18a;
+  --st-waiting: #e8b04b;
+  --st-idle: #9aa3b5;
+  --st-error: #f07a86;
+  --font-display: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --t--1: .78rem;
+  --t-plate: .82rem;
+  --t-0: 1rem;
+  --t-1: 1.28rem;
+  --t-2: 1.72rem;
+  --t-3: clamp(1.8rem, 1.45rem + 1.4vw, 2.45rem);
+  --t-4: clamp(2.6rem, 1.9rem + 3vw, 4rem);
+  --s1: .375rem;
+  --s2: .625rem;
+  --s3: 1rem;
+  --s4: 1.625rem;
+  --s5: 2.625rem;
+  --s6: 4.25rem;
+  --s7: 6.75rem;
+  --r1: .45rem;
+  --r2: .75rem;
+  --max: 74rem;
+  --measure: 68ch;
+  --shadow: 0 1rem 2.8rem color-mix(in srgb, var(--ink) 10%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #12151b;
+    --raise: #1a1e27;
+    --ink: #e4e8ee;
+    --muted: #a5adbb;
+    --dim: #8d97a8;
+    --line: #343b4b;
+    --signal: #f0a742;
+    --signal-ink: #f5be6e;
+    --signal-soft: #3a2a12;
+    --focus: #4a9eff;
+    --good: #7fd18a;
+    --bad: #f07a86;
+    --shadow: 0 1rem 3rem #080a0f;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: var(--t-0)/1.6 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
+h1, h2, h3, .mono { font-family: var(--font-display); }
+h1 { font-size: var(--t-4); line-height: 1.03; letter-spacing: -.055em; max-width: 18ch; }
+h2 { font-size: var(--t-3); line-height: 1.12; letter-spacing: -.035em; }
+h3 { font-size: var(--t-1); line-height: 1.25; }
+a { color: inherit; }
+button { font: inherit; }
+:focus-visible { outline: .15rem solid var(--focus); outline-offset: .2rem; }
+.sr-only {
+  position: absolute;
+  width: .0625rem;
+  height: .0625rem;
+  padding: 0;
+  margin: -.0625rem;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip {
+  position: fixed;
+  inset: var(--s3) auto auto -100vw;
+  z-index: 100;
+  padding: var(--s2) var(--s3);
+  border: .0625rem solid var(--line);
+  border-radius: var(--r1);
+  background: var(--raise);
+}
+.skip:focus { left: var(--s3); }
+.site-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: .0625rem solid color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--paper) 90%, transparent);
+  backdrop-filter: blur(.8rem);
+}
+.site-nav__inner {
+  width: min(calc(100% - 2rem), var(--max));
+  margin-inline: auto;
+  min-height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+.brand {
+  font: 700 var(--t--1)/1 var(--font-display);
+  letter-spacing: .08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.nav-links {
+  display: flex;
+  gap: var(--s3);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.nav-links a {
+  color: var(--muted);
+  font: 650 var(--t--1)/1 var(--font-display);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-links a:hover { color: var(--signal-ink); }
+main { width: min(calc(100% - 2rem), var(--max)); margin-inline: auto; }
+.flow > * + * { margin-top: var(--s3); }
+.hero {
+  min-height: calc(100svh - 3.25rem);
+  display: grid;
+  align-content: center;
+  padding-block: var(--s6);
+}
+.eyebrow {
+  color: var(--signal-ink);
+  font: 750 var(--t--1)/1.2 var(--font-display);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.lead { max-width: 54ch; color: var(--muted); font-size: var(--t-1); line-height: 1.48; }
+.thesis {
+  max-width: var(--measure);
+  padding: var(--s4);
+  border-left: .25rem solid var(--signal);
+  background: var(--signal-soft);
+  font-size: var(--t-1);
+  line-height: 1.45;
+}
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  color: var(--dim);
+  font: 650 var(--t--1)/1.35 var(--font-display);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: .35rem .65rem;
+  border: .0625rem solid var(--line);
+  border-radius: 99rem;
+  background: var(--raise);
+}
+.boundary {
+  padding-block: 0 var(--s7);
+}
+.boundary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s4);
+}
+.boundary-card {
+  padding: var(--s4);
+  border: .0625rem solid var(--line);
+  border-radius: var(--r2);
+  background: var(--raise);
+}
+.boundary-card ul { padding-left: 1.2rem; }
+.boundary-card li + li { margin-top: var(--s1); }
+.boundary-card.take { border-top: .25rem solid var(--signal); }
+.boundary-card.refuse { border-top: .25rem solid var(--dim); }
+.feature {
+  padding-block: var(--s7);
+  border-top: .0625rem solid var(--line);
+  scroll-margin-top: 3.8rem;
+}
+.feature-head {
+  display: grid;
+  grid-template-columns: 4.2rem minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: start;
+}
+.feature-number {
+  color: var(--signal-ink);
+  font: 800 var(--t-2)/1 var(--font-display);
+}
+.feature-copy { max-width: var(--measure); color: var(--muted); font-size: var(--t-1); line-height: 1.5; }
+.compare-tabs {
+  display: none;
+  width: fit-content;
+  padding: .2rem;
+  border: .0625rem solid var(--line);
+  border-radius: var(--r1);
+  background: var(--raise);
+}
+.compare-tabs button {
+  border: 0;
+  border-radius: calc(var(--r1) - .12rem);
+  padding: .4rem .75rem;
+  color: var(--muted);
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--t--1);
+  cursor: pointer;
+}
+.compare-tabs button[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--signal-soft);
+}
+.diptych {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4rem minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: stretch;
+}
+.seam {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--s2);
+  color: var(--signal-ink);
+  font: 800 var(--t-1)/1 var(--font-display);
+}
+.seam span {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: .0625rem solid var(--signal);
+  border-radius: 50%;
+  background: var(--signal-soft);
+}
+.plate {
+  min-width: 0;
+  overflow: hidden;
+  border: .0625rem solid var(--plate-line);
+  border-radius: var(--r2);
+  background: var(--plate);
+  color: var(--plate-ink);
+  box-shadow: var(--shadow);
+}
+.plate--after { border-color: color-mix(in srgb, var(--signal) 65%, var(--plate-line)); }
+.plate-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-height: 2.4rem;
+  padding: var(--s2) var(--s3);
+  border-bottom: .0625rem solid var(--plate-line);
+  color: var(--plate-muted);
+  background: var(--plate-raise);
+  font: 750 var(--t--1)/1.15 var(--font-display);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.plate-label .after-word { color: var(--st-waiting); }
+.plate-body {
+  min-height: 24rem;
+  padding: var(--s3);
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  font: var(--t-plate)/1.58 var(--font-display);
+  tab-size: 2;
+}
+.plate-body.compact { min-height: 20rem; }
+.line {
+  min-width: max-content;
+  min-height: 1.24rem;
+  white-space: pre;
+}
+.line + .line { margin-top: .08rem; }
+.line.section-label { margin-top: var(--s2); color: var(--plate-dim); }
+.line.selected {
+  margin-inline: calc(var(--s3) * -1);
+  padding-inline: var(--s3);
+  background: var(--plate-sel);
+}
+.line.attention {
+  margin-inline: calc(var(--s3) * -1);
+  padding-inline: calc(var(--s3) - .2rem) var(--s3);
+  border-left: .2rem solid var(--st-waiting);
+  background: color-mix(in srgb, var(--st-waiting) 9%, var(--plate));
+}
+.line.changed { border-left: .16rem solid var(--signal); padding-left: .45rem; }
+.dim { color: var(--plate-dim); }
+.muted { color: var(--plate-muted); }
+.running { color: var(--st-running); }
+.waiting { color: var(--st-waiting); }
+.idle { color: var(--st-idle); }
+.error { color: var(--st-error); }
+.accent { color: var(--plate-focus); }
+.bold { font-weight: 800; }
+.right { float: right; }
+.screen-box {
+  margin-block: var(--s2);
+  padding: var(--s2);
+  border: .0625rem solid var(--plate-line);
+  background: var(--plate-raise);
+}
+.screen-box.focused { border-color: var(--plate-focus); box-shadow: inset 0 0 0 .0625rem var(--plate-focus); }
+.prompt {
+  margin-top: var(--s2);
+  padding: var(--s2);
+  border: .0625rem solid var(--plate-line);
+  color: var(--plate-muted);
+  background: var(--plate-raise);
+}
+.button-row { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); }
+.mock-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: .38rem .62rem;
+  border: .0625rem solid var(--plate-line);
+  border-radius: var(--r1);
+  color: var(--plate-ink);
+  background: var(--plate-raise);
+}
+.mock-button.primary { border-color: var(--st-waiting); color: var(--st-waiting); }
+.key {
+  color: var(--plate-muted);
+  font-size: .86em;
+}
+.annotation-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
+}
+.annotation {
+  display: grid;
+  grid-template-columns: 1.7rem minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: start;
+  color: var(--muted);
+}
+.marker {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: .1rem solid var(--signal);
+  border-radius: 50%;
+  color: var(--signal-ink);
+  background: var(--signal-soft);
+  font: 800 var(--t--1)/1 var(--font-display);
+}
+.outcome {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--s2) var(--s3);
+  max-width: var(--measure);
+  padding: var(--s3) var(--s4);
+  border-left: .2rem solid var(--signal);
+  background: var(--signal-soft);
+}
+.outcome dt { color: var(--signal-ink); font: 750 var(--t--1)/1.4 var(--font-display); text-transform: uppercase; }
+.outcome dd { color: var(--muted); }
+.mode-stack { display: grid; gap: var(--s2); }
+.mode-card { padding: var(--s2); border: .0625rem solid var(--plate-line); background: var(--plate-raise); }
+.mode-card strong { color: var(--plate-ink); }
+.mode-card .mode-key { color: var(--st-waiting); }
+.width-ruler { color: var(--plate-dim); margin-top: var(--s2); }
+.adaptive-grid { display: grid; grid-template-columns: .72fr 1fr; gap: var(--s2); margin-top: var(--s2); }
+.adaptive-grid.three { grid-template-columns: .62fr .8fr 1fr; }
+.adaptive-pane { min-width: 0; padding: var(--s2); border: .0625rem solid var(--plate-line); background: var(--plate-raise); }
+.adaptive-pane.live { border-color: var(--plate-focus); }
+.live-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s1); margin-top: var(--s2); }
+.live-split > div { min-width: 0; padding: var(--s2); border: .0625rem solid var(--plate-line); background: var(--plate); }
+.live-split > div:first-child { border-color: var(--plate-focus); }
+.palette {
+  margin-block: var(--s2);
+  border: .0625rem solid var(--plate-focus);
+  background: var(--plate-raise);
+}
+.palette-search { padding: var(--s2); border-bottom: .0625rem solid var(--plate-line); color: var(--plate-ink); }
+.palette-row { display: grid; grid-template-columns: 1fr auto; gap: var(--s2); padding: .45rem var(--s2); }
+.palette-row.active { background: var(--plate-sel); }
+.palette-row small { color: var(--plate-muted); }
+.rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); margin-top: var(--s2); }
+.rule-card { min-height: 5rem; padding: var(--s2); border: .0625rem solid var(--plate-line); background: var(--plate-raise); }
+.rule-card strong { display: block; color: var(--plate-ink); }
+.rule-card span { color: var(--plate-muted); }
+.costs {
+  padding-block: var(--s7);
+  border-top: .0625rem solid var(--line);
+}
+.cost-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
+.cost-card { padding: var(--s4); border: .0625rem solid var(--line); border-radius: var(--r2); background: var(--raise); }
+.cost-card strong { display: block; font-family: var(--font-display); }
+.cost-card p { margin-top: var(--s2); color: var(--muted); }
+.decision {
+  padding-block: var(--s7);
+  border-top: .0625rem solid var(--line);
+}
+.decision-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
+.decision-card {
+  padding: var(--s4);
+  border: .0625rem solid var(--line);
+  border-radius: var(--r2);
+  background: var(--raise);
+}
+.decision-card.recommended { border-color: var(--signal); background: var(--signal-soft); }
+.decision-card p { margin-top: var(--s2); color: var(--muted); }
+.footer {
+  padding-block: var(--s5);
+  border-top: .0625rem solid var(--line);
+  color: var(--dim);
+  font-size: var(--t--1);
+}
+@media (max-width: 60rem) {
+  .diptych { grid-template-columns: minmax(0, 1fr) 1.8rem minmax(0, 1fr); }
+  .plate-body { min-height: 22rem; }
+}
+@media (max-width: 45rem) {
+  .site-nav__inner { align-items: flex-start; padding-block: var(--s2); }
+  .brand { padding-top: .2rem; }
+  .boundary-grid, .annotation-list, .cost-grid, .decision-options { grid-template-columns: 1fr; }
+  .feature-head { grid-template-columns: 3.2rem minmax(0, 1fr); }
+  .compare-tabs { display: flex; }
+  .diptych { grid-template-columns: 1fr; }
+  .seam { display: none; }
+  .diptych[data-mobile-view="before"] .plate--after,
+  .diptych[data-mobile-view="after"] .plate--before { display: none; }
+  .plate-body { min-height: 0; }
+  .adaptive-grid, .adaptive-grid.three, .live-split, .rule-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 40rem) {
+  :root { --t-plate: .68rem; }
+  main, .site-nav__inner { width: min(calc(100% - 1rem), var(--max)); }
+  .hero { min-height: auto; }
+  .feature { padding-block: var(--s6); }
+  .feature-head { grid-template-columns: 1fr; }
+  .feature-number { font-size: var(--t-1); }
+}
+@media (prefers-contrast: more) {
+  .plate, .screen-box, .mode-card, .adaptive-pane, .palette, .rule-card { border-width: .125rem; }
+  .signal-soft { background: transparent; }
+}
+@media print {
+  :root {
+    color-scheme: light;
+    --paper: #ffffff;
+    --raise: #ffffff;
+    --ink: #111111;
+    --muted: #333333;
+    --dim: #444444;
+    --line: #aaaaaa;
+    --signal: #8b4a00;
+    --signal-ink: #653500;
+    --signal-soft: #f5ede2;
+    --plate: #ffffff;
+    --plate-raise: #f2f2f2;
+    --plate-ink: #111111;
+    --plate-muted: #333333;
+    --plate-dim: #555555;
+    --plate-line: #aaaaaa;
+    --plate-sel: #e6e8ed;
+    --plate-focus: #1459b8;
+    --st-running: #176b3a;
+    --st-waiting: #795000;
+    --st-idle: #555555;
+    --st-error: #9a2436;
+    --shadow: none;
+  }
+  .site-nav, .compare-tabs { display: none !important; }
+  main { width: 100%; }
+  .hero { min-height: auto; padding-block: 1cm; }
+  .feature, .costs, .decision { padding-block: 1cm; break-before: page; }
+  .diptych { grid-template-columns: 1fr 1.2rem 1fr !important; }
+  .seam { display: grid !important; }
+  .plate--before, .plate--after { display: block !important; }
+  .plate-body { min-height: 0; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#content">Skip to mockups</a>
+<nav class="site-nav" aria-label="Mockup sections">
+  <div class="site-nav__inner">
+    <a class="brand" href="#top">pi-agent-hub redesign</a>
+    <div class="nav-links">
+      <a href="#attention">01 attention</a>
+      <a href="#cockpit">02 cockpit</a>
+      <a href="#commands">03 commands</a>
+      <a href="#workspace">04 workspace</a>
+      <a href="#quality">05 quality</a>
+    </div>
+  </div>
+</nav>
+<main id="content">
+  <header class="hero flow" id="top">
+    <p class="eyebrow">Product design review · proposed state</p>
+    <h1>From state console to attention cockpit</h1>
+    <p class="lead">Five before-and-after mockups show how Hub can become calmer, faster, and easier to trust while Pi remains the agent runtime and tmux remains the process substrate.</p>
+    <p class="thesis"><strong>Core claim:</strong> the interface must answer “which managed session needs me?” before it explains everything the system knows.</p>
+    <div class="hero-meta" aria-label="Document scope">
+      <span class="chip">visual proposal</span>
+      <span class="chip">not an implementation plan</span>
+      <span class="chip">Herdr patterns, Hub boundaries</span>
+      <span class="chip">diff seam: − remove · ↻ reshape · + add</span>
+    </div>
+  </header>
+
+  <section class="boundary flow" aria-labelledby="boundary-title">
+    <p class="eyebrow">Borrow the behavior, not the architecture</p>
+    <h2 id="boundary-title">Keep Hub small and Pi-native</h2>
+    <div class="boundary-grid">
+      <article class="boundary-card take flow">
+        <h3>Take from Herdr</h3>
+        <ul>
+          <li>Attention-first state and direct routing.</li>
+          <li>One adaptive hierarchy with progressive detail.</li>
+          <li>Self-describing modes and consistent UI primitives.</li>
+        </ul>
+      </article>
+      <article class="boundary-card refuse flow">
+        <h3>Do not take</h3>
+        <ul>
+          <li>PTY ownership or a new background server.</li>
+          <li>Screen detection, multi-agent support, or plugins.</li>
+          <li>A persistent workspace → tab → pane product model.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="feature flow" id="attention" aria-labelledby="attention-title">
+    <div class="feature-head">
+      <div class="feature-number">01</div>
+      <div class="flow">
+        <p class="eyebrow">Attention-first dashboard</p>
+        <h2 id="attention-title">Stop hunting for the blocked session</h2>
+        <p class="feature-copy">The current dashboard shows many correct state axes. The proposed dashboard converts those facts into one action queue without merging their internal meanings.</p>
+      </div>
+    </div>
+    <div class="compare-tabs" role="tablist" aria-label="Attention dashboard comparison">
+      <button type="button" role="tab" aria-selected="true" data-view="before">Today</button>
+      <button type="button" role="tab" aria-selected="false" data-view="after">Proposed</button>
+    </div>
+    <div class="diptych" data-mobile-view="before">
+      <figure class="plate plate--before">
+        <figcaption class="plate-label"><span>Today</span><span>state inventory</span></figcaption>
+        <div class="plate-body" aria-label="Current Hub session list">
+          <div class="line"><span class="accent">8 sessions</span> · <span class="running">●2</span> <span class="waiting">◐2</span> <span class="idle">○2</span> <span class="error">×1</span> <span class="dim">−1</span></div>
+          <div class="line section-label">── ACTIVE                               ◐2</div>
+          <div class="line"><span class="accent">Docs</span>                                   <span class="waiting">◐1</span></div>
+          <div class="line">  <span class="waiting">?</span> Docs refresh               <span class="waiting">◐</span> <span class="accent">REV 4/6</span></div>
+          <div class="line"><span class="accent">Integrations</span>                           <span class="idle">○1</span></div>
+          <div class="line">  <span class="idle">○</span> MCP integration cleanup       <span class="accent">PLN 2/6</span></div>
+          <div class="line"><span class="accent">Pi Agent Hub</span>                    <span class="running">●1</span> <span class="waiting">◐1</span></div>
+          <div class="line selected">▸ <span class="waiting">◐</span> Dashboard UI polish           <span class="accent">EXE 3/6</span></div>
+          <div class="line">  └ <span class="running">●</span> code-critic                  <span class="accent">EXE 3/6</span></div>
+          <div class="line">  └ <span class="idle">○</span> scout                        <span class="accent">EXE 3/6</span></div>
+          <div class="line"><span class="accent">QA</span>                                     <span class="error">×1</span></div>
+          <div class="line">  <span class="error">×</span> Flaky test investigation     <span class="accent">EXE 3/6</span></div>
+          <div class="line"><span class="accent">Release</span>                                <span class="running">●1</span></div>
+          <div class="line">  <span class="running">●</span> Package release checks       <span class="accent">REF 5/6</span></div>
+          <div class="line section-label">── BACKLOG                              −1</div>
+          <div class="line dim">  · Theme compatibility spike      PRI 1/6</div>
+        </div>
+      </figure>
+      <div class="seam" aria-label="Changes"><span>−</span><span>↻</span><span>+</span></div>
+      <figure class="plate plate--after">
+        <figcaption class="plate-label"><span class="after-word">Proposed</span><span>action queue</span></figcaption>
+        <div class="plate-body" aria-label="Proposed attention-first session list">
+          <div class="line bold waiting">NEEDS YOU · 1                         ⏎ answer</div>
+          <div class="line attention"><span class="waiting">?</span> Docs refresh                 <span class="muted">Docs</span>   <span class="waiting">waiting 8m</span></div>
+          <div class="screen-box">
+            <div class="line waiting">“Which changelog section wins?”</div>
+            <div class="button-row">
+              <span class="mock-button primary"><span class="key">p</span> Reply</span>
+              <span class="mock-button"><span class="key">⏎</span> Open</span>
+              <span class="mock-button"><span class="key">a</span> Mark seen</span>
+            </div>
+          </div>
+          <div class="line section-label bold error">HEALTH · 1                               ⌄</div>
+          <div class="line changed"><span class="error">×</span> Flaky test investigation      <span class="muted">QA</span>   <span class="error">error</span></div>
+          <div class="line section-label bold running">ACTIVE · 2                               ⌄</div>
+          <div class="line"><span class="waiting">◐</span> Dashboard UI polish  <span class="muted">1 agent working</span>  <span class="accent">EXE 3/6</span></div>
+          <div class="line"><span class="running">●</span> Package release checks        <span class="muted">Release</span></div>
+          <div class="line section-label bold">QUIET · 3                                ⌄</div>
+          <div class="line dim"><span class="idle">○</span> MCP integration cleanup     Integrations</div>
+          <div class="line dim"><span class="idle">○</span> Scout complete · seen             18m</div>
+          <div class="line dim">· Theme compatibility spike       backlog</div>
+          <div class="line section-label">notify only on explicit producer attention</div>
+        </div>
+      </figure>
+    </div>
+    <div class="annotation-list">
+      <div class="annotation"><span class="marker">1</span><p>Explicit producer attention leads. Runtime errors keep a separate health tier and never imply “needs you.”</p></div>
+      <div class="annotation"><span class="marker">2</span><p>The question appears inline. Hub does not infer attention from error, liveness, workflow state, or child activity.</p></div>
+      <div class="annotation"><span class="marker">3</span><p>Tiers are presentation, not new state. Each row keeps its own glyph: a waiting parent stays ◐ even while its subagent runs.</p></div>
+    </div>
+    <dl class="outcome"><dt>Outcome</dt><dd>The user can leave the dashboard and trust notifications that trigger only from explicit producer attention.</dd></dl>
+  </section>
+
+  <section class="feature flow" id="cockpit" aria-labelledby="cockpit-title">
+    <div class="feature-head">
+      <div class="feature-number">02</div>
+      <div class="flow">
+        <p class="eyebrow">One adaptive cockpit</p>
+        <h2 id="cockpit-title">One surface, not a matrix of views</h2>
+        <p class="feature-copy">Today, the same sessions can appear as groups, workflow lanes, compact rows, or junction cards. The proposed surface changes density with available space but never changes its vocabulary.</p>
+      </div>
+    </div>
+    <div class="compare-tabs" role="tablist" aria-label="Adaptive cockpit comparison">
+      <button type="button" role="tab" aria-selected="true" data-view="before">Today</button>
+      <button type="button" role="tab" aria-selected="false" data-view="after">Proposed</button>
+    </div>
+    <div class="diptych" data-mobile-view="before">
+      <figure class="plate plate--before">
+        <figcaption class="plate-label"><span>Today</span><span>view matrix</span></figcaption>
+        <div class="plate-body compact" aria-label="Current multiple dashboard modes">
+          <div class="mode-stack">
+            <div class="mode-card">
+              <div class="line"><span class="mode-key">v</span> compact rows · <span class="mode-key">S</span> project groups</div>
+              <div class="line dim">Docs · Integrations · Pi Agent Hub · QA</div>
+              <div class="line">  ◐ Docs refresh                 REV 4/6</div>
+            </div>
+            <div class="mode-card">
+              <div class="line"><span class="mode-key">v</span> junction cards · <span class="mode-key">S</span> project groups</div>
+              <div class="line">┣ ◐ Dashboard UI polish          EXE</div>
+              <div class="line dim">┃ #ui-polish-014 · refresh controls</div>
+              <div class="line dim">┃ ✓✓◉··· · phase 2/4 · 8/11</div>
+            </div>
+            <div class="mode-card">
+              <div class="line"><span class="mode-key">S</span> workflow lanes · <span class="mode-key">←/→</span> tree disclosure</div>
+              <div class="line accent">EXECUTE</div>
+              <div class="line">└ ◐ Dashboard UI polish</div>
+              <div class="line accent">OTHER ACTIVE</div>
+              <div class="line">└ ● Package release checks</div>
+            </div>
+          </div>
+          <div class="line section-label">Also persisted: density · grouping · collapsed sections</div>
+          <div class="line dim">The user chooses the information architecture.</div>
+        </div>
+      </figure>
+      <div class="seam" aria-label="Changes"><span>−</span><span>↻</span><span>+</span></div>
+      <figure class="plate plate--after">
+        <figcaption class="plate-label"><span class="after-word">Proposed</span><span>adaptive surface</span></figcaption>
+        <div class="plate-body compact" aria-label="Proposed dashboard adapting at three widths">
+          <div class="width-ruler">── 60 columns · list ─────────────────────</div>
+          <div class="screen-box">
+            <div class="line waiting">NEEDS YOU · 1</div>
+            <div class="line attention">? Docs refresh                 8m</div>
+            <div class="line running">ACTIVE · 2</div>
+            <div class="line">◐ Dashboard UI polish      EXE 3/6</div>
+          </div>
+          <div class="width-ruler">── 100 columns · list + focus ────────────</div>
+          <div class="adaptive-grid">
+            <div class="adaptive-pane">
+              <div class="line attention">? Docs refresh</div>
+              <div class="line">◐ Dashboard UI</div>
+              <div class="line dim">○ Scout · seen</div>
+            </div>
+            <div class="adaptive-pane">
+              <div class="line bold">Docs refresh</div>
+              <div class="line waiting">Needs a decision</div>
+              <div class="line dim">Review · 4 of 6</div>
+            </div>
+          </div>
+          <div class="width-ruler">── 160 columns · list + focus + pinned live ─</div>
+          <div class="adaptive-grid three">
+            <div class="adaptive-pane"><div class="line attention">? Docs refresh</div><div class="line">◐ Dashboard UI</div></div>
+            <div class="adaptive-pane"><div class="line bold">Docs refresh</div><div class="line waiting">Explicit question</div></div>
+            <div class="adaptive-pane live"><div class="line">Pi session · pinned</div><div class="line dim">› waiting for your reply</div></div>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <div class="annotation-list">
+      <div class="annotation"><span class="marker">1</span><p>Width reveals room for context. It never launches or pins a session automatically.</p></div>
+      <div class="annotation"><span class="marker">2</span><p>Producer workflow stage remains a scoped row token and filter. It stops being a separate universe.</p></div>
+    </div>
+    <dl class="outcome"><dt>Outcome</dt><dd>A user learns one dashboard. The same hierarchy remains recognizable in a narrow pane, a normal terminal, and a wide monitor.</dd></dl>
+  </section>
+
+  <section class="feature flow" id="commands" aria-labelledby="commands-title">
+    <div class="feature-head">
+      <div class="feature-number">03</div>
+      <div class="flow">
+        <p class="eyebrow">Intent-based commands</p>
+        <h2 id="commands-title">Replace the key maze with one discoverable action surface</h2>
+        <p class="feature-copy">Keep the fastest daily keys. Move infrequent and selection-specific actions into one searchable palette that teaches the same shortcuts as it exposes.</p>
+      </div>
+    </div>
+    <div class="compare-tabs" role="tablist" aria-label="Command system comparison">
+      <button type="button" role="tab" aria-selected="true" data-view="before">Today</button>
+      <button type="button" role="tab" aria-selected="false" data-view="after">Proposed</button>
+    </div>
+    <div class="diptych" data-mobile-view="before">
+      <figure class="plate plate--before">
+        <figcaption class="plate-label"><span>Today</span><span>flat key namespace</span></figcaption>
+        <div class="plate-body compact" aria-label="Current dense footer and help">
+          <div class="screen-box">
+            <div class="line">Enter Open · 1-4 Panels · x# Close</div>
+            <div class="line">F#/Alt+# Focus · o Reset · n New · / Filter</div>
+            <div class="line">p Send · i Info · r Restart · R Rename</div>
+            <div class="line">d Delete · w Finish WT · A Archive</div>
+            <div class="line">B Backlog · v Density · S Lanes · ? Help</div>
+          </div>
+          <div class="line section-label">Hidden or nested</div>
+          <div class="line dim">e rename · N sync Pi name · K/J reorder</div>
+          <div class="line dim">g move group · G rename group · U restore</div>
+          <div class="line dim">r → r resume / n new / a restart all</div>
+          <div class="line dim">x → 1..4 close · F → 1..4 focus</div>
+          <div class="line section-label">? HELP</div>
+          <div class="line">Navigation · lifecycle · panels · grouping</div>
+          <div class="line">skills · MCP · workflow board · worktrees</div>
+          <div class="line dim">Static text must stay in sync with dispatch code.</div>
+        </div>
+      </figure>
+      <div class="seam" aria-label="Changes"><span>−</span><span>↻</span><span>+</span></div>
+      <figure class="plate plate--after">
+        <figcaption class="plate-label"><span class="after-word">Proposed</span><span>one intent surface</span></figcaption>
+        <div class="plate-body compact" aria-label="Proposed universal command palette">
+          <div class="line">Dashboard UI polish                   <span class="waiting">waiting</span></div>
+          <div class="line dim">Footer: ↑↓ move · ⏎ open · n new · / find · : more</div>
+          <div class="palette">
+            <div class="palette-search">&gt; unstick<span class="right dim">actions</span></div>
+            <div class="palette-row active"><span><span class="waiting">●</span> Answer explicit question</span><small>p</small></div>
+            <div class="palette-row"><span>Restart this session</span><small>r</small></div>
+            <div class="palette-row"><span>Pin as live pane</span><small>⏎</small></div>
+            <div class="palette-row"><span>Finish worktree → recorded base</span><small>w</small></div>
+            <div class="palette-row"><span>Move to backlog</span><small>B</small></div>
+          </div>
+          <div class="line section-label">One field, three intents</div>
+          <div class="prompt">/ auth <span class="dim">find sessions; match ticket/group context</span></div>
+          <div class="prompt">!needs-you <span class="dim">filter state</span></div>
+          <div class="prompt">!pipeline:rules/review <span class="dim">producer-scoped stage</span></div>
+          <div class="line section-label">Modes are actions in the same palette</div>
+          <div class="line"><span class="waiting">&gt; organize</span> · <span class="waiting">&gt; panels</span> · <span class="dim">esc leave</span></div>
+        </div>
+      </figure>
+    </div>
+    <div class="annotation-list">
+      <div class="annotation"><span class="marker">1</span><p>The footer returns to six stable daily controls. It no longer acts as a compressed manual.</p></div>
+      <div class="annotation"><span class="marker">2</span><p>Every palette action still shows its shortcut. Discovery teaches muscle memory instead of replacing it.</p></div>
+    </div>
+    <dl class="outcome"><dt>Outcome</dt><dd>A user who knows six keys can perform every action. Help and footer derive from the active keymap, so they cannot drift.</dd></dl>
+  </section>
+
+  <section class="feature flow" id="workspace" aria-labelledby="workspace-title">
+    <div class="feature-head">
+      <div class="feature-number">04</div>
+      <div class="flow">
+        <p class="eyebrow">Direct action workspace</p>
+        <h2 id="workspace-title">Act on the session instead of operating its metadata</h2>
+        <p class="feature-copy">The right pane should explain what happened, show what is needed, and offer the next action. Live tmux panes remain the mechanism, but the numbered quadrant language disappears.</p>
+      </div>
+    </div>
+    <div class="compare-tabs" role="tablist" aria-label="Session workspace comparison">
+      <button type="button" role="tab" aria-selected="true" data-view="before">Today</button>
+      <button type="button" role="tab" aria-selected="false" data-view="after">Proposed</button>
+    </div>
+    <div class="diptych" data-mobile-view="before">
+      <figure class="plate plate--before">
+        <figcaption class="plate-label"><span>Today</span><span>metadata + slot grammar</span></figcaption>
+        <div class="plate-body" aria-label="Current technical session details and panel commands">
+          <div class="line bold">Dashboard UI polish                  <span class="waiting">◐ waiting</span></div>
+          <div class="line dim">PRI–PLN–EXE–REV–REF–CMT · ui-polish-014</div>
+          <div class="line">cwd       /Users/dev/Code/acme/hub</div>
+          <div class="line">repos     3</div>
+          <div class="line">group     Pi Agent Hub</div>
+          <div class="line">extra     /Users/dev/Code/acme/design-system</div>
+          <div class="line">worktree  feature/dashboard-polish · base main</div>
+          <div class="line">wt path   /Users/dev/.pi/agent/pi-agent-hub/worktrees/…</div>
+          <div class="line">runtime   /Users/dev/.pi/agent/pi-agent-hub/workspaces/…</div>
+          <div class="line">session   /Users/dev/.pi/sessions/app-ui.jsonl</div>
+          <div class="line section-label">── metadata ───────────────────────────</div>
+          <div class="line">goal      Refresh dashboard controls…</div>
+          <div class="line">progress  Implementation complete…</div>
+          <div class="line">next      Run review…</div>
+          <div class="line section-label">Panel controls</div>
+          <div class="line"><span class="waiting">1-4</span> assign · <span class="waiting">x#</span> close · <span class="waiting">F#</span> focus</div>
+          <div class="line"><span class="waiting">Alt+#</span> focus anywhere · <span class="waiting">o</span> reset</div>
+          <div class="prompt">focus panel: press 1-4</div>
+        </div>
+      </figure>
+      <div class="seam" aria-label="Changes"><span>−</span><span>↻</span><span>+</span></div>
+      <figure class="plate plate--after">
+        <figcaption class="plate-label"><span class="after-word">Proposed</span><span>decision + live work</span></figcaption>
+        <div class="plate-body" aria-label="Proposed action-oriented session workspace">
+          <div class="line bold">Docs refresh                         <span class="waiting">needs you</span></div>
+          <div class="line dim">Review · ticket docs-024 · waiting 8m</div>
+          <div class="screen-box">
+            <div class="line waiting bold">DECISION NEEDED</div>
+            <div class="line">Which changelog section wins?</div>
+            <div class="line dim">The reviewer found duplicate entries under</div>
+            <div class="line dim">“Dashboard” and “Workflow”.</div>
+            <div class="button-row">
+              <span class="mock-button primary"><span class="key">p</span> Reply</span>
+              <span class="mock-button"><span class="key">⏎</span> Open full screen</span>
+              <span class="mock-button"><span class="key">a</span> Mark seen</span>
+            </div>
+          </div>
+          <div class="line section-label">PRODUCER SUMMARY · 8m</div>
+          <div class="line">Review complete. One content decision remains.</div>
+          <div class="screen-box focused">
+            <div class="line accent">PINNED LIVE SESSIONS · tmux-backed</div>
+            <div class="live-split">
+              <div><div class="line bold">Docs refresh</div><div class="line dim">› waiting for reply</div></div>
+              <div><div class="line bold">Dashboard UI</div><div class="line running">● npm test</div></div>
+            </div>
+            <div class="prompt">› Reply to Docs refresh…</div>
+            <div class="line section-label">⏎ full screen · esc back to fleet</div>
+          </div>
+          <div class="line dim">palette action “Pin live pane” creates this split</div>
+        </div>
+      </figure>
+    </div>
+    <div class="annotation-list">
+      <div class="annotation"><span class="marker">1</span><p>Paths and implementation metadata move behind an Info action. The decision and consequence lead.</p></div>
+      <div class="annotation"><span class="marker">2</span><p>Pin creates a live tmux pane. Click focuses and tmux drag resizes. Hub does not become the runtime.</p></div>
+    </div>
+    <dl class="outcome"><dt>Outcome</dt><dd>Responding to an explicit request takes one action. Pinning a second live session also takes one action.</dd></dl>
+  </section>
+
+  <section class="feature flow" id="quality" aria-labelledby="quality-title">
+    <div class="feature-head">
+      <div class="feature-number">05</div>
+      <div class="flow">
+        <p class="eyebrow">UX quality system</p>
+        <h2 id="quality-title">Make state explainable and every surface consistent</h2>
+        <p class="feature-copy">Quality must come from shared rules: semantic components, generated help, useful narrow layouts, status explanations, accessible symbols, and task-based visual validation.</p>
+      </div>
+    </div>
+    <div class="compare-tabs" role="tablist" aria-label="UX quality system comparison">
+      <button type="button" role="tab" aria-selected="true" data-view="before">Today</button>
+      <button type="button" role="tab" aria-selected="false" data-view="after">Proposed</button>
+    </div>
+    <div class="diptych" data-mobile-view="before">
+      <figure class="plate plate--before">
+        <figcaption class="plate-label"><span>Today</span><span>correct but implicit</span></figcaption>
+        <div class="plate-body compact" aria-label="Current opaque status and disconnected help states">
+          <div class="line selected">▸ <span class="waiting">◐</span> Dashboard UI polish             waiting</div>
+          <div class="line dim">Why waiting? The row does not say.</div>
+          <div class="screen-box">
+            <div class="line">? HELP</div>
+            <div class="line dim">Static list of every key and mode…</div>
+            <div class="line dim">Resize the terminal for full help.</div>
+          </div>
+          <div class="screen-box">
+            <div class="line">Terminal too narrow</div>
+            <div class="line dim">Increase width to at least 40 columns.</div>
+          </div>
+          <div class="screen-box">
+            <div class="line">Delete session?</div>
+            <div class="line dim">d delete · f forget · esc cancel</div>
+          </div>
+          <div class="line section-label">Tests prove projection invariants.</div>
+          <div class="line dim">They do not test “find what needs me”.</div>
+        </div>
+      </figure>
+      <div class="seam" aria-label="Changes"><span>−</span><span>↻</span><span>+</span></div>
+      <figure class="plate plate--after">
+        <figcaption class="plate-label"><span class="after-word">Proposed</span><span>shared contracts</span></figcaption>
+        <div class="plate-body compact" aria-label="Proposed explainable status and shared UX rules">
+          <div class="screen-box">
+            <div class="line bold">WHY THIS STATUS</div>
+            <div class="line"><span class="running">✓</span> tmux present</div>
+            <div class="line"><span class="running">✓</span> heartbeat fresh · state waiting · 7s old</div>
+            <div class="line"><span class="running">✓</span> stateSince is newer than acknowledgement</div>
+            <div class="line waiting bold">result: waiting · unacknowledged</div>
+            <div class="line dim">workflow: retained · producer step 4 of 6</div>
+          </div>
+          <div class="rule-grid">
+            <div class="rule-card"><strong>One focal point</strong><span>Only actionable state uses the warm signal.</span></div>
+            <div class="rule-card"><strong>Three state channels</strong><span>Word + symbol + color. Never color alone.</span></div>
+            <div class="rule-card"><strong>Adaptive density</strong><span>Width removes detail, not vocabulary.</span></div>
+            <div class="rule-card"><strong>Generated guidance</strong><span>Footer and help use the active keymap.</span></div>
+          </div>
+          <div class="screen-box">
+            <div class="line bold">WELCOME TO PI AGENT HUB</div>
+            <div class="line">1. Start sessions. 2. Leave them working.</div>
+            <div class="line">3. Return when “Needs you” appears.</div>
+            <div class="line dim">⏎ continue · ? active controls</div>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <div class="annotation-list">
+      <div class="annotation"><span class="marker">1</span><p><code>pi-hub explain</code> and the Info pane show the reducer evidence in plain language.</p></div>
+      <div class="annotation"><span class="marker">2</span><p>Shared primitives govern modal spacing, action labels, focus, status symbols, narrow behavior, and visual fixtures.</p></div>
+    </div>
+    <dl class="outcome"><dt>Outcome</dt><dd>A new feature cannot invent a new interaction grammar. A confusing row can be diagnosed without reading source code.</dd></dl>
+  </section>
+
+  <section class="costs flow" aria-labelledby="costs-title">
+    <p class="eyebrow">Honest cost</p>
+    <h2 id="costs-title">The proposal removes concepts, not only pixels</h2>
+    <div class="cost-grid">
+      <article class="cost-card"><strong>Ordering changes</strong><p>Attention-first presentation would supersede groups-first ordering in the primary view. Groups remain labels and filters.</p></article>
+      <article class="cost-card"><strong>View modes retire</strong><p>The adaptive cockpit would retire density and workflow-board mode switches while preserving producer workflow data.</p></article>
+      <article class="cost-card"><strong>Panel grammar shrinks</strong><p>Direct pinning would replace numbered quadrants. Existing shortcuts may move, so the final bindings need terminal-safe validation.</p></article>
+    </div>
+  </section>
+
+  <section class="decision flow" aria-labelledby="decision-title">
+    <p class="eyebrow">Decision frame</p>
+    <h2 id="decision-title">Choose the product direction before choosing tickets</h2>
+    <div class="decision-options">
+      <article class="decision-card recommended"><h3>Prototype the cockpit</h3><p>Create static render fixtures for the attention queue, action workspace, and palette. Test common tasks before changing product contracts.</p></article>
+      <article class="decision-card"><h3>Adopt attention only</h3><p>Keep current grouping and panels. Add strict attention semantics, notifications, and inline blockers first.</p></article>
+      <article class="decision-card"><h3>Keep the current model</h3><p>Continue improving the existing groups, workflow board, density modes, and quadrant controls independently.</p></article>
+    </div>
+  </section>
+
+  <footer class="footer">Proposed UI only. Pi remains the agent runtime. Tmux remains the durable process substrate. Herdr supplied reference patterns, not a target architecture.</footer>
+</main>
+<script>
+(() => {
+  const comparisons = [...document.querySelectorAll('.feature')];
+  comparisons.forEach((section) => {
+    const tabs = [...section.querySelectorAll('[role="tab"]')];
+    const diptych = section.querySelector('.diptych');
+    if (!tabs.length || !diptych) return;
+
+    const select = (tab) => {
+      tabs.forEach((candidate) => candidate.setAttribute('aria-selected', String(candidate === tab)));
+      diptych.dataset.mobileView = tab.dataset.view;
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => select(tab));
+      tab.addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+        tabs[next].focus();
+        select(tabs[next]);
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

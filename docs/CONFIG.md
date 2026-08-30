@@ -5,7 +5,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 ## Runtime state
 
 - Global state: `PI_AGENT_HUB_DIR` or `<PI_CODING_AGENT_DIR>/pi-agent-hub` or `~/.pi/agent/pi-agent-hub`
-- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, `session.worktreeDefault`, dashboard theme sync/override, dashboard shortcuts)
+- Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, `session.worktreeDefault`, dashboard theme sync/override, dashboard shortcuts, optional attention bell)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
 - Latest one-time managed-session theme request: `theme-command.json`
@@ -23,7 +23,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 
 ### Generic session context
 
-A Pi extension can append a latest-snapshot custom entry with `customType: "pi-agent-hub-context"`. Version 1 accepts a bounded ticket id, optional subtitle and description, and optional explicit `ready`, `question`, or `blocked` attention. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
+A Pi extension can append a latest-snapshot custom entry with `customType: "pi-agent-hub-context"`. Version 1 accepts a bounded ticket id, optional subtitle and description, and optional explicit `ready`, `question`, or `blocked` attention. Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
 
 Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`. Hub uses the primary repo basename as a provisional label, then caches each nonblank heartbeat name. `R` sends exact `/name <text>` to a live Pi session. `N` remains manual recovery from persisted Pi `session_info`.
 
@@ -74,7 +74,7 @@ The producer owns step order, ids, short codes, and optional labels. `activeStep
 
 `activeMode` is an optional producer-owned display modifier. It requires nonblank `id` and `short`; `label` and `detail` are optional. Hub validates it independently, so malformed mode metadata is omitted without discarding a valid base workflow. Hub does not interpret Rules' private focus execution state. The mode is runtime-only: the controller exposes it only from a fresh, non-shutdown heartbeat with confirmed tmux presence and never writes it to `registry.json`. Stale, missing, shutdown, or stopped sessions retain the base workflow snapshot but lose the transient mode decoration.
 
-The snapshot drives the per-session rail and canonical lanes in the read-only `v` board. Modes change the active step's display only; pipeline identity and lane placement continue to use the ordered base step ids. When visible Active parents report different ordered-id pipelines, Hub deterministically selects the most prevalent pipeline, treats label/short-only versions as compatible, and uses the newest compatible vocabulary. Incompatible and workflowless Active parent trees render once in synthetic `OTHER ACTIVE`; Backlog/Archived remain footer-only. Heartbeats fire on agent start/end, after all `agent_end` handlers settle, and every 15 seconds. Final context is immediate; other producer changes still have the periodic fallback.
+The snapshot drives the per-session rail and canonical lanes in the read-only `S` workflow board. Modes change the active step's display only; pipeline identity and lane placement continue to use the ordered base step ids. When visible Active parents report different ordered-id pipelines, Hub deterministically selects the most prevalent pipeline, treats label/short-only versions as compatible, and uses the newest compatible vocabulary. Incompatible and workflowless Active parent trees render once in synthetic `OTHER ACTIVE`; Backlog/Archived remain footer-only. Heartbeats fire on agent start/end, after all `agent_end` handlers settle, and every 15 seconds. Final context is immediate; other producer changes still have the periodic fallback.
 
 ## Global config
 
@@ -98,6 +98,7 @@ Optional global config lives at `config.json` under the global state directory:
   },
   "dashboard": {
     "themeSync": true,
+    "attentionBell": false,
     "shortcuts": [
       {
         "key": "C-n",
@@ -119,9 +120,13 @@ pi-hub config set worktree-default true
 pi-hub config unset worktree-default
 ```
 
+### Attention bell
+
+`dashboard.attentionBell` enables a best-effort BEL when a fresh request is delivered externally. It defaults to `false`. Use the unbound **Attention bell: On/Off** action in the `:` palette to persist the setting. BEL remains silent when any attached client is already showing Hub or a request in the fresh batch. Text delivery to other eligible clients still proceeds.
+
 ## Dashboard shortcuts
 
-`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. They cannot target stopped, error, or subagent rows.
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
 
 ```json
 {
@@ -138,7 +143,7 @@ pi-hub config unset worktree-default
 }
 ```
 
-Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard keys and tmux return/focus keys are reserved, including theme settings `t`, the panel-close prefix `x`, sidebar return `M-q`, and `M-1` through `M-4`; shifted digit characters such as `!` are available for custom shortcuts. `send` must be a single nonblank line; this is not a shell-command or macro facility.
+Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard and tmux focus/return keys are reserved, including `1`–`4` exact slot assignment, `M-1`–`M-4` (`Alt+1`–`Alt+4`) slot focus, `P` next-free/focus, `x` selected-pin close, `+`/`-` resize, `M-q`/`C-q` return, the intent palette `:`, and theme settings `t`; conflicting entries are rejected rather than shadowing Hub behavior. `F`, `o`, and `v` are available for explicit configured sends. Shifted digit characters such as `!` are also available. `send` must be one nonblank line; this is not a shell-command or macro facility.
 
 Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name refresh` is producer-provided and can be configured as an ordinary one-line text send.
 

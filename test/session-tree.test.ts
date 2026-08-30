@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSessionTreeIndex, sessionCascadeIds, sessionDepth } from "../src/core/session-tree.js";
+import { createSessionTreeIndex, orderedSessionRows, sessionCascadeIds, sessionDepth } from "../src/core/session-tree.js";
 import type { RuntimeSession } from "../src/core/types.js";
 
 function session(id: string, overrides: Partial<RuntimeSession> = {}): RuntimeSession {
@@ -35,6 +35,14 @@ test("sessionDepth preserves nested missing-parent and cycle behavior", () => {
   assert.equal(sessionDepth(partial, rows), 1);
   assert.equal(sessionDepth(self, rows), 1);
   assert.equal(sessionDepth(cycleA, rows), 2);
+});
+
+test("ordered session rows retain cyclic subagents as standalone fallbacks", () => {
+  const cycleA = session("cycle-a", { kind: "subagent", parentId: "cycle-b" });
+  const cycleB = session("cycle-b", { kind: "subagent", parentId: "cycle-a" });
+
+  assert.deepEqual(orderedSessionRows([cycleA, cycleB]).map((row) => row.id), ["cycle-a", "cycle-b"]);
+  assert.deepEqual(orderedSessionRows([cycleA, cycleB], "cycle-a").map((row) => row.id), ["cycle-a", "cycle-b"]);
 });
 
 test("sessionDepth parent lookup keeps last duplicate id precedence", () => {

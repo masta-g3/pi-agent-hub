@@ -11,13 +11,13 @@ import { dashboardThemeForSetting, detectTerminalAppearance, effectiveDashboardT
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
 import { sessionSection } from "../core/session-bucket.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
-import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, realTmuxExec, sendTextToSession, setDashboardMouse } from "../core/tmux.js";
+import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
@@ -28,7 +28,56 @@ import { discardWorktreeSession, finishWorktreeSession } from "./worktree-sessio
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
-import type { SessionsViewState } from "../tui/dialog.js";
+import type { ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
+import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
+
+export interface AttentionDeliveryEffects {
+  dashboardSession: string;
+  dashboardPaneId?: string;
+  pins: readonly { sessionId: string; paneId: string }[];
+  bellEnabled: boolean;
+  listClients(): Promise<TmuxClient[]>;
+  display(client: string, message: string): Promise<void>;
+  ring(): void;
+}
+
+export async function dashboardOwnsTmuxSession(
+  tmuxEnvironment: string | undefined,
+  currentSession: () => Promise<string>,
+): Promise<boolean> {
+  if (!tmuxEnvironment) return false;
+  return currentSession().then((session) => session === DASHBOARD_SESSION).catch(() => false);
+}
+
+export function attentionExternalMessage(entries: readonly AttentionDeliveryEntry[]): string {
+  const newest = entries[0];
+  if (!newest) return "";
+  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? "✓" : "?";
+  const kind = entries.length > 1 ? `${glyph} ${entries.length} NEW` : `${glyph} ${newest.kind.toUpperCase()}`;
+  const identity = newest.ownerTitle ? `${newest.title} → ${newest.ownerTitle}` : newest.title;
+  return [kind, identity, newest.text, entries.length > 1 ? `+${entries.length - 1} more` : undefined].filter(Boolean).join(" · ");
+}
+
+export async function deliverAttentionBatch(entries: readonly AttentionDeliveryEntry[], effects: AttentionDeliveryEffects): Promise<void> {
+  if (!entries.length) return;
+  let clients: TmuxClient[];
+  try {
+    clients = await effects.listClients();
+  } catch {
+    return;
+  }
+  const routed = routeAttentionDeliveries(entries, clients, effects);
+  const results = await Promise.allSettled(routed.deliveries.map((delivery) =>
+    effects.display(delivery.client.name, attentionExternalMessage(delivery.entries))));
+  const delivered = results.some((result) => result.status === "fulfilled");
+  if (effects.bellEnabled && routed.bellEligible && delivered) {
+    try {
+      effects.ring();
+    } catch {
+      // The optional terminal bell must not affect request delivery or refresh health.
+    }
+  }
+}
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession; historyCwds?: string[]; worktreeDefault?: boolean }): NewFormContext {
   const selectedCwd = input.selected ? newSessionCwd(input.selected) : input.cwd;
@@ -63,6 +112,17 @@ function newSessionAdditionalCwds(session: ManagedSession): string[] {
 
 function isHubWorktree(session: ManagedSession): boolean {
   return session.worktreeOwnedByHub === true && sessionWorktrees(session).length > 0;
+}
+
+export function normalizeSessionsViewState(value: unknown): SessionsViewState {
+  const saved = value && typeof value === "object" ? value as Partial<SessionsViewState> : {};
+  const collapsedSections = Array.isArray(saved.collapsedSections)
+    ? [...new Set(saved.collapsedSections.filter((section): section is "archived" => section === "archived"))]
+    : [];
+  return {
+    grouping: saved.grouping === "stage" ? "stage" : "project",
+    ...(collapsedSections.length ? { collapsedSections } : {}),
+  };
 }
 
 export function restartAllTargets(sessions: ManagedSession[]): ManagedSession[] {
@@ -186,40 +246,47 @@ export async function runTui(): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
+  let attentionBellEnabled = await effectiveDashboardAttentionBell();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
   let skillPool = await listSkillPool();
   const mcpCatalog = await loadMcpCatalog();
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
   const savedViewState = await readJsonOr<unknown>(uiStatePath(), {});
-  const saved = savedViewState && typeof savedViewState === "object" ? savedViewState as Partial<SessionsViewState> : {};
-  const collapsedSections = Array.isArray(saved.collapsedSections)
-    ? [...new Set(saved.collapsedSections.filter((section): section is "backlog" | "archived" => section === "backlog" || section === "archived"))]
-    : [];
-  const initialViewState: SessionsViewState = {
-    grouping: saved.grouping === "stage" ? "stage" : "project",
-    density: saved.density === "all-cards" ? "all-cards" : "compact",
-    collapsedSections,
-  };
-  const skillCountCache = new Map<string, number>();
-  const skillCountLoads = new Set<string>();
-  const skillCount = (projectCwd: string): number | undefined => {
-    const cached = skillCountCache.get(projectCwd);
-    if (cached !== undefined) return cached;
-    if (!skillCountLoads.has(projectCwd)) {
-      skillCountLoads.add(projectCwd);
-      void loadProjectSkillsState(projectCwd).then((state) => {
-        skillCountCache.set(projectCwd, state.attached.length);
-        skillCountLoads.delete(projectCwd);
-        tui.requestRender();
-      }).catch(() => { skillCountLoads.delete(projectCwd); });
-    }
-    return undefined;
-  };
+  const initialViewState = normalizeSessionsViewState(savedViewState);
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
   let stopActionLoop: (() => void) | undefined;
   let stopped = false;
+  let view!: SessionsView;
+  const ownsDashboardTmux = await dashboardOwnsTmuxSession(
+    process.env.TMUX,
+    () => currentTmuxSession(realTmuxExec),
+  );
+  let attentionState = createAttentionDeliveryState(controller.snapshot().sessions);
+  const currentAttentionRequestId = (sessionId: string) => {
+    const entry = activeAttentionRequest(attentionState, sessionId);
+    return entry && Date.now() < entry.expiresAt ? entry.requestId : undefined;
+  };
+  const observeAttention = async () => {
+    const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
+    attentionState = observation.state;
+    view.setAttentionAnnouncements(observation.active);
+    if (!observation.fresh.length || !ownsDashboardTmux) return;
+    await deliverAttentionBatch(observation.fresh, {
+      dashboardSession: DASHBOARD_SESSION,
+      dashboardPaneId: process.env.TMUX_PANE,
+      pins: sidePanes?.snapshot().pins ?? [],
+      bellEnabled: attentionBellEnabled,
+      listClients: () => listTmuxClients(realTmuxExec),
+      display: (client, message) => displayClientMessage(client, message, realTmuxExec),
+      ring: () => terminal.write("\x07"),
+    });
+  };
+  const refreshDashboard = async () => {
+    await controller.refresh();
+    await observeAttention();
+  };
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -241,9 +308,9 @@ export async function runTui(): Promise<void> {
       await loop?.stop();
     },
     resume() {
-      if (!stopped) stopLoop = startRefreshLoop(controller, tui);
+      if (!stopped) stopLoop = startRefreshLoop(controller, tui, observeAttention);
     },
-    refresh: () => controller.refresh(),
+    refresh: refreshDashboard,
     render: () => tui.requestRender(),
   });
   sidePanes = createSidePaneLifecycle({
@@ -254,7 +321,9 @@ export async function runTui(): Promise<void> {
     ownPane: () => process.env.TMUX_PANE,
     insideTmux: () => Boolean(process.env.TMUX),
     sessions: () => controller.snapshot().registry.sessions,
-    acknowledgeSession: (sessionId) => mutateRegistry(() => controller.acknowledgeSession(sessionId)),
+    revealSession: (sessionId) => view.revealSession(sessionId),
+    acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
+    activeAttentionRequestId: currentAttentionRequestId,
     configureManagedSession: applyManagedSessionTheme,
     syncManagedSessionStatusBars,
     currentChrome: () => tmuxChromeFromTheme(currentTheme),
@@ -275,7 +344,7 @@ export async function runTui(): Promise<void> {
     tui.requestRender();
   };
   const applyThemeToLiveManagedChrome = async (nextTheme: SessionsTheme) => {
-    const paneledSessions = new Set(sidePanes?.snapshot().slots.filter((session): session is string => Boolean(session)) ?? []);
+    const paneledSessions = new Set(sidePanes?.snapshot().pins.map((pin) => pin.tmuxSession) ?? []);
     for (const session of controller.snapshot().registry.sessions) {
       if (session.kind === "subagent" || session.status === "stopped" || session.status === "error") continue;
       await configureManagedSessionStatusBar({
@@ -287,7 +356,7 @@ export async function runTui(): Promise<void> {
       }).catch(() => {});
     }
   };
-  const view = new SessionsView(controller, stop, {
+  view = new SessionsView(controller, stop, {
     initialViewState,
     saveViewState(state) { void writeJsonAtomic(uiStatePath(), state); },
     attachOutsideTmux(tmuxSession) {
@@ -296,18 +365,26 @@ export async function runTui(): Promise<void> {
       spawn(attach.command, attach.args, { stdio: "inherit" });
     },
     switchInsideTmux: (tmuxSession) => sidePanes!.handoff(tmuxSession),
+    pinSidePane: (sessionId) => sidePanes!.pin(sessionId),
     assignSidePaneSlot: (sessionId, slot) => sidePanes!.assign(sessionId, slot),
-    closeSidePaneSlot: (slot) => sidePanes!.close(slot),
-    resetSidePane: (sessionId) => sidePanes!.reset(sessionId),
     focusSidePaneSlot: (slot) => sidePanes!.focus(slot),
-    sidePaneSessionIds() {
-      return mapSidePaneSessionIds(sidePanes!.snapshot().slots, controller.snapshot().registry.sessions);
+    focusPinnedSession: (sessionId) => sidePanes!.focusPinnedSession(sessionId),
+    closeSidePane: (sessionId) => sidePanes!.close(sessionId),
+    resizeSidePane: (delta) => sidePanes!.resize(delta),
+    focusSidePaneDirection: (direction) => sidePanes!.focusDirection(direction),
+    returnToCockpit: () => sidePanes!.returnToCockpit(),
+    sidePaneState() {
+      const state = sidePanes!.snapshot();
+      return {
+        slots: [1, 2, 3, 4].map((slot) => state.pins.find((pin) => pin.slot === slot)?.sessionId),
+        ...(state.activeSessionId ? { activeSessionId: state.activeSessionId } : {}),
+        capacity: state.capacity,
+        constrained: state.constrained,
+        splitPercent: state.splitPercent,
+      };
     },
-    sidePaneFocusedSlot: () => sidePanes!.snapshot().focusedSlot,
-    selectionChanged() {
-      void controller.refreshPreview()
-        .then(() => { if (!stopped) tui.requestRender(); })
-        .catch(() => {});
+    refreshStatusEvidence() {
+      return stopLoop?.refresh() ?? refreshDashboard();
     },
     restart(sessionId) {
       return mutateRegistry(() => restartManagedSession(sessionId));
@@ -356,7 +433,11 @@ export async function runTui(): Promise<void> {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));
     },
     archiveSession(sessionId) {
-      return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "archived"));
+      return mutateRegistry(async () => {
+        const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
+        if (session) await sidePanes!.detach(session.tmuxSession);
+        await controller.moveSessionToBucket(sessionId, "archived");
+      });
     },
     backlogSession(sessionId) {
       return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "backlog"));
@@ -374,8 +455,8 @@ export async function runTui(): Promise<void> {
     renameGroup(from, to) {
       return mutateRegistry(() => controller.renameGroup(from, to));
     },
-    reorderSelected(delta) {
-      return mutateRegistry(() => controller.reorderSelected(delta));
+    reorderSession(sessionId, delta) {
+      return mutateRegistry(() => controller.reorderSession(sessionId, delta));
     },
     sendMessage(tmuxSession, message) {
       return sendTextToSession(tmuxSession, message);
@@ -386,8 +467,15 @@ export async function runTui(): Promise<void> {
       if (!session) throw new Error("session not found");
       await sendTextToSession(session.tmuxSession, shortcut.send);
     },
-    acknowledge() {
-      return mutateRegistry(() => controller.acknowledgeSelected());
+    acknowledgeSession(sessionId, requestId) {
+      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
+    },
+    attentionDelivery: {
+      attentionBellEnabled: () => attentionBellEnabled,
+      async setAttentionBell(enabled) {
+        await setDashboardAttentionBell(enabled);
+        attentionBellEnabled = enabled;
+      },
     },
     newFormContext() {
       return buildNewFormContext({
@@ -398,8 +486,14 @@ export async function runTui(): Promise<void> {
         worktreeDefault,
       });
     },
-    async skills() {
-      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
+    async skills(target) {
+      return skillPickerItems(resolveProjectPickerTarget(target, controller.snapshot().registry.sessions));
+    },
+    pickerTarget() {
+      const selected = controller.selected();
+      return selected
+        ? { sessionId: selected.id, projectCwd: projectStateCwd(selected) }
+        : { projectCwd: cwd };
     },
     skillPoolDir() {
       return skillPoolDirs[0];
@@ -407,27 +501,28 @@ export async function runTui(): Promise<void> {
     skillPoolDirExtraCount() {
       return Math.max(0, skillPoolDirs.length - 1);
     },
-    async saveSkillPoolDir(dir) {
+    async saveSkillPoolDir(dir, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
       await setSkillPoolDirs([dir]);
       skillPoolDirs = await effectiveSkillPoolDirs();
       skillPool = await listSkillPool();
-      return skillPickerItems(selectedProjectCwd(controller.selected(), cwd));
+      return skillPickerItems(projectCwd);
     },
-    async applySkills(items) {
-      const projectCwd = selectedProjectCwd(controller.selected(), cwd);
-      const state = await setProjectSkills(projectCwd, items.flatMap((item) => {
+    async applySkills(items, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
+      await setProjectSkills(projectCwd, items.flatMap((item) => {
         const skill = skillPool.find((entry) => entry.name === item.name);
         return skill ? [{ name: item.name, sourcePath: skill.path, enabled: item.enabled }] : [];
       }));
-      skillCountCache.set(projectCwd, state.attached.length);
     },
-    async mcpServers() {
-      const state = await loadProjectMcpState(selectedProjectCwd(controller.selected(), cwd));
+    async mcpServers(target) {
+      const state = await loadProjectMcpState(resolveProjectPickerTarget(target, controller.snapshot().registry.sessions));
       const enabled = new Set(state.enabledServers);
       return Object.keys(mcpCatalog.servers).sort().map((name) => ({ name, enabled: enabled.has(name) }));
     },
-    async applyMcpServers(items) {
-      await setProjectMcpServers(selectedProjectCwd(controller.selected(), cwd), items.filter((item) => item.enabled).map((item) => item.name));
+    async applyMcpServers(items, target) {
+      const projectCwd = resolveProjectPickerTarget(target, controller.snapshot().registry.sessions);
+      await setProjectMcpServers(projectCwd, items.filter((item) => item.enabled).map((item) => item.name));
     },
     async themeSettings() {
       themePreference = await effectiveDashboardThemePreference();
@@ -466,7 +561,6 @@ export async function runTui(): Promise<void> {
       child.stdin.on("error", () => {});
       child.stdin.end(text);
     },
-    skillCount,
     terminalRows: () => terminal.rows,
   }, theme);
   stopThemeLoop = startThemeRefreshLoop({
@@ -479,13 +573,13 @@ export async function runTui(): Promise<void> {
     },
     apply(nextTheme) {
       applyDashboardThemeLocal(nextTheme);
-      sidePanes?.syncOpenSessionChrome();
+      sidePanes?.sync();
     },
   });
   stopActionLoop = startDashboardActionLoop(async () => {
     const action = await consumeDashboardAction();
     if (!action) return;
-    await controller.refresh();
+    await refreshDashboard();
     if (action.action === "rename") view.openRenameForTmuxSession(action.tmuxSession);
     tui.requestRender();
   });
@@ -496,7 +590,7 @@ export async function runTui(): Promise<void> {
   tui.start();
   terminal.write(MOUSE_ENABLE);
   if (process.env.TMUX) void setDashboardMouse({ name: DASHBOARD_SESSION, enabled: true }).catch(() => {});
-  stopLoop = startRefreshLoop(controller, tui);
+  stopLoop = startRefreshLoop(controller, tui, observeAttention);
 }
 
 function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => void {
@@ -514,17 +608,11 @@ function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs
   };
 }
 
-export function mapSidePaneSessionIds(slots: readonly (string | undefined)[], sessions: readonly ManagedSession[]): Map<string, number> {
-  const ids = new Map<string, number>();
-  for (const [index, tmuxSession] of slots.entries()) {
-    const session = tmuxSession ? sessions.find((item) => item.tmuxSession === tmuxSession) : undefined;
-    if (session) ids.set(session.id, index + 1);
-  }
-  return ids;
-}
-
-function selectedProjectCwd(selected: ManagedSession | undefined, fallback: string): string {
-  return selected ? projectStateCwd(selected) : fallback;
+export function resolveProjectPickerTarget(target: ProjectPickerTarget, sessions: readonly ManagedSession[]): string {
+  if (!target.sessionId) return target.projectCwd;
+  const session = sessions.find((item) => item.id === target.sessionId);
+  if (!session || projectStateCwd(session) !== target.projectCwd) throw new Error("picker target is no longer available");
+  return target.projectCwd;
 }
 
 function errorMessage(error: unknown): string {

@@ -789,3 +789,167 @@
   created_at: '2026-08-23'
   plan_file: agent-work/history/20260823_architecture-005_heartbeat_intake.md
   completed_at: '2026-08-23'
+- id: cockpit-001
+  status: done
+  title: Cockpit foundation
+  subtitle: Ship live attention-first project view
+  description: The default project view presents a responsive live attention hierarchy
+    with executable render contracts while preserving independent session state.
+  priority: 1
+  created_at: '2026-08-24'
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260825_cockpit-001_cockpit_foundation.md
+  completed_at: '2026-08-25'
+- id: cockpit-002
+  status: superseded
+  title: Attention projection
+  subtitle: Rank explicit needs without state coupling
+  description: The dashboard projects explicit attention, health, activity, and quiet
+    tiers without changing row state.
+  priority: 1
+  created_at: '2026-08-24'
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-003
+  status: done
+  title: Status explanation
+  subtitle: Explain every derived session status
+  description: The UI and CLI show the tmux, heartbeat, acknowledgement, and workflow
+    evidence behind each derived status.
+  priority: 1
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260826_cockpit-003_status_explanation.md
+  completed_at: '2026-08-26'
+- id: cockpit-004
+  status: done
+  title: Attention delivery
+  subtitle: Announce fresh explicit requests once
+  description: Fresh producer requests announce once for six seconds, deduped by session
+    and request ID, with cold-start seeding, focus suppression, and optional BEL;
+    acknowledgement silences delivery while producer attention remains.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-008
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260829_cockpit-004_attention_delivery.md
+  completed_at: '2026-08-29'
+- id: cockpit-005
+  status: done
+  title: Intent palette
+  subtitle: Find sessions actions context filters
+  description: The shared command model and colon palette search sessions, bounded
+    context, filters, and target-aware actions while showing why unavailable actions
+    cannot run.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-001
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260827_cockpit-005_intent_palette.md
+  completed_at: '2026-08-27'
+- id: cockpit-006
+  status: done
+  title: Action workspace
+  subtitle: Lead with decisions and actions
+  description: The selected-session workspace leads with explicit requests, recommendations,
+    valid contextual actions, and bounded producer context, with evidence behind i.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-003
+  - cockpit-005
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260828_cockpit-006_action_workspace.md
+  completed_at: '2026-08-28'
+- id: cockpit-007
+  status: done
+  title: Direct pinning
+  subtitle: Pin live sessions into safe slots
+  description: Transient numbered slots combine exact session identity with visible
+    placement, guarded numeric focus, safe assignment refusal, resize, close, optional
+    spatial movement, and a compact decision strip.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-006
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260828_cockpit-007_safe_slot_pinning.md
+  completed_at: '2026-08-28'
+- id: cockpit-008
+  status: done
+  title: Adaptive cockpit
+  subtitle: Unify responsive cockpit and workflow board
+  description: Approved parent cards, micro children, collapsed trees, and 60/100/160
+    layouts retain the read-only S workflow board while obsolete density modes are
+    removed.
+  priority: 2
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-003
+  - cockpit-007
+  references:
+  - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260829_cockpit-008_adaptive_cockpit.md
+  completed_at: '2026-08-29'
+- id: cockpit-009
+  status: pending
+  title: Cockpit onboarding
+  subtitle: Teach one attention round trip
+  description: Real-tier and footer guidance retire after the first explicit request
+    is opened and acknowledged and the user returns with Alt+Q; one version-scoped
+    release cue stays below real attention without per-tip history.
+  priority: 3
+  created_at: '2026-08-24'
+  depends_on:
+  - cockpit-004
+  references:
+  - agent-work/plans/cockpit-000.md
+- id: cockpit-010
+  status: done
+  title: Cockpit parity
+  subtitle: Match frozen cockpit visual hierarchy
+  description: The steady-state cockpit matches the frozen HTML hierarchy with mode-aware
+    chrome, right-aligned signals, attention rails, clear card boundaries, and collapsed-child
+    request counts.
+  priority: 2
+  created_at: '2026-08-29'
+  depends_on:
+  - cockpit-008
+  references:
+  - agent-work/plans/cockpit-000.md
+  - agent-work/decks/cockpit-design-lab.html
+  plan_file: agent-work/history/20260829_cockpit-010_visual_parity.md
+  completed_at: '2026-08-29'
+- id: cockpit-011
+  status: done
+  title: Action workspace cleanup
+  subtitle: Make selected session decisions obvious
+  description: The selected-session workspace shows only meaningful work context,
+    exceptional guidance, and clear actions by default.
+  priority: 1
+  created_at: '2026-08-29'
+  plan_file: agent-work/history/20260829_cockpit-011_action_workspace_cleanup.md
+  completed_at: '2026-08-29'
+- id: cockpit-012
+  status: done
+  title: Question routing
+  subtitle: Route prompts into real Pi UI
+  description: Blocking Pi prompts report waiting, structured questions enter NEEDS
+    YOU with one bounded summary, and Answer focuses an existing pin or opens the
+    owning managed session.
+  priority: 2
+  created_at: '2026-08-29'
+  depends_on:
+  - cockpit-004
+  plan_file: agent-work/history/20260830_cockpit-012_question_routing.md
+  completed_at: '2026-08-30'

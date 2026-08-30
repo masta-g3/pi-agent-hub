@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access, rm, unlink } from "node:fs/promises";
-import { PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
+import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { resolve } from "node:path";
 import { effectiveSessionPrelude } from "../core/config.js";
 import { buildPiArgs } from "../core/pi-process.js";
@@ -28,6 +28,7 @@ export interface SessionInput {
 
 export interface ForkInput {
   group?: string;
+  compact?: boolean;
 }
 
 async function addManagedSessionImpl(input: SessionInput): Promise<ManagedSession> {
@@ -187,7 +188,12 @@ async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): 
     name: record.tmuxSession,
     cwd: effectiveSessionCwd(record),
     command: managedPiCommand({ piArgs, prelude: await effectiveSessionPrelude() }),
-    env: { [SESSION_ID_ENV]: record.id, [STATE_ENV]: sessionsStateDir(), [PRIMARY_CWD_ENV]: record.cwd },
+    env: {
+      [SESSION_ID_ENV]: record.id,
+      [STATE_ENV]: sessionsStateDir(),
+      [PRIMARY_CWD_ENV]: record.cwd,
+      ...(input.compact ? { [FORK_COMPACT_ENV]: "1" } : {}),
+    },
   });
   await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await loadManagedSessionTheme(record) });
   return record;

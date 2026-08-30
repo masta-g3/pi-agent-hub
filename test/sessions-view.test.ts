@@ -2,10 +2,34 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { SessionsController } from "../src/app/controller.js";
+import { computeStatus } from "../src/core/status.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 import type { ManagedSession } from "../src/core/types.js";
 import type { SessionsViewState } from "../src/tui/dialog.js";
+
+function fleetText(lines: string[]): string {
+  const board = stripAnsi(lines[1] ?? "").startsWith("│WORKFLOW");
+  const start = board ? 1 : 19;
+  const width = board ? 83 : 65;
+  return lines.map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
+}
+
+function visibleSlice(value: string, start: number, width: number): string {
+  let column = 0;
+  let result = "";
+  for (const char of value) {
+    const charWidth = visibleWidth(char);
+    if (column + charWidth <= start) {
+      column += charWidth;
+      continue;
+    }
+    if (column >= start + width || column + charWidth > start + width) break;
+    result += char;
+    column += charWidth;
+  }
+  return result;
+}
 
 function session(id: string, title: string): ManagedSession {
   return {
@@ -19,6 +43,133 @@ function session(id: string, title: string): ManagedSession {
     updatedAt: 1,
   };
 }
+
+test("narrow workspace keeps evidence behind i and Enter uses a deliberate second step", async () => {
+  const base = session("api", "Project API");
+  const now = 100_000;
+  const explained = {
+    ...base,
+    status: "waiting" as const,
+    statusEvidence: computeStatus({
+      session: { ...base, status: "waiting" },
+      tmux: { exists: true },
+      heartbeat: { managedSessionId: base.id, cwd: base.cwd, state: "waiting", stateSince: now - 3_000, updatedAt: now - 7_000 },
+      now,
+    }).evidence,
+    context: { version: 1 as const, updatedAt: now, attention: { kind: "question" as const, text: "Choose rollout order" } },
+  };
+  const opened: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [explained] });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    attachOutsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    switchInsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    acknowledgeSession: async () => {},
+    sendMessage: () => {},
+  });
+
+  view.render(60);
+  view.handleInput("i");
+  let workspace = stripAnsi(view.render(60).join("\n"));
+  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /LIVE DETAILS/);
+  assert.match(workspace, /\? “Choose rollout order”/);
+  view.handleInput("i");
+  workspace = stripAnsi(view.render(60).join("\n"));
+  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.doesNotMatch(workspace, /LIVE DETAILS/);
+  view.handleInput("\u001b");
+  assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
+
+  view.handleInput("\r");
+  assert.deepEqual(opened, []);
+  assert.match(stripAnsi(view.render(60).join("\n")), /Project API\s+◐ waiting/);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(opened, ["pi-agent-hub-api"]);
+});
+
+test("info waits for matching evidence from a refresh", async () => {
+  const base = session("api", "api");
+  const now = 100_000;
+  let current = base as typeof base & { statusEvidence?: ReturnType<typeof computeStatus>["evidence"] };
+  let registry = { version: 1 as const, sessions: [current] };
+  let resolve!: () => void;
+  const refresh = new Promise<void>((done) => { resolve = done; });
+  const controller = {
+    snapshot: () => ({ registry, sessions: [current], selectedId: current.id, filter: undefined }),
+    selected: () => current,
+  } as unknown as SessionsController;
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    refreshStatusEvidence: async () => {
+      await refresh;
+      current = {
+        ...base,
+        statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence,
+      };
+      registry = { version: 1, sessions: [current] };
+    },
+  });
+
+  view.render(60);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /refreshing status evidence/);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
+  resolve();
+  await refresh;
+  await new Promise((done) => setImmediate(done));
+  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
+});
+
+test("info stays closed when refresh produces no matching evidence", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { refreshStatusEvidence: async () => {} });
+
+  view.render(60);
+  view.handleInput("i");
+  await new Promise((done) => setImmediate(done));
+
+  const rendered = stripAnsi(view.render(60).join("\n"));
+  assert.doesNotMatch(rendered, /LIVE DETAILS/);
+  assert.match(rendered, /status evidence unavailable/);
+});
+
+test("narrow workspace closes when selection changes outside the gated screen", () => {
+  const now = 100_000;
+  const sessions = ["api", "docs"].map((id) => {
+    const base = session(id, id);
+    return { ...base, statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence };
+  });
+  const controller = new SessionsController({ version: 1, sessions });
+  const view = new SessionsView(controller, () => {}, { now: () => now });
+
+  view.render(60);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
+  controller.selectSession("docs");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /LIVE DETAILS/);
+});
+
+test("workspace evidence follows width changes and wide Escape still clears filtering", () => {
+  const now = 100_000;
+  const base = session("api", "api");
+  const explained = { ...base, statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now }).evidence };
+  const controller = new SessionsController({ version: 1, sessions: [explained] });
+  const view = new SessionsView(controller, () => {}, { now: () => now });
+
+  view.render(100);
+  view.handleInput("i");
+  assert.match(stripAnsi(view.render(100).join("\n")), /LIVE DETAILS/);
+  view.render(120);
+  assert.match(stripAnsi(view.render(120).join("\n")), /LIVE DETAILS/);
+  view.handleInput("i");
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /LIVE DETAILS/);
+
+  controller.setFilter("api");
+  view.handleInput("\u001b");
+  assert.equal(controller.snapshot().filter, undefined);
+});
 
 test("filter mode filters live and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -61,7 +212,7 @@ test("committed filter moves to top summary and escape clears", () => {
   view.handleInput("o");
   view.handleInput("\r");
   const rendered = view.render(100).join("\n");
-  assert.match(rendered, /1\/2 sessions .* filter: do/);
+  assert.match(rendered, /FLEET\s+1\/2 trees · filter: do/);
   assert.match(rendered, /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
   view.handleInput("\u001b");
@@ -93,22 +244,35 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
   assert.match(help, /i toggle/);
-  assert.match(help, /p send/);
+  assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
-  assert.match(help, /1-4 assign \(stay here\)/);
-  assert.match(help, /x then 1-4 close panel/);
-  assert.match(help, /F then 1-4 or Alt\+1-4 focus panel/);
-  assert.match(help, /o reset to one panel/);
-  assert.match(help, /mouse click select · double-click open\/switch/);
-  assert.match(help, /v cycle row density/);
-  assert.match(help, /t theme settings/);
-  assert.match(help, /Active and Backlog keep project\/group headers/);
-  assert.match(help, /Archived shows 5 parent cascades/);
+  assert.match(help, /P pin\/focus selected/);
+  assert.match(help, /x close selected pin/);
+  assert.match(help, /Alt\+arrows move spatially/);
+  assert.doesNotMatch(help, /1-4 assign|Focus panel/);
+  assert.match(help, /double-click opens the workspace first unless pins are visible/);
+  assert.doesNotMatch(help, /Density|compact and all-card/);
+  assert.match(help, /Theme… · preview and select the dashboard theme/);
+  assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
+  assert.match(help, /only explicit producer attention enters Needs you/);
+  assert.match(help, /Archived is flat and chronological/);
   assert.match(help, /Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE/);
   assert.match(help, /subagent trees: ←\/→ collapse\/expand selected · Shift\+←\/→ all/);
   assert.match(help, /subagent trees start collapsed; Space toggles one board tree/);
   view.handleInput("\u001b");
   assert.doesNotMatch(view.render(80).join("\n"), /pi agent hub help/);
+});
+
+test("Help derives configured shortcuts from the command catalog", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }],
+    runDashboardShortcut: () => {},
+  });
+
+  view.handleInput("?");
+
+  const help = stripAnsi(view.render(120).join("\n"));
+  assert.match(help, /C-x\s+Summarize · send \/summary/);
 });
 
 test("t opens theme settings from an empty dashboard and Escape restores preview", () => {
@@ -271,7 +435,20 @@ test("section shortcuts block subagent rows", () => {
   controller.move(1);
   view.handleInput("A");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /subagent rows follow their parent section/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+});
+
+test("direct mark-read obeys the shared command availability", () => {
+  let acknowledged: string | undefined;
+  const running = { ...session("api", "api"), status: "running" as const };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [running] }), () => {}, {
+    acknowledgeSession: (id) => { acknowledged = id; },
+  });
+
+  view.handleInput("a");
+
+  assert.equal(acknowledged, undefined);
+  assert.match(stripAnsi(view.render(100).join("\n")), /session has no unread attention/);
 });
 
 test("N syncs selected session title from Pi name", async () => {
@@ -351,7 +528,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   const view = new SessionsView(controller, () => {});
 
   view.handleInput("S");
-  assert.match(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 Active trees/m);
   assert.equal(controller.snapshot().selectedId, "a");
 
   view.handleInput("j");
@@ -362,7 +539,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   assert.equal(controller.snapshot().selectedId, "b");
 
   view.handleInput("S");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
 });
 
 test("Space expands and collapses the selected board parent tree", () => {
@@ -372,18 +549,57 @@ test("Space expands and collapses the selected board parent tree", () => {
   const view = new SessionsView(controller, () => {});
 
   view.handleInput("S");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker/);
-  assert.match(stripAnsi(view.render(120).join("\n")), /api/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker/);
+  assert.match(fleetText(view.render(120)), /api/);
 
   view.handleInput(" ");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api ▾/);
-  assert.match(stripAnsi(view.render(120).join("\n")), /worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api/);
+  assert.match(fleetText(view.render(120)), /worker/);
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
 
   view.handleInput(" ");
   assert.equal(controller.snapshot().selectedId, "parent");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker/);
+});
+
+test("revealing a parent keeps its subagent tree collapsed while revealing a child expands it", () => {
+  const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
+  const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
+
+  for (const grouping of ["project", "stage"] as const) {
+    const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+    const view = new SessionsView(controller, () => {});
+    if (grouping === "stage") view.handleInput("S");
+
+    view.revealSession("parent");
+    assert.doesNotMatch(fleetText(view.render(120)), /worker/, `${grouping} parent reveal expanded descendants`);
+
+    view.revealSession("child");
+    assert.match(fleetText(view.render(120)), /worker/, `${grouping} child reveal stayed hidden`);
+  }
+});
+
+test("hidden child request badges clear when the tree becomes visible", () => {
+  const parent = session("parent", "api");
+  const child = {
+    ...session("child", "worker"),
+    kind: "subagent" as const,
+    parentId: "parent",
+    agentName: "worker",
+    context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } },
+  };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
+
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\?1/);
+  view.handleInput("\u001b[C");
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.match(fleetText(view.render(120)), /worker/);
+
+  view.handleInput("\u001b[D");
+  view.revealSession("child");
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.match(fleetText(view.render(120)), /worker/);
 });
 
 test("left and right arrows expand and collapse the selected project tree", () => {
@@ -392,15 +608,15 @@ test("left and right arrows expand and collapse the selected project tree", () =
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
   const view = new SessionsView(controller, () => {});
 
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker/);
   view.handleInput("\u001b[C");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
   view.handleInput("\u001b[D");
   assert.equal(controller.snapshot().selectedId, "parent");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker/);
 });
 
 test("left and right arrows collapse and expand the selected board tree", () => {
@@ -411,13 +627,13 @@ test("left and right arrows collapse and expand the selected board tree", () => 
 
   view.handleInput("S");
   view.handleInput("\u001b[C");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api ▾[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
   view.handleInput("\u001b[D");
   assert.equal(controller.snapshot().selectedId, "parent");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker/);
 });
 
 test("shift arrows expand and collapse all project trees", () => {
@@ -429,13 +645,13 @@ test("shift arrows expand and collapse all project trees", () => {
   ];
   const view = new SessionsView(new SessionsController({ version: 1, sessions }), () => {});
 
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /api-worker|docs-worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /api-worker|docs-worker/);
   view.handleInput("\u001b[1;2C");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api-worker/);
-  assert.match(stripAnsi(view.render(120).join("\n")), /docs-worker/);
+  assert.match(fleetText(view.render(120)), /api-worker/);
+  assert.match(fleetText(view.render(120)), /docs-worker/);
 
   view.handleInput("\u001b[1;2D");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /api-worker|docs-worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /api-worker|docs-worker/);
 });
 
 test("shift arrows expand and collapse all board trees", () => {
@@ -450,14 +666,14 @@ test("shift arrows expand and collapse all board trees", () => {
 
   view.handleInput("S");
   view.handleInput("\u001b[1;2C");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api-worker/);
-  assert.match(stripAnsi(view.render(120).join("\n")), /docs-worker/);
+  assert.match(fleetText(view.render(120)), /api-worker/);
+  assert.match(fleetText(view.render(120)), /docs-worker/);
 
   controller.selectSession("b-child");
   view.render(120);
   view.handleInput("\u001b[1;2D");
   assert.equal(controller.snapshot().selectedId, "b");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /api-worker|docs-worker/);
+  assert.doesNotMatch(fleetText(view.render(120)), /api-worker|docs-worker/);
 });
 
 test("Space remains configurable outside board mode but is reserved for board disclosure", () => {
@@ -474,7 +690,7 @@ test("Space remains configurable outside board mode but is reserved for board di
   view.handleInput("S");
   view.handleInput(" ");
   assert.equal(calls, 1);
-  assert.match(stripAnsi(view.render(120).join("\n")), /api[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /api[\s\S]*worker/);
 });
 
 test("board filters reveal collapsed child matches without persisting expansion", () => {
@@ -487,12 +703,12 @@ test("board filters reveal collapsed child matches without persisting expansion"
   view.handleInput("/");
   for (const char of "worker-special") view.handleInput(char);
   view.handleInput("\r");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api[\s\S]*worker-special/);
+  assert.match(fleetText(view.render(120)), /api[\s\S]*worker-special/);
   view.handleInput(" ");
 
   view.handleInput("\u001b");
-  assert.match(stripAnsi(view.render(120).join("\n")), /api/);
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /worker-special/);
+  assert.match(fleetText(view.render(120)), /api/);
+  assert.doesNotMatch(fleetText(view.render(120)), /worker-special/);
 });
 
 test("an empty board filter draft keeps collapsed navigation and rendering aligned", () => {
@@ -503,7 +719,7 @@ test("an empty board filter draft keeps collapsed navigation and rendering align
   view.handleInput("S");
   view.handleInput("/");
 
-  const text = stripAnsi(view.render(120).join("\n"));
+  const text = fleetText(view.render(120));
   assert.match(text, /api/);
   assert.doesNotMatch(text, /worker/);
 });
@@ -525,7 +741,7 @@ test("reorder is disabled in stage grouping", () => {
   assert.match(view.render(120).join("\n"), /switch to project grouping to reorder/);
 });
 
-test("v toggles and persists compact and junction density modes", () => {
+test("v has no built-in view behavior or persisted state", () => {
   const saved: SessionsViewState[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
@@ -533,12 +749,8 @@ test("v toggles and persists compact and junction density modes", () => {
   });
 
   view.handleInput("v");
-  view.handleInput("v");
 
-  assert.deepEqual(saved, [
-    { grouping: "project", density: "all-cards" },
-    { grouping: "project", density: "compact" },
-  ]);
+  assert.deepEqual(saved, []);
 });
 
 test("v inside filter mode edits the filter instead of toggling views", () => {
@@ -549,7 +761,7 @@ test("v inside filter mode edits the filter instead of toggling views", () => {
   view.handleInput("v");
 
   assert.equal(controller.snapshot().filter, "v");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /view lanes/);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
 });
 
 test("stage grouping snaps selection to the first eligible Active row", () => {
@@ -564,322 +776,275 @@ test("stage grouping snaps selection to the first eligible Active row", () => {
   assert.equal(controller.snapshot().selectedId, "a");
 });
 
-test("board empty state blocks actions on hidden non-Active selections", () => {
-  const opened: string[] = [];
+test("board empty state blocks pin actions on hidden non-Active selections", () => {
+  const pinned: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("plain", "plain"), bucket: "backlog", bucketChangedAt: 1 }] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => { opened.push(sessionId); return { kind: "opened", slot: 1 }; },
+    pinSidePane: (sessionId) => { pinned.push(sessionId); return { kind: "pinned", session: `pi-agent-hub-${sessionId}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
   view.handleInput("S");
-  view.handleInput("1");
-  assert.deepEqual(opened, []);
+  view.handleInput("P");
+  assert.deepEqual(pinned, []);
   assert.match(stripAnsi(view.render(80).join("\n")), /No Active sessions/);
-
   view.handleInput("S");
-  view.handleInput("1");
-  assert.deepEqual(opened, ["plain"]);
+  view.handleInput("P");
+  assert.deepEqual(pinned, ["plain"]);
 });
 
-test("side pane presence snapshots render numbered slot glyphs", () => {
+test("named pin presence updates rendering without registry mutation", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const sidePaneSessionIds = new Map([["api", 2], ["docs", 1]]);
-  const view = new SessionsView(controller, () => {}, { sidePaneSessionIds: () => sidePaneSessionIds });
-
+  let state = { slots: [undefined, undefined, undefined, undefined] as (string | undefined)[], capacity: 2, constrained: false, splitPercent: 50, activeSessionId: undefined as string | undefined };
+  const view = new SessionsView(controller, () => {}, { sidePaneState: () => state });
+  const before = controller.snapshot().registry;
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /[▢▣]/);
+  state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
   const rendered = stripAnsi(view.render(100).join("\n"));
-  assert.match(rendered, /○ ◫2 api/);
-  assert.match(rendered, /○ ◫1 docs/);
-  assert.doesNotMatch(rendered, /── preview/);
+  assert.match(rendered, /PINNED · ▢1 docs · ▣2 api/);
+  assert.match(rendered, /○ ▣2 api/);
+  assert.match(rendered, /○ ▢1 docs/);
+  assert.strictEqual(controller.snapshot().registry, before);
 });
 
-test("side pane presence snapshots update without registry mutation", () => {
+test("number keys assign exact slots and Alt+number focuses occupied slots", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  controller.selectSession("docs");
+  const view = new SessionsView(controller, () => {}, {
+    assignSidePaneSlot: (id, slot) => { events.push(`assign:${id}:${slot}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot }; },
+    focusSidePaneSlot: (slot) => { events.push(`focus:${slot}`); return { kind: "focused" }; },
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("4");
+  view.handleInput("\u001b1");
+  assert.deepEqual(events, ["assign:docs:4", "focus:1"]);
+});
+
+test("occupied slot refusal names its occupant and does not retarget", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "API"), session("docs", "Docs")] });
+  controller.selectSession("docs");
+  const view = new SessionsView(controller, () => {}, {
+    assignSidePaneSlot: () => ({ kind: "occupied", slot: 1, session: "pi-agent-hub-api" }),
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("1");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Slot 1 contains API; close it first/);
+});
+
+test("P pins or focuses exact selected identity and x closes only that selected pin", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  let pinned = ["api"];
+  const view = new SessionsView(controller, () => {}, {
+    pinSidePane: (id) => { events.push(`pin:${id}`); return { kind: pinned.includes(id) ? "focused" : "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    closeSidePane: (id) => { events.push(`close:${id}`); return { kind: "closed" }; },
+    sidePaneState: () => ({ slots: [...pinned, undefined, undefined], activeSessionId: "api", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.handleInput("P");
+  view.handleInput("x");
+  controller.move(1);
+  view.handleInput("x");
+  pinned = ["api", "docs"];
+  view.handleInput("x");
+  assert.deepEqual(events, ["pin:api", "close:api", "close:docs"]);
+});
+
+test("slot badges and summary preserve holes and focused identity", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "API"), session("docs", "Docs")] });
+  const view = new SessionsView(controller, () => {}, {
+    sidePaneState: () => ({ slots: ["api", undefined, "docs", undefined], activeSessionId: "docs", capacity: 4, constrained: false, splitPercent: 50 }),
+  });
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.match(rendered, /PINNED · ▢1 API · 2 empty · ▣3 Docs · 4 empty/);
+  assert.match(rendered, /▢1 API/);
+  assert.match(rendered, /▣3 Docs/);
+});
+
+test("canonical Alt+Arrow intents move spatially and Alt+Q returns", () => {
+  const events: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  let sidePaneSessionIds = new Map<string, number>();
-  const view = new SessionsView(controller, () => {}, { sidePaneSessionIds: () => sidePaneSessionIds });
-
-  const withoutPanels = stripAnsi(view.render(100).join("\n"));
-  assert.doesNotMatch(withoutPanels, /◫/);
-  assert.match(withoutPanels, /── preview/);
-  sidePaneSessionIds = new Map([["api", 1]]);
-  const withPanel = stripAnsi(view.render(100).join("\n"));
-  assert.match(withPanel, /○ ◫1 api/);
-  assert.doesNotMatch(withPanel, /── preview/);
+  const view = new SessionsView(controller, () => {}, {
+    focusSidePaneDirection: (direction) => { events.push(direction); return { kind: "focused" }; },
+    returnToCockpit: () => { events.push("return"); return { kind: "focused" }; },
+  });
+  for (const sequence of ["\u001b[1;3D", "\u001b[1;3C", "\u001b[1;3A", "\u001b[1;3B", "\u001bq"]) view.handleInput(sequence);
+  assert.deepEqual(events, ["left", "right", "up", "down", "return"]);
 });
 
-test("number keys assign the selected live session to matching panel slots", () => {
-  const opened: { id: string; slot: number }[] = [];
+test("pin mode Enter opens directly below 120 instead of opening the full workspace", () => {
+  const opened: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], activeSessionId: "api", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.render(60);
+  view.handleInput("\r");
+  assert.deepEqual(opened, ["pi-agent-hub-api"]);
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /SELECTED SESSION/);
+});
+
+test("pinning from the narrow workspace returns input to fleet navigation", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  let pinned: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    pinSidePane: (id) => { pinned = [id]; return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [...pinned, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
+  });
+  view.render(60);
+  view.handleInput("\r");
+  view.handleInput("P");
+  view.handleInput("j");
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("plus and minus resize through the catalog only when two pins are available", () => {
+  const deltas: number[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId, slot) => {
-      opened.push({ id: sessionId, slot });
-      return { kind: "opened", slot };
-    },
+    resizeSidePane: (delta) => { deltas.push(delta); return { kind: "resized", splitPercent: delta > 0 ? 60 : 50 }; },
+    sidePaneState: () => ({ slots: ["api", "docs", undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  for (const key of ["1", "2", "3", "4"]) view.handleInput(key);
-
-  assert.deepEqual(opened, [1, 2, 3, 4].map((slot) => ({ id: "api", slot })));
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 4: api/);
+  view.handleInput("+");
+  view.handleInput("-");
+  assert.deepEqual(deltas, [1, -1]);
 });
 
-test("shift-number keys no longer focus panel slots", () => {
-  const focused: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-  });
-
-  for (const key of ["!", "@", "#", "$"]) view.handleInput(key);
-
-  assert.deepEqual(focused, []);
-});
-
-test("F then a digit focuses the matching panel instead of toggling it", () => {
-  const focused: number[] = [];
-  const toggled: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      toggled.push(slot);
-      return { kind: "opened", slot };
-    },
-  });
-
-  view.handleInput("F");
-  assert.match(stripAnsi(view.render(100).join("\n")), /focus panel: press 1-4/);
-  view.handleInput("2");
-
-  assert.deepEqual(focused, [2]);
-  assert.deepEqual(toggled, []);
-});
-
-test("the F focus chord cancels on non-digits and dialog or mouse input", () => {
-  const focused: number[] = [];
-  const toggled: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    focusSidePaneSlot: (slot) => {
-      focused.push(slot);
-      return { kind: "focused" };
-    },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      toggled.push(slot);
-      return { kind: "opened", slot };
-    },
-  });
-
-  view.handleInput("F");
-  view.handleInput("?");
-  view.handleInput("?");
-  view.handleInput("2");
-
-  view.render(100);
-  view.handleInput("F");
-  view.handleInput("\u001b[<0;3;4M");
-  view.handleInput("3");
-
-  view.handleInput("F");
-  view.handleInput("j");
-  view.handleInput("4");
-
-  assert.deepEqual(focused, []);
-  assert.deepEqual(toggled, [2, 3, 4]);
-});
-
-test("x then a digit closes that panel and reports unavailable slots", () => {
-  const closed: number[] = [];
-  const results = [{ kind: "closed" as const }, { kind: "unavailable" as const }];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    closeSidePaneSlot: (slot) => {
-      closed.push(slot);
-      return results.shift()!;
-    },
-  });
-
-  view.handleInput("x");
-  assert.match(stripAnsi(view.render(100).join("\n")), /close panel: press 1-4/);
-  view.handleInput("2");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 2 closed/);
-  view.handleInput("x");
-  view.handleInput("3");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 3 is not open/);
-  assert.deepEqual(closed, [2, 3]);
-});
-
-test("x close chord disarms on other input and falls through", () => {
-  const closed: number[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    closeSidePaneSlot: (slot) => { closed.push(slot); return { kind: "closed" }; },
-  });
-  view.handleInput("x");
-  view.handleInput("j");
-  view.handleInput("2");
-  assert.deepEqual(closed, []);
-  assert.equal(controller.snapshot().selectedId, "api");
-});
-
-test("number keys override configured dashboard shortcuts", () => {
-  const panelSlots: number[] = [];
+test("F and 1 are reserved while o remains available for configured sends", () => {
   const sent: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
-    dashboardShortcuts: [{ key: "1", send: "legacy" }, { key: "!", send: "legacy focus" }],
+    dashboardShortcuts: ["1", "F", "o"].map((key) => ({ key, send: `send-${key}` })),
     runDashboardShortcut: (_id, shortcut) => { sent.push(shortcut.send); },
-    assignSidePaneSlot: (_sessionId, slot) => {
-      panelSlots.push(slot);
-      return { kind: "opened", slot };
-    },
-    focusSidePaneSlot: () => ({ kind: "focused" }),
   });
-
-  view.handleInput("1");
-  view.handleInput("!");
-
-  assert.deepEqual(panelSlots, [1]);
-  assert.deepEqual(sent, ["legacy focus"]);
+  for (const key of ["1", "F", "o"]) view.handleInput(key);
+  assert.deepEqual(sent, ["send-o"]);
 });
 
-test("o resets side panels to the selected session", async () => {
-  const reset: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    resetSidePane: async (sessionId) => {
-      reset.push(sessionId);
-      return { kind: "retargeted", slot: 1 };
-    },
-  });
-
-  view.handleInput("o");
-  await new Promise((resolve) => setImmediate(resolve));
-
-  assert.deepEqual(reset, ["api"]);
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel: api/);
-});
-
-test("panel shortcuts flash unchanged and assigned fixed slots without implying focus", () => {
-  const results = [{ kind: "unchanged" as const, slot: 1 as const }, { kind: "opened" as const, slot: 3 as const }];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: () => results.shift() ?? { kind: "opened", slot: 1 },
-  });
-
-  view.handleInput("1");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 1: api/);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /focused/);
-  view.handleInput("3");
-  assert.match(stripAnsi(view.render(100).join("\n")), /panel 3: api/);
-});
-
-test("panel shortcuts explain narrow-window refusals", () => {
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: () => ({ kind: "too-narrow", panels: 3 }),
-  });
-
-  view.handleInput("3");
-
-  assert.match(stripAnsi(view.render(100).join("\n")), /window too narrow for 3 panels/);
-});
-
-test("panel shortcuts block stopped and error sessions", () => {
-  const opened: string[] = [];
+test("pin commands block stopped and error sessions but allow live subagents", () => {
+  const pinned: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
-  ] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-    resetSidePane: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-  });
-
-  view.handleInput("1");
-  controller.move(1);
-  view.handleInput("o");
-
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /session not running/);
-});
-
-test("panel shortcuts allow live subagent rows", () => {
-  const opened: { id: string; slot: number }[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [
     session("parent", "parent"),
     { ...session("child", "child"), kind: "subagent" as const, parentId: "parent", agentName: "scout" },
   ] });
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId, slot) => {
-      opened.push({ id: sessionId, slot });
-      return { kind: "opened", slot };
-    },
+    pinSidePane: (id) => { pinned.push(id); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  controller.move(1);
-  view.handleInput("2");
-
-  assert.deepEqual(opened, [{ id: "child", slot: 2 }]);
+  view.revealSession("stopped");
+  view.handleInput("P");
+  view.revealSession("error");
+  view.handleInput("P");
+  view.revealSession("child");
+  view.handleInput("P");
+  assert.deepEqual(pinned, ["child"]);
 });
 
-test("panel shortcuts flash tmux guidance from the action", async () => {
+test("pin commands surface capacity and tmux transport failures", async () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  let fail = false;
   const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: async () => { throw new Error("side pane needs tmux — run pi-hub"); },
+    pinSidePane: async () => {
+      if (fail) throw new Error("side pane needs tmux — run pi-hub");
+      return { kind: "capacity", capacity: 0, pins: 0 };
+    },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
   });
-
-  view.handleInput("1");
+  view.handleInput("P");
   await new Promise((resolve) => setImmediate(resolve));
-
-  assert.match(stripAnsi(view.render(100).join("\n")), /side pane needs tmux — run pi-hub/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /pinning needs 100 columns/);
+  fail = true;
+  view.handleInput("P");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(stripAnsi(view.render(100).join("\n")), /side pane needs tmux/);
 });
 
-test("panel shortcuts are swallowed while a dialog is open", () => {
-  const opened: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    assignSidePaneSlot: (sessionId) => {
-      opened.push(sessionId);
-      return { kind: "opened", slot: 1 };
-    },
-  });
-
-  view.handleInput("?");
-  view.handleInput("1");
-  view.handleInput("o");
-
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /pi agent hub help/);
-});
-
-function mousePressAtLine(lineIndex: number, x = 3): string {
+function mousePressAtLine(lineIndex: number, x = 22): string {
   return `\u001b[<0;${x};${lineIndex + 1}M`;
 }
 
-function mouseReleaseAtLine(lineIndex: number, x = 3): string {
+function mouseReleaseAtLine(lineIndex: number, x = 22): string {
   return `\u001b[<0;${x};${lineIndex + 1}m`;
 }
 
 function rowIndexFor(rendered: string[], title: string): number {
   const index = rendered.findIndex((line) => {
     const text = stripAnsi(line);
-    return text.includes(title) && /^│[▌ ] [●◐○×-]/.test(text);
+    return text.includes(title) && /[▸▾·├└│].*[●◐○×-]/.test(text);
   });
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
 }
+
+test("tier navigator mouse click selects the exact first presentation owner", () => {
+  const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const active = { ...session("active", "active"), status: "running" as const };
+  const archived = { ...session("archived", "archived"), status: "stopped" as const, bucket: "archived" as const, bucketChangedAt: 1 };
+  const controller = new SessionsController({ version: 1, sessions: [needs, active, archived] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", collapsedSections: ["archived"] },
+    saveViewState: (state) => { saved.push(state); },
+  });
+
+  let rendered = view.render(100);
+  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
+  assert.notEqual(activeNav, -1);
+  view.handleInput(mousePressAtLine(activeNav, 3));
+  assert.equal(controller.selected()?.id, "active");
+
+  rendered = view.render(100);
+  const archiveNav = rendered.findIndex((line) => /^│ARCHIVED\s+1/.test(stripAnsi(line)));
+  assert.notEqual(archiveNav, -1);
+  view.handleInput(mousePressAtLine(archiveNav, 3));
+  assert.equal(controller.selected()?.id, "archived");
+  assert.deepEqual(saved.at(-1), { grouping: "project" });
+});
+
+test("tier navigator and fleet hit maps do not overlap at the column boundary", () => {
+  const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
+  const active = { ...session("active", "active"), status: "running" as const };
+  const controller = new SessionsController({ version: 1, sessions: [needs, active] });
+  const view = new SessionsView(controller, () => {});
+  const rendered = view.render(100);
+  const activeRow = rowIndexFor(rendered, "active");
+
+  view.handleInput(mousePressAtLine(activeRow, 18));
+  assert.equal(controller.selected()?.id, "needs");
+  view.handleInput(mousePressAtLine(activeRow, 19));
+  assert.equal(controller.selected()?.id, "active");
+});
+
+test("workspace actions ignore the terminal outer border", () => {
+  const switched: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+  });
+  const rendered = view.render(120);
+  const openRow = rendered.findIndex((line) => stripAnsi(line).includes("Enter Open"));
+  assert.notEqual(openRow, -1);
+
+  view.handleInput(mousePressAtLine(openRow, 120));
+
+  assert.deepEqual(switched, []);
+});
+
+test("tier navigator reaches an orphan subagent presentation owner", () => {
+  const quiet = session("quiet", "quiet");
+  const orphan = { ...session("orphan", "orphan"), status: "running" as const, kind: "subagent" as const, parentId: "missing", agentName: "scout", taskPreview: "Inspect orphan" };
+  const controller = new SessionsController({ version: 1, sessions: [quiet, orphan] });
+  const view = new SessionsView(controller, () => {});
+  const rendered = view.render(100);
+  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
+  assert.notEqual(activeNav, -1);
+
+  view.handleInput(mousePressAtLine(activeNav, 3));
+
+  assert.equal(controller.selected()?.id, "orphan");
+});
 
 test("single mouse click selects without opening", () => {
   const switched: string[] = [];
@@ -895,7 +1060,7 @@ test("single mouse click selects without opening", () => {
   assert.deepEqual(switched, []);
 });
 
-test("card continuation rows select and double-click open their session", () => {
+test("card continuation rows select and double-click open their narrow workspace", () => {
   const switched: string[] = [];
   let now = 100;
   const rich = (id: string, title: string) => ({
@@ -920,28 +1085,13 @@ test("card continuation rows select and double-click open their session", () => 
 
   now = 300;
   view.handleInput(mousePressAtLine(continuationIndex));
+  assert.deepEqual(switched, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
+  view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
 
-test("keyboard and mouse selection changes request an immediate preview", () => {
-  let requests = 0;
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const view = new SessionsView(controller, () => {}, {
-    selectionChanged: () => { requests += 1; },
-  });
-
-  view.handleInput("j");
-  const rendered = view.render(100);
-  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "api")));
-  view.handleInput("/");
-  view.handleInput("d");
-  view.handleInput("o");
-
-  assert.equal(controller.snapshot().selectedId, "docs");
-  assert.equal(requests, 3);
-});
-
-test("double-click opens the clicked live session", () => {
+test("double-click opens the narrow workspace before the live session", () => {
   const switched: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -957,11 +1107,48 @@ test("double-click opens the clicked live session", () => {
   view.handleInput(mouseReleaseAtLine(rowIndexFor(rendered, "docs")));
   now = 300;
   view.handleInput(docsClick);
-  now = 350;
+
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.deepEqual(switched, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
+  view.handleInput("\r");
+  assert.deepEqual(switched, ["pi-agent-hub-docs"]);
+});
+
+test("double-click opens the live session directly when the workspace is persistent", () => {
+  const switched: string[] = [];
+  let now = 100;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    attachOutsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+  });
+  const rendered = view.render(120);
+  const docsClick = mousePressAtLine(rowIndexFor(rendered, "docs"));
+
+  view.handleInput(docsClick);
+  now = 300;
   view.handleInput(docsClick);
 
   assert.equal(controller.snapshot().selectedId, "docs");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
+});
+
+test("persistent workspace double-click obeys the catalog availability guard", () => {
+  let now = 100;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { now: () => now });
+  const rendered = view.render(120);
+  const apiClick = mousePressAtLine(rowIndexFor(rendered, "api"));
+
+  view.handleInput(apiClick);
+  now = 300;
+  view.handleInput(apiClick);
+
+  const workspace = stripAnsi(view.render(120).join("\n"));
+  assert.match(workspace, /▸ A\s+Archive/);
+  assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -975,11 +1162,9 @@ test("navigation follows the shared projection across lifecycle sections and sub
   // The default project tree is collapsed, so navigation starts on the parent.
   view.render(100);
   assert.equal(controller.snapshot().selectedId, "active");
-  view.handleInput("j"); // backlog header
-  assert.equal(controller.snapshot().selectedId, "active");
-  view.handleInput("j"); // backlog row
+  view.handleInput("j"); // Backlog is a normal Quiet row.
   assert.equal(controller.snapshot().selectedId, "backlog");
-  view.handleInput("j"); // archived header
+  view.handleInput("j"); // Archived header is the only lifecycle target.
   assert.equal(controller.snapshot().selectedId, "backlog");
   view.handleInput("j"); // archived row
   assert.equal(controller.snapshot().selectedId, "archived");
@@ -994,7 +1179,7 @@ test("navigation follows the shared projection across lifecycle sections and sub
   assert.match(stripAnsi(view.render(100).join("\\n")), /child/);
 });
 
-test("section headers collapse independently and persist their state", () => {
+test("Archived is the only collapsible project section and persists its state", () => {
   const sessions = [
     session("active", "active"),
     { ...session("backlog", "backlog"), bucket: "backlog" as const },
@@ -1004,27 +1189,23 @@ test("section headers collapse independently and persist their state", () => {
   const controller = new SessionsController({ version: 1, sessions });
   const view = new SessionsView(controller, () => {}, { saveViewState: (state) => saved.push(state) });
 
-  view.handleInput("j");
-  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ BACKLOG/);
+  view.handleInput("j"); // backlog row
+  assert.equal(controller.snapshot().selectedId, "backlog");
+  view.handleInput("j"); // Archived header
+  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ ARCHIVED/);
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ BACKLOG/);
-  assert.doesNotMatch(collapsed, /\n.*backlog/);
-  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["backlog"] });
-
-  view.handleInput("j");
-  view.handleInput("\r");
-  const both = stripAnsi(view.render(80).join("\n"));
-  assert.match(both, /▸ BACKLOG/);
-  assert.match(both, /▸ ARCHIVED/);
-  assert.deepEqual(saved.at(-1), { grouping: "project", density: "compact", collapsedSections: ["backlog", "archived"] });
+  assert.match(collapsed, /▸ ARCHIVED/);
+  assert.doesNotMatch(collapsed, /\n.*○ archived/);
+  assert.match(collapsed, /backlog/);
+  assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
 });
 
-test("section header selection blocks session actions and Enter reopens it", () => {
+test("Archived header selection blocks session actions and Enter collapses it", () => {
   const events: string[] = [];
   const sessions = [
     session("active", "active"),
-    { ...session("backlog", "backlog"), bucket: "backlog" as const },
+    { ...session("archived", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const controller = new SessionsController({ version: 1, sessions });
   const view = new SessionsView(controller, () => {}, {
@@ -1032,10 +1213,14 @@ test("section header selection blocks session actions and Enter reopens it", () 
     archiveSession: () => { events.push("archive"); },
     reorderSelected: () => { events.push("reorder"); },
   });
-  view.handleInput("j");
+  view.render(60);
+  view.handleInput("j"); // Archived header
+  view.handleInput("i");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /why this status/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /select a session to show status evidence/);
   for (const key of ["A", "J", "\r"]) view.handleInput(key);
   assert.deepEqual(events, []);
-  assert.match(stripAnsi(view.render(80).join("\n")), /▸ BACKLOG/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▸ ARCHIVED/);
 });
 
 test("archive disclosure toggles with keyboard and blocks stale session actions", () => {
@@ -1049,14 +1234,15 @@ test("archive disclosure toggles with keyboard and blocks stale session actions"
   const view = new SessionsView(controller, () => {}, {
     archiveSession: (id) => { events.push(`archive:${id}`); },
     reorderSelected: () => { events.push("reorder"); },
-    assignSidePaneSlot: (id) => { events.push(`panel:${id}`); return { kind: "opened", slot: 1 }; },
+    pinSidePane: (id) => { events.push(`pin:${id}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
     restart: (id) => { events.push(`restart:${id}`); },
   });
 
   for (let index = 0; index < 5; index += 1) view.handleInput("j");
   assert.match(stripAnsi(view.render(80).join("\n")), /… 2 older archived/);
 
-  for (const key of ["A", "J", "1", "r"]) view.handleInput(key);
+  for (const key of ["A", "J", "P", "r"]) view.handleInput(key);
   assert.deepEqual(events, []);
 
   view.handleInput("\r");
@@ -1074,7 +1260,7 @@ test("every session-dependent route is inert while archive disclosure is selecte
     bucket: "archived" as const,
     bucketChangedAt: 700 - index,
   }));
-  const keys = ["x", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "d", "r", "R", "p", "1", "o", "J"];
+  const keys = ["x", "+", "-", "P", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "d", "r", "R", "p", "J"];
 
   for (const key of keys) {
     const events: string[] = [];
@@ -1088,8 +1274,10 @@ test("every session-dependent route is inert while archive disclosure is selecte
       archiveSession: () => { events.push("archive"); },
       backlogSession: () => { events.push("backlog"); },
       restoreSession: () => { events.push("restore"); },
-      assignSidePaneSlot: () => { events.push("panel"); return { kind: "opened", slot: 1 }; },
-      resetSidePane: () => { events.push("reset"); return { kind: "opened", slot: 1 }; },
+      pinSidePane: () => { events.push("pin"); return { kind: "pinned", session: "pi-agent-hub-archive", slot: 1 }; },
+      closeSidePane: () => { events.push("close-pin"); return { kind: "closed" }; },
+      resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 50 }; },
+      sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
       reorderSelected: () => { events.push("reorder"); },
     });
     for (let index = 0; index < 5; index += 1) view.handleInput("j");
@@ -1178,7 +1366,7 @@ test("archive disclosure selection repairs when pruning removes the toggle", () 
   assert.ok(controller.snapshot().selectedId);
 });
 
-test("double-click restarts a stopped session", () => {
+test("double-click opens the narrow workspace before restarting a stopped session", () => {
   const restarted: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
@@ -1194,6 +1382,10 @@ test("double-click restarts a stopped session", () => {
   now = 300;
   view.handleInput(click);
 
+  assert.deepEqual(restarted, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /api\s+- stopped/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /▸ Enter\s+Restart/);
+  view.handleInput("\r");
   assert.deepEqual(restarted, ["api"]);
 });
 
@@ -1246,8 +1438,8 @@ test("non-row mouse input cancels a pending double-click", () => {
   });
   const rendered = view.render(100);
   const docsLine = rowIndexFor(rendered, "docs");
-  const headerLine = rendered.findIndex((line) => stripAnsi(line).includes("default"));
-  assert.notEqual(headerLine, -1, "missing group header");
+  const headerLine = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
+  assert.notEqual(headerLine, -1, "missing cockpit tier heading");
 
   view.handleInput(mousePressAtLine(docsLine));
   now += 50;
@@ -1266,22 +1458,47 @@ test("non-row mouse input cancels a pending double-click", () => {
   assert.deepEqual(switched, []);
 });
 
-test("mouse clicks ignore group headers and details pane", () => {
+test("mouse clicks ignore headings and execute exact workspace action rows", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
-  const rendered = view.render(100);
+  const rendered = view.render(120);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("default"));
-  assert.notEqual(headerIndex, -1, "missing group header");
+  const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
+  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
+  assert.notEqual(openIndex, -1, "missing workspace Open action");
   view.handleInput(mousePressAtLine(headerIndex));
-  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "docs"), 99));
-
   assert.equal(controller.snapshot().selectedId, before);
   assert.deepEqual(switched, []);
+  view.handleInput(mousePressAtLine(openIndex, 110));
+  assert.deepEqual(switched, ["pi-agent-hub-api"]);
+});
+
+test("workspace More commands click opens the palette and stale action IDs stay inert", () => {
+  const switched: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+  });
+  const rendered = view.render(120);
+  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const actionsIndex = rendered.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  assert.notEqual(openIndex, -1);
+  assert.notEqual(actionsIndex, -1);
+
+  controller.selectSession("docs");
+  view.handleInput(mousePressAtLine(openIndex, 110));
+  assert.deepEqual(switched, []);
+  assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
+
+  const current = view.render(120);
+  const currentActions = current.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentActions, 110));
+  assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });
 
 test("mouse wheel moves selection", () => {
@@ -1297,7 +1514,7 @@ test("mouse wheel moves selection", () => {
 
 test("mouse sequences are consumed while rename form is open", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
   view.render(100);
   view.handleInput("R");
   view.handleInput("\u001b[<0;3;4M");
@@ -1312,6 +1529,7 @@ test("mouse press only dismisses restart choices and wheel is ignored", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
+    restart: () => {},
   });
   const rendered = view.render(100);
 
@@ -1343,10 +1561,13 @@ test("short dashboard renders to terminal rows and clicks visible rows", () => {
 
 test("sidebar dashboard renders readable primary controls", () => {
   const controller = new SessionsController({ version: 1, sessions: manyViewSessions(3) });
-  const view = new SessionsView(controller, () => {}, { terminalRows: () => 15, sidePaneSessionIds: () => new Map([["s0", 1]]) });
+  const view = new SessionsView(controller, () => {}, {
+    terminalRows: () => 15,
+    sidePaneState: () => ({ slots: ["s0", undefined, undefined, undefined], activeSessionId: "s0", capacity: 2, constrained: false, splitPercent: 50 }),
+  });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-2) ?? "", /1-4 Set · x# Close · F# Focus · \? Help/);
+  assert.match(rendered.at(-2) ?? "", /1–4 Slot · x Close/);
   assert.doesNotMatch(rendered.at(-2) ?? "", /…/);
 });
 
@@ -1388,7 +1609,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌ .*session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌│ .*session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog is clipped with a resize marker", () => {
@@ -1440,7 +1661,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /Enter Open .* i Info .* \? Help/);
+    assert.match(rendered, /Enter Workspace .* : Actions .* \? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -1473,6 +1694,106 @@ test("enter on waiting session marks read before switching inside tmux", async (
     const rendered = stripAnsi(view.render(100).join("\n"));
     assert.doesNotMatch(rendered, /marking read/);
     assert.match(rendered, /tmux switch-client -t pi-agent-hub-api/);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("question Answer focuses the exact pinned session without opening another target", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting, session("docs", "docs")] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: async (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id, requestId) => { events.push(`ack:${id}:${requestId}`); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(events, ["focus:api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("question Answer falls back to acknowledge then open when the exact session is not pinned", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: async (id) => { events.push(`focus:${id}`); return { kind: "unavailable" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id, requestId) => { events.push(`ack:${id}:${requestId}`); },
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(events, ["focus:api", "ack:api:undefined", "switch:pi-agent-hub-api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("Answer revalidates question context before choosing the pin route", () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const selected = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as "question" | "ready", text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [selected] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    });
+
+    selected.context.attention = { requestId: "ready-2", kind: "ready", text: "Review result" };
+    view.handleInput("\r");
+
+    assert.deepEqual(events, ["ack:api", "switch:pi-agent-hub-api"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("narrow question flow opens the workspace before Answer routes to Pi", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const waiting = { ...session("api", "api"), status: "idle" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const controller = new SessionsController({ version: 1, sessions: [waiting] });
+    const view = new SessionsView(controller, () => {}, {
+      focusPinnedSession: (id) => { events.push(`focus:${id}`); return { kind: "focused" }; },
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+    });
+
+    view.render(80);
+    view.handleInput("\r");
+    assert.deepEqual(events, []);
+    assert.match(stripAnsi(view.render(80).join("\n")), /Answer in the Pi session/);
+    assert.match(stripAnsi(view.render(80).join("\n")), /Enter  Answer/);
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["focus:api"]);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -1596,13 +1917,13 @@ test("enter on error session restarts instead of switching to missing tmux sessi
   }
 });
 
-test("enter on stopped session without restart action explains the recovery key", () => {
+test("enter on stopped session without restart action reports unavailable transport", () => {
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
   const view = new SessionsView(controller, () => {});
 
   view.handleInput("\r");
 
-  assert.match(view.render(100).join("\n"), /session stopped; press r twice to restart/);
+  assert.match(view.render(100).join("\n"), /restart transport unavailable/);
 });
 
 test("new form worktree row toggles with space", () => {
@@ -1914,41 +2235,6 @@ test("new form ctrl-o outside repo fields is a no-op", () => {
   assert.doesNotMatch(view.render(120).join("\n"), /Recent repos/);
 });
 
-test("selected session surfaces cached skill count", () => {
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { skillCount: (cwd) => cwd === "/tmp/api" ? 2 : undefined });
-
-  assert.match(view.render(120).join("\n"), /skills 2\s+s\/m edit/);
-});
-
-
-test("i toggles selected session metadata expansion", () => {
-  const controller = new SessionsController({
-    version: 1,
-    sessions: [{
-      ...session("api", "api"),
-      cwd: "/repo/api",
-      additionalCwds: ["/repo/web"],
-      workspaceCwd: "/state/workspaces/api",
-    }],
-  });
-  const view = new SessionsView(controller, () => {});
-
-  const compact = view.render(120).join("\n");
-  assert.match(compact, /\/repo\/api · 2 repos/);
-  assert.doesNotMatch(compact, /group default/);
-  assert.doesNotMatch(compact, /extra\s+\/repo\/web/);
-
-  view.handleInput("i");
-  const expanded = view.render(120).join("\n");
-  assert.match(expanded, /extra\s+\/repo\/web/);
-  assert.match(expanded, /runtime\s+\/state\/workspaces\/api/);
-
-  view.handleInput("i");
-  assert.doesNotMatch(view.render(120).join("\n"), /extra\s+\/repo\/web/);
-});
-
-
 test("delete dialog requires confirmation and escape cancels", () => {
   let deleted: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
@@ -2020,7 +2306,7 @@ test("delete dialog does not offer subagent-only cleanup for selected subagent",
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, { closeSubagents: () => {} });
+  const view = new SessionsView(controller, () => {}, { closeSubagents: () => {}, deleteSession: () => {} });
 
   controller.move(1);
   view.handleInput("d");
@@ -2134,7 +2420,7 @@ test("finish worktree dialog confirms with second w", () => {
   assert.doesNotMatch(view.render(100).join("\n"), /Finish worktree/);
 });
 
-test("finish worktree key ignores non-worktree sessions", () => {
+test("finish worktree key explains non-worktree sessions", () => {
   let finished: string | undefined;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
     finishWorktree: (id) => { finished = id; },
@@ -2143,7 +2429,7 @@ test("finish worktree key ignores non-worktree sessions", () => {
   view.handleInput("w");
 
   assert.equal(finished, undefined);
-  assert.match(view.render(100).join("\n"), /selected session is not a worktree/);
+  assert.match(view.render(100).join("\n"), /no Hub-owned worktree/);
 });
 
 test("delete dialog ignores repeated confirm while async delete is pending", async () => {
@@ -2294,7 +2580,7 @@ test("R requires stopped and error sessions to restart before rename", () => {
 test("narrow rename form keeps a long title and cursor visible", () => {
   const title = "Market Snapshot Workflow Review and Export";
   const controller = new SessionsController({ version: 1, sessions: [session("market", title)] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
 
   view.handleInput("R");
   const rendered = view.render(42);
@@ -2366,7 +2652,7 @@ test("custom dashboard shortcut blocks subagent stopped and error rows", () => {
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
   ];
-  const messages: RegExp[] = [/subagent rows cannot receive input/, /session is not live/, /session is not live/];
+  const messages: RegExp[] = [/unavailable for subagents/, /session is not live/, /session is not live/];
 
   for (let i = 0; i < blockedSessions.length; i += 1) {
     let called = false;
@@ -2400,7 +2686,7 @@ test("custom dashboard shortcut reports unavailable without a transport action",
 
   view.handleInput("\x0e");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /shortcut unavailable/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /shortcut transport unavailable/);
 });
 
 test("p opens footer send prompt and submits message to selected live session", async () => {
@@ -2416,7 +2702,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌ . api/);
+  assert.match(prompt, /▌│ ·\s+○ api/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;
@@ -2472,7 +2758,7 @@ test("send shortcut blocks subagent stopped and error rows", () => {
     { ...session("stopped", "stopped"), status: "stopped" },
     { ...session("error", "error"), status: "error" },
   ];
-  const messages: RegExp[] = [/subagent rows cannot receive input/, /session is not live/, /session is not live/];
+  const messages: RegExp[] = [/unavailable for subagents/, /session is not live/, /session is not live/];
 
   for (let i = 0; i < blockedSessions.length; i += 1) {
     let called = false;
@@ -2500,7 +2786,7 @@ test("send shortcut reports unavailable without a transport action", () => {
 
   view.handleInput("p");
 
-  assert.match(stripAnsi(view.render(100).join("\n")), /send unavailable/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /send transport unavailable/);
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /send to api/);
 });
 
@@ -2519,7 +2805,7 @@ test("send action errors show in footer", async () => {
 
 test("e remains a rename alias", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {});
+  const view = new SessionsView(controller, () => {}, { renameSession: () => {} });
 
   view.handleInput("e");
 
@@ -2557,6 +2843,16 @@ test("group rename dialog validates blank group", () => {
   assert.match(view.render(100).join("\n"), /group is required/);
 });
 
+test("Shift+F opens the fork form and submits compact mode", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  let compact: boolean | undefined;
+  const view = new SessionsView(controller, () => {}, { forkSession: (_id, input) => { compact = input.compact; } });
+  view.handleInput("F");
+  assert.match(view.render(120).join("\n"), /Fork and compact/);
+  view.handleInput("\r");
+  assert.equal(compact, true);
+});
+
 test("fork dialog reports async action errors", async () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { forkSession: async () => { throw new Error("history is not saved yet"); } });
@@ -2588,6 +2884,30 @@ test("async skills picker loads before rendering", async () => {
 
   assert.match(view.render(100).join("\n"), /Skills/);
   assert.match(view.render(100).join("\n"), /repo-rules/);
+});
+
+test("async picker loading keeps the project target from open through apply", async () => {
+  const first = session("first", "first");
+  const second = session("second", "second");
+  const controller = new SessionsController({ version: 1, sessions: [first, second] });
+  let release!: () => void;
+  const loading = new Promise<void>((resolve) => { release = resolve; });
+  let loadedFor: unknown;
+  let appliedTo: unknown;
+  const view = new SessionsView(controller, () => {}, {
+    skills: async (target) => { loadedFor = target; await loading; return [{ name: "repo-rules", enabled: false }]; },
+    applySkills: (_items, target) => { appliedTo = target; },
+  });
+
+  view.handleInput("s");
+  controller.selectSession(second.id);
+  release();
+  await loading;
+  await new Promise((resolve) => setImmediate(resolve));
+  view.handleInput("\r");
+
+  assert.deepEqual(loadedFor, { sessionId: first.id, projectCwd: first.cwd });
+  assert.deepEqual(appliedTo, { sessionId: first.id, projectCwd: first.cwd });
 });
 
 test("skills picker toggles and applies with restart prompt", () => {
@@ -2811,7 +3131,7 @@ test("restart requires confirmation and supports new conversation", () => {
 test("restart dialog stays open until answered", () => {
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { now: () => now });
+  const view = new SessionsView(controller, () => {}, { now: () => now, restart: () => {} });
   view.handleInput("r");
   now = 2_200;
   assert.match(view.render(100).join("\n"), /Restart session/);
@@ -2820,7 +3140,7 @@ test("restart dialog stays open until answered", () => {
 test("restart dialog supports restart all", () => {
   let restartedAll = false;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
-  const view = new SessionsView(controller, () => {}, { restartAll: () => { restartedAll = true; } });
+  const view = new SessionsView(controller, () => {}, { restart: () => {}, restartAll: () => { restartedAll = true; } });
 
   view.handleInput("r");
   view.handleInput("a");
@@ -2909,7 +3229,7 @@ test("starting no-match filter clears stale attach flash", () => {
   process.env.TMUX = "/tmp/tmux";
   try {
     const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-    const view = new SessionsView(controller, () => {});
+    const view = new SessionsView(controller, () => {}, { switchInsideTmux: () => {} });
     view.handleInput("\r");
     assert.match(view.render(100).join("\n"), /switch-client/);
     view.handleInput("/");
@@ -2919,4 +3239,331 @@ test("starting no-match filter clears stale attach flash", () => {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
   }
+});
+
+test("attention band locates the exact request without hijacking Enter or selected-row acknowledgement", async () => {
+  const now = 100_000;
+  const api = { ...session("api", "API"), status: "waiting" as const };
+  const docs = {
+    ...session("docs", "Docs"), status: "idle" as const, acknowledgedAt: 1,
+    context: { version: 1 as const, updatedAt: now, attention: { requestId: "req/1", kind: "question" as const, text: "Choose release" } },
+  };
+  const controller = new SessionsController({ version: 1, sessions: [api, docs] });
+  const acknowledgements: Array<[string, string | undefined]> = [];
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now, terminalRows: () => 24,
+    acknowledgeSession: (id, requestId) => { acknowledgements.push([id, requestId]); },
+    attachOutsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+  });
+  view.setAttentionAnnouncements([{ sessionId: "docs", requestId: "req/1", kind: "question", text: "Choose release", title: "Docs", announcedAt: now, expiresAt: now + 6_000 }]);
+
+  let rendered = view.render(100);
+  let announcementLine = rendered.findIndex((line) => stripAnsi(line).includes(": locate"));
+  assert.notEqual(announcementLine, -1);
+  view.handleInput(":");
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /: locate/);
+  view.handleInput("\u001b");
+  rendered = view.render(100);
+  announcementLine = rendered.findIndex((line) => stripAnsi(line).includes(": locate"));
+  view.handleInput("a");
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(acknowledgements, [["api", undefined]]);
+  assert.equal(controller.snapshot().selectedId, "api");
+
+  view.handleInput(mousePressAtLine(announcementLine, 40));
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.equal(opened.length, 0);
+  view.handleInput("a");
+  assert.deepEqual(acknowledgements, [["api", undefined], ["docs", "req/1"]]);
+
+  const runningController = new SessionsController({ version: 1, sessions: [{ ...api, status: "running" }, docs] });
+  const recordOpen = (tmuxSession: string) => { opened.push(tmuxSession); };
+  const runningView = new SessionsView(runningController, () => {}, { attachOutsideTmux: recordOpen, switchInsideTmux: recordOpen });
+  runningView.setAttentionAnnouncements([{ sessionId: "docs", requestId: "req/1", kind: "question", text: "Choose release", title: "Docs", announcedAt: now, expiresAt: now + 6_000 }]);
+  runningView.render(120);
+  runningView.handleInput("\r");
+  assert.deepEqual(opened, ["pi-agent-hub-api"]);
+});
+
+test("command palette toggles the persisted attention bell without adding a binding", async () => {
+  let enabled = false;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    terminalRows: () => 30,
+    attentionDelivery: {
+      attentionBellEnabled: () => enabled,
+      setAttentionBell: async (next) => { enabled = next; },
+    },
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "attention bell") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Attention bell: Off/);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(enabled, true);
+  assert.match(stripAnsi(view.render(100).join("\n")), /attention bell · On/);
+});
+
+test("attention bell write failure keeps the effective value unchanged", async () => {
+  let enabled = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    terminalRows: () => 30,
+    attentionDelivery: {
+      attentionBellEnabled: () => enabled,
+      setAttentionBell: async () => { throw new Error("config locked"); },
+    },
+  });
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "attention bell") view.handleInput(char);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(enabled, false);
+  assert.match(stripAnsi(view.render(100).join("\n")), /config locked/);
+});
+
+test("colon opens the bottom command ledger and Escape returns to the cockpit", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  const palette = stripAnsi(view.render(100).join("\n"));
+  assert.match(palette, /Search actions, sessions, filters/);
+  assert.match(palette, /ACTIONS/);
+  assert.match(palette, /Actions/);
+  assert.match(palette, /Enter Workspace.*: Actions.*\? Help/);
+
+  view.handleInput("\u001b");
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+});
+
+test("command palette stays bounded and never executes hidden rows at short heights", () => {
+  for (const height of [3, 4, 5]) {
+    let opened = 0;
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+      attachOutsideTmux: () => { opened += 1; },
+      terminalRows: () => height,
+    });
+    view.render(60);
+    view.handleInput(":");
+    const rendered = view.render(60);
+    assert.equal(rendered.length, height);
+    assert.match(stripAnsi(rendered.join("\n")), /resize to use command palette/);
+    view.handleInput("\r");
+    assert.equal(opened, 0);
+    view.handleInput("\u001b");
+  }
+
+  for (const height of [6, 7, 8, 9]) {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+      attachOutsideTmux: () => {},
+      terminalRows: () => height,
+    });
+    view.render(60);
+    view.handleInput(":");
+    const rendered = view.render(60);
+    assert.equal(rendered.length, height);
+    assert.match(stripAnsi(rendered.join("\n")), /ACTIONS/);
+    assert.match(stripAnsi(rendered.join("\n")), /Open/);
+  }
+});
+
+test("palette session results select and reveal without opening", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    attachOutsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /docs/);
+  view.handleInput("\r");
+
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.deepEqual(opened, []);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+});
+
+test("palette session results follow cockpit order before hidden rows", () => {
+  const quiet = session("quiet", "Task quiet");
+  const error = { ...session("error", "Task error"), status: "error" as const };
+  const controller = new SessionsController({ version: 1, sessions: [quiet, error] });
+  controller.setFilter("quiet");
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "task") view.handleInput(char);
+  const rendered = view.render(100).map(stripAnsi);
+  const errorIndex = rendered.findIndex((line) => line.includes("Task error"));
+  const quietIndex = rendered.findIndex((line) => line.includes("Task quiet"));
+
+  assert.ok(errorIndex >= 0 && quietIndex >= 0);
+  assert.ok(errorIndex < quietIndex);
+});
+
+test("palette mouse clicks execute items and outside clicks close without leaking", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  const palette = view.render(100);
+  const docsLine = palette.findIndex((line) => stripAnsi(line).includes("docs") && !stripAnsi(line).includes(": docs"));
+  assert.notEqual(docsLine, -1);
+  view.handleInput(mousePressAtLine(docsLine));
+  assert.equal(controller.snapshot().selectedId, "docs");
+
+  view.handleInput(":");
+  const reopened = view.render(100);
+  const searchLine = reopened.findIndex((line) => stripAnsi(line).includes("Search actions, sessions, filters"));
+  view.handleInput(mousePressAtLine(searchLine));
+  assert.match(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+  view.handleInput(mousePressAtLine(0));
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("palette session activation clears only an excluding fleet filter", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  controller.setFilter("api");
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "docs") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.equal(controller.snapshot().filter, undefined);
+  assert.equal(controller.snapshot().selectedId, "docs");
+});
+
+test("palette reveals an older collapsed Archived result from the workflow board", () => {
+  const archived = Array.from({ length: 7 }, (_, index) => ({
+    ...session(`archive-${index}`, `archive-${index}`),
+    status: "stopped" as const,
+    bucket: "archived" as const,
+    bucketChangedAt: 700 - index,
+  }));
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active"), ...archived] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "stage", collapsedSections: ["archived"] },
+    saveViewState: (state) => { saved.push(state); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "archive-6") view.handleInput(char);
+  view.handleInput("\r");
+  const rendered = stripAnsi(view.render(100).join("\n"));
+
+  assert.equal(controller.snapshot().selectedId, "archive-6");
+  assert.match(rendered, /ARCHIVED/);
+  assert.match(rendered, /archive-6/);
+  assert.doesNotMatch(rendered, /OTHER ACTIVE/);
+  assert.deepEqual(saved, []);
+});
+
+test("palette action target cannot drift when selection changes", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "rename") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Rename…/);
+  controller.selectSession("docs");
+  view.handleInput("\r");
+
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.doesNotMatch(rendered, /title .*docs/);
+  assert.match(rendered, /target changed|no longer available/);
+});
+
+test("palette shows blocked actions with reasons and does not execute them", () => {
+  const child = { ...session("child", "child"), kind: "subagent" as const, parentId: "owner", agentName: "worker" };
+  let archived = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [child] }), () => {}, {
+    archiveSession: () => { archived = true; },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "archive") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+  view.handleInput("\r");
+
+  assert.equal(archived, false);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+});
+
+test("palette and direct v execute configured dashboard shortcuts", () => {
+  const sent: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "v", label: "Verify", send: "/verify" }],
+    runDashboardShortcut: (id, shortcut) => { sent.push(`${id}:${shortcut.send}`); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput("v");
+  view.handleInput(":");
+  for (const char of "summarize") view.handleInput(char);
+  view.handleInput("\r");
+
+  assert.deepEqual(sent, ["api:/verify", "api:/summary"]);
+});
+
+test("palette exposes named status filters and direct Help", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("api", "api"), status: "running" },
+    session("docs", "docs"),
+  ] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "status: running") view.handleInput(char);
+  view.handleInput("\r");
+  assert.equal(controller.snapshot().filter, "running");
+  assert.match(stripAnsi(view.render(100).join("\n")), /api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /docs/);
+
+  view.handleInput("\u001b");
+  view.handleInput("?");
+  assert.match(stripAnsi(view.render(100).join("\n")), /pi agent hub help/);
+});
+
+test("resize below the minimum width clears stale workspace hit targets", () => {
+  const switched: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
+  });
+  const wide = view.render(120);
+  const openRow = wide.findIndex((line) => stripAnsi(line).includes("Enter Open"));
+  assert.notEqual(openRow, -1);
+
+  view.render(39);
+  view.handleInput(mousePressAtLine(openRow, 110));
+
+  assert.deepEqual(switched, []);
+});
+
+test("colon is inert below the minimum dashboard width", () => {
+  const view = new SessionsView(new SessionsController(), () => {});
+  view.render(39);
+  view.handleInput(":");
+  assert.doesNotMatch(stripAnsi(view.render(39).join("\n")), /Search actions, sessions, filters/);
 });

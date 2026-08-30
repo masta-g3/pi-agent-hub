@@ -117,7 +117,7 @@ test("workflow adapters preserve their distinct position contracts", () => {
 });
 
 test("heartbeat intake isolates malformed optional metadata", () => {
-  const validContext = { version: 1, updatedAt: 1_000, ticket: { id: "architecture-005" } };
+  const validContext = { version: 1, updatedAt: 1_000, ticket: { id: "architecture-005" }, attention: { requestId: "req-7", kind: "question", text: "Choose rollout" } };
   const validWorkflow = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
   const validTheme = { name: "midnight", sourcePath: "/tmp/theme.json", tokens: { accent: "#abcdef", border: 12 } };
   assert.deepEqual(parseHeartbeat({ ...core, context: validContext, workflow: validWorkflow, activeTheme: validTheme }, "api"), {

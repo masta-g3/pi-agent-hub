@@ -5,17 +5,26 @@ import { createForm, editField, moveFocus, setValue, validateRequired, type Form
 import { renderForm } from "./layout.js";
 import type { FormDialogContext } from "./dialog.js";
 
-export type FormDialogPurpose = "fork" | "moveGroup" | "renameSession" | "renameGroup";
+export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup";
 
 export interface FormDialog {
   kind: "form";
   purpose: FormDialogPurpose;
+  targetId: string;
   form: FormState<string>;
   groupFrom?: string;
   returnTmuxSession?: string;
 }
 
 export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
+  return openForkForm(ctx, "fork");
+}
+
+export function openForkCompactDialog(ctx: FormDialogContext): FormDialog | undefined {
+  return openForkForm(ctx, "forkCompact");
+}
+
+function openForkForm(ctx: FormDialogContext, purpose: "fork" | "forkCompact"): FormDialog | undefined {
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
   if (selected.kind === "subagent") {
@@ -28,7 +37,8 @@ export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
   }
   return {
     kind: "form",
-    purpose: "fork",
+    purpose,
+    targetId: selected.id,
     form: createForm([
       { key: "group", label: "group", value: selected.group, hint: "session group label" },
     ]),
@@ -46,6 +56,7 @@ export function openMoveGroupDialog(ctx: FormDialogContext): FormDialog | undefi
   return {
     kind: "form",
     purpose: "moveGroup",
+    targetId: selected.id,
     form: createForm([{ key: "group", label: "group", value: choices[0] ?? "", hint: moveGroupHint(choices.length) }]),
   };
 }
@@ -64,6 +75,7 @@ export function openRenameSessionForm(ctx: FormDialogContext, returnTmuxSession?
   return {
     kind: "form",
     purpose: "renameSession",
+    targetId: selected.id,
     returnTmuxSession,
     form: createForm([{ key: "title", label: "title", value: selected.title, hint: "exact Pi session name" }]),
   };
@@ -79,6 +91,7 @@ export function openRenameGroupDialog(ctx: FormDialogContext): FormDialog | unde
   return {
     kind: "form",
     purpose: "renameGroup",
+    targetId: selected.id,
     groupFrom: selected.group,
     form: createForm([{ key: "to", label: "to", value: selected.group, hint: `renames all sessions currently in ${selected.group}` }]),
   };
@@ -115,7 +128,8 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
 
 function submitFormDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
   switch (dialog.purpose) {
-    case "fork": return submitForkDialog(dialog, ctx);
+    case "fork":
+    case "forkCompact": return submitForkDialog(dialog, ctx);
     case "moveGroup": return submitGroupDialog(dialog, ctx);
     case "renameSession": return submitRenameSessionDialog(dialog, ctx);
     case "renameGroup": return submitRenameGroupDialog(dialog, ctx);
@@ -123,54 +137,72 @@ function submitFormDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialo
 }
 
 function submitForkDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
-  const selected = ctx.controller.selected();
-  if (!selected) return undefined;
+  const target = formTarget(dialog, ctx);
+  if (!target) return undefined;
+  if (target.kind === "subagent" || target.worktreeOwnedByHub === true || target.worktreePath) {
+    ctx.setMessage("fork target is no longer available");
+    return undefined;
+  }
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
-  ctx.runAction(() => ctx.actions.forkSession?.(selected.id, { group }), "forking session...");
+  const compact = dialog.purpose === "forkCompact";
+  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) }), compact ? "forking and compacting session..." : "forking session...");
   return undefined;
 }
 
 function submitGroupDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
-  const selected = ctx.controller.selected();
-  if (!selected) return undefined;
+  const target = formTarget(dialog, ctx);
+  if (!target || target.kind === "subagent") {
+    ctx.setMessage("move target is no longer available");
+    return undefined;
+  }
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
-  ctx.runAction(() => ctx.actions.changeGroup ? ctx.actions.changeGroup(selected.id, group) : ctx.controller.moveSessionToGroup(selected.id, group), "moving session...");
+  ctx.runAction(() => ctx.actions.changeGroup ? ctx.actions.changeGroup(target.id, group) : ctx.controller.moveSessionToGroup(target.id, group), "moving session...");
   return undefined;
 }
 
 function submitRenameSessionDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
-  const selected = ctx.controller.selected();
-  if (!selected) return undefined;
+  const target = formTarget(dialog, ctx);
+  if (!target || target.kind === "subagent" || target.status === "stopped" || target.status === "error") {
+    ctx.setMessage("rename target is no longer available");
+    return undefined;
+  }
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const title = result.state.fields.title.value;
   ctx.runAction(
     () => {
       if (!ctx.actions.renameSession) throw new Error("rename transport unavailable");
-      return ctx.actions.renameSession(selected.id, title);
+      return ctx.actions.renameSession(target.id, title);
     },
     "renaming session...",
-    () => { if (dialog.returnTmuxSession) ctx.attachSession(selected); },
+    () => { if (dialog.returnTmuxSession) ctx.attachSession(target); },
   );
   return undefined;
 }
 
 function submitRenameGroupDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
   const from = dialog.groupFrom;
-  if (!from) return undefined;
+  const target = formTarget(dialog, ctx);
+  if (!from || !target || target.kind === "subagent" || target.group !== from) {
+    ctx.setMessage("rename-group target has changed");
+    return undefined;
+  }
   const to = dialog.form.fields.to.value.trim();
   if (!to) return { ...dialog, form: setFieldError(dialog.form, "to", "group is required") };
   ctx.runAction(() => ctx.actions.renameGroup ? ctx.actions.renameGroup(from, to) : ctx.controller.renameGroup(from, to), "renaming group...");
   return undefined;
 }
 
+function formTarget(dialog: FormDialog, ctx: FormDialogContext) {
+  return ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
+}
+
 function cycleMoveGroup(dialog: FormDialog, delta: 1 | -1, ctx: FormDialogContext): FormDialog {
-  const selected = ctx.controller.selected();
-  const choices = moveGroupChoices(ctx, selected?.group);
+  const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
   if (!choices.length) return dialog;
   const current = dialog.form.fields.group.value.trim();
   const currentIndex = choices.indexOf(current);
@@ -194,8 +226,9 @@ function moveGroupChoices(ctx: FormDialogContext, currentGroup: string | undefin
 function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: string; footer: string; narrowFooter: string } {
   switch (dialog.purpose) {
     case "fork": return { title: "Fork session", footer: "tab next · ←→ edit · enter fork · esc cancel", narrowFooter: "tab · enter · esc" };
+    case "forkCompact": return { title: "Fork and compact", footer: "tab next · ←→ edit · enter fork and compact · esc cancel", narrowFooter: "tab · enter · esc" };
     case "moveGroup": {
-      const choices = moveGroupChoices(ctx, ctx.controller.selected()?.group);
+      const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
       return {
         title: "Move to group",
         footer: choices.length ? "ctrl-n/p cycle · ←→ edit · enter move · esc cancel" : "←→ edit · enter move · esc cancel",

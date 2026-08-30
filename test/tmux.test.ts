@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, capturePane, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -52,13 +52,19 @@ test("shellQuote uses POSIX single quote escaping", () => {
 });
 
 test("listWindowPanes parses pane geometry and titles for the current window", async () => {
-  const exec = fakeTmux(() => ({ stdout: "%1\t/dev/ttys001\t1\t0\t0\t42\t60\t160\t60\t\tSidebar title\n%2\t/dev/ttys002\t0\t43\t12\t117\t48\t160\t60\t4\tPanel with spaces\tand tabs\n%3\t/dev/ttys003\t0\tnope\t10\t40\t20\t160\t60\t2\tIgnored\n%4\t/dev/ttys004\t0\t20\t20\tnope\t20\t160\t60\t3\tIgnored\n", stderr: "" }));
+  const exec = fakeTmux(() => ({ stdout: "%1\t/dev/ttys001\t1\t0\t0\t42\t60\t160\t60\t\tSidebar title\n%2\t/dev/ttys002\t0\t43\t12\t117\t48\t160\t60\t3\tPanel with spaces\tand tabs\n%3\t/dev/ttys003\t0\tnope\t10\t40\t20\t160\t60\t\tIgnored\n%4\t/dev/ttys004\t0\t20\t20\tnope\t20\t160\t60\t\tIgnored\n", stderr: "" }));
 
   assert.deepEqual(await listWindowPanes("%1", exec), [
     { id: "%1", tty: "/dev/ttys001", active: true, left: 0, top: 0, width: 42, height: 60, windowWidth: 160, windowHeight: 60, title: "Sidebar title" },
-    { id: "%2", tty: "/dev/ttys002", active: false, left: 43, top: 12, width: 117, height: 48, windowWidth: 160, windowHeight: 60, slot: 4, title: "Panel with spaces\tand tabs" },
+    { id: "%2", tty: "/dev/ttys002", active: false, left: 43, top: 12, width: 117, height: 48, windowWidth: 160, windowHeight: 60, slot: 3, title: "Panel with spaces\tand tabs" },
   ]);
   assert.deepEqual(exec.calls, [{ command: "tmux", args: ["list-panes", "-t", "%1", "-F", "#{pane_id}\t#{pane_tty}\t#{pane_active}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}\t#{window_width}\t#{window_height}\t#{@pi_hub_slot}\t#{pane_title}"] }]);
+});
+
+test("setPaneSlot writes transient pane-local slot metadata", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+  await setPaneSlot("%7", 3, exec);
+  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["set-option", "-p", "-t", "%7", "@pi_hub_slot", "3"] }]);
 });
 
 test("splitWindowAttach creates a detached side pane at its final size", async () => {
@@ -109,8 +115,7 @@ test("pane helpers target pane ids and window-local border chrome", async () => 
   await killPane("%2", exec);
   await selectPane("%2", exec);
   await resizePaneWidth("%0", 42, exec);
-  await setPaneTitle("%2", "[1] API", exec);
-  await setPaneSlot("%2", 1, exec);
+  await setPaneTitle("%2", "LIVE · API", exec);
   await setWindowPaneBorderStatus("%0", true, undefined, exec);
   await setWindowPaneBorderStatus("%0", false, undefined, exec);
 
@@ -118,8 +123,7 @@ test("pane helpers target pane ids and window-local border chrome", async () => 
     { command: "tmux", args: ["kill-pane", "-t", "%2"] },
     { command: "tmux", args: ["select-pane", "-t", "%2"] },
     { command: "tmux", args: ["resize-pane", "-t", "%0", "-x", "42"] },
-    { command: "tmux", args: ["select-pane", "-t", "%2", "-T", "[1] API"] },
-    { command: "tmux", args: ["set-option", "-p", "-t", "%2", "@pi_hub_slot", "1"] },
+    { command: "tmux", args: ["select-pane", "-t", "%2", "-T", "LIVE · API"] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-format", " #{pane_title} "] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-status", "top"] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-status", "off"] },
@@ -140,20 +144,36 @@ test("pane border chrome applies theme-derived active and inactive styles", asyn
   ]);
 });
 
-test("clientSessionsByTty parses session names after the first space", async () => {
-  const exec = fakeTmux(() => ({ stdout: "/dev/ttys001 pi-agent-hub-api\n/dev/ttys002 session with spaces\n", stderr: "" }));
+test("listTmuxClients parses exact client focus identity and flags", async () => {
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached,focused\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\ninvalid\n", stderr: "" }));
+
+  assert.deepEqual(await listTmuxClients(exec), [
+    { name: "client-a", tty: "/dev/ttys001", session: "pi-agent-hub-api", paneId: "%3", flags: ["attached", "focused"] },
+    { name: "client-b", tty: "/dev/ttys002", session: "session with spaces", paneId: "%8", flags: ["attached"] },
+  ]);
+  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["list-clients", "-F", "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}"] }]);
+});
+
+test("displayClientMessage targets one client for six seconds with literal-safe text", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+  await displayClientMessage("client-a", "API #{session_name}\u001b]0;secret\u0007\u001b[31m\nneeds you", exec);
+  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["display-message", "-d", "6000", "-c", "client-a", "API ##{session_name} needs you"] }]);
+});
+
+test("clientSessionsByTty derives session names from the shared client projection", async () => {
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\n", stderr: "" }));
 
   assert.deepEqual(await clientSessionsByTty(exec), new Map([
     ["/dev/ttys001", "pi-agent-hub-api"],
     ["/dev/ttys002", "session with spaces"],
   ]));
   assert.deepEqual(exec.calls, [
-    { command: "tmux", args: ["list-clients", "-F", "#{client_tty} #{client_session}"] },
+    { command: "tmux", args: ["list-clients", "-F", "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}"] },
   ]);
 });
 
 test("clientSessionByTty reads one tty from the client map", async () => {
-  const exec = fakeTmux(() => ({ stdout: "/dev/ttys001 pi-agent-hub-api\n/dev/ttys002 session with spaces\n", stderr: "" }));
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\n", stderr: "" }));
 
   assert.equal(await clientSessionByTty("/dev/ttys002", exec), "session with spaces");
   assert.equal(await clientSessionByTty("/dev/ttys003", exec), undefined);
@@ -322,20 +342,6 @@ test("currentTmuxClient reads and trims the current tmux client", async () => {
   assert.deepEqual(exec.calls, [{ command: "tmux", args: ["display-message", "-p", "#{client_name}"] }]);
 });
 
-test("capturePane captures plain text by default", async () => {
-  const exec = fakeTmux(() => ({ stdout: "plain\n", stderr: "" }));
-
-  assert.equal(await capturePane("pi-agent-hub-api", 80, exec), "plain\n");
-  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["capture-pane", "-p", "-t", "pi-agent-hub-api", "-S", "-80"] }]);
-});
-
-test("capturePane can preserve pane styles", async () => {
-  const exec = fakeTmux(() => ({ stdout: "\u001b[1mheading\u001b[0m\n", stderr: "" }));
-
-  assert.equal(await capturePane("pi-agent-hub-api", 80, { preserveStyles: true }, exec), "\u001b[1mheading\u001b[0m\n");
-  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["capture-pane", "-p", "-e", "-t", "pi-agent-hub-api", "-S", "-80"] }]);
-});
-
 test("sendTextToSession pastes text into target and submits", async () => {
   const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
 
@@ -357,7 +363,7 @@ test("sendTextToSession surfaces tmux errors", async () => {
   await assert.rejects(() => sendTextToSession("pi-agent-hub-api", "hello", exec), /paste failed/);
 });
 
-test("sidebar return binding installs guarded return and quadrant jumps then restores all previous bindings", async () => {
+test("sidebar bindings deliver guarded spatial and return intents to the exact cockpit pane then restore prior bindings", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "pi-agent-hub-sidebar-return-"));
   const exec = fakeTmux((call) => {
     if (call.args[0] === "list-keys") return { stdout: `bind-key -T root ${call.args.at(-1)} send-prefix\n`, stderr: "" };
@@ -367,21 +373,23 @@ test("sidebar return binding installs guarded return and quadrant jumps then res
   await installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec);
 
   const binds = exec.calls.filter((call) => call.args[0] === "bind-key");
-  assert.deepEqual(binds.map((call) => call.args[2]), ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4"]);
-  assert.deepEqual(binds[0]?.args.slice(3), ["if-shell", "-F", "#{==:#{session_name},pi-agent-hub}", "select-pane -t '%1'", "send-keys C-q"]);
-  assert.deepEqual(binds[1]?.args.slice(3), ["if-shell", "-F", "#{==:#{session_name},pi-agent-hub}", "select-pane -t '%1'", "send-keys Escape q"]);
-  assert.deepEqual(binds[2]?.args.slice(3, 6), ["if-shell", "-F", "#{==:#{session_name},pi-agent-hub}"]);
-  assert.match(binds[2]?.args[6] ?? "", /##\{pane_id\} ##\{@pi_hub_slot\}/);
-  assert.match(binds[2]?.args[6] ?? "", /awk -v s=1/);
-  assert.match(binds[2]?.args[6] ?? "", /if \[ -n "\$P" \]; then tmux select-pane/);
-  assert.equal(binds[2]?.args[7], "send-keys Escape 1");
+  const keys = ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"];
+  assert.deepEqual(binds.map((call) => call.args[2]), keys);
+  const delivered = ["C-q", "M-q", "Escape '1'", "Escape '2'", "Escape '3'", "Escape '4'", "Escape '[1;3D'", "Escape '[1;3C'", "Escape '[1;3A'", "Escape '[1;3B'"];
+  for (const [index, key] of keys.entries()) {
+    assert.deepEqual(binds[index]?.args.slice(3), [
+      "if-shell", "-F", "#{==:#{session_name},pi-agent-hub}",
+      `send-keys -t '%1' ${delivered[index]}`,
+      `send-keys ${key}`,
+    ]);
+  }
   const status = await inspectSidebarReturnBinding({ stateDir });
-  assert.deepEqual(status.active && status.keys, ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4"]);
-  assert.match(await readFile(join(stateDir, "previous.tmux"), "utf8"), /M-4/);
+  assert.deepEqual(status.active && status.keys, keys);
+  assert.match(await readFile(join(stateDir, "previous.tmux"), "utf8"), /M-Down/);
 
   await removeSidebarReturnBinding({ stateDir }, exec);
 
-  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4"]);
+  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), keys);
   assert.deepEqual(exec.calls.at(-1)?.args, ["source-file", join(stateDir, "previous.tmux")]);
   assert.deepEqual(await inspectSidebarReturnBinding({ stateDir }), { active: false });
 });
@@ -434,11 +442,11 @@ test("sidebar binding install failure rolls back the whole binding set", async (
   const stateDir = await mkdtemp(join(tmpdir(), "pi-agent-hub-sidebar-return-"));
   const exec = fakeTmux((call) => {
     if (call.args[0] === "list-keys") return { stdout: "", stderr: "" };
-    if (call.args[0] === "bind-key" && call.args[2] === "M-2") throw new Error("bind failed");
+    if (call.args[0] === "bind-key" && call.args[2] === "M-Right") throw new Error("bind failed");
     return { stdout: "", stderr: "" };
   });
   await assert.rejects(() => installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec), /bind failed/);
-  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4"]);
+  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"]);
   assert.deepEqual(await inspectSidebarReturnBinding({ stateDir }), { active: false });
 });
 

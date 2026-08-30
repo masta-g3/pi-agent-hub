@@ -47,10 +47,10 @@
     "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.83.0"
+    "@earendil-works/pi-coding-agent": ">=0.84.4"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.84.4",
     "@types/node": "^20.19.0",
     "typescript": "^6.0.3"
   },

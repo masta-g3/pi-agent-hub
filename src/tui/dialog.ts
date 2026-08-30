@@ -1,5 +1,5 @@
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
-import type { CloseSidePaneResult, FocusSidePaneResult, SidePaneResult } from "../app/side-pane.js";
+import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
 import type { NewFormContext, NewFormSubmission } from "./new-form.js";
@@ -11,23 +11,19 @@ import type { ConfirmDialog } from "./confirm-dialogs.js";
 import type { PickerDialog } from "./picker-dialog.js";
 import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js";
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
+import type { CommandPaletteDialog } from "./command-palette-dialog.js";
 
-export interface SessionDialogInput {
-  cwd?: string;
+export interface ForkDialogInput {
   group: string;
-  additionalCwds?: string[];
-  worktree?: { branch: string };
+  compact?: boolean;
 }
 
-/** Compatibility aliases. The result contracts are owned by app/side-pane. */
-export type SidePaneActionResult = SidePaneResult;
-export type { CloseSidePaneResult, FocusSidePaneResult, SidePaneResult };
+export type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult };
 
-export type CollapsibleSection = "backlog" | "archived";
+export type CollapsibleSection = "archived";
 
 export interface SessionsViewState {
   grouping: "project" | "stage";
-  density: "compact" | "all-cards";
   collapsedSections?: CollapsibleSection[];
 }
 
@@ -40,7 +36,7 @@ export interface SessionLifecycleActions {
   discardWorktree: (sessionId: string) => void | Promise<void>;
   finishWorktree: (sessionId: string) => void | Promise<void>;
   createSession: (input: NewFormSubmission) => unknown;
-  forkSession: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
+  forkSession: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup: (sessionId: string, group: string) => unknown;
   archiveSession: (sessionId: string) => unknown;
   backlogSession: (sessionId: string) => unknown;
@@ -49,27 +45,49 @@ export interface SessionLifecycleActions {
   syncPiName: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup: (from: string, to: string) => unknown;
   reorderSelected: (delta: -1 | 1) => unknown;
+  reorderSession: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge: () => unknown;
+  acknowledgeSession: (sessionId: string, requestId?: string) => unknown;
+}
+
+export interface SidePaneViewState {
+  slots: readonly (string | undefined)[];
+  activeSessionId?: string;
+  capacity: number;
+  constrained: boolean;
+  splitPercent: number;
 }
 
 export interface SidePaneActions {
-  assignSidePaneSlot: (sessionId: string, slot: 1 | 2 | 3 | 4) => SidePaneResult | Promise<SidePaneResult>;
-  closeSidePaneSlot: (slot: 1 | 2 | 3 | 4) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
-  resetSidePane: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
-  focusSidePaneSlot: (slot: 1 | 2 | 3 | 4) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  pinSidePane: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
+  assignSidePaneSlot: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
+  focusSidePaneSlot: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  focusPinnedSession: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  closeSidePane: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  resizeSidePane: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
+  focusSidePaneDirection: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  returnToCockpit: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  sidePaneState: () => SidePaneViewState;
+}
+
+export interface ProjectPickerTarget {
+  sessionId?: string;
+  projectCwd: string;
 }
 
 export interface SkillsActions {
-  skills: () => PickerItem[] | Promise<PickerItem[]>;
-  applySkills: (items: PickerItem[]) => void | Promise<void>;
+  skills: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
+  pickerTarget: () => ProjectPickerTarget;
+  applySkills: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;
   skillPoolDir: () => string | undefined;
   skillPoolDirExtraCount: () => number;
-  saveSkillPoolDir: (dir: string) => PickerItem[] | Promise<PickerItem[]>;
+  saveSkillPoolDir: (dir: string, target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
 }
 
 export interface McpActions {
-  mcpServers: () => PickerItem[] | Promise<PickerItem[]>;
-  applyMcpServers: (items: PickerItem[]) => void | Promise<void>;
+  mcpServers: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
+  pickerTarget: () => ProjectPickerTarget;
+  applyMcpServers: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;
 }
 
 export interface ThemeActions {
@@ -83,12 +101,17 @@ export interface NavigationActions {
   attachOutsideTmux: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux: (tmuxSession: string) => void | Promise<void>;
   sendMessage: (tmuxSession: string, message: string) => unknown;
-  selectionChanged: () => void;
+  refreshStatusEvidence: () => void | Promise<void>;
 }
 
 export interface DashboardShortcutActions {
   dashboardShortcuts: readonly DashboardShortcut[];
   runDashboardShortcut: (sessionId: string, shortcut: DashboardShortcut) => unknown;
+}
+
+export interface AttentionDeliveryActions {
+  attentionBellEnabled: () => boolean;
+  setAttentionBell: (enabled: boolean) => void | Promise<void>;
 }
 
 /** Composition-bound action bag. Groups are optional; members are required when supplied. */
@@ -100,19 +123,23 @@ export interface SessionsViewActions {
   themeActions?: Partial<ThemeActions>;
   navigationActions?: Partial<NavigationActions>;
   shortcutActions?: Partial<DashboardShortcutActions>;
+  attentionDelivery?: Partial<AttentionDeliveryActions>;
 
   initialViewState?: SessionsViewState;
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */
   saveViewState?: (state: SessionsViewState) => void;
   attachOutsideTmux?: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
-  assignSidePaneSlot?: (sessionId: string, slot: 1 | 2 | 3 | 4) => SidePaneActionResult | Promise<SidePaneActionResult>;
-  closeSidePaneSlot?: (slot: 1 | 2 | 3 | 4) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
-  resetSidePane?: (sessionId: string) => SidePaneActionResult | Promise<SidePaneActionResult>;
-  focusSidePaneSlot?: (slot: 1 | 2 | 3 | 4) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
-  sidePaneSessionIds?: () => ReadonlyMap<string, number>;
-  sidePaneFocusedSlot?: () => number | undefined;
-  selectionChanged?: () => void;
+  pinSidePane?: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
+  assignSidePaneSlot?: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
+  focusSidePaneSlot?: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  focusPinnedSession?: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  closeSidePane?: (sessionId: string) => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  resizeSidePane?: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
+  focusSidePaneDirection?: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  returnToCockpit?: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  sidePaneState?: () => SidePaneViewState;
+  refreshStatusEvidence?: () => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
   restartNew?: (sessionId: string) => unknown;
   restartAll?: () => unknown;
@@ -121,7 +148,7 @@ export interface SessionsViewActions {
   discardWorktree?: (sessionId: string) => void | Promise<void>;
   finishWorktree?: (sessionId: string) => void | Promise<void>;
   createSession?: (input: NewFormSubmission) => unknown;
-  forkSession?: (sourceSessionId: string, input: Omit<SessionDialogInput, "cwd">) => unknown;
+  forkSession?: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   archiveSession?: (sessionId: string) => unknown;
   backlogSession?: (sessionId: string) => unknown;
@@ -130,15 +157,18 @@ export interface SessionsViewActions {
   syncPiName?: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup?: (from: string, to: string) => unknown;
   reorderSelected?: (delta: -1 | 1) => unknown;
+  reorderSession?: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
+  acknowledgeSession?: (sessionId: string, requestId?: string) => unknown;
   newFormContext?: () => NewFormContext;
-  skills?: () => PickerItem[] | Promise<PickerItem[]>;
-  applySkills?: (items: PickerItem[]) => void | Promise<void>;
+  skills?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
+  applySkills?: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;
   skillPoolDir?: () => string | undefined;
   skillPoolDirExtraCount?: () => number;
-  saveSkillPoolDir?: (dir: string) => PickerItem[] | Promise<PickerItem[]>;
-  mcpServers?: () => PickerItem[] | Promise<PickerItem[]>;
-  applyMcpServers?: (items: PickerItem[]) => void | Promise<void>;
+  saveSkillPoolDir?: (dir: string, target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
+  pickerTarget?: () => ProjectPickerTarget;
+  mcpServers?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
+  applyMcpServers?: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;
   themeSettings?: () => ThemeDialogInput | Promise<ThemeDialogInput>;
   previewDashboardTheme?: (setting: string) => void;
   cancelDashboardTheme?: (setting: string) => void;
@@ -147,12 +177,11 @@ export interface SessionsViewActions {
   dashboardShortcuts?: readonly DashboardShortcut[];
   runDashboardShortcut?: (sessionId: string, shortcut: DashboardShortcut) => unknown;
   copy?: (text: string) => void;
-  skillCount?: (cwd: string) => number | undefined;
   now?: () => number;
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "help" } | PromptDialog | FormDialog | ConfirmDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | ThemeDialog;
+export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | ThemeDialog;
 
 export interface DialogContext {
   controller: SessionsController;
@@ -173,10 +202,10 @@ export interface DialogContext {
 /** Context boundary for a dialog family. Only the declared action fields are visible. */
 export type DialogContextFor<Actions extends object> = Omit<DialogContext, "actions"> & { actions: Actions };
 
-export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage" | "selectionChanged">>>;
+export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage">>>;
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
 export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll">>>;
-export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
+export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
 export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;
 

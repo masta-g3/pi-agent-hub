@@ -8,15 +8,15 @@ import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } f
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
-import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged, readHeartbeat } from "../core/status.js";
-import { capturePane, sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
-import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, SessionBucket, WorkflowModeDisplay, Heartbeat } from "../core/types.js";
+import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
+import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
+import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay } from "../core/types.js";
+import { observeSessions, type SessionObservation } from "./session-observation.js";
 
 export interface SessionsSnapshot {
   registry: SessionsRegistry;
   sessions: RuntimeSession[];
   selectedId?: string;
-  preview: string;
   filter?: string;
 }
 
@@ -25,26 +25,16 @@ export type SyncPiNameResult =
   | { status: "unavailable" }
   | { status: "unnamed" };
 
-interface RefreshObservation {
-  tmuxSession: string;
-  observedUpdatedAt: number;
-  presence: TmuxPresence;
-  error?: string;
-  heartbeat?: Heartbeat;
-}
-
 export class SessionsController {
   private registry: SessionsRegistry;
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
+  private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
-  private preview = "";
-  private previewRequest = 0;
   private filter: string | undefined;
 
   constructor(
     registry: SessionsRegistry = { version: 1, sessions: [] },
-    private capture: typeof capturePane = capturePane,
     private presence: typeof sessionPresence = sessionPresence,
     private presenceSnapshot: (names: readonly string[]) => Promise<Map<string, TmuxPresenceResult>> = (names) => sessionPresenceSnapshot(names),
   ) {
@@ -55,27 +45,13 @@ export class SessionsController {
   async refresh(now = Date.now()): Promise<void> {
     this.registry = await loadRegistry();
     this.repairSelection();
-    const observations = new Map<string, RefreshObservation>();
-    const presenceByTmux = this.presence === sessionPresence
-      ? await this.presenceSnapshot(this.registry.sessions.map((session) => session.tmuxSession))
-      : new Map<string, TmuxPresenceResult>(await Promise.all(this.registry.sessions.map(async (session) => [session.tmuxSession, { presence: await this.presence(session.tmuxSession) }] as const)));
-    for (const session of this.registry.sessions) {
-      const result = presenceByTmux.get(session.tmuxSession) ?? { presence: "unknown" as const, error: "tmux session presence was not observed" };
-      if (isSubagentSession(session) && result.presence === "missing") {
-        observations.set(session.id, { tmuxSession: session.tmuxSession, observedUpdatedAt: session.updatedAt, presence: result.presence, error: result.error });
-        continue;
-      }
-      observations.set(session.id, {
-        tmuxSession: session.tmuxSession,
-        observedUpdatedAt: session.updatedAt,
-        presence: result.presence,
-        error: result.error,
-        heartbeat: await readHeartbeat(session.id),
-      });
-    }
+    const observations = await observeSessions(this.registry.sessions, this.presence === sessionPresence
+      ? { presenceSnapshot: this.presenceSnapshot }
+      : { presence: this.presence });
 
     let prunedSessions: ManagedSession[] = [];
     const appliedObservationIds = new Set<string>();
+    const observedEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
     this.registry = await updateRegistry((latest) => {
       const presenceById = new Map<string, TmuxPresence>();
       const prunedIds = new Set<string>();
@@ -96,6 +72,7 @@ export class SessionsController {
           appliedObservationIds.add(session.id);
           const computed = computeStatus({ session, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: observation.heartbeat, now });
           const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
+          observedEvidence.set(session.id, { fingerprint: statusEvidenceFingerprint(updated), evidence: computed.evidence });
           const piName = typeof observation.heartbeat?.piSessionName === "string" ? observation.heartbeat.piSessionName.trim() : "";
           const title = piName && isFreshHeartbeat(observation.heartbeat, now) && session.updatedAt === observation.observedUpdatedAt && piName !== updated.title
             ? piName
@@ -106,6 +83,12 @@ export class SessionsController {
     });
 
     const latestById = new Map(this.registry.sessions.map((session) => [session.id, session]));
+    const nextStatusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
+    for (const session of this.registry.sessions) {
+      const candidate = observedEvidence.get(session.id) ?? this.statusEvidence.get(session.id);
+      if (candidate?.fingerprint === statusEvidenceFingerprint(session)) nextStatusEvidence.set(session.id, candidate);
+    }
+    this.statusEvidence = nextStatusEvidence;
     for (const [id, observation] of observations) {
       const latest = latestById.get(id);
       if (appliedObservationIds.has(id)) {
@@ -126,19 +109,8 @@ export class SessionsController {
     this.repairSelection();
   }
 
-  async refreshPreview(lines = 160): Promise<void> {
-    const request = ++this.previewRequest;
-    const selected = this.selected();
-    if (!selected || selected.status === "stopped" || selected.status === "error") {
-      this.preview = "";
-      return;
-    }
-    const preview = await this.capture(selected.tmuxSession, lines, { preserveStyles: true });
-    if (request === this.previewRequest && this.selectedId === selected.id) this.preview = preview;
-  }
-
   snapshot(): SessionsSnapshot {
-    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, preview: this.preview, filter: this.filter };
+    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, filter: this.filter };
   }
 
   move(delta: number): void {
@@ -150,21 +122,12 @@ export class SessionsController {
     const index = Math.max(0, sessions.findIndex((session) => session.id === this.selectedId));
     const next = (index + delta + sessions.length) % sessions.length;
     const nextId = sessions[next]?.id;
-    if (nextId !== this.selectedId) {
-      this.selectedId = nextId;
-      this.preview = "";
-      this.previewRequest += 1;
-    }
+    if (nextId !== this.selectedId) this.selectedId = nextId;
   }
 
   setFilter(filter: string | undefined): void {
-    const previousId = this.selectedId;
     this.filter = filter?.trim() || undefined;
     this.selectedId = keepSelection(this.visibleSessions(), this.selectedId);
-    if (this.selectedId !== previousId) {
-      this.preview = "";
-      this.previewRequest += 1;
-    }
   }
 
   async acknowledgeSelected(now = Date.now()): Promise<void> {
@@ -173,10 +136,14 @@ export class SessionsController {
     await this.acknowledgeSession(selected.id, now);
   }
 
-  async acknowledgeSession(id: string, now = Date.now()): Promise<void> {
+  async acknowledgeSession(id: string, now = Date.now(), requestId?: string): Promise<void> {
+    if (requestId !== undefined) {
+      const runtime = this.sessionsWithMetadata().find((session) => session.id === id);
+      if ((runtime?.status !== "waiting" && runtime?.status !== "idle") || runtime.context?.attention?.requestId !== requestId) return;
+    }
     await this.mutateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now) : session),
+      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined) : session),
     }));
   }
 
@@ -199,12 +166,18 @@ export class SessionsController {
   }
 
   async reorderSelected(delta: -1 | 1): Promise<void> {
-    if (this.filter) return;
     const selected = this.selected();
+    if (!selected) return;
+    await this.reorderSession(selected.id, delta);
+  }
+
+  async reorderSession(sessionId: string, delta: -1 | 1): Promise<void> {
+    if (this.filter) return;
+    const selected = this.registry.sessions.find((session) => session.id === sessionId);
     if (!selected || isSubagentSession(selected)) return;
     if (sessionSection(selected) === "archived") return;
     await this.mutateRegistry((latest) => {
-      const current = latest.sessions.find((session) => session.id === selected.id);
+      const current = latest.sessions.find((session) => session.id === sessionId);
       if (!current || isSubagentSession(current)) return latest;
       const section = sessionSection(current);
       if (section === "archived") return latest;
@@ -280,20 +253,16 @@ export class SessionsController {
     for (const removedId of ids) {
       this.sessionContexts.delete(removedId);
       this.workflowModes.delete(removedId);
+      this.statusEvidence.delete(removedId);
     }
     this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
     const after = this.visibleSessions();
     this.selectedId = wasSelected ? after[Math.min(oldIndex, after.length - 1)]?.id : keepSelection(after, this.selectedId);
-    if (wasSelected) this.preview = "";
   }
 
   selectSession(id: string): boolean {
     if (!this.visibleSessions().some((session) => session.id === id)) return false;
-    if (id !== this.selectedId) {
-      this.selectedId = id;
-      this.preview = "";
-      this.previewRequest += 1;
-    }
+    if (id !== this.selectedId) this.selectedId = id;
     return true;
   }
 
@@ -311,8 +280,6 @@ export class SessionsController {
     const selectedId = keepSelection(this.visibleSessions(), this.selectedId);
     if (selectedId === this.selectedId) return;
     this.selectedId = selectedId;
-    this.preview = "";
-    this.previewRequest += 1;
   }
 
   private visibleSessions(): RuntimeSession[] {
@@ -324,8 +291,10 @@ export class SessionsController {
       const context = this.sessionContexts.get(session.id);
       const activeMode = this.workflowModes.get(session.id);
       const workflow = activeMode && session.workflow ? { ...session.workflow, activeMode } : session.workflow;
-      return context || workflow !== session.workflow
-        ? { ...session, ...(context ? { context } : {}), workflow }
+      const evidence = this.statusEvidence.get(session.id);
+      const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
+      return context || workflow !== session.workflow || statusEvidence
+        ? { ...session, ...(context ? { context } : {}), workflow, ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }
@@ -333,10 +302,14 @@ export class SessionsController {
 
 function matchingObservation(
   session: ManagedSession,
-  observations: ReadonlyMap<string, RefreshObservation>,
-): RefreshObservation | undefined {
+  observations: ReadonlyMap<string, SessionObservation>,
+): SessionObservation | undefined {
   const observation = observations.get(session.id);
   return observation?.tmuxSession === session.tmuxSession && observation.observedUpdatedAt === session.updatedAt ? observation : undefined;
+}
+
+function statusEvidenceFingerprint(session: ManagedSession): string {
+  return JSON.stringify([session.tmuxSession, session.status, session.error, session.acknowledgedAt, session.workflow]);
 }
 
 function keepSelection(sessions: RuntimeSession[], selectedId: string | undefined): string | undefined {

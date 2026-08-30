@@ -6,6 +6,7 @@ import { isErrno, readJsonOr, withFileLock, writeJsonAtomic } from "./atomic-jso
 import { tmuxChromeFromTheme, type ChromeThemeTokens, type TmuxChrome } from "./chrome.js";
 import { MANAGED_SESSION_PREFIX } from "./names.js";
 import { sessionsStateDir } from "./paths.js";
+import { plainTerminalText } from "./terminal-text.js";
 import type { CommandResult } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -210,33 +211,37 @@ export async function setWindowPaneBorderStatus(paneId: string, visible: boolean
   await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-active-border-style"]);
 }
 
+export interface TmuxClient {
+  name: string;
+  tty: string;
+  session: string;
+  paneId: string;
+  flags: string[];
+}
+
+const TMUX_CLIENT_FORMAT = "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}";
+
+export async function listTmuxClients(exec: TmuxExec = realTmuxExec): Promise<TmuxClient[]> {
+  const result = await exec.exec("tmux", ["list-clients", "-F", TMUX_CLIENT_FORMAT]);
+  return result.stdout.split(/\r?\n/).flatMap((line) => {
+    const [name, tty, session, paneId, flags] = line.split("\t");
+    if (!name || !tty || !session || !paneId || flags === undefined) return [];
+    return [{ name, tty, session, paneId, flags: flags.split(",").filter(Boolean) }];
+  });
+}
+
+export async function displayClientMessage(client: string, message: string, exec: TmuxExec = realTmuxExec): Promise<void> {
+  const literal = plainTerminalText(message).replace(/#/gu, "##");
+  if (!literal) return;
+  await exec.exec("tmux", ["display-message", "-d", "6000", "-c", client, literal]);
+}
+
 export async function clientSessionsByTty(exec: TmuxExec = realTmuxExec): Promise<Map<string, string>> {
-  const result = await exec.exec("tmux", ["list-clients", "-F", "#{client_tty} #{client_session}"]);
-  const sessions = new Map<string, string>();
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const separator = line.indexOf(" ");
-    if (separator === -1) continue;
-    sessions.set(line.slice(0, separator), line.slice(separator + 1));
-  }
-  return sessions;
+  return new Map((await listTmuxClients(exec)).map((client) => [client.tty, client.session]));
 }
 
 export async function clientSessionByTty(tty: string, exec: TmuxExec = realTmuxExec): Promise<string | undefined> {
   return (await clientSessionsByTty(exec)).get(tty);
-}
-
-export interface CapturePaneOptions {
-  preserveStyles?: boolean;
-}
-
-export async function capturePane(name: string, lines = 160, optionsOrExec: CapturePaneOptions | TmuxExec = {}, exec: TmuxExec = realTmuxExec): Promise<string> {
-  const options = "exec" in optionsOrExec ? {} : optionsOrExec;
-  const runner = "exec" in optionsOrExec ? optionsOrExec : exec;
-  const args = ["capture-pane", "-p"];
-  if (options.preserveStyles) args.push("-e");
-  args.push("-t", name, "-S", `-${lines}`);
-  const result = await runner.exec("tmux", args);
-  return result.stdout;
 }
 
 export async function sendTextToSession(name: string, text: string, exec: TmuxExec = realTmuxExec): Promise<void> {
@@ -508,7 +513,7 @@ export async function installSidebarReturnBinding(options: {
   await withFileLock(activePath, async () => {
     const restorePath = join(stateDir, "previous.tmux");
     const returnKey = options.returnKey ?? "C-q";
-    const keys = [...new Set([returnKey, "M-q", "M-1", "M-2", "M-3", "M-4"])];
+    const keys = [...new Set([returnKey, "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"])];
     await removeSidebarReturnBindingUnlocked({ stateDir, refuseLiveForeignOwner: true }, exec);
     const previous = await Promise.all(keys.map((key) => currentKeyBinding(key, exec)));
     await writeFile(restorePath, previous.filter(Boolean).join("\n"), "utf8");
@@ -522,20 +527,19 @@ export async function installSidebarReturnBinding(options: {
     } satisfies ActiveSidebarReturnBinding);
 
     const dashboardGuard = `#{==:#{session_name},${options.dashboardSession}}`;
-    const focusSidebar = `select-pane -t ${shellQuote(options.sidebarPane)}`;
+    const bindIntent = (key: string, delivered = key) => exec.exec("tmux", [
+      "bind-key", "-n", key,
+      "if-shell", "-F", dashboardGuard,
+      `send-keys -t ${shellQuote(options.sidebarPane)} ${delivered}`,
+      `send-keys ${key}`,
+    ]);
     try {
-      await exec.exec("tmux", ["bind-key", "-n", returnKey, "if-shell", "-F", dashboardGuard, focusSidebar, `send-keys ${returnKey}`]);
-      if (returnKey !== "M-q") {
-        await exec.exec("tmux", ["bind-key", "-n", "M-q", "if-shell", "-F", dashboardGuard, focusSidebar, "send-keys Escape q"]);
-      }
-      for (const slot of [1, 2, 3, 4]) {
-        const script = `P=$(tmux list-panes -t ${shellQuote(options.dashboardSession)} -F '##{pane_id} ##{@pi_hub_slot}' | awk -v s=${slot} '$2==s{print $1; exit}'); if [ -n "$P" ]; then tmux select-pane -t "$P"; fi`;
-        await exec.exec("tmux", [
-          "bind-key", "-n", `M-${slot}`,
-          "if-shell", "-F", dashboardGuard,
-          `run-shell ${shellQuote(script)}`,
-          `send-keys Escape ${slot}`,
-        ]);
+      await bindIntent(returnKey);
+      if (returnKey !== "M-q") await bindIntent("M-q");
+      for (const slot of [1, 2, 3, 4]) await bindIntent(`M-${slot}`, `Escape '${slot}'`);
+      const arrows = { Left: "D", Right: "C", Up: "A", Down: "B" } as const;
+      for (const [direction, suffix] of Object.entries(arrows)) {
+        await bindIntent(`M-${direction}`, `Escape '[1;3${suffix}'`);
       }
     } catch (error) {
       await removeSidebarReturnBindingUnlocked({ stateDir, onlyOwnerPid: process.pid }, exec);

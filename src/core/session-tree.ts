@@ -139,6 +139,7 @@ export function orderedSessionRows(sessions: RuntimeSession[], filter?: string):
 
   for (const parent of orderedSessions(visible.filter((session) => !isSubagentSession(session)))) addWithChildren(parent);
   for (const orphan of orderedSessions(childRows.filter((child) => !child.parentId || !visibleIds.has(child.parentId)))) addWithChildren(orphan);
+  for (const residual of orderedSessions(childRows.filter((child) => !added.has(child.id)))) addWithChildren(residual);
   return rows;
 }
 
