@@ -826,7 +826,7 @@
   plan_file: agent-work/history/20260826_cockpit-003_status_explanation.md
   completed_at: '2026-08-26'
 - id: cockpit-004
-  status: pending
+  status: done
   title: Attention delivery
   subtitle: Announce fresh explicit requests once
   description: Fresh producer requests announce once for six seconds, deduped by session
@@ -838,6 +838,8 @@
   - cockpit-008
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260829_cockpit-004_attention_delivery.md
+  completed_at: '2026-08-29'
 - id: cockpit-005
   status: done
   title: Intent palette

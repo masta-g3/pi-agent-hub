@@ -57,7 +57,7 @@ class NamedPaneTmux implements TmuxExec {
       }
       return { stdout: this.paneOutput(), stderr: "" };
     }
-    if (action === "list-clients") return { stdout: this.panes.map((pane) => `${pane.tty} ${pane.session}\n`).join(""), stderr: "" };
+    if (action === "list-clients") return { stdout: this.panes.map((pane) => `client-${pane.id}\t${pane.tty}\t${pane.session}\t${pane.id}\tattached\n`).join(""), stderr: "" };
     if (action === "list-keys") return { stdout: "", stderr: "" };
     if (action === "split-window") {
       if (this.failSplit) throw this.failSplit;
@@ -141,6 +141,7 @@ async function harness(t: TestContext, options: {
   initial?: { session: string; slot?: 1 | 2 | 3 | 4; active?: boolean; title?: string }[];
   sessions?: ManagedSession[];
   width?: number;
+  activeRequestIds?: ReadonlyMap<string, string>;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pi-hub-named-lifecycle-"));
   const sessions = options.sessions ?? [session("api"), session("docs")];
@@ -151,7 +152,8 @@ async function harness(t: TestContext, options: {
     dashboardSession: "pi-agent-hub", dashboardCwd: "/repo", dashboardCommand: "pi-hub tui", dashboardEnv: () => ({}),
     ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux,
     revealSession: (id) => { events.push(`reveal:${id}`); return true; },
-    acknowledgeSession: async (id) => { events.push(`ack:${id}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
+    activeAttentionRequestId: (id) => options.activeRequestIds?.get(id),
+    acknowledgeSession: async (id, requestId) => { events.push(`ack:${id}${requestId ? `:${requestId}` : ""}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
     configureManagedSession: async (item, visible) => { events.push(`managed:${item.id}:${visible}`); },
     syncManagedSessionStatusBars: async (hidden) => { events.push(`sync:${[...hidden].join(",")}`); },
     currentChrome: () => darkTmuxChrome, render: () => { events.push("render"); },
@@ -199,6 +201,16 @@ test("slot assignment preserves holes, refuses occupants, and numeric focus ackn
   assert.deepEqual(await value.lifecycle.focus(4), { kind: "focused" });
   before(value.events, "reveal:docs", "ack:docs");
   before(value.events, "ack:docs", value.events.find((event) => event.startsWith("focus:"))!);
+});
+
+test("existing idle pin acknowledges only the exact active delivered request", async (t) => {
+  const idle = session("api", "idle");
+  const value = await harness(t, { sessions: [idle], initial: [{ session: "pi-agent-hub-api" }], activeRequestIds: new Map([["api", "req-2"]]) });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.pin("api"), { kind: "focused", session: "pi-agent-hub-api", slot: 1 });
+  before(value.events, "reveal:api", "ack:api:req-2");
+  before(value.events, "ack:api:req-2", "focus:%2");
 });
 
 test("new pin does not acknowledge and keeps cockpit focus", async (t) => {

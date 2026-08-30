@@ -58,6 +58,68 @@ test("project cockpit classifies independent state axes without promotion", () =
   assert.equal(rowOf(model, "archive-new")?.cockpitPlacement.kind, "archived");
 });
 
+test("attention announcement follows the responsive hierarchy and exact hit target", () => {
+  const sessions = cockpitFleet();
+  const announcements = [
+    { sessionId: "docs", requestId: "req/1", kind: "question" as const, text: "Choose \u001b]0;secret\u0007\u001b[31mrelease\n target", title: "Docs", announcedAt: COCKPIT_NOW - 100, expiresAt: COCKPIT_NOW + 5_900 },
+    { sessionId: "blocked", requestId: "req-2", kind: "blocked" as const, text: "Need access", title: "Worker", ownerTitle: "API", announcedAt: COCKPIT_NOW - 200, expiresAt: COCKPIT_NOW + 5_800 },
+  ];
+  for (const width of [40, 60, 99, 100, 119, 120, 159, 160]) {
+    const layout = renderSessions(buildRenderModel({ sessions, width, height: 24, now: COCKPIT_NOW, attentionAnnouncements: announcements }));
+    const line = stripAnsi(layout.lines[2] ?? "");
+    assert.match(line, /\? 2 NEW/);
+    assert.match(line, /Docs/);
+    assert.match(line, /: locate/);
+    assert.equal(layout.announcementRowTargets[2], "view:locate-attention:docs:req%2F1");
+    assert.equal(visibleWidth(layout.lines[2] ?? ""), width);
+    if (width < 100) assert.doesNotMatch(line, /Choose release target|\+1 more/);
+    else assert.match(line, /Choose release target.*\+1 more/);
+    if (width >= 160) assert.match(line, /6s/);
+    else assert.doesNotMatch(line, /6s/);
+  }
+
+  const crowded = renderSessions(buildRenderModel({
+    sessions,
+    width: 100,
+    height: 24,
+    now: COCKPIT_NOW,
+    attentionAnnouncements: [{ ...announcements[0]!, title: "A very long requesting session identity that must yield space" }, announcements[1]!],
+  }));
+  assert.match(stripAnsi(crowded.lines[2] ?? ""), /“Choose release target”.*\+1 more.*: locate/);
+
+  const boundedRequest = "r".repeat(96);
+  const widest = renderSessions(buildRenderModel({
+    sessions,
+    width: 160,
+    height: 24,
+    now: COCKPIT_NOW,
+    attentionAnnouncements: [{ ...announcements[0]!, text: boundedRequest }],
+  }));
+  assert.match(stripAnsi(widest.lines[2] ?? ""), new RegExp(boundedRequest));
+
+  const child = renderSessions(buildRenderModel({ sessions, width: 100, height: 24, now: COCKPIT_NOW, attentionAnnouncements: [announcements[1]!] }));
+  assert.match(stripAnsi(child.lines[2] ?? ""), /! BLOCKED.*Worker → API.*Need access/);
+
+  const short = renderSessions(buildRenderModel({ sessions, width: 100, height: 10, now: COCKPIT_NOW, attentionAnnouncements: announcements }));
+  assert.doesNotMatch(short.lines.map(stripAnsi).join("\n"), /: locate/);
+  assert.equal(short.announcementRowTargets.every((target) => target === undefined), true);
+  const expired = renderSessions(buildRenderModel({ sessions, width: 100, height: 24, now: announcements[0]!.expiresAt, attentionAnnouncements: announcements }));
+  assert.doesNotMatch(expired.lines.map(stripAnsi).join("\n"), /: locate/);
+});
+
+test("attention announcement remains available in workflow empty state and compacts in pin mode", () => {
+  const backlog = { ...cockpitFleet()[0]!, bucket: "backlog" as const };
+  const announcement = { sessionId: backlog.id, requestId: "req", kind: "ready" as const, text: "Review", title: backlog.title, announcedAt: 100, expiresAt: 6_100 };
+  const board = renderSessions(buildRenderModel({ sessions: [backlog], grouping: "stage", width: 100, height: 20, now: 200, attentionAnnouncements: [announcement] }));
+  assert.match(board.lines.map(stripAnsi).join("\n"), /✓ READY.*: locate/);
+  assert.equal(board.announcementRowTargets[2], `view:locate-attention:${backlog.id}:req`);
+
+  const pinned = renderSessions(buildRenderModel({ sessions: [backlog], width: 100, height: 20, now: 200, attentionAnnouncements: [announcement], pinSlots: [backlog.id], pinCapacity: 2 }));
+  assert.match(stripAnsi(pinned.lines[2] ?? ""), /✓ READY.*: locate/);
+  assert.doesNotMatch(stripAnsi(pinned.lines[2] ?? ""), /Review/);
+  assert.doesNotMatch(stripAnsi(pinned.lines[3] ?? ""), /^│─/);
+});
+
 test("Backlog lifecycle stays independent from higher-priority cockpit signals", () => {
   const backlog = cockpitFleet().find((row) => row.id === "theme")!;
   const attention = { ...backlog, status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose theme" } } };

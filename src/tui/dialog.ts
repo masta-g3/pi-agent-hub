@@ -47,7 +47,7 @@ export interface SessionLifecycleActions {
   reorderSelected: (delta: -1 | 1) => unknown;
   reorderSession: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge: () => unknown;
-  acknowledgeSession: (sessionId: string) => unknown;
+  acknowledgeSession: (sessionId: string, requestId?: string) => unknown;
 }
 
 export interface SidePaneViewState {
@@ -108,6 +108,11 @@ export interface DashboardShortcutActions {
   runDashboardShortcut: (sessionId: string, shortcut: DashboardShortcut) => unknown;
 }
 
+export interface AttentionDeliveryActions {
+  attentionBellEnabled: () => boolean;
+  setAttentionBell: (enabled: boolean) => void | Promise<void>;
+}
+
 /** Composition-bound action bag. Groups are optional; members are required when supplied. */
 export interface SessionsViewActions {
   sessionLifecycle?: Partial<SessionLifecycleActions>;
@@ -117,6 +122,7 @@ export interface SessionsViewActions {
   themeActions?: Partial<ThemeActions>;
   navigationActions?: Partial<NavigationActions>;
   shortcutActions?: Partial<DashboardShortcutActions>;
+  attentionDelivery?: Partial<AttentionDeliveryActions>;
 
   initialViewState?: SessionsViewState;
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */
@@ -151,7 +157,7 @@ export interface SessionsViewActions {
   reorderSelected?: (delta: -1 | 1) => unknown;
   reorderSession?: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
-  acknowledgeSession?: (sessionId: string) => unknown;
+  acknowledgeSession?: (sessionId: string, requestId?: string) => unknown;
   newFormContext?: () => NewFormContext;
   skills?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
   applySkills?: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;

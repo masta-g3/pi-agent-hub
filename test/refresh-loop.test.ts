@@ -47,6 +47,25 @@ test("explicit refresh requests surface observation failures", async () => {
   await assert.doesNotReject(() => loop.stop());
 });
 
+test("refresh observer runs only after a successful refresh and before render", async () => {
+  const events: string[] = [];
+  const controller = {
+    refresh: async () => { events.push("refresh"); },
+    snapshot: () => ({ selectedId: "api" }),
+  };
+  const tui = { requestRender: () => { events.push("render"); } };
+  const loop = startRefreshLoop(controller as never, tui as never, async (snapshot) => { events.push(`observe:${snapshot.selectedId}`); });
+  await loop.refresh();
+  await loop.stop();
+  assert.deepEqual(events, ["refresh", "observe:api", "render"]);
+
+  events.length = 0;
+  const failing = startRefreshLoop({ refresh: async () => { events.push("refresh"); throw new Error("failed"); }, snapshot: controller.snapshot } as never, tui as never, async () => { events.push("observe"); });
+  await assert.rejects(() => failing.refresh(), /failed/);
+  await failing.stop();
+  assert.deepEqual(events, ["refresh", "render"]);
+});
+
 test("refresh loop never captures raw pane output", async () => {
   let captures = 0;
   const controller = {

@@ -115,8 +115,8 @@ export function applyComputedStatus(session: ManagedSession, computed: ComputedS
   }, now);
 }
 
-export function markAcknowledged(session: ManagedSession, now = Date.now()): ManagedSession {
-  if (session.acknowledgedAt !== undefined && session.status !== "waiting") return session;
+export function markAcknowledged(session: ManagedSession, now = Date.now(), allowIdleRequest = false): ManagedSession {
+  if (session.status !== "waiting" && !(allowIdleRequest && session.status === "idle")) return session;
   return updateSession(session, {
     acknowledgedAt: now,
     status: session.status === "waiting" ? "idle" : session.status,

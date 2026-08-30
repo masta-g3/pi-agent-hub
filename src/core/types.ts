@@ -59,6 +59,7 @@ export interface SessionPlanSummary {
 export type SessionAttentionKind = "ready" | "question" | "blocked";
 
 export interface SessionAttention {
+  requestId?: string;
   kind: SessionAttentionKind;
   text: string;
 }

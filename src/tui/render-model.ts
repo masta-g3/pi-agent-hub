@@ -150,6 +150,17 @@ export interface RenderWorkspace extends WorkspaceCommandSelection {
   fullScreen: boolean;
 }
 
+export interface AttentionAnnouncement {
+  sessionId: string;
+  requestId: string;
+  kind: SessionAttention["kind"];
+  text: string;
+  title: string;
+  ownerTitle?: string;
+  announcedAt: number;
+  expiresAt: number;
+}
+
 export interface RenderModel {
   width: number;
   now: number;
@@ -173,6 +184,7 @@ export interface RenderModel {
   grouping: "project" | "stage";
   pinMode: boolean;
   pinSummary?: RenderPinSummary;
+  attentionAnnouncements: readonly AttentionAnnouncement[];
 }
 
 export interface DashboardProjection {
@@ -352,6 +364,7 @@ export interface BuildRenderModelInput {
   expandedProjectParentIds?: ReadonlySet<string>;
   revealedSessionId?: string;
   structuralProjection?: DashboardProjection;
+  attentionAnnouncements?: readonly AttentionAnnouncement[];
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
@@ -443,6 +456,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     filter: input.filter,
     grouping,
     pinMode,
+    attentionAnnouncements: input.attentionAnnouncements ?? [],
     ...(pinMode ? {
       pinSummary: {
         slots: [1, 2, 3, 4].slice(0, Math.max(input.pinCapacity ?? 0, pinSlots.reduce((highest, id, index) => id ? index + 1 : highest, 0))).map((slot) => {

@@ -455,6 +455,29 @@ test("refresh caches the native Pi name and projects generic context without per
   });
 });
 
+test("exact request acknowledgement advances idle read state only for current producer identity", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 1_000_000;
+    const registry = { version: 1 as const, sessions: [session("idle", { id: "api", acknowledgedAt: 10 })] };
+    await updateRegistry(() => registry);
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    await writeFile(heartbeatPath("api"), `${JSON.stringify({
+      managedSessionId: "api", cwd: "/tmp/api", state: "waiting", stateSince: 10, updatedAt: now,
+      context: { version: 1, updatedAt: now, attention: { requestId: "req-2", kind: "ready", text: "Review" } },
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry, async () => "present");
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().sessions[0]?.status, "idle");
+
+    await controller.acknowledgeSession("api", now + 1, "stale-id");
+    assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, 10);
+
+    await controller.acknowledgeSession("api", now + 2, "req-2");
+    assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, now + 2);
+    assert.equal(controller.snapshot().registry.sessions[0]?.status, "idle");
+  });
+});
+
 test("refresh advances the row version when only the Pi name changes", async () => {
   await withTempSessionsDir(async () => {
     const now = 1_000;

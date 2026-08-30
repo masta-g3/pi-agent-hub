@@ -17,6 +17,7 @@ export interface DashboardCommand {
   displayKey?: string;
   bindings: DashboardKeyBinding[];
   targetSessionId?: string;
+  attentionRequestId?: string;
   enabled: boolean;
   disabledReason?: string;
   searchText: string;
@@ -48,6 +49,7 @@ export interface DashboardCommandCapabilities {
   closeSidePane?: boolean;
   resizeSidePane?: boolean;
   acknowledge?: boolean;
+  attentionBell?: boolean;
 }
 
 export interface DashboardPinState {
@@ -66,6 +68,8 @@ export interface DashboardCommandInput {
   configuredShortcuts?: readonly DashboardShortcut[];
   capabilities?: DashboardCommandCapabilities;
   pinState?: DashboardPinState;
+  attentionRequests?: readonly { sessionId: string; requestId: string }[];
+  attentionBellEnabled?: boolean;
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
 }
@@ -103,11 +107,11 @@ const actionSpecs: ActionSpec[] = [
   { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
+  { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
   { name: "move-group", label: "Move group…", hint: "change this session's group", keys: ["g"], available: mainAvailability },
   { name: "rename-group", label: "Rename group…", hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
   { name: "archive", label: "Archive", hint: "move to Archived without stopping Pi", keys: ["A"], available: bucketAvailability("archived") },
   { name: "backlog", label: "Backlog", hint: "move to Backlog without stopping Pi", keys: ["B"], available: bucketAvailability("backlog") },
-  { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
   { name: "restore", label: "Restore active", hint: "return this session to Active", keys: ["U"], available: restoreAvailability },
   { name: "delete", label: "Delete…", hint: "remove the Hub session record", keys: ["d"], available: capability("deleteSession", "delete unavailable") },
   { name: "finish-worktree", label: "Finish worktree…", hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },
@@ -335,6 +339,19 @@ function filterCommands(input: DashboardCommandInput): DashboardCommand[] {
 }
 
 function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
+  const newestAttention = input.attentionRequests?.[0];
+  const attentionCommands = newestAttention ? [makeCommand({
+    id: `view:locate-attention:${encodeURIComponent(newestAttention.sessionId)}:${encodeURIComponent(newestAttention.requestId)}`,
+    group: "views",
+    label: "Locate newest request",
+    hint: "select and reveal the exact requesting session",
+    targetSessionId: newestAttention.sessionId,
+    attentionRequestId: newestAttention.requestId,
+    enabled: true,
+    searchText: "locate newest attention request needs you",
+  })] : [];
+  const bellEnabled = input.capabilities?.attentionBell === true;
+  const bellOn = input.attentionBellEnabled === true;
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
@@ -342,6 +359,16 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle project and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board project stage grouping view" }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),
     makeCommand({ id: "view:quit", group: "views", label: "Quit", hint: "close the dashboard", displayKey: "q", bindings: [{ key: "q" }], enabled: true, searchText: "q quit close dashboard" }),
+    ...attentionCommands,
+    makeCommand({
+      id: "view:attention-bell",
+      group: "views",
+      label: `Attention bell: ${bellOn ? "On" : "Off"}`,
+      hint: `turn ${bellOn ? "off" : "on"} the optional attention sound`,
+      enabled: bellEnabled,
+      disabledReason: input.capabilities?.attentionBell === true ? undefined : "attention bell setting unavailable",
+      searchText: `attention bell sound ${bellOn ? "on disable off" : "off enable on"}`,
+    }),
     ...[1, 2, 3, 4].map((slot) => {
       const sessionId = input.pinState?.slots?.[slot - 1];
       const enabled = Boolean(sessionId && input.capabilities?.focusSidePaneSlot === true && !input.interactionBlockedReason);
@@ -408,7 +435,9 @@ function restoreAvailability(session: RuntimeSession): Availability {
 }
 
 function markReadAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  if (session.status !== "waiting" || session.acknowledgedAt !== undefined) return disabled("session has no unread attention");
+  const activeRequest = input.attentionRequests?.some((request) => request.sessionId === session.id);
+  const waitingUnread = session.status === "waiting" && session.acknowledgedAt === undefined;
+  if (!waitingUnread && !activeRequest) return disabled("session has no unread attention");
   return input.capabilities?.acknowledge === true ? enabled() : disabled("acknowledge unavailable");
 }
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
+import { configPath, effectiveDashboardAttentionBell, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -25,6 +25,7 @@ test("config defaults to the built-in skill pool and MCP catalog", async () => {
   assert.equal(await effectiveWorktreeDefault(env), true);
   assert.deepEqual(await effectiveDashboardThemePreference(env), { syncPi: true });
   assert.deepEqual(await effectiveDashboardShortcuts(env), []);
+  assert.equal(await effectiveDashboardAttentionBell(env), false);
 });
 
 test("session prelude config is trimmed and validated", async () => {
@@ -137,6 +138,32 @@ test("dashboard theme preference validates sync and detached theme", async () =>
   await assert.rejects(() => effectiveDashboardThemePreference(env), /Invalid dashboard\.themeSync/);
   await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { themeSync: false, theme: 42 } }), "utf8");
   await assert.rejects(() => effectiveDashboardThemePreference(env), /Invalid dashboard\.theme/);
+});
+
+test("attention bell is validated, defaults off, and preserves sibling settings", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { themeSync: false, theme: "light" } }), "utf8");
+
+  await setDashboardAttentionBell(true, env);
+  assert.equal(await effectiveDashboardAttentionBell(env), true);
+  assert.deepEqual(await effectiveDashboardThemePreference(env), { syncPi: false, theme: "light" });
+
+  await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { attentionBell: "yes" } }), "utf8");
+  await assert.rejects(() => effectiveDashboardAttentionBell(env), /Invalid dashboard\.attentionBell/);
+});
+
+test("config setters serialize concurrent sibling updates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+
+  await Promise.all([
+    setDashboardAttentionBell(true, env),
+    setWorktreeDefault(false, env),
+  ]);
+
+  assert.equal(await effectiveDashboardAttentionBell(env), true);
+  assert.equal(await effectiveWorktreeDefault(env), false);
 });
 
 test("dashboard shortcut config is normalized and validated", async () => {

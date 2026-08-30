@@ -22,7 +22,7 @@ const allCapabilities: DashboardCommandCapabilities = {
   forkSession: true, renameSession: true, syncPiName: true, sendMessage: true, runConfiguredShortcut: true,
   skills: true, mcp: true, theme: true,
   pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, closeSidePane: true, resizeSidePane: true,
-  acknowledge: true,
+  acknowledge: true, attentionBell: true,
 };
 
 const emptyPinState = {
@@ -112,6 +112,49 @@ test("selected action availability mirrors row and capability guards with reason
   const childCommands = buildDashboardCommands({ sessions: [child], selectedId: child.id, capabilities: allCapabilities });
   assert.equal(childCommands.find((command) => command.label === "Fork…")?.disabledReason, "unavailable for subagents");
   assert.equal(childCommands.find((command) => command.label === "Restart choices…")?.disabledReason, "unavailable for subagents");
+});
+
+test("attention view commands are exact, unbound, and stateful", () => {
+  const selected = session("alpha", { status: "idle", acknowledgedAt: 10, context: { version: 1, updatedAt: 20, attention: { requestId: "req/1", kind: "question", text: "Choose" } } });
+  const commands = buildDashboardCommands({
+    sessions: [selected], selectedId: selected.id, capabilities: allCapabilities,
+    attentionRequests: [{ sessionId: "alpha", requestId: "req/1" }], attentionBellEnabled: false,
+  });
+  const locate = commands.find((command) => command.id.startsWith("view:locate-attention:"))!;
+  assert.equal(locate.id, "view:locate-attention:alpha:req%2F1");
+  assert.equal(locate.targetSessionId, "alpha");
+  assert.equal(locate.attentionRequestId, "req/1");
+  assert.deepEqual(locate.bindings, []);
+  assert.equal(locate.enabled, true);
+  assert.equal(commands.find((command) => command.id === "action:alpha:mark-read")?.enabled, true);
+
+  const bell = commands.find((command) => command.id === "view:attention-bell")!;
+  assert.equal(bell.label, "Attention bell: Off");
+  assert.match(bell.hint, /turn on/);
+  assert.deepEqual(bell.bindings, []);
+  assert.equal(commandForKey(commands, "a")?.id, "action:alpha:mark-read");
+  assert.equal(commandForKey(commands, "\r")?.id, "action:alpha:open");
+
+  const selectionBlocked = buildDashboardCommands({
+    sessions: [selected],
+    capabilities: allCapabilities,
+    attentionRequests: [{ sessionId: "alpha", requestId: "req/1" }],
+    interactionBlockedReason: "select a visible session first",
+  });
+  assert.equal(selectionBlocked.find((command) => command.id.startsWith("view:locate-attention:"))?.enabled, true);
+  assert.equal(selectionBlocked.find((command) => command.id === "view:attention-bell")?.enabled, true);
+  assert.equal(selectionBlocked.some((command) => command.id === "action:alpha:mark-read"), false);
+
+  const on = buildDashboardCommands({ sessions: [selected], capabilities: allCapabilities, attentionBellEnabled: true });
+  assert.equal(on.find((command) => command.id === "view:attention-bell")?.label, "Attention bell: On");
+  assert.match(on.find((command) => command.id === "view:attention-bell")?.hint ?? "", /turn off/);
+  assert.equal(on.some((command) => command.id.startsWith("view:locate-attention:")), false);
+});
+
+test("ordinary idle rows remain non-acknowledgeable without an active request", () => {
+  const selected = session("idle", { status: "idle", context: { version: 1, updatedAt: 20, attention: { requestId: "req", kind: "ready", text: "Review" } } });
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities });
+  assert.equal(commands.find((command) => command.id === "action:idle:mark-read")?.enabled, false);
 });
 
 test("no selection keeps global, filter, and view commands without target actions", () => {

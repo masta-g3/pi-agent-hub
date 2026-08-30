@@ -41,7 +41,7 @@ function sidePaneExec(panes: string, clients: string): TmuxExec & { calls: Call[
 const row = (id: number, tty: number, active: number, left: number, top: number, width: number, height: number, windowWidth = 160, title = "", slot?: SidePaneSlot) =>
   `%${id}\t/dev/ttys00${tty}\t${active}\t${left}\t${top}\t${width}\t${height}\t${windowWidth}\t60\t${slot ?? ""}\t${title}\n`;
 const dashboard = (windowWidth = 160, width = 42) => row(1, 1, 1, 0, 0, width, 59, windowWidth, "Dashboard");
-const clients = (...entries: [number, string][]) => entries.map(([tty, session]) => `/dev/ttys00${tty} ${session}\n`).join("");
+const clients = (...entries: [number, string][]) => entries.map(([tty, session]) => `client-${tty}\t/dev/ttys00${tty}\t${session}\t%${tty}\tattached\n`).join("");
 const sessions = clients([2, "pi-agent-hub-api"], [3, "pi-agent-hub-docs"], [4, "pi-agent-hub-api"]);
 
 function layout(count: number, windowWidth: number, contentWidth: number, splitPercent = 50) {

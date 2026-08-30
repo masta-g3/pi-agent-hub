@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
@@ -20,6 +21,7 @@ export interface SessionsLayout {
   rowTargets: (SessionListTarget | undefined)[];
   navigatorRowTargets: (TierNavigatorTarget | undefined)[];
   workspaceRowTargets: (string | undefined)[];
+  announcementRowTargets: (string | undefined)[];
   navigatorWidth: number;
   listStartX: number;
   workspaceStartX?: number;
@@ -35,6 +37,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     rowTargets: lines.map(() => undefined),
     navigatorRowTargets: lines.map(() => undefined),
     workspaceRowTargets: lines.map(() => undefined),
+    announcementRowTargets: lines.map(() => undefined),
     navigatorWidth: 0,
     listStartX: 2,
     listWidth: 0,
@@ -44,8 +47,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
 
   const bodyWidth = width - 2;
   if (model.noBoardSessions) {
-    const body = [renderTopSummary(model, bodyWidth, styles), ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
-    return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
+    const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
+    const body = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
+    const layout = emptyLayout(box(width, fitBoxBody(body, model.height), styles));
+    for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + i] = announcement.targets[i];
+    return layout;
   }
   if (model.showWorkspace && model.workspace?.fullScreen) {
     return renderWorkspaceScreen(model.workspace, width, model.height, model.now, styles);
@@ -60,7 +66,10 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const decision = model.pinMode && model.workspace
     ? renderPinnedDecisionStrip(model.workspace, bodyWidth, pinnedDecisionRows(model.height), model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
-  const stripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
+  const baseStripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
+  const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
+    !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
+  const stripLines = announcement.lines.length + baseStripLines;
   const targetRows = bodyRowsFromHeight(model.height, stripLines);
   const left = renderSessionList(model, listWidth, styles);
   const workspace = model.showWorkspace && model.workspace
@@ -69,7 +78,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const rows = targetRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
   const navigator = renderTierNavigator(model, navigatorWidth, rows, styles);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
-  const body: string[] = [renderTopSummary(model, bodyWidth, styles)];
+  const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines];
   if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
   body.push(...decision.lines);
   const visibleLinesByOwner = new Map<string, number>();
@@ -95,7 +104,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
-  const decisionStart = 2 + (model.pinSummary ? 1 : 0);
+  const announcementRowTargets = lines.map(() => undefined as string | undefined);
+  for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + i] = announcement.targets[i];
+  const decisionStart = 2 + announcement.lines.length + (model.pinSummary ? 1 : 0);
   for (let i = 0; i < decision.targets.length; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
     const lineIndex = 2 + stripLines + i;
@@ -108,12 +119,51 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     rowTargets,
     navigatorRowTargets,
     workspaceRowTargets,
+    announcementRowTargets,
     navigatorWidth,
     listStartX,
     ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 2 } : {}),
     listWidth,
     listScrollTop: windowedLeft.top,
   };
+}
+
+function renderAttentionAnnouncement(
+  model: RenderModel,
+  width: number,
+  styles: LayoutStyles,
+  visible: boolean,
+): { lines: string[]; targets: (string | undefined)[] } {
+  const active = model.attentionAnnouncements.filter((announcement) => model.now < announcement.expiresAt);
+  const newest = active[0];
+  if (!visible || !newest) return { lines: [], targets: [] };
+  const tone = newest.kind === "blocked" ? styles.error : newest.kind === "ready" ? styles.success : styles.warning;
+  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? "✓" : "?";
+  const label = active.length > 1 ? `${glyph} ${active.length} NEW` : `${glyph} ${newest.kind.toUpperCase()}`;
+  const identity = plainAttentionText(newest.ownerTitle ? `${newest.title} → ${newest.ownerTitle}` : newest.title);
+  const workspaceDuplicatesRequest = model.workspace?.session.id === newest.sessionId;
+  const more = model.width >= 100 && active.length > 1 ? styles.dim(`+${active.length - 1} more`) : undefined;
+  const leftPrefix = [tone("┃"), tone(label)].join("  ");
+  const left = `${leftPrefix}  ${identity}`;
+  const locate = `${styles.accent(":")} ${styles.dim("locate")}`;
+  const fixedTail = [more, locate, model.width >= 160 ? styles.dim("6s") : undefined]
+    .filter((part): part is string => Boolean(part)).join("  ");
+  const request = model.width >= 100 && !model.pinMode && !workspaceDuplicatesRequest
+    ? `“${plainAttentionText(newest.text)}”`
+    : undefined;
+  const requestBudget = request
+    ? Math.max(0, width - displayWidth(leftPrefix) - Math.min(16, displayWidth(identity)) - displayWidth(fixedTail) - 3)
+    : 0;
+  const detail = request && requestBudget > 1 ? styles.muted(truncate(request, requestBudget)) : undefined;
+  const tail = [detail, fixedTail].filter(Boolean).join("  ");
+  const commandId = `view:locate-attention:${encodeURIComponent(newest.sessionId)}:${encodeURIComponent(newest.requestId)}`;
+  const content = pad(twoColumn(left, tail, width), width);
+  if (model.pinMode) return { lines: [content], targets: [commandId] };
+  return { lines: [content, styles.border("─".repeat(width))], targets: [commandId, undefined] };
+}
+
+function plainAttentionText(value: string): string {
+  return plainTerminalText(stripAnsi(value));
 }
 
 function renderTierNavigator(model: RenderModel, width: number, rows: number, styles: LayoutStyles): { lines: string[]; targets: (TierNavigatorTarget | undefined)[] } {
@@ -151,6 +201,7 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height
     rowTargets: lines.map(() => undefined),
     navigatorRowTargets: lines.map(() => undefined),
     workspaceRowTargets,
+    announcementRowTargets: lines.map(() => undefined),
     navigatorWidth: 0,
     listStartX: 2,
     workspaceStartX: 2,

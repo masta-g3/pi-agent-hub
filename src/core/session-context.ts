@@ -4,6 +4,7 @@ const TICKET_ID_MAX = 80;
 const SUBTITLE_MAX = 64;
 const DESCRIPTION_MAX = 240;
 const ATTENTION_MAX = 96;
+const ATTENTION_REQUEST_ID_MAX = 64;
 
 export function parseSessionContext(value: unknown): PiAgentHubContextV1 | undefined {
   if (!isObject(value) || value.version !== 1 || !finiteNumber(value.updatedAt)) return undefined;
@@ -31,8 +32,10 @@ function parseTicket(value: unknown): PiAgentHubContextV1["ticket"] | undefined 
 
 function parseAttention(value: unknown): SessionAttention | undefined {
   if (!isObject(value) || !["ready", "question", "blocked"].includes(String(value.kind))) return undefined;
+  const requestId = optionalText(value.requestId, ATTENTION_REQUEST_ID_MAX);
   const text = boundedText(value.text, ATTENTION_MAX);
-  return text ? { kind: value.kind as SessionAttention["kind"], text } : undefined;
+  if (requestId === null || !text) return undefined;
+  return { ...(requestId ? { requestId } : {}), kind: value.kind as SessionAttention["kind"], text };
 }
 
 function optionalText(value: unknown, max: number): string | undefined | null {

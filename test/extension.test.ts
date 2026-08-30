@@ -641,12 +641,13 @@ test("piAgentHubExtension transports optional current-position completion withou
 test("piAgentHubExtension bridges native name, generic context, activity, and plan", async () => {
   const heartbeat = await heartbeatWithSessionManager({
     getBranch: () => [
-      { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: 4, ticket: { id: "metadata-redesign-001", subtitle: "Simplify session context", description: "Use one generic contract." }, attention: { kind: "ready", text: "Review the result" } } },
+      { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: 4, ticket: { id: "metadata-redesign-001", subtitle: "Simplify session context", description: "Use one generic contract." }, attention: { requestId: "review-4", kind: "ready", text: "Review the result" } } },
       { ...WORKFLOW_ENTRY, data: { ...WORKFLOW_ENTRY.data, activity: { id: "critic", label: "Reviewing implementation", pass: 2 }, plan: { phase: { title: "Hub bridge", index: 2, count: 4 }, tasks: { completed: 8, total: 11 }, phases: [{ completed: 3, total: 3 }, { completed: 5, total: 8 }], nextStep: "Wire settled heartbeat" } } },
     ],
   });
   assert.equal(heartbeat.piSessionName, "Canonical Name");
   assert.deepEqual(heartbeat.context?.ticket, { id: "metadata-redesign-001", subtitle: "Simplify session context", description: "Use one generic contract." });
+  assert.deepEqual(heartbeat.context?.attention, { requestId: "review-4", kind: "ready", text: "Review the result" });
   assert.deepEqual(heartbeat.workflow?.activity, { id: "critic", label: "Reviewing implementation", pass: 2 });
   assert.deepEqual(heartbeat.workflow?.plan?.tasks, { completed: 8, total: 11 });
   assert.equal(heartbeat.workflow?.plan?.nextStep, "Wire settled heartbeat");

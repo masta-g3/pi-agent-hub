@@ -136,10 +136,14 @@ export class SessionsController {
     await this.acknowledgeSession(selected.id, now);
   }
 
-  async acknowledgeSession(id: string, now = Date.now()): Promise<void> {
+  async acknowledgeSession(id: string, now = Date.now(), requestId?: string): Promise<void> {
+    if (requestId !== undefined) {
+      const runtime = this.sessionsWithMetadata().find((session) => session.id === id);
+      if ((runtime?.status !== "waiting" && runtime?.status !== "idle") || runtime.context?.attention?.requestId !== requestId) return;
+    }
     await this.mutateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now) : session),
+      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined) : session),
     }));
   }
 

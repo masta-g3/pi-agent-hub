@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNewFormContext, createRegistryMutator, normalizeSessionsViewState, persistDashboardThemeSelection, restartAllTargets } from "../src/app/run-tui.js";
+import { attentionExternalMessage, buildNewFormContext, createRegistryMutator, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, restartAllTargets } from "../src/app/run-tui.js";
+import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
+import type { TmuxClient } from "../src/core/tmux.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function deferred<T = void>() {
@@ -26,6 +28,79 @@ function session(id: string, cwd: string, group: string, additionalCwds?: string
     updatedAt: 1,
   };
 }
+
+function attention(sessionId: string, kind: AttentionDeliveryEntry["kind"] = "question"): AttentionDeliveryEntry {
+  return {
+    key: `${sessionId}\0req-${sessionId}`, sessionId, tmuxSession: `pi-agent-hub-${sessionId}`,
+    requestId: `req-${sessionId}`, kind, text: `Choose ${sessionId} release`, title: sessionId.toUpperCase(),
+    announcedAt: 100, expiresAt: 6_100,
+  };
+}
+
+function client(name: string, sessionName: string, paneId: string): TmuxClient {
+  return { name, tty: `/dev/${name}`, session: sessionName, paneId, flags: ["attached"] };
+}
+
+test("external attention delivery is owned only by the managed dashboard tmux session", async () => {
+  let inspected = 0;
+  assert.equal(await dashboardOwnsTmuxSession(undefined, async () => { inspected += 1; return "pi-agent-hub"; }), false);
+  assert.equal(inspected, 0);
+  assert.equal(await dashboardOwnsTmuxSession("set", async () => "shell"), false);
+  assert.equal(await dashboardOwnsTmuxSession("set", async () => "pi-agent-hub"), true);
+  assert.equal(await dashboardOwnsTmuxSession("set", async () => { throw new Error("tmux failed"); }), false);
+});
+
+test("attention external message is bounded to newest identity plus aggregate count", () => {
+  assert.equal(attentionExternalMessage([attention("api")]), "? QUESTION · API · Choose api release");
+  assert.equal(attentionExternalMessage([attention("api", "blocked"), attention("web")]), "! 2 NEW · API · Choose api release · +1 more");
+});
+
+test("attention delivery sends per eligible client and conservatively gates BEL", async () => {
+  const sent: string[] = [];
+  let bells = 0;
+  await deliverAttentionBatch([attention("api"), attention("web")], {
+    dashboardSession: "pi-agent-hub-dashboard", dashboardPaneId: "%1", pins: [], bellEnabled: true,
+    listClients: async () => [
+      client("api", "pi-agent-hub-api", "%7"),
+      client("hub", "pi-agent-hub-dashboard", "%1"),
+      client("other", "shell", "%9"),
+    ],
+    display: async (target, message) => { sent.push(`${target}:${message}`); },
+    ring: () => { bells += 1; },
+  });
+  assert.deepEqual(sent, [
+    "api:? QUESTION · WEB · Choose web release",
+    "other:? 2 NEW · API · Choose api release · +1 more",
+  ]);
+  assert.equal(bells, 0);
+});
+
+test("attention delivery isolates client failures and rings once when all locations are eligible", async () => {
+  const sent: string[] = [];
+  let bells = 0;
+  await deliverAttentionBatch([attention("api")], {
+    dashboardSession: "hub", pins: [], bellEnabled: true,
+    listClients: async () => [client("broken", "shell", "%8"), client("good", "other", "%9")],
+    display: async (target) => { if (target === "broken") throw new Error("gone"); sent.push(target); },
+    ring: () => { bells += 1; },
+  });
+  assert.deepEqual(sent, ["good"]);
+  assert.equal(bells, 1);
+
+  await assert.doesNotReject(() => deliverAttentionBatch([attention("api")], {
+    dashboardSession: "hub", pins: [], bellEnabled: true,
+    listClients: async () => [client("good", "shell", "%9")],
+    display: async () => {},
+    ring: () => { throw new Error("terminal closed"); },
+  }));
+
+  await assert.doesNotReject(() => deliverAttentionBatch([attention("api")], {
+    dashboardSession: "hub", pins: [], bellEnabled: true,
+    listClients: async () => { throw new Error("no server"); },
+    display: async () => { throw new Error("must not run"); },
+    ring: () => { throw new Error("must not ring"); },
+  }));
+});
 
 test("view state ignores retired density and Backlog collapse values", () => {
   assert.deepEqual(normalizeSessionsViewState({

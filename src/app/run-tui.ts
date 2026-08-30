@@ -11,13 +11,13 @@ import { dashboardThemeForSetting, detectTerminalAppearance, effectiveDashboardT
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
 import { sessionSection } from "../core/session-bucket.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
-import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, realTmuxExec, sendTextToSession, setDashboardMouse } from "../core/tmux.js";
+import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction } from "./dashboard-action.js";
@@ -29,6 +29,55 @@ import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
 import type { ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
+import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
+
+export interface AttentionDeliveryEffects {
+  dashboardSession: string;
+  dashboardPaneId?: string;
+  pins: readonly { sessionId: string; paneId: string }[];
+  bellEnabled: boolean;
+  listClients(): Promise<TmuxClient[]>;
+  display(client: string, message: string): Promise<void>;
+  ring(): void;
+}
+
+export async function dashboardOwnsTmuxSession(
+  tmuxEnvironment: string | undefined,
+  currentSession: () => Promise<string>,
+): Promise<boolean> {
+  if (!tmuxEnvironment) return false;
+  return currentSession().then((session) => session === DASHBOARD_SESSION).catch(() => false);
+}
+
+export function attentionExternalMessage(entries: readonly AttentionDeliveryEntry[]): string {
+  const newest = entries[0];
+  if (!newest) return "";
+  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? "✓" : "?";
+  const kind = entries.length > 1 ? `${glyph} ${entries.length} NEW` : `${glyph} ${newest.kind.toUpperCase()}`;
+  const identity = newest.ownerTitle ? `${newest.title} → ${newest.ownerTitle}` : newest.title;
+  return [kind, identity, newest.text, entries.length > 1 ? `+${entries.length - 1} more` : undefined].filter(Boolean).join(" · ");
+}
+
+export async function deliverAttentionBatch(entries: readonly AttentionDeliveryEntry[], effects: AttentionDeliveryEffects): Promise<void> {
+  if (!entries.length) return;
+  let clients: TmuxClient[];
+  try {
+    clients = await effects.listClients();
+  } catch {
+    return;
+  }
+  const routed = routeAttentionDeliveries(entries, clients, effects);
+  const results = await Promise.allSettled(routed.deliveries.map((delivery) =>
+    effects.display(delivery.client.name, attentionExternalMessage(delivery.entries))));
+  const delivered = results.some((result) => result.status === "fulfilled");
+  if (effects.bellEnabled && routed.bellEligible && delivered) {
+    try {
+      effects.ring();
+    } catch {
+      // The optional terminal bell must not affect request delivery or refresh health.
+    }
+  }
+}
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession; historyCwds?: string[]; worktreeDefault?: boolean }): NewFormContext {
   const selectedCwd = input.selected ? newSessionCwd(input.selected) : input.cwd;
@@ -197,6 +246,7 @@ export async function runTui(): Promise<void> {
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
+  let attentionBellEnabled = await effectiveDashboardAttentionBell();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
   let skillPool = await listSkillPool();
@@ -208,6 +258,35 @@ export async function runTui(): Promise<void> {
   let stopThemeLoop: (() => void) | undefined;
   let stopActionLoop: (() => void) | undefined;
   let stopped = false;
+  let view!: SessionsView;
+  const ownsDashboardTmux = await dashboardOwnsTmuxSession(
+    process.env.TMUX,
+    () => currentTmuxSession(realTmuxExec),
+  );
+  let attentionState = createAttentionDeliveryState(controller.snapshot().sessions);
+  const currentAttentionRequestId = (sessionId: string) => {
+    const entry = activeAttentionRequest(attentionState, sessionId);
+    return entry && Date.now() < entry.expiresAt ? entry.requestId : undefined;
+  };
+  const observeAttention = async () => {
+    const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
+    attentionState = observation.state;
+    view.setAttentionAnnouncements(observation.active);
+    if (!observation.fresh.length || !ownsDashboardTmux) return;
+    await deliverAttentionBatch(observation.fresh, {
+      dashboardSession: DASHBOARD_SESSION,
+      dashboardPaneId: process.env.TMUX_PANE,
+      pins: sidePanes?.snapshot().pins ?? [],
+      bellEnabled: attentionBellEnabled,
+      listClients: () => listTmuxClients(realTmuxExec),
+      display: (client, message) => displayClientMessage(client, message, realTmuxExec),
+      ring: () => terminal.write("\x07"),
+    });
+  };
+  const refreshDashboard = async () => {
+    await controller.refresh();
+    await observeAttention();
+  };
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -229,9 +308,9 @@ export async function runTui(): Promise<void> {
       await loop?.stop();
     },
     resume() {
-      if (!stopped) stopLoop = startRefreshLoop(controller, tui);
+      if (!stopped) stopLoop = startRefreshLoop(controller, tui, observeAttention);
     },
-    refresh: () => controller.refresh(),
+    refresh: refreshDashboard,
     render: () => tui.requestRender(),
   });
   sidePanes = createSidePaneLifecycle({
@@ -243,7 +322,8 @@ export async function runTui(): Promise<void> {
     insideTmux: () => Boolean(process.env.TMUX),
     sessions: () => controller.snapshot().registry.sessions,
     revealSession: (sessionId) => view.revealSession(sessionId),
-    acknowledgeSession: (sessionId) => mutateRegistry(() => controller.acknowledgeSession(sessionId)),
+    acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
+    activeAttentionRequestId: currentAttentionRequestId,
     configureManagedSession: applyManagedSessionTheme,
     syncManagedSessionStatusBars,
     currentChrome: () => tmuxChromeFromTheme(currentTheme),
@@ -276,7 +356,7 @@ export async function runTui(): Promise<void> {
       }).catch(() => {});
     }
   };
-  const view = new SessionsView(controller, stop, {
+  view = new SessionsView(controller, stop, {
     initialViewState,
     saveViewState(state) { void writeJsonAtomic(uiStatePath(), state); },
     attachOutsideTmux(tmuxSession) {
@@ -303,7 +383,7 @@ export async function runTui(): Promise<void> {
       };
     },
     refreshStatusEvidence() {
-      return stopLoop?.refresh() ?? controller.refresh();
+      return stopLoop?.refresh() ?? refreshDashboard();
     },
     restart(sessionId) {
       return mutateRegistry(() => restartManagedSession(sessionId));
@@ -386,8 +466,15 @@ export async function runTui(): Promise<void> {
       if (!session) throw new Error("session not found");
       await sendTextToSession(session.tmuxSession, shortcut.send);
     },
-    acknowledgeSession(sessionId) {
-      return mutateRegistry(() => controller.acknowledgeSession(sessionId));
+    acknowledgeSession(sessionId, requestId) {
+      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
+    },
+    attentionDelivery: {
+      attentionBellEnabled: () => attentionBellEnabled,
+      async setAttentionBell(enabled) {
+        await setDashboardAttentionBell(enabled);
+        attentionBellEnabled = enabled;
+      },
     },
     newFormContext() {
       return buildNewFormContext({
@@ -491,7 +578,7 @@ export async function runTui(): Promise<void> {
   stopActionLoop = startDashboardActionLoop(async () => {
     const action = await consumeDashboardAction();
     if (!action) return;
-    await controller.refresh();
+    await refreshDashboard();
     if (action.action === "rename") view.openRenameForTmuxSession(action.tmuxSession);
     tui.requestRender();
   });
@@ -502,7 +589,7 @@ export async function runTui(): Promise<void> {
   tui.start();
   terminal.write(MOUSE_ENABLE);
   if (process.env.TMUX) void setDashboardMouse({ name: DASHBOARD_SESSION, enabled: true }).catch(() => {});
-  stopLoop = startRefreshLoop(controller, tui);
+  stopLoop = startRefreshLoop(controller, tui, observeAttention);
 }
 
 function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => void {

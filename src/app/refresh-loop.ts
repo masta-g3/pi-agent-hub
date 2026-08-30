@@ -6,11 +6,16 @@ export interface RefreshLoopHandle {
   stop(): Promise<void>;
 }
 
-export function startRefreshLoop(controller: SessionsController, tui: TUI): RefreshLoopHandle {
+export function startRefreshLoop(
+  controller: SessionsController,
+  tui: TUI,
+  afterRefresh?: (snapshot: ReturnType<SessionsController["snapshot"]>) => void | Promise<void>,
+): RefreshLoopHandle {
   let inFlight: Promise<void> | undefined;
 
   const tick = async () => {
     await controller.refresh();
+    await afterRefresh?.(controller.snapshot());
     tui.requestRender();
   };
 

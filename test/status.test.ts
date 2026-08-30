@@ -228,7 +228,11 @@ test("mark acknowledged turns waiting into idle", () => {
   assert.equal(markAcknowledged(session({ status: "waiting" }), now).status, "idle");
 });
 
-test("mark acknowledged does not touch an already idle row", () => {
+test("mark acknowledged does not touch an ordinary idle row but advances an exact idle request", () => {
   const existing = session({ status: "idle", acknowledgedAt: now - 1, updatedAt: now - 1 });
   assert.equal(markAcknowledged(existing, now), existing);
+  const request = markAcknowledged(existing, now, true);
+  assert.equal(request.status, "idle");
+  assert.equal(request.acknowledgedAt, now);
+  assert.equal(request.updatedAt, now);
 });

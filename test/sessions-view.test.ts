@@ -3141,6 +3141,90 @@ test("starting no-match filter clears stale attach flash", () => {
   }
 });
 
+test("attention band locates the exact request without hijacking Enter or selected-row acknowledgement", async () => {
+  const now = 100_000;
+  const api = { ...session("api", "API"), status: "waiting" as const };
+  const docs = {
+    ...session("docs", "Docs"), status: "idle" as const, acknowledgedAt: 1,
+    context: { version: 1 as const, updatedAt: now, attention: { requestId: "req/1", kind: "question" as const, text: "Choose release" } },
+  };
+  const controller = new SessionsController({ version: 1, sessions: [api, docs] });
+  const acknowledgements: Array<[string, string | undefined]> = [];
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now, terminalRows: () => 24,
+    acknowledgeSession: (id, requestId) => { acknowledgements.push([id, requestId]); },
+    attachOutsideTmux: (tmuxSession) => { opened.push(tmuxSession); },
+  });
+  view.setAttentionAnnouncements([{ sessionId: "docs", requestId: "req/1", kind: "question", text: "Choose release", title: "Docs", announcedAt: now, expiresAt: now + 6_000 }]);
+
+  let rendered = view.render(100);
+  let announcementLine = rendered.findIndex((line) => stripAnsi(line).includes(": locate"));
+  assert.notEqual(announcementLine, -1);
+  view.handleInput(":");
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /: locate/);
+  view.handleInput("\u001b");
+  rendered = view.render(100);
+  announcementLine = rendered.findIndex((line) => stripAnsi(line).includes(": locate"));
+  view.handleInput("a");
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(acknowledgements, [["api", undefined]]);
+  assert.equal(controller.snapshot().selectedId, "api");
+
+  view.handleInput(mousePressAtLine(announcementLine, 40));
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.equal(opened.length, 0);
+  view.handleInput("a");
+  assert.deepEqual(acknowledgements, [["api", undefined], ["docs", "req/1"]]);
+
+  const runningController = new SessionsController({ version: 1, sessions: [{ ...api, status: "running" }, docs] });
+  const recordOpen = (tmuxSession: string) => { opened.push(tmuxSession); };
+  const runningView = new SessionsView(runningController, () => {}, { attachOutsideTmux: recordOpen, switchInsideTmux: recordOpen });
+  runningView.setAttentionAnnouncements([{ sessionId: "docs", requestId: "req/1", kind: "question", text: "Choose release", title: "Docs", announcedAt: now, expiresAt: now + 6_000 }]);
+  runningView.render(120);
+  runningView.handleInput("\r");
+  assert.deepEqual(opened, ["pi-agent-hub-api"]);
+});
+
+test("command palette toggles the persisted attention bell without adding a binding", async () => {
+  let enabled = false;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    terminalRows: () => 30,
+    attentionDelivery: {
+      attentionBellEnabled: () => enabled,
+      setAttentionBell: async (next) => { enabled = next; },
+    },
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "attention bell") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Attention bell: Off/);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(enabled, true);
+  assert.match(stripAnsi(view.render(100).join("\n")), /attention bell · On/);
+});
+
+test("attention bell write failure keeps the effective value unchanged", async () => {
+  let enabled = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    terminalRows: () => 30,
+    attentionDelivery: {
+      attentionBellEnabled: () => enabled,
+      setAttentionBell: async () => { throw new Error("config locked"); },
+    },
+  });
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "attention bell") view.handleInput(char);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(enabled, false);
+  assert.match(stripAnsi(view.render(100).join("\n")), /config locked/);
+});
+
 test("colon opens the bottom command ledger and Escape returns to the cockpit", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });

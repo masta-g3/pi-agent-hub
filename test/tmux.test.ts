@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -144,20 +144,36 @@ test("pane border chrome applies theme-derived active and inactive styles", asyn
   ]);
 });
 
-test("clientSessionsByTty parses session names after the first space", async () => {
-  const exec = fakeTmux(() => ({ stdout: "/dev/ttys001 pi-agent-hub-api\n/dev/ttys002 session with spaces\n", stderr: "" }));
+test("listTmuxClients parses exact client focus identity and flags", async () => {
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached,focused\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\ninvalid\n", stderr: "" }));
+
+  assert.deepEqual(await listTmuxClients(exec), [
+    { name: "client-a", tty: "/dev/ttys001", session: "pi-agent-hub-api", paneId: "%3", flags: ["attached", "focused"] },
+    { name: "client-b", tty: "/dev/ttys002", session: "session with spaces", paneId: "%8", flags: ["attached"] },
+  ]);
+  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["list-clients", "-F", "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}"] }]);
+});
+
+test("displayClientMessage targets one client for six seconds with literal-safe text", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+  await displayClientMessage("client-a", "API #{session_name}\u001b]0;secret\u0007\u001b[31m\nneeds you", exec);
+  assert.deepEqual(exec.calls, [{ command: "tmux", args: ["display-message", "-d", "6000", "-c", "client-a", "API ##{session_name} needs you"] }]);
+});
+
+test("clientSessionsByTty derives session names from the shared client projection", async () => {
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\n", stderr: "" }));
 
   assert.deepEqual(await clientSessionsByTty(exec), new Map([
     ["/dev/ttys001", "pi-agent-hub-api"],
     ["/dev/ttys002", "session with spaces"],
   ]));
   assert.deepEqual(exec.calls, [
-    { command: "tmux", args: ["list-clients", "-F", "#{client_tty} #{client_session}"] },
+    { command: "tmux", args: ["list-clients", "-F", "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}"] },
   ]);
 });
 
 test("clientSessionByTty reads one tty from the client map", async () => {
-  const exec = fakeTmux(() => ({ stdout: "/dev/ttys001 pi-agent-hub-api\n/dev/ttys002 session with spaces\n", stderr: "" }));
+  const exec = fakeTmux(() => ({ stdout: "client-a\t/dev/ttys001\tpi-agent-hub-api\t%3\tattached\nclient-b\t/dev/ttys002\tsession with spaces\t%8\tattached\n", stderr: "" }));
 
   assert.equal(await clientSessionByTty("/dev/ttys002", exec), "session with spaces");
   assert.equal(await clientSessionByTty("/dev/ttys003", exec), undefined);

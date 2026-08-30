@@ -6,6 +6,7 @@ import { isErrno, readJsonOr, withFileLock, writeJsonAtomic } from "./atomic-jso
 import { tmuxChromeFromTheme, type ChromeThemeTokens, type TmuxChrome } from "./chrome.js";
 import { MANAGED_SESSION_PREFIX } from "./names.js";
 import { sessionsStateDir } from "./paths.js";
+import { plainTerminalText } from "./terminal-text.js";
 import type { CommandResult } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -210,15 +211,33 @@ export async function setWindowPaneBorderStatus(paneId: string, visible: boolean
   await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-active-border-style"]);
 }
 
+export interface TmuxClient {
+  name: string;
+  tty: string;
+  session: string;
+  paneId: string;
+  flags: string[];
+}
+
+const TMUX_CLIENT_FORMAT = "#{client_name}\t#{client_tty}\t#{client_session}\t#{pane_id}\t#{client_flags}";
+
+export async function listTmuxClients(exec: TmuxExec = realTmuxExec): Promise<TmuxClient[]> {
+  const result = await exec.exec("tmux", ["list-clients", "-F", TMUX_CLIENT_FORMAT]);
+  return result.stdout.split(/\r?\n/).flatMap((line) => {
+    const [name, tty, session, paneId, flags] = line.split("\t");
+    if (!name || !tty || !session || !paneId || flags === undefined) return [];
+    return [{ name, tty, session, paneId, flags: flags.split(",").filter(Boolean) }];
+  });
+}
+
+export async function displayClientMessage(client: string, message: string, exec: TmuxExec = realTmuxExec): Promise<void> {
+  const literal = plainTerminalText(message).replace(/#/gu, "##");
+  if (!literal) return;
+  await exec.exec("tmux", ["display-message", "-d", "6000", "-c", client, literal]);
+}
+
 export async function clientSessionsByTty(exec: TmuxExec = realTmuxExec): Promise<Map<string, string>> {
-  const result = await exec.exec("tmux", ["list-clients", "-F", "#{client_tty} #{client_session}"]);
-  const sessions = new Map<string, string>();
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const separator = line.indexOf(" ");
-    if (separator === -1) continue;
-    sessions.set(line.slice(0, separator), line.slice(separator + 1));
-  }
-  return sessions;
+  return new Map((await listTmuxClients(exec)).map((client) => [client.tty, client.session]));
 }
 
 export async function clientSessionByTty(tty: string, exec: TmuxExec = realTmuxExec): Promise<string | undefined> {

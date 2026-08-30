@@ -14,7 +14,7 @@ import {
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
-import { buildDashboardProjection, buildRenderModel, type CockpitTier, type DashboardProjection } from "./render-model.js";
+import { buildDashboardProjection, buildRenderModel, type AttentionAnnouncement, type CockpitTier, type DashboardProjection } from "./render-model.js";
 import { renderSessions, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -80,6 +80,8 @@ export class SessionsView implements Component {
   private rowTargets: (SessionListTarget | undefined)[] = [];
   private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
+  private announcementRowTargets: (string | undefined)[] = [];
+  private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
   private navigatorWidth = 0;
   private listStartX = 2;
   private workspaceStartX: number | undefined;
@@ -107,6 +109,10 @@ export class SessionsView implements Component {
 
   setMessage(message: string | undefined): void {
     this.message = message;
+  }
+
+  setAttentionAnnouncements(announcements: readonly AttentionAnnouncement[]): void {
+    this.attentionAnnouncements = announcements.map((announcement) => ({ ...announcement }));
   }
 
   handleInput(data: string): void {
@@ -250,6 +256,7 @@ export class SessionsView implements Component {
       this.rowTargets = [];
       this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
+      this.announcementRowTargets = [];
       this.navigatorWidth = 0;
       this.listStartX = 2;
       this.workspaceStartX = undefined;
@@ -306,11 +313,13 @@ export class SessionsView implements Component {
       expandedProjectParentIds: this.expandedProjectParentIds,
       revealedSessionId: this.revealedSessionId,
       structuralProjection,
+      attentionAnnouncements: this.dialog ? [] : this.activeAttentionAnnouncements(now),
     });
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
     this.navigatorRowTargets = layout.navigatorRowTargets;
     this.workspaceRowTargets = layout.workspaceRowTargets;
+    this.announcementRowTargets = layout.announcementRowTargets;
     this.navigatorWidth = layout.navigatorWidth;
     this.listStartX = layout.listStartX;
     this.workspaceStartX = layout.workspaceStartX;
@@ -469,6 +478,17 @@ export class SessionsView implements Component {
     return this.pinState().slots.some(Boolean);
   }
 
+  private activeAttentionAnnouncements(now = this.actions.now?.() ?? Date.now()): readonly AttentionAnnouncement[] {
+    const sessions = new Map(this.controller.snapshot().sessions.map((session) => [session.id, session]));
+    return this.attentionAnnouncements.filter((announcement) => {
+      const session = sessions.get(announcement.sessionId);
+      return now < announcement.expiresAt
+        && session?.context?.attention?.requestId === announcement.requestId
+        && (session.status === "waiting" || session.status === "idle")
+        && (session.acknowledgedAt ?? -1) < announcement.announcedAt;
+    });
+  }
+
   private dashboardCommands(includeSelected = true, interactionBlockedReason?: string): DashboardCommand[] {
     const snapshot = this.controller.snapshot();
     const blockedReason = interactionBlockedReason ?? ((this.archiveDisclosureSelected || this.selectedSection || (this.grouping === "stage" && !this.boardRows().length))
@@ -495,6 +515,7 @@ export class SessionsView implements Component {
       closeSidePane: Boolean(this.actions.closeSidePane),
       resizeSidePane: Boolean(this.actions.resizeSidePane),
       acknowledge: true,
+      attentionBell: Boolean(this.actions.attentionDelivery?.setAttentionBell),
     };
     return buildDashboardCommands({
       sessions: this.commandSessions(snapshot),
@@ -503,6 +524,8 @@ export class SessionsView implements Component {
       grouping: this.grouping,
       configuredShortcuts: this.actions.dashboardShortcuts,
       capabilities,
+      attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
+      attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
       pinState: {
         slots: this.pinState().slots,
         activeSessionId: this.pinState().activeSessionId,
@@ -592,6 +615,17 @@ export class SessionsView implements Component {
       this.revealSession(command.targetSessionId);
       return;
     }
+    if (command.id.startsWith("view:locate-attention:")) {
+      const active = this.activeAttentionAnnouncements().find((announcement) =>
+        announcement.sessionId === command.targetSessionId && announcement.requestId === command.attentionRequestId);
+      const current = command.targetSessionId ? this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId) : undefined;
+      if (!active || current?.context?.attention?.requestId !== command.attentionRequestId) {
+        this.message = "request is no longer active";
+        return;
+      }
+      this.revealSession(command.targetSessionId);
+      return;
+    }
     if (command.id.startsWith("shortcut:")) {
       this.runConfiguredCommand(command);
       return;
@@ -630,9 +664,12 @@ export class SessionsView implements Component {
         case "size-increase": this.resizeSidePane(1); return;
         case "size-decrease": this.resizeSidePane(-1); return;
         case "info": this.toggleInfo(); return;
-        case "mark-read":
-          this.runAction(() => this.acknowledgeSession(command.targetSessionId!), "marking read...");
+        case "mark-read": {
+          const requestId = this.activeAttentionAnnouncements().find((announcement) =>
+            announcement.sessionId === command.targetSessionId)?.requestId;
+          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId), "marking read...");
           return;
+        }
         case "reorder-up": this.reorderSelected(-1); return;
         case "reorder-down": this.reorderSelected(1); return;
       }
@@ -647,6 +684,7 @@ export class SessionsView implements Component {
       case "project:mcp": this.startPicker("mcp"); return;
       case "action:new": this.startNewDialog(); return;
       case "view:theme": this.startThemeDialog(); return;
+      case "view:attention-bell": this.toggleAttentionBell(); return;
       case "view:grouping": this.toggleGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:help": this.dialog = { kind: "help" }; return;
@@ -875,6 +913,12 @@ export class SessionsView implements Component {
       if (!this.workspaceSessionId) this.moveSelection(event.delta);
       return;
     }
+    const announcementTarget = event.kind === "press" ? this.announcementRowTargets[event.y - 1] : undefined;
+    if (announcementTarget) {
+      this.lastMouseClick = undefined;
+      this.executeDashboardCommand(announcementTarget);
+      return;
+    }
     const navigatorTarget = this.navigatorWidth && event.x >= 2 && event.x < 2 + this.navigatorWidth
       ? this.navigatorRowTargets[event.y - 1]
       : undefined;
@@ -938,6 +982,20 @@ export class SessionsView implements Component {
     }
     this.controller.selectSession(ownerId);
     this.listScrollTop = 0;
+  }
+
+  private toggleAttentionBell() {
+    const setAttentionBell = this.actions.attentionDelivery?.setAttentionBell;
+    if (!setAttentionBell) {
+      this.message = "attention bell setting unavailable";
+      return;
+    }
+    const next = !(this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false);
+    this.runAction(
+      () => setAttentionBell(next),
+      "saving attention bell...",
+      () => this.flashMessage(`attention bell · ${next ? "On" : "Off"}`),
+    );
   }
 
   private startThemeDialog() {
@@ -1019,9 +1077,10 @@ export class SessionsView implements Component {
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
     }
-    if (selected.status === "waiting") {
+    const activeRequest = this.activeAttentionAnnouncements().find((announcement) => announcement.sessionId === selected.id);
+    if (selected.status === "waiting" || activeRequest) {
       try {
-        const result = this.acknowledgeSession(selected.id);
+        const result = this.acknowledgeSession(selected.id, activeRequest?.requestId);
         if (isPromise(result)) {
           this.busy = true;
           this.message = "marking read...";
@@ -1043,10 +1102,10 @@ export class SessionsView implements Component {
     this.attachSession(selected);
   }
 
-  private acknowledgeSession(sessionId: string): unknown {
-    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId);
+  private acknowledgeSession(sessionId: string, requestId?: string): unknown {
+    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId, requestId);
     if (this.actions.acknowledge) return this.actions.acknowledge();
-    return this.controller.acknowledgeSession(sessionId);
+    return this.controller.acknowledgeSession(sessionId, undefined, requestId);
   }
 
   private attachSession(selected: ManagedSession) {

@@ -64,7 +64,8 @@ export interface SidePaneLifecycleDependencies {
   insideTmux(): boolean;
   sessions(): readonly RuntimeSession[];
   revealSession(sessionId: string): boolean | void;
-  acknowledgeSession(sessionId: string): Promise<void>;
+  acknowledgeSession(sessionId: string, requestId?: string): Promise<void>;
+  activeAttentionRequestId?(sessionId: string): string | undefined;
   configureManagedSession(session: ManagedSession, visible: boolean): Promise<void>;
   syncManagedSessionStatusBars(hiddenSessions: ReadonlySet<string>): Promise<void>;
   currentChrome(): TmuxChrome;
@@ -224,8 +225,9 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     const activeSessionId = pins.find((pin) => pin.active)?.sessionId;
     if (activeSessionId && activeSessionId !== snapshot.activeSessionId) {
       const active = sessionById(activeSessionId);
-      if (active && deps.revealSession(active.id) !== false && active.status === "waiting") {
-        await deps.acknowledgeSession(active.id);
+      const requestId = active ? deps.activeAttentionRequestId?.(active.id) : undefined;
+      if (active && deps.revealSession(active.id) !== false && (active.status === "waiting" || requestId)) {
+        await deps.acknowledgeSession(active.id, requestId);
       }
     }
     const next: SidePaneLifecycleSnapshot = {
@@ -266,7 +268,8 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   };
   const revealAndAcknowledge = async (session: ManagedSession): Promise<boolean> => {
     if (deps.revealSession(session.id) === false) return false;
-    if (session.status === "waiting") await deps.acknowledgeSession(session.id);
+    const requestId = deps.activeAttentionRequestId?.(session.id);
+    if (session.status === "waiting" || requestId) await deps.acknowledgeSession(session.id, requestId);
     return true;
   };
   const afterMutation = async <T>(result: T, configured?: ManagedSession): Promise<T> => {
