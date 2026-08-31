@@ -96,3 +96,16 @@ TMP=$(mktemp -d)
 PI_CODING_AGENT_DIR="$TMP/agent" PI_AGENT_HUB_DIR="$TMP/sessions" node dist/cli.js doctor
 PI_CODING_AGENT_DIR="$TMP/agent" PI_AGENT_HUB_DIR="$TMP/sessions" node dist/cli.js list
 ```
+
+For interactive tests on an isolated tmux server, create a bootstrap session, set the server-global state paths, then launch Hub on that same socket before it creates managed sessions:
+
+```bash
+tmux -L pi-hub-smoke new-session -d -s bootstrap
+tmux -L pi-hub-smoke set-environment -g PI_CODING_AGENT_DIR "$TMP/agent"
+tmux -L pi-hub-smoke set-environment -g PI_AGENT_HUB_DIR "$TMP/sessions"
+tmux -L pi-hub-smoke new-session -d -s pi-agent-hub -c "$PWD" "node dist/src/cli.js tui"
+tmux -L pi-hub-smoke kill-session -t bootstrap
+tmux -L pi-hub-smoke attach-session -t pi-agent-hub
+```
+
+A per-command environment override changes the dashboard process but not the isolated server's inherited environment for later managed sessions. Sidebar pins also cannot be tested end to end on `tmux -L`: their nested attach intentionally clears `TMUX` and reconnects through the default socket. Use the side-pane integration tests for exact-pin behavior, or use the default tmux server only when that test is explicitly safe.

@@ -53,6 +53,108 @@ function workspaceModel(input: BuildRenderModelInput) {
   });
 }
 
+test("new-user coaching teaches the real empty tiers and daily-loop footer", () => {
+  for (const width of [40, 60, 100, 119, 120, 159, 160]) {
+    const model = buildRenderModel({
+      sessions: [], width,
+      cockpitOnboarding: { cohort: "new", phase: "learning" },
+    });
+    assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "ACTIVE", "QUIET"]);
+    assert.equal(model.guidance.coach, true);
+    assert.match(model.footer, /Enter Open/);
+    assert.match(model.footer, /Alt\+Q Return/);
+    const rendered = renderSessions(model, darkTheme);
+    assert.equal(rendered.lines.every((line) => visibleWidth(line) <= width), true);
+    const text = stripAnsi(rendered.lines.join("\n"));
+    assert.match(text, /an agent's explicit request/);
+    assert.match(text, /create the first managed Pi/);
+  }
+});
+
+test("empty coaching keeps its create and return actions at short heights", () => {
+  const model = buildRenderModel({
+    sessions: [], width: 60, height: 8,
+    cockpitOnboarding: { cohort: "new", phase: "learning" },
+  });
+  const rendered = renderSessions(model, darkTheme);
+  const text = stripAnsi(rendered.lines.join("\n"));
+  assert.match(text, /NEEDS YOU/);
+  assert.match(text, /create the first managed Pi session/);
+  assert.match(text, /Alt\+Q returns/);
+  assert.equal(rendered.lines.length, 8);
+
+  const roomier = stripAnsi(renderSessions(buildRenderModel({
+    sessions: [], width: 60, height: 10,
+    cockpitOnboarding: { cohort: "new", phase: "learning" },
+  }), darkTheme).lines.join("\n"));
+  assert.match(roomier, /HEALTH/);
+  assert.match(roomier, /ACTIVE/);
+  assert.match(roomier, /create the first managed Pi session/);
+});
+
+test("coaching stays width-safe at short heights and yields to real selected rows", () => {
+  const active = session("api", "app", "running");
+  const model = buildRenderModel({
+    sessions: [active], selectedId: "api", width: 60, height: 8,
+    cockpitOnboarding: { cohort: "new", phase: "learning" },
+  });
+  const rendered = renderSessions(model, lightTheme);
+  assert.equal(rendered.lines.length, 8);
+  assert.equal(rendered.lines.every((line) => visibleWidth(line) <= 60), true);
+  const text = stripAnsi(rendered.lines.join("\n"));
+  assert.match(text, /api/);
+  assert.match(text, /Enter Open/);
+});
+
+test("coaching stays out of board pin filter and full-screen workspace modes", () => {
+  const active = session("api", "app", "running");
+  const coaching = { cohort: "new" as const, phase: "learning" as const };
+  for (const model of [
+    buildRenderModel({ sessions: [active], width: 120, grouping: "stage", cockpitOnboarding: coaching }),
+    buildRenderModel({ sessions: [active], width: 120, pinSlots: ["api"], cockpitOnboarding: coaching }),
+    buildRenderModel({ sessions: [active], width: 120, filter: "api", cockpitOnboarding: coaching }),
+    buildRenderModel({ sessions: [active], width: 80, workspaceFullScreen: true, cockpitOnboarding: coaching }),
+  ]) assert.equal(model.guidance.coach, false);
+});
+
+test("existing-user release cue stays below real attention and survives an empty fleet", () => {
+  const needs = { ...session("needs", "app", "waiting", "Needs"), context: {
+    version: 1 as const, updatedAt: 2, attention: { requestId: "req/1", kind: "question" as const, text: "Choose" },
+  } };
+  const active = session("active", "app", "running", "Active");
+  for (const sessions of [[needs, active], []]) {
+    const model = buildRenderModel({ sessions, width: 100, releaseCueEnabled: true });
+    assert.equal(model.guidance.releaseCue?.id, "cockpit-daily-loop-v1");
+    const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
+    assert.match(text, /NEW DAILY LOOP/);
+    if (sessions.length) {
+      const lines = text.split("\n");
+      assert.ok(lines.findIndex((line) => line.includes("Needs")) < lines.findIndex((line) => line.includes("NEW DAILY LOOP")));
+      assert.ok(lines.findIndex((line) => line.includes("NEW DAILY LOOP")) < lines.findIndex((line) => line.includes("── ACTIVE")));
+    }
+  }
+});
+
+test("release cue follows project-mode suppression rules", () => {
+  const active = session("api", "app", "running");
+  for (const model of [
+    buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, grouping: "stage" }),
+    buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, pinSlots: ["api"] }),
+    buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, filter: "api" }),
+    buildRenderModel({ sessions: [active], width: 80, releaseCueEnabled: true, workspaceFullScreen: true }),
+    buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, guidanceHidden: true }),
+  ]) assert.equal(model.guidance.releaseCue, undefined);
+});
+
+test("release cue is version-scoped and never co-renders with coaching", () => {
+  const active = session("api", "app", "running");
+  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-daily-loop-v1" }).guidance.releaseCue, undefined);
+  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "older-cue" }).guidance.releaseCue?.id, "cockpit-daily-loop-v1");
+  const coached = buildRenderModel({ sessions: [active], width: 120, cockpitOnboarding: { cohort: "new", phase: "learning" } });
+  assert.equal(coached.guidance.coach, true);
+  assert.equal(coached.guidance.releaseCue, undefined);
+});
+
 test("dashboard projection supplies the same visible rows as rendering", () => {
   const sessions = [session("parent", "app", "running"), { ...session("child", "app", "running"), kind: "subagent" as const, parentId: "parent" }];
   const projection = buildDashboardProjection({ sessions, expandedProjectParentIds: new Set(["parent"]) });

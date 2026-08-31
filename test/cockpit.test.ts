@@ -5,7 +5,7 @@ import { buildDashboardProjection, buildRenderModel, type RenderModel } from "..
 import { renderSessions } from "../src/tui/layout.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { darkTheme, lightTheme, stripAnsi, type SessionsTheme } from "../src/tui/theme.js";
-import { cockpitFleet, cockpitFrameFleet, COCKPIT_NOW } from "./fixtures/cockpit.js";
+import { cockpitFleet, cockpitFrameFleet, cockpitOnboardingMoments, COCKPIT_NOW } from "./fixtures/cockpit.js";
 import { COCKPIT_EXPECTED_FRAMES } from "./fixtures/cockpit-frames.js";
 
 function sectionRows(model: RenderModel, key: string) {
@@ -212,6 +212,23 @@ test("rendering and navigation expose the same cockpit tree order", () => {
     ? [target.id]
     : target?.kind === "section-header" ? [`header:${target.section}`] : []),
   ["docs", "qa", "dashboard", "worker", "release", "quiet-parent", "mcp", "theme", "header:archived", "archive-new"]);
+});
+
+test("onboarding moments stay deterministic at 60, 100, and 160 columns", () => {
+  const moments = cockpitOnboardingMoments();
+  for (const width of [60, 100, 160] as const) {
+    const rendered = Object.fromEntries(Object.entries(moments).map(([name, moment]) => {
+      const lines = renderSessions(buildRenderModel({ ...moment, width, height: 24 })).lines;
+      assert.equal(lines.every((line) => visibleWidth(line) === width), true, `${name} at ${width}`);
+      return [name, lines.map(stripAnsi).join("\n")];
+    }));
+    assert.match(rendered.empty!, /NEEDS YOU.*an agent's explicit request/s);
+    assert.match(rendered.first!, /API release.*Alt\+Q Return/s);
+    assert.match(rendered.request!, /Which release channel\?.*Alt\+Q Return/s);
+    assert.doesNotMatch(rendered.returned!, /an agent's explicit request lands here|Alt\+Q Return/);
+    assert.match(rendered.updated!, /NEW DAILY LOOP/);
+    assert.doesNotMatch(rendered.dismissed!, /NEW DAILY LOOP/);
+  }
 });
 
 test("live cockpit matches the intended 60, 100, and 160 column frames", () => {

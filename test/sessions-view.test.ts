@@ -44,6 +44,20 @@ function session(id: string, title: string): ManagedSession {
   };
 }
 
+test("persisted new-user state reaches the live empty SessionsView", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [] }), () => {}, {
+    initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
+    terminalRows: () => 28,
+  });
+  assert.deepEqual((view as unknown as { cockpitOnboarding?: unknown }).cockpitOnboarding, { cohort: "new", phase: "learning" });
+  assert.equal((view as unknown as { dialog?: unknown }).dialog, undefined);
+  assert.equal((view as unknown as { grouping?: unknown }).grouping, "project");
+  const text = stripAnsi(view.render(100).join("\n"));
+  assert.match(text, /an agent's explicit request lands here/);
+  assert.match(text, /Alt\+Q Return/);
+  assert.doesNotMatch(text, /No managed Pi sessions yet/);
+});
+
 test("narrow workspace keeps evidence behind i and Enter uses a deliberate second step", async () => {
   const base = session("api", "Project API");
   const now = 100_000;
@@ -751,6 +765,67 @@ test("v has no built-in view behavior or persisted state", () => {
   view.handleInput("v");
 
   assert.deepEqual(saved, []);
+});
+
+test("view state saves preserve onboarding and release cue fields", () => {
+  const saved: SessionsViewState[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: {
+      grouping: "project",
+      collapsedSections: ["archived"],
+      cockpitOnboarding: { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "req/1" },
+      dismissedReleaseCueId: "older-cue",
+    },
+    saveViewState: (state) => { saved.push(state); },
+  });
+
+  view.handleInput("S");
+
+  assert.deepEqual(saved.at(-1), {
+    grouping: "stage",
+    collapsedSections: ["archived"],
+    cockpitOnboarding: { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "req/1" },
+    dismissedReleaseCueId: "older-cue",
+  });
+});
+
+test("existing-user release cue is target-safe and dismisses without changing session selection", () => {
+  const saved: SessionsViewState[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), { ...session("work", "work"), status: "running" }] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project" },
+    saveViewState: (state) => { saved.push(state); },
+  });
+
+  assert.match(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
+  const selectedId = controller.snapshot().selectedId;
+  view.handleInput("k");
+  assert.equal(controller.snapshot().selectedId, selectedId);
+  assert.match(stripAnsi(view.render(100).join("\n")), /▌ NEW DAILY LOOP/);
+  view.handleInput("\r");
+
+  assert.equal(controller.snapshot().selectedId, selectedId);
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
+});
+
+test("release cue double-click dismisses the exact synthetic row", () => {
+  let now = 100;
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    initialViewState: { grouping: "project" },
+    saveViewState: (state) => { saved.push(state); },
+    now: () => now,
+  });
+  let rendered = view.render(100);
+  const cueRow = rendered.findIndex((line) => stripAnsi(line).includes("NEW DAILY LOOP"));
+  assert.notEqual(cueRow, -1);
+  view.handleInput(mousePressAtLine(cueRow));
+  now += 50;
+  rendered = view.render(100);
+  view.handleInput(mousePressAtLine(rendered.findIndex((line) => stripAnsi(line).includes("NEW DAILY LOOP"))));
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
 });
 
 test("v inside filter mode edits the filter instead of toggling views", () => {
@@ -1724,6 +1799,106 @@ test("question Answer focuses the exact pinned session without opening another t
   }
 });
 
+test("new-user question coaching retires only after successful focus and Alt+Q return", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const saved: SessionsViewState[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [waiting] }), () => {}, {
+      initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
+      saveViewState: (state) => { saved.push(state); },
+      focusPinnedSession: async () => ({ kind: "focused" }),
+      switchInsideTmux: async () => {},
+      returnToCockpit: async () => ({ kind: "focused" }),
+    });
+
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(saved.at(-1)?.cockpitOnboarding, {
+      cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "question-1",
+    });
+
+    view.handleInput("\u0011");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(saved.at(-1)?.cockpitOnboarding?.phase, "awaiting-return");
+
+    view.handleInput("\u001bq");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(saved.at(-1)?.cockpitOnboarding, { cohort: "new", phase: "complete" });
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("failed question focus or handoff never starts the coaching trip", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    for (const actions of [
+      { focusPinnedSession: async () => { throw new Error("focus failed"); }, switchInsideTmux: async () => {} },
+      { focusPinnedSession: async () => ({ kind: "unavailable" as const }), switchInsideTmux: async () => { throw new Error("switch failed"); } },
+    ]) {
+      const saved: SessionsViewState[] = [];
+      const view = new SessionsView(new SessionsController({ version: 1, sessions: [waiting] }), () => {}, {
+        initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
+        saveViewState: (state) => { saved.push(state); },
+        acknowledgeSession: () => {},
+        ...actions,
+      });
+      view.handleInput("\r");
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(saved.some((state) => state.cockpitOnboarding?.phase === "awaiting-return"), false);
+    }
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("a fulfilled but unavailable handoff does not start the coaching trip", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const saved: SessionsViewState[] = [];
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [waiting] }), () => {}, {
+      initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
+      saveViewState: (state) => { saved.push(state); },
+      focusPinnedSession: async () => ({ kind: "unavailable" }),
+      acknowledgeSession: () => {},
+      switchInsideTmux: async () => false,
+    });
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(saved.some((state) => state.cockpitOnboarding?.phase === "awaiting-return"), false);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("full-screen Alt+Q receipt completes a persisted pending trip", () => {
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+    initialViewState: { grouping: "project", cockpitOnboarding: {
+      cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "question-1",
+    } },
+    saveViewState: (state) => { saved.push(state); },
+  });
+
+  view.completeFullScreenReturn("alt-q");
+
+  assert.deepEqual(saved.at(-1)?.cockpitOnboarding, { cohort: "new", phase: "complete" });
+});
+
 test("question Answer falls back to acknowledge then open when the exact session is not pinned", async () => {
   const oldTmux = process.env.TMUX;
   process.env.TMUX = "/tmp/tmux";
@@ -1741,7 +1916,7 @@ test("question Answer falls back to acknowledge then open when the exact session
     view.handleInput("\r");
     await new Promise((resolve) => setImmediate(resolve));
 
-    assert.deepEqual(events, ["focus:api", "ack:api:undefined", "switch:pi-agent-hub-api"]);
+    assert.deepEqual(events, ["focus:api", "ack:api:question-1", "switch:pi-agent-hub-api"]);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;

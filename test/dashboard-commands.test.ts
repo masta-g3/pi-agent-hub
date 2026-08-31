@@ -6,6 +6,7 @@ import {
   commandForKey,
   searchDashboardCommands,
   selectWorkspaceCommands,
+  dashboardFooter,
   pinnedDashboardFooter,
   type DashboardCommandCapabilities,
 } from "../src/tui/dashboard-commands.js";
@@ -51,6 +52,12 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   ]) assert.ok(catalogBindings.has(binding), `missing binding ${binding}`);
   assert.equal(commands.some((command) => command.id === "view:density"), false);
   assert.equal(catalogBindings.has("v"), false);
+});
+
+test("coaching footer keeps the approved daily-loop controls in catalog ownership", () => {
+  assert.equal(dashboardFooter(40, { coaching: true }), "Enter Open · Alt+Q Return · : · ?");
+  assert.equal(dashboardFooter(60, { coaching: true }), "Enter Open · Alt+Q Return · : Actions · ? Help");
+  assert.equal(dashboardFooter(160, { coaching: true }), "Enter Open · Alt+Q Return · : Actions · ? Help");
 });
 
 test("pinned footer is derived from catalog-owned action metadata", () => {

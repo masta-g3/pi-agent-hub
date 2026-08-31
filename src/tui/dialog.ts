@@ -12,6 +12,7 @@ import type { PickerDialog } from "./picker-dialog.js";
 import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js";
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
 import type { CommandPaletteDialog } from "./command-palette-dialog.js";
+import type { CockpitOnboardingState } from "./cockpit-onboarding.js";
 
 export interface ForkDialogInput {
   group: string;
@@ -25,6 +26,8 @@ export type CollapsibleSection = "archived";
 export interface SessionsViewState {
   grouping: "project" | "stage";
   collapsedSections?: CollapsibleSection[];
+  cockpitOnboarding?: CockpitOnboardingState;
+  dismissedReleaseCueId?: string;
 }
 
 export interface SessionLifecycleActions {
@@ -99,7 +102,7 @@ export interface ThemeActions {
 
 export interface NavigationActions {
   attachOutsideTmux: (tmuxSession: string) => void | Promise<void>;
-  switchInsideTmux: (tmuxSession: string) => void | Promise<void>;
+  switchInsideTmux: (tmuxSession: string) => void | boolean | Promise<void | boolean>;
   sendMessage: (tmuxSession: string, message: string) => unknown;
   refreshStatusEvidence: () => void | Promise<void>;
 }
@@ -129,7 +132,7 @@ export interface SessionsViewActions {
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */
   saveViewState?: (state: SessionsViewState) => void;
   attachOutsideTmux?: (tmuxSession: string) => void | Promise<void>;
-  switchInsideTmux?: (tmuxSession: string) => void | Promise<void>;
+  switchInsideTmux?: (tmuxSession: string) => void | boolean | Promise<void | boolean>;
   pinSidePane?: (sessionId: string) => SidePaneResult | Promise<SidePaneResult>;
   assignSidePaneSlot?: (sessionId: string, slot: SidePaneSlot) => SidePaneResult | Promise<SidePaneResult>;
   focusSidePaneSlot?: (slot: SidePaneSlot) => FocusSidePaneResult | Promise<FocusSidePaneResult>;

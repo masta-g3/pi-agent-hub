@@ -247,7 +247,7 @@ export function pinnedDashboardFooter(width: number): string {
   return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(" · ");
 }
 
-export function dashboardFooter(width: number): string {
+export function dashboardFooter(width: number, options: { coaching?: boolean } = {}): string {
   const global = viewCommands({ sessions: [], capabilities: { theme: true } });
   const open = actionSpecs.find((spec) => spec.name === "open")!;
   const item = (key: string, label: string) => `${key} ${label}`;
@@ -255,9 +255,13 @@ export function dashboardFooter(width: number): string {
     const command = global.find((candidate) => candidate.id === id)!;
     return item(command.displayKey ?? "", label);
   };
-  const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
   const palette = fromView("view:palette", "Actions");
   const help = fromView("view:help", "Help");
+  if (options.coaching) {
+    if (width < 60) return [item("Enter", "Open"), item("Alt+Q", "Return"), ":", "?"].join(" · ");
+    return [item("Enter", "Open"), item("Alt+Q", "Return"), palette, help].join(" · ");
+  }
+  const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
   if (width < 60) return ["↑↓", item("/", "Filter"), palette, help].join(" · ");
   const filter = item("/", "Filter");
   if (width < 100) return ["↑↓ Move", openItem, filter, palette, help].join(" · ");

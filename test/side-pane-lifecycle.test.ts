@@ -142,6 +142,7 @@ async function harness(t: TestContext, options: {
   sessions?: ManagedSession[];
   width?: number;
   activeRequestIds?: ReadonlyMap<string, string>;
+  revealResult?: boolean;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pi-hub-named-lifecycle-"));
   const sessions = options.sessions ?? [session("api"), session("docs")];
@@ -151,7 +152,7 @@ async function harness(t: TestContext, options: {
   const lifecycle = createSidePaneLifecycle({
     dashboardSession: "pi-agent-hub", dashboardCwd: "/repo", dashboardCommand: "pi-hub tui", dashboardEnv: () => ({}),
     ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux,
-    revealSession: (id) => { events.push(`reveal:${id}`); return true; },
+    revealSession: (id) => { events.push(`reveal:${id}`); return options.revealResult ?? true; },
     activeAttentionRequestId: (id) => options.activeRequestIds?.get(id),
     acknowledgeSession: async (id, requestId) => { events.push(`ack:${id}${requestId ? `:${requestId}` : ""}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
     configureManagedSession: async (item, visible) => { events.push(`managed:${item.id}:${visible}`); },
@@ -311,10 +312,17 @@ test("handoff reveals and acknowledges before managed chrome and switch", async 
   const waiting = session("api", "waiting");
   const value = await harness(t, { sessions: [waiting], initial: [{ session: "pi-agent-hub-api" }] });
   value.events.length = 0;
-  await value.lifecycle.handoff("pi-agent-hub-api");
+  assert.equal(await value.lifecycle.handoff("pi-agent-hub-api"), true);
   before(value.events, "reveal:api", "ack:api");
   before(value.events, "ack:api", "managed:api:true");
   before(value.events, "managed:api:true", "switch:pi-agent-hub-api");
+});
+
+test("handoff reports unavailable when exact reveal fails", async (t) => {
+  const value = await harness(t, { revealResult: false });
+  value.events.length = 0;
+  assert.equal(await value.lifecycle.handoff("pi-agent-hub-api"), false);
+  assert.doesNotMatch(value.events.join("\n"), /switch:pi-agent-hub-api/);
 });
 
 test("failed first pin rolls panel chrome back without hiding the original failure", async (t) => {

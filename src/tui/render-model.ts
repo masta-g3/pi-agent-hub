@@ -7,6 +7,7 @@ import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
 import { dashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
+import { COCKPIT_RELEASE_CUE, coachingActive, releaseCueVisible, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
 export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
 
@@ -104,6 +105,7 @@ export interface RenderSection {
   selected?: boolean;
   archiveDisclosure?: ArchiveDisclosure;
   hiddenChildRequestCount: number;
+  lesson?: string;
 }
 
 export interface RenderSummary {
@@ -185,6 +187,10 @@ export interface RenderModel {
   pinMode: boolean;
   pinSummary?: RenderPinSummary;
   attentionAnnouncements: readonly AttentionAnnouncement[];
+  guidance: {
+    coach: boolean;
+    releaseCue?: { id: string; label: string; text: string; selected: boolean };
+  };
 }
 
 export interface DashboardProjection {
@@ -332,6 +338,13 @@ const COCKPIT_TIER_LABELS: Record<CockpitTier, string> = {
   archived: "ARCHIVED",
 };
 
+const COCKPIT_TIER_LESSONS: Partial<Record<CockpitTier, string>> = {
+  "needs-you": "an agent's explicit request lands here",
+  health: "a failed owner session lands here",
+  active: "work in progress lands here",
+  quiet: "no intervention requested",
+};
+
 function orderCockpitRows(rows: RuntimeSession[], tiers: ReadonlyMap<string, CockpitTier>): RuntimeSession[] {
   const order = new Map(COCKPIT_TIER_ORDER.map((tier, index) => [tier, index]));
   return rows.map((row, index) => ({ row, index }))
@@ -365,6 +378,11 @@ export interface BuildRenderModelInput {
   revealedSessionId?: string;
   structuralProjection?: DashboardProjection;
   attentionAnnouncements?: readonly AttentionAnnouncement[];
+  cockpitOnboarding?: CockpitOnboardingState;
+  dismissedReleaseCueId?: string;
+  releaseCueEnabled?: boolean;
+  releaseCueSelected?: boolean;
+  guidanceHidden?: boolean;
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
@@ -377,6 +395,10 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const pinned = new Set(pinSlots.filter((id): id is string => Boolean(id)));
   const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
   const pinMode = pinned.size > 0;
+  const guidanceVisible = !input.guidanceHidden && !board && !pinMode && !filterActive && !input.workspaceFullScreen;
+  const coach = guidanceVisible && coachingActive(input.cockpitOnboarding);
+  const showReleaseCue = guidanceVisible && input.releaseCueEnabled === true
+    && releaseCueVisible(input.cockpitOnboarding, input.dismissedReleaseCueId);
   const subagentStats = descendantSubagentStats(input.sessions, createSessionTreeIndex(input.sessions));
   const attentiveDescendantIds = descendantAttentionIds(input.sessions, cockpitOwnerById);
   const visibleIds = new Set(visible.map((session) => session.id));
@@ -394,7 +416,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id),
   ));
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
-  const listSelected = !input.archiveDisclosureSelected && !input.selectedSection;
+  const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.releaseCueSelected;
   const mapped = visible.flatMap((session) => {
     const rendered = mappedById.get(session.id);
     return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId }] : [];
@@ -406,13 +428,13 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       hiddenParents: archive.hiddenParents,
       selected: input.archiveDisclosureSelected ?? false,
     } : undefined, collapsedSections, input.selectedSection,
-    filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"));
+    filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
   const selectedSource = selected ? allTree.get(selected.id) : undefined;
   const ownerSource = selectedSource ? allTree.trace(selectedSource).owner : undefined;
-  const workspace = selected && input.workspaceCommands ? {
+  const workspace = selected && input.workspaceCommands && !input.releaseCueSelected ? {
     ...input.workspaceCommands,
     session: selected,
     ...(ownerSource && ownerSource.id !== selected.id ? { owner: mappedById.get(ownerSource.id) } : {}),
@@ -452,11 +474,15 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
     ...(workspace ? { workspace } : {}),
-    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width),
+    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, { coaching: coach }),
     filter: input.filter,
     grouping,
     pinMode,
     attentionAnnouncements: input.attentionAnnouncements ?? [],
+    guidance: {
+      coach,
+      ...(showReleaseCue ? { releaseCue: { ...COCKPIT_RELEASE_CUE, selected: input.releaseCueSelected ?? false } } : {}),
+    },
     ...(pinMode ? {
       pinSummary: {
         slots: [1, 2, 3, 4].slice(0, Math.max(input.pinCapacity ?? 0, pinSlots.reduce((highest, id, index) => id ? index + 1 : highest, 0))).map((slot) => {
@@ -669,11 +695,12 @@ function cockpitSectionsForSessions(
   collapsedSections: ReadonlySet<CollapsibleSection> = new Set(),
   selectedSection?: CollapsibleSection,
   filterActive = false,
+  coach = false,
 ): RenderSection[] {
   return COCKPIT_TIER_ORDER.flatMap((tier) => {
     const sectionSessions = sessions.filter((session) => session.cockpitTier === tier);
     const allSectionSessions = allSessions.filter((session) => session.cockpitTier === tier);
-    if (!allSectionSessions.length) return [];
+    if (!allSectionSessions.length && (!coach || tier === "archived")) return [];
     const collapsed = tier === "archived" && collapsedSections.has("archived");
     return [{
       key: tier,
@@ -693,6 +720,7 @@ function cockpitSectionsForSessions(
       collapsible: tier === "archived",
       collapsed,
       selected: tier === "archived" && selectedSection === "archived",
+      ...(coach && tier !== "archived" ? { lesson: COCKPIT_TIER_LESSONS[tier] } : {}),
       ...(tier === "archived" && archiveDisclosure ? { archiveDisclosure } : {}),
     } satisfies RenderSection];
   });

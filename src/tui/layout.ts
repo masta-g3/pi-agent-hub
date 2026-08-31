@@ -10,6 +10,7 @@ export type SessionListTarget =
   | { kind: "session"; id: string }
   | { kind: "session-continuation"; id: string }
   | { kind: "archive-disclosure" }
+  | { kind: "release-cue" }
   | { kind: "section-header"; section: "archived" };
 
 export interface TierNavigatorTarget {
@@ -43,7 +44,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     listWidth: 0,
     listScrollTop: 0,
   });
-  if (model.empty) return emptyLayout(box(width, fitBoxBody(emptyLines(width, styles), model.height), styles));
+  if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
+    return emptyLayout(box(width, fitBoxBody(emptyLines(width, styles), model.height), styles));
+  }
 
   const bodyWidth = width - 2;
   if (model.noBoardSessions) {
@@ -395,6 +398,7 @@ interface SessionListContent {
   selectedEndIndex: number;
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
+  priorityIndexes?: number[];
 }
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles): SessionListContent {
@@ -428,6 +432,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   const lineMeta: (SessionLineMeta | undefined)[] = [];
   const continuationPriorities = new Map<number, number>();
   const contextIndexes = new Map<number, number[]>();
+  const priorityIndexes: number[] = [];
   let selectedIndex = -1;
   let selectedEndIndex = -1;
   const pushLine = (line: string, target?: SessionListTarget, owner?: RenderSession, meta?: SessionLineMeta) => {
@@ -457,7 +462,23 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     if (session.selected) selectedEndIndex = lines.length - 1;
   };
+  const releaseCue = model.guidance.releaseCue;
+  let releaseCueRendered = false;
+  const pushReleaseCue = () => {
+    if (!releaseCue || releaseCueRendered) return;
+    const prefix = releaseCue.selected ? `${styles.accent("▌")} ` : "  ";
+    const detail = model.width >= 160 ? " · ? explains · : finds actions · Enter dismiss" : model.width >= 100 ? " · ? explains · : finds actions" : "";
+    const copy = `${styles.accent(releaseCue.label)}  ${styles.muted(releaseCue.text)}${styles.dim(detail)}`;
+    if (lines.length) pushLine("");
+    if (releaseCue.selected) {
+      selectedIndex = lines.length;
+      selectedEndIndex = lines.length;
+    }
+    pushLine(`${prefix}${truncate(copy, Math.max(0, width - 2))}`, { kind: "release-cue" });
+    releaseCueRendered = true;
+  };
   let firstSection = true;
+  if (releaseCue && model.sections[0]?.cockpitTier !== "needs-you") pushReleaseCue();
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
     const headingRight = board
@@ -481,6 +502,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
     );
+    if (model.guidance.coach && model.empty && section.cockpitTier === "needs-you") priorityIndexes.push(sectionHeadingIndex);
+    if (section.lesson) pushLine(`  ${styles.dim(truncate(section.lesson, Math.max(0, width - 2)))}`);
     firstSection = false;
     for (const [groupIndex, group] of section.groups.entries()) {
       if (groupIndex && model.width >= 100) pushLine("");
@@ -493,6 +516,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
       for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
     }
+    if (section.cockpitTier === "needs-you") pushReleaseCue();
     if (section.archiveDisclosure) {
       if (section.archiveDisclosure.selected) {
         selectedIndex = lines.length;
@@ -503,6 +527,14 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       pushLine(`${prefix}${styles.dim(truncate(label, Math.max(0, width - 2)))}`, { kind: "archive-disclosure" });
       contextIndexes.set(lines.length - 1, [sectionHeadingIndex]);
     }
+  }
+  pushReleaseCue();
+  if (model.guidance.coach && model.empty) {
+    pushLine("");
+    priorityIndexes.push(lines.length);
+    pushLine(`${styles.accent("▶")} ${styles.accent("n")}  create the first managed Pi session`);
+    priorityIndexes.push(lines.length);
+    pushLine(`${styles.accent("Enter")} opens · ${styles.accent("Alt+Q")} returns · ${styles.accent("?")} keys · ${styles.accent(":")} actions`);
   }
   if (board) {
     pushLine("");
@@ -516,7 +548,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const meta = lineMeta[index];
     if (meta) meta.treeEnd = true;
   }
-  return { lines, targets, lineMeta, ...(selectedOwnerId ? { selectedOwnerId } : {}), selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes };
+  return { lines, targets, lineMeta, ...(selectedOwnerId ? { selectedOwnerId } : {}), selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes,
+    ...(priorityIndexes.length ? { priorityIndexes } : {}) };
 }
 
 function decorateAttentionSectionCap(
@@ -580,13 +613,21 @@ function windowList(list: SessionListContent, capacity: number, scrollTop: numbe
   const safeCapacity = Math.max(1, capacity);
   if (list.lines.length <= safeCapacity) return { ...list, top: 0 };
   if (list.selectedIndex < 0) {
+    const chosen = new Set((list.priorityIndexes ?? []).slice(0, safeCapacity));
+    const tierHeadings = list.lineMeta.flatMap((meta, index) => meta?.sectionOwnerIds ? [index] : []);
+    const usefulRows = list.lines.flatMap((line, index) => displayWidth(line) > 0 ? [index] : []);
+    for (const index of [...tierHeadings, ...usefulRows]) {
+      if (chosen.size >= safeCapacity) break;
+      chosen.add(index);
+    }
+    const indexes = [...chosen].sort((left, right) => left - right);
     return {
-      lines: list.lines.slice(0, safeCapacity),
-      targets: list.targets.slice(0, safeCapacity),
-      lineMeta: list.lineMeta.slice(0, safeCapacity),
+      lines: indexes.map((index) => list.lines[index] ?? ""),
+      targets: indexes.map((index) => list.targets[index]),
+      lineMeta: indexes.map((index) => list.lineMeta[index]),
       selectedIndex: -1,
       selectedEndIndex: -1,
-      top: 0,
+      top: indexes[0] ?? 0,
     };
   }
   return windowFilledSelectedSpan(list, safeCapacity, scrollTop, styles);

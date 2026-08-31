@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attentionExternalMessage, buildNewFormContext, createRegistryMutator, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, restartAllTargets } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
+import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
 import type { TmuxClient } from "../src/core/tmux.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -109,6 +110,118 @@ test("view state ignores retired density and Backlog collapse values", () => {
     collapsedSections: ["backlog", "archived", "archived"],
   }), { grouping: "stage", collapsedSections: ["archived"] });
   assert.deepEqual(normalizeSessionsViewState({ grouping: "unknown", density: "compact" }), { grouping: "project" });
+});
+
+test("view state classifies only a missing empty dashboard as a new cohort", () => {
+  assert.deepEqual(normalizeSessionsViewState(undefined, { emptyFleet: true }), {
+    grouping: "project",
+    cockpitOnboarding: { cohort: "new", phase: "learning" },
+  });
+  assert.deepEqual(normalizeSessionsViewState(undefined, { emptyFleet: false }), { grouping: "project" });
+  assert.deepEqual(normalizeSessionsViewState({}, { emptyFleet: true }), { grouping: "project" });
+});
+
+test("view state normalizes bounded onboarding and release cue fields", () => {
+  assert.deepEqual(normalizeSessionsViewState({
+    grouping: "stage",
+    cockpitOnboarding: { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "req/1", ignored: true },
+    dismissedReleaseCueId: COCKPIT_RELEASE_CUE.id,
+  }), {
+    grouping: "stage",
+    cockpitOnboarding: { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "req/1" },
+    dismissedReleaseCueId: COCKPIT_RELEASE_CUE.id,
+  });
+  assert.deepEqual(normalizeSessionsViewState({
+    grouping: "project",
+    cockpitOnboarding: { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "x".repeat(65) },
+    dismissedReleaseCueId: 42,
+  }), { grouping: "project" });
+});
+
+test("cockpit onboarding transitions retain one exact request and one cue id", () => {
+  const learning = normalizeCockpitOnboarding({ cohort: "new", phase: "learning" });
+  const waiting = startAttentionTrip(learning, { sessionId: "api", requestId: "req/1" });
+  assert.deepEqual(waiting, { cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "req/1" });
+  assert.equal(startAttentionTrip(waiting, { sessionId: "web", requestId: "req/2" }), waiting);
+  assert.deepEqual(completeAttentionTrip(waiting), { cohort: "new", phase: "complete" });
+  assert.equal(releaseCueVisible(undefined, undefined), true);
+  assert.equal(releaseCueVisible(undefined, COCKPIT_RELEASE_CUE.id), false);
+  assert.equal(releaseCueVisible(learning, undefined), false);
+});
+
+test("view state writer preserves invocation order and drains the newest snapshot", async () => {
+  const first = deferred();
+  const writes: string[] = [];
+  const writer = createViewStateWriter(async (state) => {
+    writes.push(`start:${state.grouping}`);
+    if (state.grouping === "stage") await first.promise;
+    writes.push(`end:${state.grouping}`);
+  });
+  writer.save({ grouping: "stage" });
+  writer.save({ grouping: "project", cockpitOnboarding: { cohort: "new", phase: "complete" } });
+  await Promise.resolve();
+  assert.deepEqual(writes, ["start:stage"]);
+  first.resolve();
+  await writer.drain();
+  assert.deepEqual(writes, ["start:stage", "end:stage", "start:project", "end:project"]);
+});
+
+test("view state writer continues after a failed write and reports the failure on drain", async () => {
+  const writes: string[] = [];
+  const writer = createViewStateWriter(async (state) => {
+    writes.push(state.grouping);
+    if (state.grouping === "stage") throw new Error("disk failed");
+  });
+  writer.save({ grouping: "stage" });
+  writer.save({ grouping: "project", cockpitOnboarding: { cohort: "new", phase: "complete" } });
+  await assert.rejects(() => writer.drain(), /disk failed/);
+  assert.deepEqual(writes, ["stage", "project"]);
+});
+
+test("dashboard action loop stop drains the active producer", async () => {
+  const active = deferred();
+  let started = false;
+  const stop = startDashboardActionLoop(async () => {
+    started = true;
+    await active.promise;
+  }, 60_000);
+  await Promise.resolve();
+  assert.equal(started, true);
+  let stopped = false;
+  const draining = stop().then(() => { stopped = true; });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+  active.resolve();
+  await draining;
+  assert.equal(stopped, true);
+});
+
+test("dashboard return completion survives refresh failure while rename still refreshes first", async () => {
+  const events: string[] = [];
+  const view = {
+    openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
+    completeFullScreenReturn: (key: "alt-q") => { events.push(`return:${key}`); },
+  };
+  await assert.rejects(() => processDashboardAction(view, { action: "return", key: "alt-q" }, async () => {
+    events.push("refresh");
+    throw new Error("refresh failed");
+  }), /refresh failed/);
+  assert.deepEqual(events, ["return:alt-q", "refresh"]);
+
+  events.length = 0;
+  await processDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" }, async () => { events.push("refresh"); });
+  assert.deepEqual(events, ["refresh", "rename:pi-agent-hub-api"]);
+});
+
+test("dashboard actions route Alt+Q completion separately from rename", () => {
+  const events: string[] = [];
+  const view = {
+    openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
+    completeFullScreenReturn: (key: "alt-q") => { events.push(`return:${key}`); },
+  };
+  applyDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" });
+  applyDashboardAction(view, { action: "return", key: "alt-q" });
+  assert.deepEqual(events, ["rename:pi-agent-hub-api", "return:alt-q"]);
 });
 
 test("restartAllTargets includes only active parent sessions", () => {
