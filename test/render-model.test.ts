@@ -1239,6 +1239,21 @@ test("board filter matches workflow ticket ids after compact titles replace tick
   assert.equal(model.selected?.id, "a");
 });
 
+test("repo and session titles keep primary text styling with and without workflow tickets", () => {
+  const theme = { ...darkTheme, text: "#010203", muted: "#040506" };
+  const ticket = { ...session("ticket", "default", "running", "ticket-repo"), workflow: WORKFLOW };
+  const plain = session("plain", "default", "idle", "plain-repo");
+  const ticketLines = renderSessions(buildRenderModel({ sessions: [ticket], grouping: "stage", width: 120 }), theme).lines;
+  const plainLines = renderSessions(buildRenderModel({ sessions: [plain], width: 120 }), theme).lines;
+  const ticketTitle = ticketLines.find((line) => stripAnsi(line).includes("ticket-repo")) ?? "";
+  const ticketMeta = ticketLines.find((line) => stripAnsi(line).includes("#auth-003")) ?? "";
+  const plainTitle = plainLines.find((line) => stripAnsi(line).includes("plain-repo")) ?? "";
+
+  assert.ok(ticketTitle.includes(styleToken(theme, "text", "ticket-repo")));
+  assert.ok(ticketMeta.includes(styleToken(theme, "muted", "#auth-003")));
+  assert.ok(plainTitle.includes(styleToken(theme, "text", "plain-repo")));
+});
+
 test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),

@@ -245,6 +245,7 @@ interface LayoutStyles {
   error(text: string): string;
   success(text: string): string;
   muted(text: string): string;
+  text(text: string): string;
   warning(text: string): string;
   selected(text: string): string;
   status(status: RenderSession["displayStatus"], text: string): string;
@@ -258,6 +259,7 @@ function createStyles(theme: SessionsTheme): LayoutStyles {
     error: (text) => styleToken(theme, "error", text),
     success: (text) => styleToken(theme, "success", text),
     muted: (text) => styleToken(theme, "muted", text),
+    text: (text) => styleToken(theme, "text", text),
     warning: (text) => styleToken(theme, "warning", text),
     selected: (text) => styleBgToken(theme, "selectedBg", text),
     status: (status, text) => styleToken(theme, status === "error" ? "error" : status === "waiting" ? "warning" : status === "running" ? "success" : "muted", text),
@@ -1252,9 +1254,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const right = rowRightAdornment(session, styles, options.board, rightWidthBase, options.terminalWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;
   const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix) - rightSpace);
-  const title = session.status === "stopped"
-    ? styles.dim(truncate(session.title, titleWidth))
-    : truncate(session.title, titleWidth);
+  const title = styles.text(truncate(session.title, titleWidth));
   const left = `${prefix}${worktree}${title}${suffix}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
 }
