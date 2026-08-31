@@ -902,7 +902,7 @@
   plan_file: agent-work/history/20260829_cockpit-008_adaptive_cockpit.md
   completed_at: '2026-08-29'
 - id: cockpit-009
-  status: pending
+  status: done
   title: Cockpit onboarding
   subtitle: Teach one attention round trip
   description: Real-tier and footer guidance retire after the first explicit request
@@ -914,6 +914,8 @@
   - cockpit-004
   references:
   - agent-work/plans/cockpit-000.md
+  plan_file: agent-work/history/20260830_cockpit-009_cockpit_onboarding.md
+  completed_at: '2026-08-30'
 - id: cockpit-010
   status: done
   title: Cockpit parity

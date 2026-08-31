@@ -88,7 +88,7 @@ export interface SidePaneLifecycle {
   focusDirection(direction: SpatialDirection): Promise<FocusSidePaneResult>;
   returnToCockpit(): Promise<FocusSidePaneResult>;
   detach(tmuxSession: string): Promise<boolean>;
-  handoff(tmuxSession: string): Promise<void>;
+  handoff(tmuxSession: string): Promise<boolean>;
   refreshPanelChrome(): void;
   sync(): void;
   stop(): Promise<void>;
@@ -428,16 +428,17 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     },
     handoff(tmuxSession) {
       return trackIntent(withPausedPresence(async () => {
-        if (stopped) return;
+        if (stopped) return false;
         const ownPane = deps.ownPane();
         if (ownPane) await reconcileSidePanes({ ownPane }, exec);
         const session = sessionByTmux(tmuxSession);
-        if (session && !await revealAndAcknowledge(session)) return;
+        if (session && !await revealAndAcknowledge(session)) return false;
         if (session) await deps.configureManagedSession(session, true);
-        if (stopped) return;
+        if (stopped) return false;
         await removeSidebarReturnBinding({ stateDir: deps.sidebarBindingStateDir, onlyOwnerPid: process.pid }, exec);
         await switchClientWithReturn({ targetSession: tmuxSession, stateDir: deps.switchBindingStateDir, renameKey: "M-r",
           returnSession: { name: deps.dashboardSession, cwd: deps.dashboardCwd, command: deps.dashboardCommand, env: deps.dashboardEnv() } }, exec);
+        return true;
       }));
     },
     refreshPanelChrome() {

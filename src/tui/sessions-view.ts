@@ -1,7 +1,7 @@
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
-import type { ManagedSession } from "../core/types.js";
+import type { ManagedSession, RuntimeSession } from "../core/types.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
 import { buildDashboardCommands, commandForKey, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
@@ -58,6 +58,7 @@ import { handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDi
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
+import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAttentionTrip, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
 const MIN_RENDER_WIDTH = 40;
 const DOUBLE_CLICK_MS = 400;
@@ -97,10 +98,17 @@ export class SessionsView implements Component {
   private projectionRegistry?: object;
   private projectionKey = "";
   private viewStateRevision = 0;
+  private cockpitOnboarding: CockpitOnboardingState | undefined;
+  private dismissedReleaseCueId: string | undefined;
+  private releaseCueSelected = false;
+  private releaseCueEnabled: boolean;
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {
     this.grouping = actions.initialViewState?.grouping ?? "project";
     this.collapsedSections = new Set(actions.initialViewState?.collapsedSections ?? []);
+    this.cockpitOnboarding = actions.initialViewState?.cockpitOnboarding;
+    this.dismissedReleaseCueId = actions.initialViewState?.dismissedReleaseCueId;
+    this.releaseCueEnabled = actions.initialViewState !== undefined;
   }
 
   setTheme(theme: SessionsTheme): void {
@@ -179,8 +187,12 @@ export class SessionsView implements Component {
       this.focusSidePaneDirection(direction);
       return;
     }
-    if (matchesKey(data, Key.alt("q")) || matchesKey(data, Key.ctrl("q"))) {
-      this.returnToCockpit();
+    if (matchesKey(data, Key.alt("q"))) {
+      this.returnToCockpit("alt");
+      return;
+    }
+    if (matchesKey(data, Key.ctrl("q"))) {
+      this.returnToCockpit("ctrl");
       return;
     }
     if (data === ":") {
@@ -190,6 +202,16 @@ export class SessionsView implements Component {
     if (this.grouping === "stage" && !this.boardRows().length) {
       const command = commandForKey(this.dashboardCommands(false, "select a visible session first"), data);
       if (command) this.executeDashboardCommand(command.id);
+      return;
+    }
+    if (this.releaseCueSelected) {
+      if (matchesKey(data, Key.down) || data === "j") this.moveSelection(1);
+      else if (matchesKey(data, Key.up) || data === "k") this.moveSelection(-1);
+      else if (isEnterKey(data)) this.dismissReleaseCue();
+      else {
+        const command = commandForKey(this.dashboardCommands(false, "select a visible session first"), data);
+        if (command) this.executeDashboardCommand(command.id);
+      }
       return;
     }
     if (this.archiveDisclosureSelected || this.selectedSection) {
@@ -296,7 +318,7 @@ export class SessionsView implements Component {
         ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
-      workspaceFullScreen: width < 120 && workspaceSelected?.id === this.workspaceSessionId,
+      workspaceFullScreen: width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
       height,
       listScrollTop: this.listScrollTop,
       grouping: this.grouping,
@@ -314,6 +336,11 @@ export class SessionsView implements Component {
       revealedSessionId: this.revealedSessionId,
       structuralProjection,
       attentionAnnouncements: this.dialog ? [] : this.activeAttentionAnnouncements(now),
+      cockpitOnboarding: this.cockpitOnboarding,
+      dismissedReleaseCueId: this.dismissedReleaseCueId,
+      releaseCueEnabled: this.releaseCueEnabled,
+      releaseCueSelected: this.releaseCueSelected,
+      guidanceHidden: Boolean(this.dialog),
     });
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
@@ -744,6 +771,7 @@ export class SessionsView implements Component {
   }
 
   revealSession(targetId: string | undefined): boolean {
+    this.releaseCueSelected = false;
     if (!targetId) {
       this.message = "session is no longer available";
       return false;
@@ -896,10 +924,31 @@ export class SessionsView implements Component {
     this.runAction(() => focus(direction), "moving between pins...", () => {});
   }
 
-  private returnToCockpit() {
+  private returnToCockpit(key: "alt" | "ctrl") {
     const returnToCockpit = this.actions.returnToCockpit;
     if (!returnToCockpit) return;
-    this.runAction(() => returnToCockpit(), "returning to cockpit...", () => {});
+    const pending = "returning to cockpit...";
+    runSyncAsyncAction(() => returnToCockpit(), {
+      pending,
+      setBusy: (busy) => { this.busy = busy; },
+      setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
+      success: (result) => {
+        if (key === "alt" && result.kind === "focused") this.completeAttentionReturn();
+      },
+      failure: (error) => { this.message = errorMessage(error); },
+    });
+  }
+
+  completeFullScreenReturn(key: "alt-q"): void {
+    if (key === "alt-q") this.completeAttentionReturn();
+  }
+
+  private completeAttentionReturn(): void {
+    const next = completeAttentionTrip(this.cockpitOnboarding);
+    if (next === this.cockpitOnboarding) return;
+    this.cockpitOnboarding = next;
+    this.saveViewState();
+    this.flashMessage("first attention round-trip complete");
   }
 
   private handleMouse(event: MouseEvent) {
@@ -941,10 +990,16 @@ export class SessionsView implements Component {
       this.lastMouseClick = undefined;
       return;
     }
-    if (target.kind === "archive-disclosure") {
+    if (target.kind === "release-cue") {
+      this.releaseCueSelected = true;
+      this.archiveDisclosureSelected = false;
+      this.selectedSection = undefined;
+    } else if (target.kind === "archive-disclosure") {
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = true;
       this.selectedSection = undefined;
     } else if (target.kind === "section-header") {
+      this.releaseCueSelected = false;
       this.selectedSection = target.section;
       this.archiveDisclosureSelected = false;
     } else {
@@ -953,16 +1008,18 @@ export class SessionsView implements Component {
         this.lastMouseClick = undefined;
         return;
       }
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
     }
-    const targetKey = target.kind === "archive-disclosure" ? target.kind : target.kind === "section-header" ? `section:${target.section}` : `session:${target.id}`;
+    const targetKey = target.kind === "release-cue" ? target.kind : target.kind === "archive-disclosure" ? target.kind : target.kind === "section-header" ? `section:${target.section}` : `session:${target.id}`;
     const now = this.actions.now?.() ?? Date.now();
     const elapsed = this.lastMouseClick ? now - this.lastMouseClick.at : undefined;
     const doubleClick = this.lastMouseClick?.target === targetKey && elapsed !== undefined && elapsed >= 0 && elapsed <= DOUBLE_CLICK_MS;
     this.lastMouseClick = doubleClick ? undefined : { target: targetKey, at: now };
     if (doubleClick) {
-      if (target.kind === "archive-disclosure") this.toggleArchiveDisclosure();
+      if (target.kind === "release-cue") this.dismissReleaseCue();
+      else if (target.kind === "archive-disclosure") this.toggleArchiveDisclosure();
       else if (target.kind === "section-header") this.toggleSection(target.section);
       else this.activateFleetSelection();
     }
@@ -974,6 +1031,7 @@ export class SessionsView implements Component {
     const ownerId = projection.cockpitNavigation.find((entry) => entry.tier === tier)?.firstOwnerId;
     if (!ownerId) return;
     this.revealedSessionId = undefined;
+    this.releaseCueSelected = false;
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
     if (tier === "archived" && this.collapsedSections.delete("archived")) {
@@ -1077,24 +1135,26 @@ export class SessionsView implements Component {
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
     }
-    const isQuestion = (selected.status === "waiting" || selected.status === "idle") && selected.context?.attention?.kind === "question";
+    const requestId = questionRequestId(selected);
     const focusPinned = this.actions.focusPinnedSession;
-    if (isQuestion && focusPinned) {
+    if (requestId && focusPinned) {
       runSyncAsyncAction(() => focusPinned(selected.id), {
         pending: "locating questionnaire...",
         setBusy: (busy) => { this.busy = busy; },
         setMessage: (message) => { if (!message || this.message === "locating questionnaire...") this.message = message; },
         success: (result) => {
-          if (result.kind === "unavailable") this.acknowledgeAndAttach(selected.id);
+          if (result.kind === "focused" && this.currentQuestionRequestId(selected.id) === requestId) {
+            this.startAttentionReturnTrip(selected.id, requestId);
+          } else if (result.kind === "unavailable") this.acknowledgeAndAttach(selected.id, requestId);
         },
         failure: (error) => { this.message = errorMessage(error); },
       });
       return;
     }
-    this.acknowledgeAndAttach(selected.id);
+    this.acknowledgeAndAttach(selected.id, requestId);
   }
 
-  private acknowledgeAndAttach(sessionId: string) {
+  private acknowledgeAndAttach(sessionId: string, expectedRequestId?: string) {
     const selected = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
     if (!selected) {
       this.message = "session is no longer available";
@@ -1105,19 +1165,28 @@ export class SessionsView implements Component {
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
     }
+    const currentRequestId = questionRequestId(selected);
+    const tripRequestId = expectedRequestId && currentRequestId === expectedRequestId ? expectedRequestId : undefined;
     const activeRequest = this.activeAttentionAnnouncements().find((announcement) => announcement.sessionId === selected.id);
+    const attach = () => {
+      const current = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
+      if (!current) {
+        this.message = "session is no longer available";
+        return;
+      }
+      const result = this.attachSession(current);
+      this.afterSuccessfulHandoff(result, tripRequestId ? { sessionId, requestId: tripRequestId } : undefined);
+    };
     if (selected.status === "waiting" || activeRequest) {
       try {
-        const result = this.acknowledgeSession(selected.id, activeRequest?.requestId);
+        const result = this.acknowledgeSession(selected.id, tripRequestId ?? activeRequest?.requestId);
         if (isPromise(result)) {
           this.busy = true;
           this.message = "marking read...";
           void result.then(() => {
             this.busy = false;
             if (this.message === "marking read...") this.message = undefined;
-            const current = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
-            if (current) this.attachSession(current);
-            else this.message = "session is no longer available";
+            attach();
           }).catch((error: unknown) => {
             this.busy = false;
             this.message = errorMessage(error);
@@ -1129,7 +1198,31 @@ export class SessionsView implements Component {
         return;
       }
     }
-    this.attachSession(selected);
+    attach();
+  }
+
+  private currentQuestionRequestId(sessionId: string): string | undefined {
+    const session = this.controller.snapshot().sessions.find((item) => item.id === sessionId);
+    return session ? questionRequestId(session) : undefined;
+  }
+
+  private startAttentionReturnTrip(sessionId: string, requestId: string): void {
+    const next = startAttentionTrip(this.cockpitOnboarding, { sessionId, requestId });
+    if (next === this.cockpitOnboarding) return;
+    this.cockpitOnboarding = next;
+    this.saveViewState();
+  }
+
+  private afterSuccessfulHandoff(
+    result: boolean | Promise<boolean>,
+    request: { sessionId: string; requestId: string } | undefined,
+  ): void {
+    if (!request || !process.env.TMUX) return;
+    if (isPromise<boolean>(result)) {
+      void result.then((success) => {
+        if (success) this.startAttentionReturnTrip(request.sessionId, request.requestId);
+      });
+    } else if (result) this.startAttentionReturnTrip(request.sessionId, request.requestId);
   }
 
   private acknowledgeSession(sessionId: string, requestId?: string): unknown {
@@ -1138,29 +1231,56 @@ export class SessionsView implements Component {
     return this.controller.acknowledgeSession(sessionId, undefined, requestId);
   }
 
-  private attachSession(selected: ManagedSession) {
+  private attachSession(selected: ManagedSession): boolean | Promise<boolean> {
     const plan = attachPlan(selected);
     if (plan.type === "inside-tmux") {
       const switchInsideTmux = this.actions.switchInsideTmux;
       if (!switchInsideTmux) {
         this.message = plan.message;
-        return;
+        return false;
       }
-      this.flashMessage(`switching: ${plan.command} · Ctrl+Q returns`);
+      this.flashMessage(`switching: ${plan.command} · Ctrl+Q or Alt+Q returns`);
       try {
         const result = switchInsideTmux(selected.tmuxSession);
-        if (isPromise(result)) void result.catch((error: unknown) => { this.message = `switch failed: ${errorMessage(error)}`; });
+        if (isPromise(result)) return result.then((switched) => switched !== false).catch((error: unknown) => {
+          this.message = `switch failed: ${errorMessage(error)}`;
+          return false;
+        });
+        return result !== false;
       } catch (error) {
         this.message = `switch failed: ${errorMessage(error)}`;
+        return false;
       }
-      return;
     }
     try {
       const result = this.actions.attachOutsideTmux?.(selected.tmuxSession);
-      if (isPromise(result)) void result.catch((error: unknown) => { this.message = `attach failed: ${errorMessage(error)}`; });
+      if (isPromise(result)) return result.then(() => true).catch((error: unknown) => {
+        this.message = `attach failed: ${errorMessage(error)}`;
+        return false;
+      });
+      return true;
     } catch (error) {
       this.message = `attach failed: ${errorMessage(error)}`;
+      return false;
     }
+  }
+
+  private releaseCueAvailable(): boolean {
+    return this.releaseCueEnabled
+      && this.grouping === "project"
+      && !this.pinMode()
+      && !this.controller.snapshot().filter?.trim()
+      && !this.workspaceSessionId
+      && releaseCueVisible(this.cockpitOnboarding, this.dismissedReleaseCueId);
+  }
+
+  private dismissReleaseCue(): void {
+    if (!this.releaseCueAvailable()) return;
+    this.dismissedReleaseCueId = COCKPIT_RELEASE_CUE.id;
+    this.releaseCueSelected = false;
+    this.saveViewState();
+    this.normalizeListSelection();
+    this.flashMessage("daily loop guidance dismissed");
   }
 
   private moveSelection(delta: number) {
@@ -1168,20 +1288,29 @@ export class SessionsView implements Component {
     const targets = this.visibleListTargets();
     if (!targets.length) return;
     const previousId = this.controller.snapshot().selectedId;
-    const index = Math.max(0, targets.findIndex((target) => target.kind === "archive-disclosure"
-      ? this.archiveDisclosureSelected
-      : target.kind === "section-header"
-        ? this.selectedSection === target.section
-        : !this.archiveDisclosureSelected && !this.selectedSection && target.id === previousId));
+    const index = Math.max(0, targets.findIndex((target) => target.kind === "release-cue"
+      ? this.releaseCueSelected
+      : target.kind === "archive-disclosure"
+        ? this.archiveDisclosureSelected
+        : target.kind === "section-header"
+          ? this.selectedSection === target.section
+          : !this.releaseCueSelected && !this.archiveDisclosureSelected && !this.selectedSection && target.id === previousId));
     const next = targets[(index + delta + targets.length) % targets.length];
     if (!next) return;
-    if (next.kind === "archive-disclosure") {
+    if (next.kind === "release-cue") {
+      this.releaseCueSelected = true;
+      this.archiveDisclosureSelected = false;
+      this.selectedSection = undefined;
+    } else if (next.kind === "archive-disclosure") {
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = true;
       this.selectedSection = undefined;
     } else if (next.kind === "section-header") {
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = false;
       this.selectedSection = next.section;
     } else {
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
       this.controller.selectSession(next.id);
@@ -1196,6 +1325,10 @@ export class SessionsView implements Component {
     const targets: SessionListTarget[] = visibleRows
       .filter((row) => sectionOf(row) !== "archived")
       .map((row) => ({ kind: "session" as const, id: row.id }));
+    if (this.releaseCueAvailable()) {
+      const firstAfterNeeds = targets.findIndex((target) => target.kind === "session" && projection.cockpitTierById.get(target.id) !== "needs-you");
+      targets.splice(firstAfterNeeds < 0 ? targets.length : firstAfterNeeds, 0, { kind: "release-cue" });
+    }
     const allArchived = allRows.filter((row) => sectionOf(row) === "archived");
     if (!allArchived.length) return targets;
     const revealsArchived = Boolean(this.revealedSessionId && allArchived.some((row) => row.id === this.revealedSessionId));
@@ -1210,9 +1343,14 @@ export class SessionsView implements Component {
   private normalizeListSelection() {
     const targets = this.visibleListTargets();
     if (!targets.length) {
+      this.releaseCueSelected = false;
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
       return;
+    }
+    if (this.releaseCueSelected) {
+      if (targets.some((target) => target.kind === "release-cue")) return;
+      this.releaseCueSelected = false;
     }
     if (this.archiveDisclosureSelected) {
       if (targets.some((target) => target.kind === "archive-disclosure")) return;
@@ -1334,6 +1472,8 @@ export class SessionsView implements Component {
   private saveViewState() {
     const state: SessionsViewState = { grouping: this.grouping };
     if (this.collapsedSections.size) state.collapsedSections = [...this.collapsedSections];
+    if (this.cockpitOnboarding) state.cockpitOnboarding = this.cockpitOnboarding;
+    if (this.dismissedReleaseCueId) state.dismissedReleaseCueId = this.dismissedReleaseCueId;
     this.actions.saveViewState?.(state);
   }
 
@@ -1541,6 +1681,13 @@ export class SessionsView implements Component {
     }
   }
 
+}
+
+function questionRequestId(session: RuntimeSession): string | undefined {
+  const attention = session.context?.attention;
+  if ((session.status !== "waiting" && session.status !== "idle") || attention?.kind !== "question") return undefined;
+  const requestId = attention.requestId;
+  return typeof requestId === "string" && requestId.length > 0 && requestId.length <= 64 ? requestId : undefined;
 }
 
 function overlayCommandPalette(

@@ -398,9 +398,13 @@ export async function switchClientWithReturn(
 
   const controlSession = await currentTmuxSession(exec);
   const controlClient = await currentTmuxClient(exec);
-  const previousBinding = await currentKeyBinding(returnKey, exec);
-  await writeFile(restorePath, previousBinding, "utf8");
-  const keyBindings: SavedKeyBinding[] = [{ key: returnKey, restorePath }];
+  const returnKeys = [...new Set([returnKey, "M-q"])];
+  const keyBindings: SavedKeyBinding[] = [];
+  for (const key of returnKeys) {
+    const keyRestorePath = key === returnKey ? restorePath : join(stateDir, "alt-return.previous.tmux");
+    await writeFile(keyRestorePath, await currentKeyBinding(key, exec), "utf8");
+    keyBindings.push({ key, restorePath: keyRestorePath });
+  }
   if (options.renameKey) {
     const renameRestorePath = join(stateDir, "rename.previous.tmux");
     const previousRenameBinding = await currentKeyBinding(options.renameKey, exec);
@@ -421,13 +425,21 @@ export async function switchClientWithReturn(
   let targetPresized = false;
   let switched = false;
   try {
-    await exec.exec("tmux", ["bind-key", "-n", returnKey, "run-shell", returnBindingScript({
-      controlSession,
-      activePath,
-      managedPrefix,
-      keyBindings,
-      returnSession: options.returnSession,
-    })]);
+    for (const key of returnKeys) {
+      await exec.exec("tmux", ["bind-key", "-n", key, "run-shell", returnBindingScript({
+        controlSession,
+        activePath,
+        managedPrefix,
+        keyBindings,
+        returnSession: options.returnSession,
+        ...(key === "M-q" ? {
+          action: {
+            path: actionPath,
+            json: JSON.stringify({ action: "return", key: "alt-q" }),
+          },
+        } : {}),
+      })]);
+    }
     if (options.renameKey) {
       await exec.exec("tmux", ["bind-key", "-n", options.renameKey, "run-shell", returnBindingScript({
         controlSession,

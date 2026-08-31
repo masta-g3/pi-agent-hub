@@ -20,7 +20,7 @@ import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-his
 import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
-import { consumeDashboardAction } from "./dashboard-action.js";
+import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
 import { renameManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
@@ -29,6 +29,7 @@ import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
 import type { ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
+import { normalizeCockpitOnboarding } from "../tui/cockpit-onboarding.js";
 import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
 
 export interface AttentionDeliveryEffects {
@@ -114,15 +115,76 @@ function isHubWorktree(session: ManagedSession): boolean {
   return session.worktreeOwnedByHub === true && sessionWorktrees(session).length > 0;
 }
 
-export function normalizeSessionsViewState(value: unknown): SessionsViewState {
+export function normalizeSessionsViewState(
+  value: unknown,
+  options: { emptyFleet?: boolean } = {},
+): SessionsViewState {
+  const missing = value === undefined;
   const saved = value && typeof value === "object" ? value as Partial<SessionsViewState> : {};
   const collapsedSections = Array.isArray(saved.collapsedSections)
     ? [...new Set(saved.collapsedSections.filter((section): section is "archived" => section === "archived"))]
     : [];
+  const cockpitOnboarding = normalizeCockpitOnboarding(saved.cockpitOnboarding)
+    ?? (missing && options.emptyFleet ? { cohort: "new" as const, phase: "learning" as const } : undefined);
+  const dismissedReleaseCueId = typeof saved.dismissedReleaseCueId === "string"
+    && saved.dismissedReleaseCueId.length > 0 && saved.dismissedReleaseCueId.length <= 64
+    ? saved.dismissedReleaseCueId
+    : undefined;
   return {
     grouping: saved.grouping === "stage" ? "stage" : "project",
     ...(collapsedSections.length ? { collapsedSections } : {}),
+    ...(cockpitOnboarding ? { cockpitOnboarding } : {}),
+    ...(dismissedReleaseCueId ? { dismissedReleaseCueId } : {}),
   };
+}
+
+export interface ViewStateWriter {
+  save(state: SessionsViewState): void;
+  drain(): Promise<void>;
+}
+
+export function createViewStateWriter(write: (state: SessionsViewState) => Promise<void>): ViewStateWriter {
+  let tail = Promise.resolve();
+  let failure: unknown;
+  let failed = false;
+  return {
+    save(state) {
+      const snapshot = structuredClone(state);
+      tail = tail.then(async () => {
+        try {
+          await write(snapshot);
+        } catch (error) {
+          if (!failed) failure = error;
+          failed = true;
+        }
+      });
+    },
+    async drain() {
+      await tail;
+      if (failed) throw failure;
+    },
+  };
+}
+
+type DashboardActionView = Pick<SessionsView, "openRenameForTmuxSession" | "completeFullScreenReturn">;
+
+export function applyDashboardAction(view: DashboardActionView, action: DashboardAction): void {
+  if (action.action === "rename") view.openRenameForTmuxSession(action.tmuxSession);
+  else view.completeFullScreenReturn(action.key);
+}
+
+export async function processDashboardAction(
+  view: DashboardActionView,
+  action: DashboardAction,
+  refresh: () => Promise<void>,
+): Promise<void> {
+  if (action.action === "return") {
+    applyDashboardAction(view, action);
+    await refresh();
+    return;
+  }
+  await refresh();
+  applyDashboardAction(view, action);
 }
 
 export function restartAllTargets(sessions: ManagedSession[]): ManagedSession[] {
@@ -252,11 +314,16 @@ export async function runTui(): Promise<void> {
   let skillPool = await listSkillPool();
   const mcpCatalog = await loadMcpCatalog();
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
-  const savedViewState = await readJsonOr<unknown>(uiStatePath(), {});
-  const initialViewState = normalizeSessionsViewState(savedViewState);
+  const savedViewState = await readJsonOr<unknown | undefined>(uiStatePath(), undefined);
+  const initialViewState = normalizeSessionsViewState(savedViewState, { emptyFleet: controller.snapshot().sessions.length === 0 });
+  const viewStateWriter = createViewStateWriter((state) => writeJsonAtomic(uiStatePath(), state));
+  if (savedViewState === undefined && initialViewState.cockpitOnboarding) {
+    viewStateWriter.save(initialViewState);
+    await viewStateWriter.drain();
+  }
   let stopLoop: RefreshLoopHandle | undefined;
   let stopThemeLoop: (() => void) | undefined;
-  let stopActionLoop: (() => void) | undefined;
+  let stopActionLoop: (() => Promise<void>) | undefined;
   let stopped = false;
   let view!: SessionsView;
   const ownsDashboardTmux = await dashboardOwnsTmuxSession(
@@ -291,13 +358,14 @@ export async function runTui(): Promise<void> {
     if (stopped) return;
     stopped = true;
     stopThemeLoop?.();
-    stopActionLoop?.();
+    const actionDrain = stopActionLoop?.() ?? Promise.resolve();
     void stopLoop?.stop();
     const finish = () => {
       terminal.write(MOUSE_DISABLE);
       tui.stop();
     };
-    void (sidePanes?.stop() ?? Promise.resolve())
+    void Promise.all([sidePanes?.stop() ?? Promise.resolve(), actionDrain])
+      .finally(() => viewStateWriter.drain())
       .then(() => process.env.TMUX ? setDashboardMouse({ name: DASHBOARD_SESSION, enabled: false }).catch(() => {}) : undefined)
       .finally(finish);
   };
@@ -358,7 +426,7 @@ export async function runTui(): Promise<void> {
   };
   view = new SessionsView(controller, stop, {
     initialViewState,
-    saveViewState(state) { void writeJsonAtomic(uiStatePath(), state); },
+    saveViewState(state) { viewStateWriter.save(state); },
     attachOutsideTmux(tmuxSession) {
       stop();
       const attach = attachSessionCommand(tmuxSession);
@@ -579,8 +647,7 @@ export async function runTui(): Promise<void> {
   stopActionLoop = startDashboardActionLoop(async () => {
     const action = await consumeDashboardAction();
     if (!action) return;
-    await refreshDashboard();
-    if (action.action === "rename") view.openRenameForTmuxSession(action.tmuxSession);
+    await processDashboardAction(view, action, refreshDashboard);
     tui.requestRender();
   });
   sidePanes.start();
@@ -593,7 +660,7 @@ export async function runTui(): Promise<void> {
   stopLoop = startRefreshLoop(controller, tui, observeAttention);
 }
 
-function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => void {
+export function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => Promise<void> {
   let inFlight: Promise<void> | undefined;
   let stopped = false;
   const run = () => {
@@ -602,9 +669,10 @@ function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs
   };
   const timer = setInterval(run, intervalMs);
   run();
-  return () => {
+  return async () => {
     stopped = true;
     clearInterval(timer);
+    await inFlight;
   };
 }
 

@@ -1,4 +1,5 @@
 import type { RuntimeSession, SessionStatus, WorkflowRuntimeSnapshot } from "../../src/core/types.js";
+import type { CockpitOnboardingState } from "../../src/tui/cockpit-onboarding.js";
 
 export const COCKPIT_NOW = 1_000_000;
 
@@ -29,6 +30,34 @@ function session(id: string, title: string, group: string, status: SessionStatus
 
 function attention(kind: "ready" | "question" | "blocked", text: string) {
   return { version: 1 as const, updatedAt: COCKPIT_NOW - 500, attention: { kind, text } };
+}
+
+export interface CockpitOnboardingMoment {
+  sessions: RuntimeSession[];
+  selectedId?: string;
+  cockpitOnboarding?: CockpitOnboardingState;
+  releaseCueEnabled?: boolean;
+  dismissedReleaseCueId?: string;
+}
+
+export function cockpitOnboardingMoments(): Record<"empty" | "first" | "request" | "returned" | "updated" | "dismissed", CockpitOnboardingMoment> {
+  const active = session("onboarding-api", "API release", "Default", "running");
+  const request = {
+    ...active,
+    status: "waiting" as const,
+    context: { version: 1 as const, updatedAt: COCKPIT_NOW, attention: {
+      requestId: "req/onboarding", kind: "question" as const, text: "Which release channel?",
+    } },
+  };
+  const learning = { cohort: "new" as const, phase: "learning" as const };
+  return {
+    empty: { sessions: [], cockpitOnboarding: learning },
+    first: { sessions: [active], selectedId: active.id, cockpitOnboarding: learning },
+    request: { sessions: [request], selectedId: request.id, cockpitOnboarding: learning },
+    returned: { sessions: [request], selectedId: request.id, cockpitOnboarding: { cohort: "new", phase: "complete" } },
+    updated: { sessions: [active], selectedId: active.id, releaseCueEnabled: true },
+    dismissed: { sessions: [active], selectedId: active.id, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-daily-loop-v1" },
+  };
 }
 
 export function cockpitFleet(): RuntimeSession[] {

@@ -24,10 +24,19 @@ test("consumeDashboardAction consumes a valid rename action", async () => {
   await assert.rejects(() => readFile(path, "utf8"), /ENOENT/);
 });
 
+test("consumeDashboardAction consumes a valid Alt+Q return receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-action-"));
+  const path = join(root, "dashboard-action.json");
+  await writeFile(path, JSON.stringify({ action: "return", key: "alt-q" }), "utf8");
+
+  assert.deepEqual(await consumeDashboardAction(path), { action: "return", key: "alt-q" });
+  await assert.rejects(() => readFile(path, "utf8"), /ENOENT/);
+});
+
 test("consumeDashboardAction consumes invalid actions without executing them", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-action-"));
   const path = join(root, "dashboard-action.json");
-  await writeFile(path, JSON.stringify({ action: "rename", tmuxSession: "" }), "utf8");
+  await writeFile(path, JSON.stringify({ action: "return", key: "ctrl-q" }), "utf8");
 
   assert.equal(await consumeDashboardAction(path), undefined);
   await assert.rejects(() => readFile(path, "utf8"), /ENOENT/);

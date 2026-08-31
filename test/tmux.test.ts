@@ -562,7 +562,9 @@ test("switchClientWithReturn installs return binding then switches client", asyn
     ["display-message", "-p", "#{session_name}"],
     ["display-message", "-p", "#{client_name}"],
     ["list-keys", "-T", "root", "C-q"],
+    ["list-keys", "-T", "root", "M-q"],
     ["bind-key", "-n", "C-q", "run-shell"],
+    ["bind-key", "-n", "M-q", "run-shell"],
     ["display-message", "-p", "-c", "/dev/ttys011", "#{client_width} #{client_height}"],
     ["resize-window", "-t", "pi-agent-hub-target", "-x", "160", "-y", "59"],
     ["switch-client", "-c", "/dev/ttys011", "-t", "pi-agent-hub-target"],
@@ -576,6 +578,11 @@ test("switchClientWithReturn installs return binding then switches client", asyn
   assert.match(script, /active\.json/);
   assert.match(script, /source-file/);
   assert.match(script, /unbind-key/);
+  assert.doesNotMatch(script, /"action":"return"/);
+  const altScript = exec.calls.find((call) => call.args[0] === "bind-key" && call.args[2] === "M-q")?.args[4] ?? "";
+  assert.match(altScript, /"action":"return","key":"alt-q"/);
+  assert.match(altScript, /if tmux switch-client[^;]+; then printf/);
+  assert.match(altScript, /alt-return\.previous\.tmux/);
 });
 
 test("switchClientWithReturn installs rename action binding when requested", async () => {
@@ -593,6 +600,7 @@ test("switchClientWithReturn installs rename action binding when requested", asy
   const bindCalls = exec.calls.filter((call) => call.args[0] === "bind-key");
   assert.deepEqual(bindCalls.map((call) => call.args.slice(0, 4)), [
     ["bind-key", "-n", "C-q", "run-shell"],
+    ["bind-key", "-n", "M-q", "run-shell"],
     ["bind-key", "-n", "M-r", "run-shell"],
   ]);
   const renameScript = bindCalls.find((call) => call.args[2] === "M-r")?.args[4] ?? "";
@@ -601,6 +609,7 @@ test("switchClientWithReturn installs rename action binding when requested", asy
   assert.match(renameScript, /dashboard-action\.json/);
   assert.match(renameScript, /tmux switch-client -t 'control'/);
   assert.match(renameScript, /unbind-key -T root 'C-q'/);
+  assert.match(renameScript, /unbind-key -T root 'M-q'/);
   assert.match(renameScript, /unbind-key -T root 'M-r'/);
 });
 
