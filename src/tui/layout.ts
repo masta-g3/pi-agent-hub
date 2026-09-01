@@ -60,15 +60,21 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     return renderWorkspaceScreen(model.workspace, width, model.height, model.now, styles);
   }
 
-  const workspaceWidth = model.showWorkspace ? (width >= 160 ? 44 : 34) : 0;
+  const syntheticSelection = model.sections.some((section) => section.selected || section.archiveDisclosure?.selected);
+  const workspaceWidth = model.showWorkspace || (!model.pinMode && syntheticSelection && width >= 120)
+    ? (width >= 160 ? 44 : 34)
+    : 0;
   const navigatorWidth = model.grouping === "project" && !model.pinMode && width >= 100 ? (width >= 120 ? 17 : 16) : 0;
   const listWidth = bodyWidth
     - workspaceWidth - (workspaceWidth ? 1 : 0)
     - navigatorWidth - (navigatorWidth ? 1 : 0);
   const listStartX = 2 + navigatorWidth + (navigatorWidth ? 1 : 0);
+  const decisionRows = pinnedDecisionRows(model.height);
   const decision = model.pinMode && model.workspace
-    ? renderPinnedDecisionStrip(model.workspace, bodyWidth, pinnedDecisionRows(model.height), model.now, styles)
-    : { lines: [] as string[], targets: [] as (string | undefined)[] };
+    ? renderPinnedDecisionStrip(model.workspace, bodyWidth, decisionRows, model.now, styles)
+    : model.pinMode && syntheticSelection
+      ? { lines: Array.from({ length: decisionRows }, () => ""), targets: Array.from({ length: decisionRows }, () => undefined as string | undefined) }
+      : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const baseStripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
   const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);

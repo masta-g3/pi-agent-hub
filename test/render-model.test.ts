@@ -1214,6 +1214,29 @@ test("cockpit tier headers keep a shared title column", () => {
   assert.match(archived, /─▾ ARCHIVED/);
 });
 
+test("synthetic section selection keeps sidebar geometry stable", () => {
+  const sessions = [
+    session("active", "default", "running", "active"),
+    { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
+  ];
+  const selected = workspaceModel({ sessions, selectedId: "archived", width: 120, height: 20 });
+  const header = buildRenderModel({ sessions, selectedId: "archived", selectedSection: "archived", width: 120, height: 20 });
+  const selectedLayout = renderSessions(selected);
+  const headerLayout = renderSessions(header);
+
+  assert.equal(headerLayout.listWidth, selectedLayout.listWidth);
+  assert.equal(headerLayout.listStartX, selectedLayout.listStartX);
+
+  const pinned = workspaceModel({ sessions, selectedId: "archived", width: 100, height: 20, pinSlots: ["archived"], activePinnedSessionId: "archived" });
+  const pinnedHeader = buildRenderModel({ sessions, selectedId: "archived", selectedSection: "archived", width: 100, height: 20, pinSlots: ["archived"], activePinnedSessionId: "archived" });
+  const pinnedLayout = renderSessions(pinned);
+  const pinnedHeaderLayout = renderSessions(pinnedHeader);
+  const lineIndex = (layout: ReturnType<typeof renderSessions>, text: string) => layout.lines.findIndex((line) => stripAnsi(line).includes(text));
+
+  assert.equal(lineIndex(pinnedHeaderLayout, "QUIET"), lineIndex(pinnedLayout, "QUIET"));
+  assert.equal(pinnedHeaderLayout.lines.length, pinnedLayout.lines.length);
+});
+
 test("filter reveals rows in collapsed lifecycle sections without changing state", () => {
   const archived = { ...session("archived", "default", "stopped", "needle"), bucket: "archived" as const, bucketChangedAt: 1 };
   const model = buildRenderModel({ sessions: [archived], selectedId: "archived", collapsedSections: new Set(["archived"]), filter: "needle", width: 100 });
