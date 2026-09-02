@@ -240,10 +240,14 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   let archive = archiveSectionRows(allRows, { expanded: input.archiveExpanded ?? false, filterActive }, allTree);
   const revealed = input.revealedSessionId ? allTree.get(input.revealedSessionId) : undefined;
   const revealedOwner = revealed ? (allTree.trace(revealed).owner ?? allTree.trace(revealed).terminal) : undefined;
+  const revealedIds = new Set<string>();
   const revealedArchiveIds = new Set<string>();
+  if (revealedOwner) {
+    revealedIds.add(revealedOwner.id);
+    for (const descendant of allTree.descendants(revealedOwner.id)) revealedIds.add(descendant.id);
+  }
   if (revealedOwner && effectiveSessionLifecycle(revealedOwner, allRows, allTree).section === "archived") {
-    revealedArchiveIds.add(revealedOwner.id);
-    for (const descendant of allTree.descendants(revealedOwner.id)) revealedArchiveIds.add(descendant.id);
+    for (const id of revealedIds) revealedArchiveIds.add(id);
     const archiveRowIds = new Set(archive.rows.map((row) => row.id));
     archive = {
       ...archive,
@@ -264,8 +268,8 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   });
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const visible = board ? boardProjection.rows : filterActive ? projectRows : projectRows.filter((session) => {
-    const section = effectiveSessionLifecycle(session, allRows, allTree).section;
-    return section !== "archived" || !collapsedSections.has("archived") || revealedArchiveIds.has(session.id);
+    const tier = cockpitTierById.get(session.id);
+    return !tier || tier === "needs-you" || !collapsedSections.has(tier) || revealedIds.has(session.id);
   });
   return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
 }
@@ -701,7 +705,7 @@ function cockpitSectionsForSessions(
     const sectionSessions = sessions.filter((session) => session.cockpitTier === tier);
     const allSectionSessions = allSessions.filter((session) => session.cockpitTier === tier);
     if (!allSectionSessions.length && (!coach || tier === "archived")) return [];
-    const collapsed = tier === "archived" && collapsedSections.has("archived");
+    const collapsed = tier !== "needs-you" && collapsedSections.has(tier);
     return [{
       key: tier,
       cockpitTier: tier,
@@ -717,9 +721,9 @@ function cockpitSectionsForSessions(
         attentionCount: countAttentionSessions(sectionSessions),
         sessions: sectionSessions,
       }],
-      collapsible: tier === "archived",
+      collapsible: tier !== "needs-you",
       collapsed,
-      selected: tier === "archived" && selectedSection === "archived",
+      selected: tier !== "needs-you" && selectedSection === tier,
       ...(coach && tier !== "archived" ? { lesson: COCKPIT_TIER_LESSONS[tier] } : {}),
       ...(tier === "archived" && archiveDisclosure ? { archiveDisclosure } : {}),
     } satisfies RenderSection];
@@ -791,7 +795,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     statusEvidence: session.statusEvidence,
     displayStatus,
     symbol: symbolFor(displayStatus),
-    needsAttention: session.status === "waiting" && session.acknowledgedAt === undefined,
+    needsAttention: attention !== undefined && session.acknowledgedAt === undefined,
     selected,
     error: session.error,
     sessionFile: session.sessionFile,
@@ -842,7 +846,9 @@ function activityAge(lastActivityAt: number | undefined, now: number | undefined
 }
 
 function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
-  return session.status === "waiting" || session.status === "idle" ? session.context?.attention : undefined;
+  if (session.status !== "waiting" && session.status !== "idle") return undefined;
+  if (session.acknowledgedAt !== undefined) return undefined;
+  return session.context?.attention;
 }
 
 function ticketDisplay(session: RuntimeSession): Pick<RenderSession, "ticketId" | "ticketSubtitle" | "ticketDescription"> {

@@ -56,6 +56,46 @@ test("project cockpit classifies independent state axes without promotion", () =
   });
   assert.equal(rowOf(model, "child-error")?.cockpitPlacement.kind, "quiet");
   assert.equal(rowOf(model, "archive-new")?.cockpitPlacement.kind, "archived");
+
+  const acknowledged = buildRenderModel({ sessions: cockpitFleet().map((row) => row.id === "docs" ? { ...row, acknowledgedAt: COCKPIT_NOW } : row), width: 100, now: COCKPIT_NOW });
+  assert.equal(tierOf(acknowledged, "docs"), "quiet");
+  assert.equal(rowOf(acknowledged, "docs")?.needsAttention, false);
+});
+
+test("quiet rows retain a textual quiet cue when width permits", () => {
+  const model = buildRenderModel({ sessions: cockpitFleet(), width: 100, now: COCKPIT_NOW, expandedProjectParentIds: new Set(["quiet-parent"]) });
+  const layout = renderSessions(model);
+  assert.match(stripAnsi(layout.lines.find((line) => line.includes("MCP integration cleanup")) ?? ""), /quiet/);
+});
+
+test("project cockpit collapses each non-attention tier without changing placement", () => {
+  const sessions = cockpitFleet();
+  const model = buildRenderModel({
+    sessions,
+    selectedId: "qa",
+    width: 100,
+    collapsedSections: new Set(["health", "active", "quiet", "archived"]),
+    expandedProjectParentIds: new Set(["dashboard", "quiet-parent"]),
+  });
+  assert.deepEqual(model.sections.map((section) => section.key), ["needs-you", "health", "active", "quiet", "archived"]);
+  assert.ok(sectionRows(model, "needs-you").length > 0);
+  for (const tier of ["health", "active", "quiet", "archived"]) {
+    const section = model.sections.find((candidate) => candidate.key === tier);
+    assert.equal(section?.collapsed, true);
+    assert.deepEqual(section?.groups, []);
+  }
+  assert.equal(model.sections.find((section) => section.key === "health")?.sessionsTotal, 1);
+  assert.equal(model.sections.find((section) => section.key === "active")?.sessionsTotal, 2);
+  assert.equal(rowOf(model, "qa"), undefined);
+  const filtered = buildRenderModel({
+    sessions,
+    selectedId: "qa",
+    width: 100,
+    filter: "lifecycle:active,archived",
+    collapsedSections: new Set(["active", "archived"]),
+  });
+  assert.ok(rowOf(filtered, "qa"));
+  assert.ok(filtered.sections.find((section) => section.key === "active")?.groups.flatMap((group) => group.sessions).length);
 });
 
 test("attention announcement follows the responsive hierarchy and exact hit target", () => {
@@ -211,7 +251,7 @@ test("rendering and navigation expose the same cockpit tree order", () => {
   assert.deepEqual(layout.rowTargets.flatMap((target) => target?.kind === "session"
     ? [target.id]
     : target?.kind === "section-header" ? [`header:${target.section}`] : []),
-  ["docs", "qa", "dashboard", "worker", "release", "quiet-parent", "mcp", "theme", "header:archived", "archive-new"]);
+  ["docs", "header:health", "qa", "header:active", "dashboard", "worker", "release", "header:quiet", "quiet-parent", "mcp", "theme", "header:archived", "archive-new"]);
 });
 
 test("onboarding moments stay deterministic at 60, 100, and 160 columns", () => {

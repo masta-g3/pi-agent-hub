@@ -1,5 +1,5 @@
-import { sessionSection } from "./session-bucket.js";
 import { orderedSessions } from "./session-order.js";
+import { matchesDashboardFilter, matchesFilter as matchesDashboardTextFilter, parseDashboardFilter, type DashboardFilter } from "./dashboard-filter.js";
 import type { ManagedSession, RuntimeSession } from "./types.js";
 
 export interface SessionTreeRow {
@@ -117,7 +117,7 @@ export function sessionCascadeIds(sessions: ManagedSession[], id: string): Set<s
 }
 
 export function orderedSessionRows(sessions: RuntimeSession[], filter?: string): RuntimeSession[] {
-  const visible = filter?.trim() ? treeFilteredSessions(sessions, filter.trim().toLowerCase()) : sessions;
+  const visible = filter?.trim() ? treeFilteredSessions(sessions, parseDashboardFilter(filter)) : sessions;
   const visibleIds = new Set(visible.map((session) => session.id));
   const childrenByParent = new Map<string, RuntimeSession[]>();
   const childRows = visible.filter(isSubagentSession);
@@ -143,7 +143,7 @@ export function orderedSessionRows(sessions: RuntimeSession[], filter?: string):
   return rows;
 }
 
-function treeFilteredSessions(sessions: RuntimeSession[], filter: string): RuntimeSession[] {
+function treeFilteredSessions(sessions: RuntimeSession[], filter: DashboardFilter): RuntimeSession[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
   const childrenByParent = new Map<string, RuntimeSession[]>();
   for (const session of sessions) {
@@ -154,8 +154,9 @@ function treeFilteredSessions(sessions: RuntimeSession[], filter: string): Runti
   }
 
   const visible = new Map<string, RuntimeSession>();
+  const tree = createSessionTreeIndex(sessions);
   for (const session of sessions) {
-    if (!matchesFilter(session, filter)) continue;
+    if (!matchesDashboardFilter(session, filter, tree)) continue;
     visible.set(session.id, session);
     if (isSubagentSession(session) && session.parentId) {
       addAncestors(session, byId, visible);
@@ -166,27 +167,7 @@ function treeFilteredSessions(sessions: RuntimeSession[], filter: string): Runti
   return [...visible.values()];
 }
 
-export function matchesFilter(session: RuntimeSession, filter: string): boolean {
-  return [
-    session.title,
-    session.group,
-    basename(session.cwd),
-    ...(session.additionalCwds ?? []).map(basename),
-    session.status,
-    sessionSection(session),
-    session.agentName ?? "",
-    session.taskPreview ?? "",
-    session.context?.ticket?.id ?? "",
-    session.context?.ticket?.subtitle ?? "",
-    session.context?.ticket?.description ?? "",
-    session.context?.attention?.kind ?? "",
-    session.context?.attention?.text ?? "",
-    session.workflow?.ticketId ?? "",
-    session.workflow?.activity?.label ?? "",
-    session.workflow?.plan?.phase?.title ?? "",
-    session.workflow?.plan?.nextStep ?? "",
-  ].some((value) => value.toLowerCase().includes(filter));
-}
+export const matchesFilter = matchesDashboardTextFilter;
 
 function addAncestors(session: RuntimeSession, byId: Map<string, RuntimeSession>, visible: Map<string, RuntimeSession>): void {
   const seen = new Set<string>();
@@ -205,8 +186,4 @@ function addDescendants(id: string, childrenByParent: Map<string, RuntimeSession
     visible.set(child.id, child);
     addDescendants(child.id, childrenByParent, visible);
   }
-}
-
-function basename(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
 }

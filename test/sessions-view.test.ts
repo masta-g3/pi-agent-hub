@@ -185,6 +185,39 @@ test("workspace evidence follows width changes and wide Escape still clears filt
   assert.equal(controller.snapshot().filter, undefined);
 });
 
+test("lowercase b toggles Backlog in the lifecycle filter and persists it", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active"), { ...session("backlog", "backlog"), bucket: "backlog" }] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, { saveViewState: (state) => saved.push(state) });
+  controller.setFilter("release");
+  view.handleInput("b");
+  assert.equal(controller.snapshot().filter, "lifecycle:active,archived release");
+  assert.deepEqual(saved.at(-1)?.filter, { text: "release", lifecycle: ["active", "archived"] });
+  view.handleInput("b");
+  assert.equal(controller.snapshot().filter, "release");
+  assert.deepEqual(saved.at(-1)?.filter, { text: "release", lifecycle: ["active", "backlog", "archived"] });
+});
+
+test("mark read uses current idle attention even after announcement expiry", () => {
+  const requests: (string | undefined)[] = [];
+  const selected = { ...session("idle-request", "idle-request"), status: "idle" as const, context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-current", kind: "ready" as const, text: "Review result" } } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, {
+    acknowledgeSession: (_id, requestId) => { requests.push(requestId); },
+    now: () => 10_000,
+  });
+  view.handleInput("a");
+  assert.deepEqual(requests, ["req-current"]);
+});
+
+test("restored lifecycle filter reaches the controller before rendering", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active")] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", filter: { text: "active", lifecycle: ["active"] } },
+  });
+  assert.equal(controller.snapshot().filter, "lifecycle:active active");
+  assert.match(stripAnsi(view.render(80).join("\n")), /filter: lifecycle:active active/);
+});
+
 test("filter mode filters live and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {});
@@ -616,6 +649,18 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   assert.match(fleetText(view.render(120)), /worker/);
 });
 
+test("left and right arrows target the selected parent tree itself", () => {
+  const parent = session("parent", "parent");
+  const child = { ...session("child", "child"), kind: "subagent" as const, parentId: parent.id };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {});
+  view.render(100);
+  view.handleInput("\u001b[C");
+  assert.match(fleetText(view.render(100)), /subagent/);
+  view.handleInput("\u001b[D");
+  assert.doesNotMatch(fleetText(view.render(100)), /subagent/);
+});
+
 test("left and right arrows expand and collapse the selected project tree", () => {
   const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
@@ -800,7 +845,8 @@ test("existing-user release cue is target-safe and dismisses without changing se
 
   assert.match(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
   const selectedId = controller.snapshot().selectedId;
-  view.handleInput("k");
+  view.handleInput("k"); // ACTIVE header
+  view.handleInput("k"); // release cue
   assert.equal(controller.snapshot().selectedId, selectedId);
   assert.match(stripAnsi(view.render(100).join("\n")), /▌ NEW DAILY LOOP/);
   view.handleInput("\r");
@@ -1047,7 +1093,7 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 function rowIndexFor(rendered: string[], title: string): number {
   const index = rendered.findIndex((line) => {
     const text = stripAnsi(line);
-    return text.includes(title) && /[▸▾·├└│].*[●◐○×-]/.test(text);
+    return ["●", "◐", "○", "×", "-"].some((symbol) => text.includes(`${symbol} ${title}`));
   });
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
@@ -1254,7 +1300,7 @@ test("navigation follows the shared projection across lifecycle sections and sub
   assert.match(stripAnsi(view.render(100).join("\\n")), /child/);
 });
 
-test("Archived is the only collapsible project section and persists its state", () => {
+test("Archived collapse persists its state", () => {
   const sessions = [
     session("active", "active"),
     { ...session("backlog", "backlog"), bucket: "backlog" as const },
@@ -1274,6 +1320,26 @@ test("Archived is the only collapsible project section and persists its state", 
   assert.doesNotMatch(collapsed, /\n.*○ archived/);
   assert.match(collapsed, /backlog/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
+});
+
+test("all non-attention tiers can collapse and retain counts", () => {
+  const running = { ...session("running", "running"), status: "running" as const };
+  const quiet = session("quiet", "quiet");
+  const saved: SessionsViewState[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [running, quiet] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", collapsedSections: ["active", "quiet"] },
+    saveViewState: (state) => saved.push(state),
+  });
+  const collapsed = stripAnsi(view.render(80).join("\n"));
+  assert.match(collapsed, /▸ ACTIVE\s+·1/);
+  assert.match(collapsed, /▸ QUIET\s+·1/);
+  assert.doesNotMatch(collapsed, /● running|○ quiet/);
+  view.handleInput("\r");
+  const expanded = stripAnsi(view.render(80).join("\n"));
+  assert.match(expanded, /▾ ACTIVE/);
+  assert.match(expanded, /● running/);
+  assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
 
 test("Archived header selection blocks session actions and Enter collapses it", () => {
@@ -1533,7 +1599,7 @@ test("non-row mouse input cancels a pending double-click", () => {
   assert.deepEqual(switched, []);
 });
 
-test("mouse clicks ignore headings and execute exact workspace action rows", () => {
+test("mouse section headers block stale actions and session rows restore exact workspace targets", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
@@ -1550,6 +1616,13 @@ test("mouse clicks ignore headings and execute exact workspace action rows", () 
   assert.equal(controller.snapshot().selectedId, before);
   assert.deepEqual(switched, []);
   view.handleInput(mousePressAtLine(openIndex, 110));
+  assert.deepEqual(switched, []);
+
+  const sectionSelected = view.render(120);
+  view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
+  const sessionSelected = view.render(120);
+  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentOpenIndex, 110));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
 

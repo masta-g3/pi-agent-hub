@@ -13,6 +13,7 @@ import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
 import type { CommandPaletteDialog } from "./command-palette-dialog.js";
 import type { CockpitOnboardingState } from "./cockpit-onboarding.js";
+import type { DashboardFilterState } from "../core/dashboard-filter.js";
 
 export interface ForkDialogInput {
   group: string;
@@ -21,10 +22,11 @@ export interface ForkDialogInput {
 
 export type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult };
 
-export type CollapsibleSection = "archived";
+export type CollapsibleSection = "health" | "active" | "quiet" | "archived";
 
 export interface SessionsViewState {
   grouping: "project" | "stage";
+  filter?: DashboardFilterState;
   collapsedSections?: CollapsibleSection[];
   cockpitOnboarding?: CockpitOnboardingState;
   dismissedReleaseCueId?: string;
@@ -195,6 +197,7 @@ export interface DialogContext {
   setDialog(dialog: SessionDialog): void;
   dialog(): SessionDialog | undefined;
   setMessage(message: string | undefined): void;
+  setFilter?: (filter: string | undefined) => void;
   message(): string | undefined;
   flashMessage(text: string): void;
   runAction(action: () => unknown, pending: string, onSuccess?: () => void): void;

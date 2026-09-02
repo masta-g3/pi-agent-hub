@@ -16,6 +16,7 @@ import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
 import { sessionSection } from "../core/session-bucket.js";
+import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
@@ -28,7 +29,7 @@ import { discardWorktreeSession, finishWorktreeSession } from "./worktree-sessio
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
-import type { ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
+import type { CollapsibleSection, ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
 import { normalizeCockpitOnboarding } from "../tui/cockpit-onboarding.js";
 import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
 
@@ -122,8 +123,12 @@ export function normalizeSessionsViewState(
   const missing = value === undefined;
   const saved = value && typeof value === "object" ? value as Partial<SessionsViewState> : {};
   const collapsedSections = Array.isArray(saved.collapsedSections)
-    ? [...new Set(saved.collapsedSections.filter((section): section is "archived" => section === "archived"))]
+    ? [...new Set(saved.collapsedSections.filter((section): section is CollapsibleSection => section === "health" || section === "active" || section === "quiet" || section === "archived"))]
     : [];
+  const savedFilter = typeof saved.filter === "string"
+    ? parseDashboardFilter(saved.filter)
+    : dashboardFilterFromState(saved.filter);
+  const filter = savedFilter ? dashboardFilterState(savedFilter) : undefined;
   const cockpitOnboarding = normalizeCockpitOnboarding(saved.cockpitOnboarding)
     ?? (missing && options.emptyFleet ? { cohort: "new" as const, phase: "learning" as const } : undefined);
   const dismissedReleaseCueId = typeof saved.dismissedReleaseCueId === "string"
@@ -132,6 +137,7 @@ export function normalizeSessionsViewState(
     : undefined;
   return {
     grouping: saved.grouping === "stage" ? "stage" : "project",
+    ...(filter ? { filter } : {}),
     ...(collapsedSections.length ? { collapsedSections } : {}),
     ...(cockpitOnboarding ? { cockpitOnboarding } : {}),
     ...(dismissedReleaseCueId ? { dismissedReleaseCueId } : {}),
@@ -316,6 +322,8 @@ export async function runTui(): Promise<void> {
   let historyCwds = rankedRepoCwds((await loadRepoHistory()).repos);
   const savedViewState = await readJsonOr<unknown | undefined>(uiStatePath(), undefined);
   const initialViewState = normalizeSessionsViewState(savedViewState, { emptyFleet: controller.snapshot().sessions.length === 0 });
+  const restoredFilter = initialViewState.filter ? dashboardFilterFromState(initialViewState.filter) : undefined;
+  if (restoredFilter) controller.setFilter(serializeDashboardFilter(restoredFilter));
   const viewStateWriter = createViewStateWriter((state) => writeJsonAtomic(uiStatePath(), state));
   if (savedViewState === undefined && initialViewState.cockpitOnboarding) {
     viewStateWriter.save(initialViewState);

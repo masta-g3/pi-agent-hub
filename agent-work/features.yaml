@@ -955,3 +955,14 @@
   - cockpit-004
   plan_file: agent-work/history/20260830_cockpit-012_question_routing.md
   completed_at: '2026-08-30'
+- id: dashboard-visibility-001
+  status: done
+  title: Dashboard visibility
+  subtitle: Persist cockpit visibility controls
+  description: Users can hide cockpit tiers and Backlog, combine lifecycle filters,
+    and restore presentation preferences after dashboard restart without changing
+    session lifecycle.
+  priority: 2
+  created_at: '2026-09-01'
+  plan_file: agent-work/history/20260902_dashboard-visibility-001_persistent_cockpit_visibility.md
+  completed_at: '2026-09-02'
