@@ -258,8 +258,8 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
   const palette = fromView("view:palette", "Actions");
   const help = fromView("view:help", "Help");
   if (options.coaching) {
-    if (width < 60) return [item("Enter", "Open"), item("Alt+Q", "Return"), ":", "?"].join(" · ");
-    return [item("Enter", "Open"), item("Alt+Q", "Return"), palette, help].join(" · ");
+    if (width < 60) return [item("Enter", "Open"), item("Ctrl+Q", "Return"), ":", "?"].join(" · ");
+    return [item("Enter", "Open"), item("Ctrl+Q", "Return"), palette, help].join(" · ");
   }
   const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
   if (width < 60) return ["↑↓", item("/", "Filter"), palette, help].join(" · ");

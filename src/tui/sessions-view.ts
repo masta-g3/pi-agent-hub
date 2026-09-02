@@ -187,12 +187,8 @@ export class SessionsView implements Component {
       this.focusSidePaneDirection(direction);
       return;
     }
-    if (matchesKey(data, Key.alt("q"))) {
-      this.returnToCockpit("alt");
-      return;
-    }
     if (matchesKey(data, Key.ctrl("q"))) {
-      this.returnToCockpit("ctrl");
+      this.returnToCockpit();
       return;
     }
     if (data === ":") {
@@ -924,7 +920,7 @@ export class SessionsView implements Component {
     this.runAction(() => focus(direction), "moving between pins...", () => {});
   }
 
-  private returnToCockpit(key: "alt" | "ctrl") {
+  private returnToCockpit() {
     const returnToCockpit = this.actions.returnToCockpit;
     if (!returnToCockpit) return;
     const pending = "returning to cockpit...";
@@ -933,14 +929,14 @@ export class SessionsView implements Component {
       setBusy: (busy) => { this.busy = busy; },
       setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
       success: (result) => {
-        if (key === "alt" && result.kind === "focused") this.completeAttentionReturn();
+        if (result.kind === "focused") this.completeAttentionReturn();
       },
       failure: (error) => { this.message = errorMessage(error); },
     });
   }
 
-  completeFullScreenReturn(key: "alt-q"): void {
-    if (key === "alt-q") this.completeAttentionReturn();
+  completeFullScreenReturn(key: "ctrl-q"): void {
+    if (key === "ctrl-q") this.completeAttentionReturn();
   }
 
   private completeAttentionReturn(): void {
@@ -1239,7 +1235,7 @@ export class SessionsView implements Component {
         this.message = plan.message;
         return false;
       }
-      this.flashMessage(`switching: ${plan.command} · Ctrl+Q or Alt+Q returns`);
+      this.flashMessage(`switching: ${plan.command} · Ctrl+Q returns`);
       try {
         const result = switchInsideTmux(selected.tmuxSession);
         if (isPromise(result)) return result.then((switched) => switched !== false).catch((error: unknown) => {
@@ -1754,14 +1750,14 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     heading("Navigation"),
     "  ↑↓/j/k move selection     Esc cancel/clear",
     "  P pin/focus selected     x close selected pin     +/- resize split",
-    "  Alt+arrows move spatially     Alt+Q return to cockpit",
+    "  Alt+arrows move spatially     Ctrl+Q return to cockpit",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
     "  mouse click select · tier navigator jumps at 100+ · double-click workspace below 120, open/switch at 120+ · wheel move",
     "",
     heading("Choice dialogs"),
     "  Restart: r selected     n new conversation     a all     Esc cancel",
     "  Delete: d delete/forget     D discard worktree     s close subagents     w finish worktree",
-    "  Group picker: Ctrl+N/P cycles groups",
+    "  Group picker: Ctrl+N/P cycles groups · palette: Ctrl+N/P moves selection",
     "",
     heading("New-session form"),
     "  Tab/↑↓ move     Space toggles Worktree row     Ctrl+T toggles anywhere     Ctrl+O choose repo",
@@ -1771,7 +1767,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  pickers: ←→/Tab switch columns; theme: live preview, Enter apply, Esc cancel",
     "",
     heading("Return from managed sessions and panels"),
-    "  Alt+Q pinned pane to cockpit     Ctrl+Q return fallback     Alt+R rename session",
+    "  Ctrl+Q pinned pane to cockpit     Alt+R rename session",
     "",
     heading("Sections and views"),
     "  Project view: Needs you · Health · Active · Quiet; groups appear on session rows",

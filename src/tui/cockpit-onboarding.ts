@@ -1,7 +1,7 @@
 export const COCKPIT_RELEASE_CUE = {
   id: "cockpit-daily-loop-v1",
   label: "NEW DAILY LOOP",
-  text: "NEEDS YOU is explicit · Enter reaches · Alt+Q returns",
+  text: "NEEDS YOU is explicit · Enter reaches · Ctrl+Q returns",
 } as const;
 
 export type CockpitOnboardingState =

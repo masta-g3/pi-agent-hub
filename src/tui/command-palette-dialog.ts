@@ -133,7 +133,7 @@ export function renderCommandPalette(
   const contentStart = searchRuleIndex + 1;
   const helpRuleIndex = Math.max(contentStart, helpIndex - 1);
   lines[helpRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
-  lines[helpIndex] = pad(truncate(styleToken(theme, "dim", safeWidth < 60 ? "↑↓ · Enter · Esc" : "↑↓ Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
+  lines[helpIndex] = pad(truncate(styleToken(theme, "dim", safeWidth < 60 ? "↑↓/Ctrl+N/P · Enter · Esc" : "↑↓/Ctrl+N/P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
   const capacity = Math.max(0, helpRuleIndex - contentStart);
   if (!capacity) return { lines, rowTargets, matches };
   if (!matches.length) {

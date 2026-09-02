@@ -13,7 +13,7 @@ Enter to inspect/open
   ↓
 work in Pi
   ↓
-Alt+Q returns to the dashboard
+Ctrl+Q returns to the dashboard
 ```
 
 ## Core capabilities
@@ -21,7 +21,7 @@ Alt+Q returns to the dashboard
 | Capability | How to use it | Why it matters |
 | --- | --- | --- |
 | Long-running sessions | `n` creates, `Enter` inspects or opens | Sessions keep running in tmux instead of disappearing with a terminal. |
-| Dashboard return | `Alt+Q` inside a managed session | Jump back to the hub without stopping the agent and complete the coached first request round trip. `Ctrl+Q` remains a non-completing fallback. |
+| Dashboard return | `Ctrl+Q` inside a managed session | Jump back to the hub without stopping the agent and complete the coached first request round trip. `Alt+Q` remains available to Pi for editing the last message. |
 | In-session rename | `Alt+R` inside a managed session | Open the dashboard rename dialog for the current session, then return to it after saving. |
 | Direct send | `p` in the dashboard | Paste and submit a one-line message into the selected live session without opening it. |
 | Custom dashboard shortcuts | `dashboard.shortcuts` in config | Bind safe Pi slash-command sends, such as `/session-name refresh`, to dashboard keys. |
@@ -48,7 +48,7 @@ Alt+Q returns to the dashboard
 | `Alt+1`–`Alt+4` | Focus the corresponding occupied slot from anywhere in the dashboard tmux session |
 | `x` | Close the selected session's pin without stopping Pi |
 | `+` / `-` | Resize the main pin split by ten percentage points, clamped to 30/70 |
-| `Alt+Q` or `Ctrl+Q` | Return from a focused live pane to the sidebar; only `Alt+Q` completes first-run coaching |
+| `Ctrl+Q` | Return from a focused live pane to the sidebar and complete first-run coaching; `Alt+Q` remains available to Pi for editing |
 | `/` | Filter sessions |
 | `:` | Search actions, sessions, and named lifecycle/status/group filters |
 | `p` | Send a one-line message to the selected live session without opening it |
@@ -125,7 +125,7 @@ Every visible parent continuation line is clickable: single-click selects its ow
 
 Attention is an independent overlay on waiting/idle rows: `✓` means a ready handoff, `?` an explicit question/choice, and `!` a blocker. Only explicit owner attention enters `NEEDS YOU`; waiting alone does not. For a structured Pi question, Hub shows the bounded first-question summary plus `+N more` and labels the primary action **Answer**. Answer focuses that exact session's existing pin when present or opens the managed session full-screen. Pi's questionnaire remains the only answer surface; Hub does not copy options, accept text, or send blind keystrokes. Running/error/stopped rows keep operational presentation, and subagent attention is never promoted to its parent. The action workspace keeps task and workflow facts separate from exceptional Hub guidance and enabled catalog actions. Workflow step, Hub runtime status, attention, and running-subagent count remain independent axes: the board never infers attention from waiting, promotes child state, advances workflow, dispatches skills, moves stages, or persists board state.
 
-A first-time empty dashboard teaches this loop through the real project tier headers and footer. Coaching remains until Hub successfully acknowledges and opens one explicit request with a producer request ID and later receives a successful `Alt+Q` return. Locate, `a`, `Ctrl+Q`, failed focus, ordinary waiting, and requests without IDs do not complete it. Board, pin, filter, dialog, and full-screen workspace views suppress coaching. Existing users get no full coaching: one versioned **NEW DAILY LOOP** row appears after `NEEDS YOU`, remains below real attention, and dismisses with `Enter` or double-click. Normal package updates do not revive it; only an intentional future cue ID does.
+A first-time empty dashboard teaches this loop through the real project tier headers and footer. Coaching remains until Hub successfully acknowledges and opens one explicit request with a producer request ID and later receives a successful `Ctrl+Q` return. Locate, `a`, failed focus, ordinary waiting, and requests without IDs do not complete it. Board, pin, filter, dialog, and full-screen workspace views suppress coaching. Existing users get no full coaching: one versioned **NEW DAILY LOOP** row appears after `NEEDS YOU`, remains below real attention, and dismisses with `Enter` or double-click. Normal package updates do not revive it; only an intentional future cue ID does.
 
 A waiting/idle attention payload with a producer request ID is also eligible for one transient delivery. Hub seeds requests present at dashboard startup without announcing them, then deduplicates fresh requests by exact session and request ID for the current dashboard process. A fresh request remains active for six seconds and, when layout permits, renders below the mode header. The managed dashboard tmux session also sends a six-second status message to attached clients that are not already showing the Hub pane, the exact managed session, or its exact pin; external messages and BEL run only from that dashboard session. Multiple arrivals share one band, and the newest exact request is the locate target. Clicking the band or choosing **Locate newest request** from `:` reveals that row without opening or acknowledging it. `Enter` and `a` retain their selected-row targets; acknowledging the exact requesting row removes its active delivery while producer attention can remain visible. Delivery has no persisted history, and the optional palette-owned attention bell defaults to Off.
 
@@ -154,7 +154,7 @@ Use `1`–`4` in the dashboard to pin the selected live session into an exact fr
 
 Slot numbers are stable while panes remain attached. At 100–119 columns, slots 1 and 2 stack; at 120–159 they sit side by side. At 160+, slots map to a 2×2 topology (`1` top-left, `2` top-right, `3` bottom-left, `4` bottom-right). Holes remain visible in the `PINNED` summary while occupied columns or rows expand to use available space. `▢N` marks an inactive pinned row, `▣N` marks the focused pin, and pane chrome starts with `LIVE N · <title>` plus owner/ticket context when it fits. `+` and `-` change the main split in ten-point steps from 30/70 through 70/30; a single occupied column resizes vertically.
 
-Guarded `Alt+1`–`Alt+4` bindings focus occupied slots from either the sidebar or another live pane. `Alt+Q` and `Ctrl+Q` return to the sidebar. `Alt+Arrow` remains an optional geometry-based alias, but terminal word-navigation mappings can consume modified left/right arrows; numeric focus or tmux prefix plus arrows avoids that conflict. Pin creation keeps sidebar focus and does not acknowledge waiting attention. Explicit focus, spatial focus, return, and full-screen `Enter` reveal the exact session and acknowledge waiting state before focus. While pins exist, the sidebar keeps a compact decision/evidence strip; `i` toggles evidence and `Enter` opens the selected session directly.
+Guarded `Alt+1`–`Alt+4` bindings focus occupied slots from either the sidebar or another live pane. `Ctrl+Q` returns to the sidebar. `Alt+Q` is not a Hub binding, so Pi can use it to edit the last message. `Alt+Arrow` remains an optional geometry-based alias, but terminal word-navigation mappings can consume modified left/right arrows; numeric focus or tmux prefix plus arrows avoids that conflict. Pin creation keeps sidebar focus and does not acknowledge waiting attention. Explicit focus, spatial focus, return, and full-screen `Enter` reveal the exact session and acknowledge waiting state before focus. While pins exist, the sidebar keeps a compact decision/evidence strip; `i` toggles evidence and `Enter` opens the selected session directly.
 
 Capacity contraction never closes or renumbers existing slots. The layout becomes constrained and blocks new assignment or resizing until the window widens or a pin closes; closing remains safe even when slots 3–4 survive below their normal width. Failed rebuilds restore the prior slot attachments when possible, and an occupied-slot refusal performs no pane mutation.
 
@@ -168,8 +168,8 @@ Return shortcuts from a managed `pi-agent-hub-*` session:
 
 | Key | Action |
 | --- | --- |
-| `Alt+Q` | Return to the dashboard and complete a pending first-run request round trip |
-| `Ctrl+Q` | Return to the dashboard without completing first-run coaching |
+| `Ctrl+Q` | Return to the dashboard and complete a pending first-run request round trip |
+| `Alt+Q` | Reserved for Pi message editing; Hub does not intercept it |
 | `Alt+R` | Return to the dashboard rename dialog for the current session, then switch back after saving |
 
 ## New session form
@@ -188,7 +188,7 @@ While editing the form:
 | --- | --- |
 | `Alt+A` | Add another repo row |
 | `Alt+X` | Remove the focused extra repo row |
-| `Ctrl+N` / `Ctrl+P` | Cycle known cwd suggestions |
+| `Ctrl+N` / `Ctrl+P` | In the new-session form, cycle known cwd suggestions; in the move-group form, cycle groups; in the command palette, move selection. A configured Ctrl+N shortcut runs only in normal dashboard mode. |
 | `Ctrl+O` | Open the recent-repo picker |
 | `Ctrl+T` | Toggle hub-owned worktree mode |
 

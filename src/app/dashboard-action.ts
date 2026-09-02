@@ -5,7 +5,7 @@ import { sessionsStateDir } from "../core/paths.js";
 
 export type DashboardAction =
   | { action: "rename"; tmuxSession: string }
-  | { action: "return"; key: "alt-q" };
+  | { action: "return"; key: "ctrl-q" };
 
 export function dashboardActionPath(stateDir = sessionsStateDir()): string {
   return join(stateDir, "return-key", "dashboard-action.json");
@@ -23,6 +23,6 @@ export async function consumeDashboardAction(path = dashboardActionPath()): Prom
 
   const action = JSON.parse(raw) as Partial<DashboardAction>;
   if (action.action === "rename" && typeof action.tmuxSession === "string" && action.tmuxSession) return action as DashboardAction;
-  if (action.action === "return" && action.key === "alt-q") return { action: "return", key: "alt-q" };
+  if (action.action === "return" && action.key === "ctrl-q") return { action: "return", key: "ctrl-q" };
   return undefined;
 }

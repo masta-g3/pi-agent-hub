@@ -373,9 +373,9 @@ test("sidebar bindings deliver guarded spatial and return intents to the exact c
   await installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec);
 
   const binds = exec.calls.filter((call) => call.args[0] === "bind-key");
-  const keys = ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"];
+  const keys = ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"];
   assert.deepEqual(binds.map((call) => call.args[2]), keys);
-  const delivered = ["C-q", "M-q", "Escape '1'", "Escape '2'", "Escape '3'", "Escape '4'", "Escape '[1;3D'", "Escape '[1;3C'", "Escape '[1;3A'", "Escape '[1;3B'"];
+  const delivered = ["C-q", "Escape '1'", "Escape '2'", "Escape '3'", "Escape '4'", "Escape '[1;3D'", "Escape '[1;3C'", "Escape '[1;3A'", "Escape '[1;3B'"];
   for (const [index, key] of keys.entries()) {
     assert.deepEqual(binds[index]?.args.slice(3), [
       "if-shell", "-F", "#{==:#{session_name},pi-agent-hub}",
@@ -446,7 +446,7 @@ test("sidebar binding install failure rolls back the whole binding set", async (
     return { stdout: "", stderr: "" };
   });
   await assert.rejects(() => installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec), /bind failed/);
-  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"]);
+  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"]);
   assert.deepEqual(await inspectSidebarReturnBinding({ stateDir }), { active: false });
 });
 
@@ -562,9 +562,7 @@ test("switchClientWithReturn installs return binding then switches client", asyn
     ["display-message", "-p", "#{session_name}"],
     ["display-message", "-p", "#{client_name}"],
     ["list-keys", "-T", "root", "C-q"],
-    ["list-keys", "-T", "root", "M-q"],
     ["bind-key", "-n", "C-q", "run-shell"],
-    ["bind-key", "-n", "M-q", "run-shell"],
     ["display-message", "-p", "-c", "/dev/ttys011", "#{client_width} #{client_height}"],
     ["resize-window", "-t", "pi-agent-hub-target", "-x", "160", "-y", "59"],
     ["switch-client", "-c", "/dev/ttys011", "-t", "pi-agent-hub-target"],
@@ -578,11 +576,8 @@ test("switchClientWithReturn installs return binding then switches client", asyn
   assert.match(script, /active\.json/);
   assert.match(script, /source-file/);
   assert.match(script, /unbind-key/);
-  assert.doesNotMatch(script, /"action":"return"/);
-  const altScript = exec.calls.find((call) => call.args[0] === "bind-key" && call.args[2] === "M-q")?.args[4] ?? "";
-  assert.match(altScript, /"action":"return","key":"alt-q"/);
-  assert.match(altScript, /if tmux switch-client[^;]+; then printf/);
-  assert.match(altScript, /alt-return\.previous\.tmux/);
+  assert.match(script, /"action":"return","key":"ctrl-q"/);
+  assert.equal(exec.calls.some((call) => call.args[0] === "bind-key" && call.args[2] === "M-q"), false);
 });
 
 test("switchClientWithReturn installs rename action binding when requested", async () => {
@@ -600,7 +595,6 @@ test("switchClientWithReturn installs rename action binding when requested", asy
   const bindCalls = exec.calls.filter((call) => call.args[0] === "bind-key");
   assert.deepEqual(bindCalls.map((call) => call.args.slice(0, 4)), [
     ["bind-key", "-n", "C-q", "run-shell"],
-    ["bind-key", "-n", "M-q", "run-shell"],
     ["bind-key", "-n", "M-r", "run-shell"],
   ]);
   const renameScript = bindCalls.find((call) => call.args[2] === "M-r")?.args[4] ?? "";
@@ -609,7 +603,7 @@ test("switchClientWithReturn installs rename action binding when requested", asy
   assert.match(renameScript, /dashboard-action\.json/);
   assert.match(renameScript, /tmux switch-client -t 'control'/);
   assert.match(renameScript, /unbind-key -T root 'C-q'/);
-  assert.match(renameScript, /unbind-key -T root 'M-q'/);
+  assert.doesNotMatch(renameScript, /unbind-key -T root 'M-q'/);
   assert.match(renameScript, /unbind-key -T root 'M-r'/);
 });
 
@@ -639,7 +633,7 @@ test("switchClientWithReturn can self-heal a missing return session before clean
   assert.match(script, /PI_CODING_AGENT_DIR=.*\/tmp\/pi agent/);
   assert.match(script, /PI_AGENT_HUB_DIR=.*\/tmp\/pi-agent-hub/);
   assert.match(script, /if tmux switch-client -t 'pi-agent-hub-dashboard'/);
-  assert.match(script, /then tmux unbind-key/);
+  assert.match(script, /tmux unbind-key -T root 'C-q'/);
   assert.match(script, /then .*rm -f .*previous\.tmux.*active\.json.*; fi/);
 });
 
