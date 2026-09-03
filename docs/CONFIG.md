@@ -94,7 +94,7 @@ Optional global config lives at `config.json` under the global state directory:
   },
   "session": {
     "prelude": "eval \"$(ssh-agent -s)\" >/dev/null",
-    "worktreeDefault": true
+    "worktreeDefault": false
   },
   "dashboard": {
     "themeSync": true,
@@ -149,10 +149,10 @@ Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. 
 
 ## New-session worktree default
 
-New-session forms open with worktree mode on. Set `session.worktreeDefault` to `false` to start every new form in normal-session mode instead. In the form, focus the Worktree row and press `Space`, or use `Ctrl+T` from any field, to toggle it for an individual session. Omitting or unsetting the option restores the worktree default.
+New-session forms open with worktree mode off. Set `session.worktreeDefault` to `true` to start every new form in worktree mode instead. In the form, focus the Worktree row and press `Space`, or use `Ctrl+T` from any field, to toggle it for an individual session. Omitting or unsetting the option restores the normal-session default.
 
 ```bash
-pi-hub config set worktree-default false
+pi-hub config set worktree-default true
 pi-hub config unset worktree-default
 ```
 
