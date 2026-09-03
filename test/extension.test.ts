@@ -39,7 +39,7 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
 
-test("compact fork startup resets the native name and compacts without custom instructions", async () => {
+test("compact fork startup resets the native name, clears metadata, and requests a bounded handoff", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-fork-compact-"));
   const previous = {
@@ -80,10 +80,25 @@ test("compact fork startup resets the native name and compacts without custom in
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(names, ["example-api"]);
     assert.equal(compactions.length, 1);
-    assert.deepEqual(Object.keys(compactions[0] as object), ["onError"]);
-    const heartbeat = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.context, undefined);
-    assert.equal(heartbeat.workflow, undefined);
+    const compactOptions = compactions[0] as { customInstructions?: string; onComplete?: () => void | Promise<void>; onError?: (error: Error) => void | Promise<void> };
+    assert.equal(typeof compactOptions.customInstructions, "string");
+    assert.ok((compactOptions.customInstructions?.length ?? 0) <= 500);
+    assert.match(compactOptions.customInstructions ?? "", /branches from the prior conversation/i);
+    assert.match(compactOptions.customInstructions ?? "", /another agent will continue/i);
+    assert.match(compactOptions.customInstructions ?? "", /product decisions/i);
+    assert.match(compactOptions.customInstructions ?? "", /new task/i);
+    await handlers.get("session_before_compact")?.({ reason: "startup", willRetry: false }, ctx);
+    const running = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(running.state, "running");
+    assert.deepEqual(running.operation, { kind: "fork-compact", phase: "running", id: running.operation?.id });
+    assert.equal(running.context, undefined);
+    assert.equal(running.workflow, undefined);
+    await compactOptions.onComplete?.();
+    const complete = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(complete.operation?.kind, "fork-compact");
+    assert.equal(complete.operation?.phase, "complete");
+    assert.equal(complete.context, undefined);
+    assert.equal(complete.workflow, undefined);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     for (const [key, value] of [

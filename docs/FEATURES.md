@@ -60,7 +60,7 @@ Ctrl+Q returns to the dashboard
 | `R` | Rename the selected session in a cursor-aware form |
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session |
-| `Shift+F` | Open the fork group form, fork the selected session, name the new Pi session from the primary repo, clear inherited ticket/workflow metadata, and compact without custom instructions |
+| `Shift+F` | Open the fork group form, fork the selected session, name the new Pi session from the primary repo, clear inherited ticket/workflow metadata, and wait for verified compaction with a handoff instruction |
 | `a` | Mark the selected waiting session read |
 | `A` | Archive the selected session and close its pin if shown |
 | `B` | Move the selected session to Backlog |

@@ -14,6 +14,23 @@ const core = {
   updatedAt: 1_000,
 } as const;
 
+test("parses bounded fork compaction operation phases independently from liveness", () => {
+  const forkCore = { ...core, managedSessionId: "fork", state: "running" as const };
+  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "op-1" } }, "fork")?.operation, {
+    kind: "fork-compact",
+    phase: "running",
+    id: "op-1",
+  });
+  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "complete", id: "op-1", extra: true } }, "fork")?.operation, {
+    kind: "fork-compact",
+    phase: "complete",
+    id: "op-1",
+  });
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "other", phase: "running" } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "x".repeat(81) } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "broken" } }, "fork")?.operation, undefined);
+});
+
 test("heartbeat intake normalizes main and child envelopes", () => {
   assert.deepEqual(parseHeartbeat({
     ...core,

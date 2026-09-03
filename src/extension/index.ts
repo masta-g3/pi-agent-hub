@@ -10,7 +10,7 @@ import { parseWorkflowEntry } from "../core/heartbeat.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, WorkflowRuntimeSnapshot } from "../core/types.js";
 
 type PiTheme = {
   name?: string;
@@ -21,7 +21,7 @@ type PiTheme = {
 type PiContext = {
   cwd: string;
   hasUI?: boolean;
-  compact: (options: { onError?: (error: Error) => void }) => void;
+  compact: (options?: { customInstructions?: string; onComplete?: () => void; onError?: (error: Error) => void }) => void;
   ui?: {
     theme?: PiTheme;
     getTheme?: (name: string) => Theme | undefined;
@@ -48,6 +48,8 @@ const SESSION_CONTEXT_ENTRY = "pi-agent-hub-context";
 const STARTUP_HEARTBEAT_DELAYS_MS = [250, 1_000, 3_000];
 const SETTLED_HEARTBEAT_DELAYS_MS = [1_000, 3_000, 6_000];
 const THEME_COMMAND_INTERVAL_MS = 1_000;
+const FORK_COMPACT_INSTRUCTIONS = "This session branches from the prior conversation. Another agent will continue that prior work. Preserve product decisions and unresolved context from the discussion that code and docs cannot show. Stop pursuing the prior task and wait for a new task from the user, which may be related or unrelated.";
+const FORK_COMPACT_OPERATION_ID_LENGTH = 16;
 
 export default function piAgentHubExtension(pi: ExtensionAPI) {
   const globalState = globalThis as PiAgentHubGlobal;
@@ -59,6 +61,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let stateSince = extensionStartedAt;
   let forkCompactPending = process.env[FORK_COMPACT_ENV] === "1";
   if (forkCompactPending) delete process.env[FORK_COMPACT_ENV];
+  const forkCompactOperationId = forkCompactPending ? extensionStartedAt.toString(36).slice(-FORK_COMPACT_OPERATION_ID_LENGTH) : undefined;
+  let forkCompactOperation: HeartbeatOperation | undefined;
   let metadataResetAt: number | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let themeCommandTimer: ReturnType<typeof setInterval> | undefined;
@@ -128,6 +132,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
         piSessionName: normalizedName(pi.getSessionName?.()),
         context: sessionContextSnapshot(ctx, metadataResetAt),
         workflow: workflowSnapshot(ctx, metadataResetAt),
+        ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
       } satisfies Heartbeat);
     });
     heartbeatWrite = write.catch(() => undefined);
@@ -147,6 +152,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (compactFork) {
       forkCompactPending = false;
       metadataResetAt = extensionStartedAt;
+      forkCompactOperation = { kind: "fork-compact", phase: "running", id: forkCompactOperationId ?? extensionStartedAt.toString(36) };
       const resetName = basename(process.env[PRIMARY_CWD_ENV] ?? "").trim() || "pi-session";
       pi.setSessionName(resetName);
     }
@@ -156,7 +162,9 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
     if (compactFork) {
       startupCompactionTimer = setTimeout(() => piCtx.compact({
-        onError: (error) => void publishLifecycle("error", piCtx, `Fork compaction failed: ${error.message}`),
+        customInstructions: FORK_COMPACT_INSTRUCTIONS,
+        onComplete: () => completeForkCompaction(piCtx),
+        onError: (error) => failForkCompaction(piCtx, error),
       }), 0);
     }
     mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
@@ -175,6 +183,23 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (snapshot) {
       lifecycleRevision += 1;
       await heartbeat(snapshot.state, ctx, undefined, snapshot.stateSince);
+    }
+  };
+
+  const completeForkCompaction = async (ctx: PiContext) => {
+    await restoreCompaction(ctx);
+    if (!forkCompactOperation) return;
+    forkCompactOperation = { ...forkCompactOperation, phase: "complete" };
+    await heartbeat(currentState, ctx);
+    forkCompactOperation = undefined;
+  };
+
+  const failForkCompaction = async (ctx: PiContext, error: Error) => {
+    clearCompaction();
+    await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
+    if (forkCompactOperation) {
+      forkCompactOperation = { ...forkCompactOperation, phase: "error" };
+      await heartbeat("error", ctx, `Fork compaction failed: ${error.message}`);
     }
   };
 
@@ -215,13 +240,13 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     }
     await restoreCompaction(ctx as PiContext);
   });
-  pi.on("ui_prompt_start", async (_event, ctx) => {
+  (pi.on as any)("ui_prompt_start", async (_event: unknown, ctx: PiContext) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID || promptSnapshot) return;
     lifecycleRevision += 1;
     promptSnapshot = { state: currentState, stateSince, ownedRevision: lifecycleRevision };
     await heartbeat("waiting", ctx as PiContext);
   });
-  pi.on("ui_prompt_end", async (_event, ctx) => {
+  (pi.on as any)("ui_prompt_end", async (_event: unknown, ctx: PiContext) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     const snapshot = promptSnapshot;
     promptSnapshot = undefined;

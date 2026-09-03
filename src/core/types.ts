@@ -164,6 +164,12 @@ export interface SessionsRegistry {
   sessions: ManagedSession[];
 }
 
+export interface HeartbeatOperation {
+  kind: "fork-compact";
+  phase: "running" | "complete" | "error";
+  id: string;
+}
+
 export interface Heartbeat {
   managedSessionId: string;
   piSessionFile?: string;
@@ -173,6 +179,7 @@ export interface Heartbeat {
   stateSince: number;
   message?: string;
   updatedAt: number;
+  operation?: HeartbeatOperation;
   kind?: "main" | "subagent";
   parentId?: string;
   agentName?: string;

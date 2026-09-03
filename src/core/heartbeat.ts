@@ -10,6 +10,7 @@ import type {
   WorkflowModeDisplay,
   WorkflowRuntimeSnapshot,
   WorkflowStep,
+  HeartbeatOperation,
 } from "./types.js";
 
 const HEARTBEAT_STATES: Heartbeat["state"][] = ["starting", "running", "waiting", "error", "shutdown"];
@@ -37,6 +38,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   const context = parseSessionContext(value.context);
   const workflow = parseWorkflowSnapshot(value.workflow);
   const activeTheme = parseActiveTheme(value.activeTheme);
+  const operation = parseHeartbeatOperation(value.operation);
   return {
     managedSessionId,
     ...optionalStringField("piSessionFile", value.piSessionFile),
@@ -46,6 +48,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     stateSince: value.stateSince,
     ...optionalStringField("message", value.message),
     updatedAt: value.updatedAt,
+    ...(operation ? { operation } : {}),
     ...(value.kind === "main" || value.kind === "subagent" ? { kind: value.kind } : {}),
     ...optionalStringField("parentId", value.parentId),
     ...optionalStringField("agentName", value.agentName),
@@ -159,6 +162,12 @@ function parseCount(value: unknown): { completed: number; total: number } | unde
   return nonnegativeInt(value.completed) && nonnegativeInt(value.total) && value.completed <= value.total
     ? { completed: value.completed, total: value.total }
     : undefined;
+}
+
+function parseHeartbeatOperation(value: unknown): HeartbeatOperation | undefined {
+  if (!isObject(value) || value.kind !== "fork-compact" || (value.phase !== "running" && value.phase !== "complete" && value.phase !== "error")) return undefined;
+  const id = requiredString(value.id);
+  return id && [...id].length <= 80 ? { kind: "fork-compact", phase: value.phase, id } : undefined;
 }
 
 function parseActiveTheme(value: unknown): ActiveThemeSnapshot | undefined {

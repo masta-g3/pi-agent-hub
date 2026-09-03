@@ -8,6 +8,7 @@ import { extensionPath } from "../core/extension-path.js";
 import { isErrno } from "../core/atomic-json.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath, registryPath, sessionsStateDir } from "../core/paths.js";
+import { readHeartbeat } from "../core/heartbeat.js";
 import { assertWorktreesClean, assertWorktreesReady, createOwnedWorktrees, finishOwnedWorktrees, isWorktreeSession, PartialWorktreeFailure, remainingWorktreeSession, removeOwnedWorktrees, sessionWorktrees, type FinishedWorktree } from "../core/worktree.js";
 import { renderWorktreeGuidance } from "../core/worktree-context.js";
 import { recordRepoUsage } from "../core/repo-history.js";
@@ -30,6 +31,9 @@ export interface ForkInput {
   group?: string;
   compact?: boolean;
 }
+
+const FORK_COMPACT_TIMEOUT_MS = 15_000;
+const FORK_COMPACT_POLL_MS = 50;
 
 async function addManagedSessionImpl(input: SessionInput): Promise<ManagedSession> {
   const originalCwd = resolve(input.cwd);
@@ -196,7 +200,24 @@ async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): 
     },
   });
   await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await loadManagedSessionTheme(record) });
+  if (input.compact) await waitForForkCompaction(record.id);
   return record;
+}
+
+async function waitForForkCompaction(sessionId: string): Promise<void> {
+  const deadline = Date.now() + FORK_COMPACT_TIMEOUT_MS;
+  let phase: string | undefined;
+  while (Date.now() < deadline) {
+    const heartbeat = await readHeartbeat(sessionId);
+    const operation = heartbeat?.operation;
+    phase = operation?.phase;
+    if (operation?.kind === "fork-compact") {
+      if (operation.phase === "error") throw new Error(`fork compaction failed for ${sessionId}`);
+      if (operation.phase === "complete") return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, FORK_COMPACT_POLL_MS));
+  }
+  throw new Error(`fork compaction timed out for ${sessionId} (last phase: ${phase ?? "none"})`);
 }
 
 async function rollbackStartedRecord(record: ManagedSession): Promise<void> {

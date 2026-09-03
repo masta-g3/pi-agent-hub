@@ -438,7 +438,27 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
   process.env.PATH = `${bin}:${oldPath ?? ""}`;
   try {
     await seedRegistry({ version: 1, sessions: [session({ cwd: primary, sessionFile: history })] });
-    await forkManagedSession("source-session", { compact: true });
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    const heartbeatTask = (async () => {
+      let child: ManagedSession | undefined;
+      while (!child) {
+        child = (await loadRegistry()).sessions.find((item) => item.id !== "source-session");
+        if (!child) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const writeForkHeartbeat = (operation: "running" | "complete") => writeFile(heartbeatPath(child!.id, { PI_AGENT_HUB_DIR: join(root, "hub") }), JSON.stringify({
+        managedSessionId: child!.id, cwd: primary, state: operation === "running" ? "running" : "waiting", stateSince: 1, updatedAt: Date.now(),
+        operation: { kind: "fork-compact", phase: operation, id: "op-1" },
+      }), "utf8");
+      await writeForkHeartbeat("running");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await writeForkHeartbeat("complete");
+    })();
+    const fork = await forkManagedSession("source-session", { compact: true });
+    await heartbeatTask;
+    const registry = await loadRegistry();
+    assert.equal(registry.sessions.length, 2);
+    assert.equal(registry.sessions.find((item) => item.id === "source-session")?.group, "default");
+    assert.equal(fork.group, "default");
     const commands = await readFile(log, "utf8");
     assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='1'/);
   } finally {
