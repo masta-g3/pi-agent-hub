@@ -198,12 +198,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   const failForkCompaction = async (ctx: PiContext, error: Error) => {
     clearCompaction();
-    if (forkCompactOperation) {
-      forkCompactOperation = { kind: "fork-compact", phase: "error", id: forkCompactOperation.id };
-      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
-    } else {
-      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
-    }
+    if (forkCompactOperation) forkCompactOperation = { ...forkCompactOperation, phase: "error" };
+    await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
   };
 
   pi.on("agent_start", async (_event, ctx) => {

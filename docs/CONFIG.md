@@ -27,7 +27,7 @@ A Pi extension can append a latest-snapshot custom entry with `customType: "pi-a
 
 Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`. Hub uses the primary repo basename as a provisional label, then caches each nonblank heartbeat name. `R` sends exact `/name <text>` to a live Pi session. `N` remains manual recovery from persisted Pi `session_info`.
 
-If generic context and workflow runtime contain different ticket ids, Hub keeps the workflow ticket id and suppresses context subtitle/description. This rule is shared by rows, workspace, search, filtering, and pane chrome. The Pi session title remains independent: Pi owns `/name` and the Hub caches that native name; ticket metadata never renames the session. The selected-session **Unlink ticket** action sends `/wf-clear` to the exact Pi session. The producer must clear both workflow and generic ticket metadata; Hub does not edit Pi conversation history or claim the ticket is gone until a fresh heartbeat confirms it. Attention stays independent and appears only on waiting/idle rows.
+If generic context and workflow runtime contain different ticket ids, Hub keeps the workflow ticket id and suppresses context subtitle/description. Attention stays independent and appears only on waiting/idle rows.
 
 ### Workflow heartbeat bridge
 
@@ -123,6 +123,12 @@ pi-hub config unset worktree-default
 ### Attention bell
 
 `dashboard.attentionBell` enables a best-effort BEL when a fresh request is delivered externally. It defaults to `false`. Use the unbound **Attention bell: On/Off** action in the `:` palette to persist the setting. BEL remains silent when any attached client is already showing Hub or a request in the fresh batch. Text delivery to other eligible clients still proceeds.
+
+### Dashboard view state
+
+`ui-state.json` stores presentation preferences. The dashboard filter is saved as JSON-safe data with `text` and an ordered `lifecycle` array. Lifecycle values are `active`, `backlog`, and `archived`; the selected values match with OR semantics. For example, `lifecycle:archived,backlog release` shows matching Archived or Backlog rows narrowed by `release`. The file also stores independent collapse flags for HEALTH, ACTIVE, QUIET, and ARCHIVED. NEEDS YOU is always expanded. Individual subagent disclosure, filtered reveals, navigator state, and card richness are not persisted. Legacy string filters are normalized when loaded; unknown values are ignored.
+
+The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selection. It changes visibility only. Uppercase `B` remains the lifecycle action that moves the selected session to Backlog.
 
 ## Dashboard shortcuts
 

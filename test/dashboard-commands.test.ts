@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { RuntimeSession } from "../src/core/types.js";
+import { validateDashboardShortcuts } from "../src/core/dashboard-shortcuts.js";
 import {
   buildDashboardCommands,
   commandForKey,
@@ -46,12 +47,26 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   assert.equal(commandForKey(commands, "\r")?.id, "action:alpha:open");
   const catalogBindings = new Set(commands.flatMap((command) => command.bindings.map((binding) => binding.key)));
   for (const binding of [
-    "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "F", "g", "G", "A", "B", "U",
+    "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "F", "g", "G", "A", "B", "b", "U",
     "d", "w", "s", "m", "P", "1", "2", "3", "4", "x", "+", "-", "i", "a", "K", "Shift+Up", "J", "Shift+Down",
     "/", "n", "t", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
   ]) assert.ok(catalogBindings.has(binding), `missing binding ${binding}`);
   assert.equal(commands.some((command) => command.id === "view:density"), false);
   assert.equal(catalogBindings.has("v"), false);
+});
+
+test("Backlog visibility is a catalog-owned toggle distinct from moving a session", () => {
+  const selected = session("alpha");
+  const hidden = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "release", capabilities: allCapabilities });
+  const shown = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "lifecycle:active,archived release", capabilities: allCapabilities });
+  assert.equal(hidden.find((command) => command.id === "view:backlog")?.label, "Hide Backlog");
+  assert.equal(shown.find((command) => command.id === "view:backlog")?.label, "Show Backlog");
+  assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "lifecycle:active,backlog release", capabilities: allCapabilities }).find((command) => command.id === "view:backlog")?.label, "Hide Backlog");
+  assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities }).find((command) => command.id === "action:alpha:backlog")?.displayKey, "B");
+});
+
+test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
+  assert.throws(() => validateDashboardShortcuts([{ key: "b", send: "status" }]), /conflicts with a built-in/);
 });
 
 test("coaching footer keeps the approved daily-loop controls in catalog ownership", () => {
@@ -106,17 +121,6 @@ test("slot commands assign exact free destinations and name occupied conflicts",
   assert.equal(commands(emptyPinState).find((item) => item.id === "action:alpha:slot-3")?.disabledReason, "slot 3 needs 160 columns");
 });
 
-test("unlink ticket is available only for live ticketed main sessions", () => {
-  const ticket = { version: 1 as const, updatedAt: 2, ticket: { id: "ENG-42" } };
-  const selected = session("alpha", { context: ticket });
-  const command = (values: Parameters<typeof buildDashboardCommands>[0]) => buildDashboardCommands(values).find((item) => item.id === "action:alpha:unlink")!;
-  assert.equal(command({ sessions: [selected], selectedId: "alpha", capabilities: allCapabilities }).enabled, true);
-  assert.equal(command({ sessions: [session("alpha", { context: ticket, status: "stopped" })], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "session is not live");
-  assert.equal(command({ sessions: [session("alpha", { context: ticket, kind: "subagent" })], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "unavailable for subagents");
-  assert.equal(command({ sessions: [session("alpha")], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "session has no ticket");
-  assert.equal(command({ sessions: [selected], selectedId: "alpha", capabilities: { ...allCapabilities, sendMessage: false } }).disabledReason, "send transport unavailable");
-});
-
 test("selected action availability mirrors row and capability guards with reasons", () => {
   const stopped = session("stopped", { status: "stopped" });
   const commands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: {} });
@@ -169,8 +173,18 @@ test("attention view commands are exact, unbound, and stateful", () => {
   assert.equal(on.some((command) => command.id.startsWith("view:locate-attention:")), false);
 });
 
+test("unread idle attention remains acknowledgeable without a live announcement", () => {
+  const selected = session("idle-request", {
+    status: "idle",
+    context: { version: 1, updatedAt: 2, attention: { requestId: "req-idle", kind: "ready", text: "Review result" } },
+  });
+  const command = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities })
+    .find((item) => item.id === "action:idle-request:mark-read");
+  assert.equal(command?.enabled, true);
+});
+
 test("ordinary idle rows remain non-acknowledgeable without an active request", () => {
-  const selected = session("idle", { status: "idle", context: { version: 1, updatedAt: 20, attention: { requestId: "req", kind: "ready", text: "Review" } } });
+  const selected = session("idle", { status: "idle" });
   const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities });
   assert.equal(commands.find((command) => command.id === "action:idle:mark-read")?.enabled, false);
 });

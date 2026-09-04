@@ -103,12 +103,21 @@ test("attention delivery isolates client failures and rings once when all locati
   }));
 });
 
-test("view state ignores retired density and Backlog collapse values", () => {
+test("view state normalizes the JSON-safe lifecycle filter and cockpit collapse tiers", () => {
   assert.deepEqual(normalizeSessionsViewState({
     grouping: "stage",
+    filter: { text: "release", lifecycle: ["archived", "backlog", "backlog", "future"] },
     density: "all-cards",
-    collapsedSections: ["backlog", "archived", "archived"],
-  }), { grouping: "stage", collapsedSections: ["archived"] });
+    collapsedSections: ["backlog", "health", "archived", "health"],
+  }), {
+    grouping: "stage",
+    filter: { text: "release", lifecycle: ["backlog", "archived"] },
+    collapsedSections: ["health", "archived"],
+  });
+  assert.deepEqual(normalizeSessionsViewState({ filter: "lifecycle:archived,backlog release" }), {
+    grouping: "project",
+    filter: { text: "release", lifecycle: ["backlog", "archived"] },
+  });
   assert.deepEqual(normalizeSessionsViewState({ grouping: "unknown", density: "compact" }), { grouping: "project" });
 });
 

@@ -1,6 +1,6 @@
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
-import { ticketIdentity } from "../core/ticket-identity.js";
+import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 
@@ -105,7 +105,6 @@ const actionSpecs: ActionSpec[] = [
   { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: "Restart choices…", hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: "Send text…", hint: "send one line without opening the session", keys: ["p"], available: liveMainCapability("sendMessage", "send transport unavailable") },
-  { name: "unlink", label: "Unlink ticket", hint: "send /wf-clear and keep this session", keys: [], available: unlinkAvailability },
   { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
@@ -202,8 +201,6 @@ export function selectWorkspaceCommands(
     actionNames = ["open", "pin"];
   }
 
-  if (ticketIdentity(session) && session.kind !== "subagent") actionNames = [...actionNames.slice(0, Math.max(0, maxCount - 1)), "unlink"];
-
   const actionsByName = new Map(
     commands
       .filter((command) => command.group === "actions" && command.targetSessionId === session.id && command.enabled)
@@ -266,10 +263,10 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
     return [item("Enter", "Open"), item("Ctrl+Q", "Return"), palette, help].join(" · ");
   }
   const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
-  if (width < 60) return ["↑↓", item("/", "Filter"), palette, help].join(" · ");
+  if (width < 60) return ["↑↓", item("/", "Filter"), item("b", "Backlog"), palette, help].join(" · ");
   const filter = item("/", "Filter");
-  if (width < 100) return ["↑↓ Move", openItem, filter, palette, help].join(" · ");
-  return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, fromView("view:grouping", "Board"), palette, help].join(" · ");
+  if (width < 100) return ["↑↓ Move", openItem, filter, item("b", "Backlog"), palette, help].join(" · ");
+  return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, item("b", "Backlog"), fromView("view:grouping", "Board"), palette, help].join(" · ");
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
@@ -374,6 +371,16 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
     makeCommand({ id: "view:theme", group: "views", label: "Theme…", hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle project and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board project stage grouping view" }),
+    makeCommand({
+      id: "view:backlog",
+      group: "views",
+      label: parseDashboardFilter(input.filter).lifecycle.has("backlog") ? "Hide Backlog" : "Show Backlog",
+      hint: "toggle Backlog in the lifecycle filter without moving sessions",
+      displayKey: "b",
+      bindings: [{ key: "b" }],
+      enabled: true,
+      searchText: "b backlog lifecycle filter visibility show hide",
+    }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),
     makeCommand({ id: "view:quit", group: "views", label: "Quit", hint: "close the dashboard", displayKey: "q", bindings: [{ key: "q" }], enabled: true, searchText: "q quit close dashboard" }),
     ...attentionCommands,
@@ -414,16 +421,8 @@ function makeCommand(command: Omit<DashboardCommand, "bindings" | "searchText"> 
 }
 
 function sessionHint(session: RuntimeSession): string {
-  const ticket = ticketIdentity(session);
-  return [ticket ? `#${ticket.id}` : undefined, session.group, session.status].filter(Boolean).join(" · ");
-}
-
-function unlinkAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  const main = mainAvailability(session);
-  if (!main.enabled) return main;
-  if (!ticketIdentity(session)) return disabled("session has no ticket");
-  if (!isLive(session)) return disabled("session is not live");
-  return input.capabilities?.sendMessage === true ? enabled() : disabled("send transport unavailable");
+  const ticket = session.context?.ticket?.id ?? session.workflow?.ticketId;
+  return [ticket ? `#${ticket}` : undefined, session.group, session.status].filter(Boolean).join(" · ");
 }
 
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
@@ -461,8 +460,10 @@ function restoreAvailability(session: RuntimeSession): Availability {
 
 function markReadAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
   const activeRequest = input.attentionRequests?.some((request) => request.sessionId === session.id);
+  const unreadAttention = (session.status === "waiting" || session.status === "idle")
+    && session.acknowledgedAt === undefined && session.context?.attention !== undefined;
   const waitingUnread = session.status === "waiting" && session.acknowledgedAt === undefined;
-  if (!waitingUnread && !activeRequest) return disabled("session has no unread attention");
+  if (!unreadAttention && !waitingUnread && !activeRequest) return disabled("session has no unread attention");
   return input.capabilities?.acknowledge === true ? enabled() : disabled("acknowledge unavailable");
 }
 

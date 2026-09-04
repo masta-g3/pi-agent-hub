@@ -58,7 +58,7 @@ test("persisted new-user state reaches the live empty SessionsView", () => {
   assert.doesNotMatch(text, /No managed Pi sessions yet/);
 });
 
-test("narrow workspace keeps evidence behind i and Enter uses a deliberate second step", async () => {
+test("narrow workspace keeps evidence behind i and Enter opens directly", async () => {
   const base = session("api", "Project API");
   const now = 100_000;
   const explained = {
@@ -95,9 +95,6 @@ test("narrow workspace keeps evidence behind i and Enter uses a deliberate secon
   view.handleInput("\u001b");
   assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
 
-  view.handleInput("\r");
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(60).join("\n")), /Project API\s+◐ waiting/);
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
   assert.deepEqual(opened, ["pi-agent-hub-api"]);
@@ -185,6 +182,39 @@ test("workspace evidence follows width changes and wide Escape still clears filt
   assert.equal(controller.snapshot().filter, undefined);
 });
 
+test("lowercase b toggles Backlog in the lifecycle filter and persists it", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active"), { ...session("backlog", "backlog"), bucket: "backlog" }] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, { saveViewState: (state) => saved.push(state) });
+  controller.setFilter("release");
+  view.handleInput("b");
+  assert.equal(controller.snapshot().filter, "lifecycle:active,archived release");
+  assert.deepEqual(saved.at(-1)?.filter, { text: "release", lifecycle: ["active", "archived"] });
+  view.handleInput("b");
+  assert.equal(controller.snapshot().filter, "release");
+  assert.deepEqual(saved.at(-1)?.filter, { text: "release", lifecycle: ["active", "backlog", "archived"] });
+});
+
+test("mark read uses current idle attention even after announcement expiry", () => {
+  const requests: (string | undefined)[] = [];
+  const selected = { ...session("idle-request", "idle-request"), status: "idle" as const, context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-current", kind: "ready" as const, text: "Review result" } } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, {
+    acknowledgeSession: (_id, requestId) => { requests.push(requestId); },
+    now: () => 10_000,
+  });
+  view.handleInput("a");
+  assert.deepEqual(requests, ["req-current"]);
+});
+
+test("restored lifecycle filter reaches the controller before rendering", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("active", "active")] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", filter: { text: "active", lifecycle: ["active"] } },
+  });
+  assert.equal(controller.snapshot().filter, "lifecycle:active active");
+  assert.match(stripAnsi(view.render(80).join("\n")), /filter: lifecycle:active active/);
+});
+
 test("filter mode filters live and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {});
@@ -264,7 +294,7 @@ test("help overlay opens and closes", () => {
   assert.match(help, /x close selected pin/);
   assert.match(help, /Alt\+arrows move spatially/);
   assert.doesNotMatch(help, /1-4 assign|Focus panel/);
-  assert.match(help, /double-click opens the workspace first unless pins are visible/);
+  assert.match(help, /Enter\/double-click opens or switches directly at every width/);
   assert.doesNotMatch(help, /Density|compact and all-card/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
@@ -616,6 +646,18 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   assert.match(fleetText(view.render(120)), /worker/);
 });
 
+test("left and right arrows target the selected parent tree itself", () => {
+  const parent = session("parent", "parent");
+  const child = { ...session("child", "child"), kind: "subagent" as const, parentId: parent.id };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {});
+  view.render(100);
+  view.handleInput("\u001b[C");
+  assert.match(fleetText(view.render(100)), /subagent/);
+  view.handleInput("\u001b[D");
+  assert.doesNotMatch(fleetText(view.render(100)), /subagent/);
+});
+
 test("left and right arrows expand and collapse the selected project tree", () => {
   const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
@@ -800,7 +842,8 @@ test("existing-user release cue is target-safe and dismisses without changing se
 
   assert.match(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
   const selectedId = controller.snapshot().selectedId;
-  view.handleInput("k");
+  view.handleInput("k"); // ACTIVE header
+  view.handleInput("k"); // release cue
   assert.equal(controller.snapshot().selectedId, selectedId);
   assert.match(stripAnsi(view.render(100).join("\n")), /▌ NEW DAILY LOOP/);
   view.handleInput("\r");
@@ -1047,7 +1090,7 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 function rowIndexFor(rendered: string[], title: string): number {
   const index = rendered.findIndex((line) => {
     const text = stripAnsi(line);
-    return text.includes(title) && /[▸▾·├└│].*[●◐○×-]/.test(text);
+    return ["●", "◐", "○", "×", "-"].some((symbol) => text.includes(`${symbol} ${title}`));
   });
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
@@ -1135,7 +1178,7 @@ test("single mouse click selects without opening", () => {
   assert.deepEqual(switched, []);
 });
 
-test("card continuation rows select and double-click open their narrow workspace", () => {
+test("card continuation rows select and double-click open the live session", () => {
   const switched: string[] = [];
   let now = 100;
   const rich = (id: string, title: string) => ({
@@ -1160,13 +1203,10 @@ test("card continuation rows select and double-click open their narrow workspace
 
   now = 300;
   view.handleInput(mousePressAtLine(continuationIndex));
-  assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
-  view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
 
-test("double-click opens the narrow workspace before the live session", () => {
+test("double-click opens the live session at narrow widths", () => {
   const switched: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -1184,9 +1224,6 @@ test("double-click opens the narrow workspace before the live session", () => {
   view.handleInput(docsClick);
 
   assert.equal(controller.snapshot().selectedId, "docs");
-  assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
-  view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
 
@@ -1254,7 +1291,7 @@ test("navigation follows the shared projection across lifecycle sections and sub
   assert.match(stripAnsi(view.render(100).join("\\n")), /child/);
 });
 
-test("Archived is the only collapsible project section and persists its state", () => {
+test("Archived collapse persists its state", () => {
   const sessions = [
     session("active", "active"),
     { ...session("backlog", "backlog"), bucket: "backlog" as const },
@@ -1274,6 +1311,26 @@ test("Archived is the only collapsible project section and persists its state", 
   assert.doesNotMatch(collapsed, /\n.*○ archived/);
   assert.match(collapsed, /backlog/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
+});
+
+test("all non-attention tiers can collapse and retain counts", () => {
+  const running = { ...session("running", "running"), status: "running" as const };
+  const quiet = session("quiet", "quiet");
+  const saved: SessionsViewState[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [running, quiet] });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", collapsedSections: ["active", "quiet"] },
+    saveViewState: (state) => saved.push(state),
+  });
+  const collapsed = stripAnsi(view.render(80).join("\n"));
+  assert.match(collapsed, /▸ ACTIVE\s+·1/);
+  assert.match(collapsed, /▸ QUIET\s+·1/);
+  assert.doesNotMatch(collapsed, /● running|○ quiet/);
+  view.handleInput("\r");
+  const expanded = stripAnsi(view.render(80).join("\n"));
+  assert.match(expanded, /▾ ACTIVE/);
+  assert.match(expanded, /● running/);
+  assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
 
 test("Archived header selection blocks session actions and Enter collapses it", () => {
@@ -1441,7 +1498,7 @@ test("archive disclosure selection repairs when pruning removes the toggle", () 
   assert.ok(controller.snapshot().selectedId);
 });
 
-test("double-click opens the narrow workspace before restarting a stopped session", () => {
+test("double-click restarts a stopped session at narrow widths", () => {
   const restarted: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
@@ -1457,10 +1514,6 @@ test("double-click opens the narrow workspace before restarting a stopped sessio
   now = 300;
   view.handleInput(click);
 
-  assert.deepEqual(restarted, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /api\s+- stopped/);
-  assert.match(stripAnsi(view.render(100).join("\n")), /▸ Enter\s+Restart/);
-  view.handleInput("\r");
   assert.deepEqual(restarted, ["api"]);
 });
 
@@ -1526,14 +1579,14 @@ test("non-row mouse input cancels a pending double-click", () => {
   now += 50;
   view.handleInput(mousePressAtLine(docsLine));
   now += 50;
-  view.handleInput(mousePressAtLine(docsLine, 99));
+  view.handleInput(mousePressAtLine(docsLine, 150));
   now += 50;
   view.handleInput(mousePressAtLine(docsLine));
 
   assert.deepEqual(switched, []);
 });
 
-test("mouse clicks ignore headings and execute exact workspace action rows", () => {
+test("mouse section headers block stale actions and session rows restore exact workspace targets", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {}, {
@@ -1550,6 +1603,13 @@ test("mouse clicks ignore headings and execute exact workspace action rows", () 
   assert.equal(controller.snapshot().selectedId, before);
   assert.deepEqual(switched, []);
   view.handleInput(mousePressAtLine(openIndex, 110));
+  assert.deepEqual(switched, []);
+
+  const sectionSelected = view.render(120);
+  view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
+  const sessionSelected = view.render(120);
+  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentOpenIndex, 110));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
 
@@ -1947,7 +2007,7 @@ test("Answer revalidates question context before choosing the pin route", () => 
   }
 });
 
-test("narrow question flow opens the workspace before Answer routes to Pi", async () => {
+test("narrow question flow routes Answer directly to Pi", async () => {
   const oldTmux = process.env.TMUX;
   process.env.TMUX = "/tmp/tmux";
   try {
@@ -1961,11 +2021,6 @@ test("narrow question flow opens the workspace before Answer routes to Pi", asyn
     });
 
     view.render(80);
-    view.handleInput("\r");
-    assert.deepEqual(events, []);
-    assert.match(stripAnsi(view.render(80).join("\n")), /Answer in the Pi session/);
-    assert.match(stripAnsi(view.render(80).join("\n")), /Enter  Answer/);
-
     view.handleInput("\r");
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, ["focus:api"]);
@@ -2890,38 +2945,6 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(stripAnsi(view.render(100).join("\n")), /sent → api/);
   now = 3_000;
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /sent → api/);
-});
-
-test("unlink ticket sends the exact clear command to the bound session", async () => {
-  const sent: Array<{ tmuxSession: string; message: string }> = [];
-  const controller = new SessionsController({ version: 1, sessions: [
-    { ...session("api", "api"), workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, ticketId: "ENG-42", updatedAt: 2 } },
-    session("docs", "docs"),
-  ] });
-  const view = new SessionsView(controller, () => {}, {
-    sendMessage: async (tmuxSession, message) => { sent.push({ tmuxSession, message }); },
-  });
-
-  view.handleInput(":");
-  view.handleInput("u");
-  view.handleInput("n");
-  view.handleInput("l");
-  view.handleInput("i");
-  view.handleInput("n");
-  view.handleInput("k");
-  view.handleInput(" ");
-  view.handleInput("t");
-  view.handleInput("i");
-  view.handleInput("c");
-  view.handleInput("k");
-  view.handleInput("e");
-  view.handleInput("t");
-  view.handleInput("\r");
-  await new Promise((resolve) => setImmediate(resolve));
-
-  assert.deepEqual(sent, [{ tmuxSession: "pi-agent-hub-api", message: "/wf-clear" }]);
-  assert.match(stripAnsi(view.render(100).join("\n")), /ticket clear sent → api/);
-  assert.equal(controller.snapshot().registry.sessions.length, 2);
 });
 
 test("themed footer text remains styled when input is truncated", () => {

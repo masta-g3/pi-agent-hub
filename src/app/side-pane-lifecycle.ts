@@ -1,6 +1,5 @@
 import { stat } from "node:fs/promises";
 import { isErrno } from "../core/atomic-json.js";
-import { ticketIdentity } from "../core/ticket-identity.js";
 import type { TmuxChrome } from "../core/chrome.js";
 import {
   reconcileSidebarReturnBinding,
@@ -146,7 +145,8 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         current = parent;
       }
     }
-    const ticket = ticketIdentity(session)?.id ?? (owner ? ticketIdentity(owner)?.id : undefined);
+    const ticket = session.context?.ticket?.id ?? session.workflow?.ticketId
+      ?? owner?.context?.ticket?.id ?? owner?.workflow?.ticketId;
     const optional = [owner ? `← ${owner.title}` : undefined, ticket ? `#${ticket}` : undefined].filter((part): part is string => Boolean(part));
     let value = session.title;
     for (const part of optional) {

@@ -294,13 +294,14 @@ test("an extension error owns lifecycle state over a stale prompt end", async ()
     await handlers.get("session_start")?.({}, ctx);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await handlers.get("ui_prompt_start")?.({ method: "confirm" }, ctx);
-    compactOptions?.onError?.(new Error("compact failed"));
+    await compactOptions?.onError?.(new Error("compact failed"));
     let error = await readHeartbeat();
     for (let attempt = 0; error.state !== "error" && attempt < 20; attempt += 1) {
       await new Promise<void>((resolve) => setImmediate(resolve));
       error = await readHeartbeat();
     }
     assert.equal(error.state, "error");
+    assert.equal(error.operation?.phase, "error");
     await handlers.get("ui_prompt_end")?.({ method: "confirm" }, ctx);
     assert.deepEqual(await readHeartbeat(), error);
   } finally {

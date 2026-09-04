@@ -14,6 +14,8 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Changed
 
+- Start project and board subagent trees collapsed with recursive `▸N`/`▾N` counts; add ephemeral arrow-key controls for one or all trees, filter-only reveal, and a narrower compact preview list.
+- Keep the `⎇` worktree marker visible on main-session rows in every grouping and density.
 - Make side-panel numbers stable screen quadrants with occupancy-derived row/column layouts and non-destructive assignment keys that keep focus in the sidebar; remove `Shift+1`–`Shift+4` panel focus aliases.
 - Mute status glyphs in Backlog and Archived while retaining semantic status colors in Active.
 - Removed unused public exports `McpTool`, `PiToolDefinition`, `buildPiCommand`, `sessionDir`, `tmuxMissing`, and `mcpCatalogPath`; removed the unused singular worktree-removal wrapper. The SemVer decision for the narrowed package surface remains deferred to publishing.

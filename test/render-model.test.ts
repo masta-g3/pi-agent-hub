@@ -130,7 +130,7 @@ test("existing-user release cue stays below real attention and survives an empty
     if (sessions.length) {
       const lines = text.split("\n");
       assert.ok(lines.findIndex((line) => line.includes("Needs")) < lines.findIndex((line) => line.includes("NEW DAILY LOOP")));
-      assert.ok(lines.findIndex((line) => line.includes("NEW DAILY LOOP")) < lines.findIndex((line) => line.includes("── ACTIVE")));
+      assert.ok(lines.findIndex((line) => line.includes("NEW DAILY LOOP")) < lines.findIndex((line) => /─[▾▸] ACTIVE/.test(line)));
     }
   }
 });
@@ -334,7 +334,7 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
   const request = { ...session("request", "app", "idle", "Request"), kind: "subagent" as const, parentId: "parent", context: attention };
   const worker = { ...session("worker", "app", "running", "Worker"), kind: "subagent" as const, parentId: "parent" };
   const collapsed = renderSessions(buildRenderModel({ sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1 })).lines.map(stripAnsi);
-  assert.match(collapsed.find((line) => line.includes("── ACTIVE")) ?? "", /·1 · \?1 child/);
+  assert.match(collapsed.find((line) => line.includes("ACTIVE")) ?? "", /·1 · \?1 child/);
   assert.match(collapsed.find((line) => line.includes("Parent")) ?? "", /Parent\s+\?1 · ⚙︎1 · .*EX.* · 8m/);
 
   const expanded = renderSessions(buildRenderModel({
@@ -958,7 +958,7 @@ test("project view defaults to cockpit tiers with Backlog as row metadata", () =
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.deepEqual(model.sections.map((section) => section.key), ["quiet"]);
   assert.match(rendered, /QUIET/);
-  assert.match(rendered, /backlog · experiments/);
+  assert.match(rendered, /backlog[\s\S]*experiments/);
   assert.doesNotMatch(rendered, /view lanes|── BACKLOG/);
 });
 
@@ -979,7 +979,7 @@ test("grouping order and status counts", () => {
     ["quiet", { running: 0, waiting: 1, idle: 1, error: 0, stopped: 0 }],
   ]);
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /── HEALTH[\s\S]*× e[\s\S]*default[\s\S]*── QUIET[\s\S]*◐ a[\s\S]*default[\s\S]*○ b[\s\S]*work/);
+  assert.match(rendered, /HEALTH[\s\S]*× e[\s\S]*default[\s\S]*QUIET[\s\S]*◐ a[\s\S]*default[\s\S]*○ b[\s\S]*work/);
   assert.doesNotMatch(rendered, /1 waiting · 1 error/);
 });
 
@@ -994,7 +994,7 @@ test("groups keep stable order and expose unacknowledged waiting counts", () => 
 
   const rows = modelRows(model);
   assert.deepEqual([...new Set(rows.map((row) => row.group))], ["default", "work", "z"]);
-  assert.equal(rows.find((row) => row.id === "default-waiting")?.needsAttention, true);
+  assert.equal(rows.find((row) => row.id === "default-waiting")?.needsAttention, false);
   assert.equal(rows.find((row) => row.id === "work-waiting")?.needsAttention, false);
 
   const rendered = renderSessions(buildRenderModel({ sessions, width: 40 })).lines.map(stripAnsi).join("\\n");
@@ -1033,7 +1033,7 @@ test("cockpit flattens groups into row tags and keeps Archived chronological", (
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(rendered, /QUIET/);
-  assert.match(rendered, /backlog · default/);
+  assert.match(rendered, /backlog[\s\S]*default/);
   assert.match(rendered, /ARCHIVED/);
   assert.doesNotMatch(rendered, /── BACKLOG|\[exp/);
 });
@@ -1120,13 +1120,13 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showWorkspace, false);
-  assert.equal(model.footer, "↑↓ · / Filter · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ · / Filter · b Backlog · : Actions · ? Help");
 });
 
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · S Board · : Actions · ? Help");
 });
 
 test("wide footer stays stable for worktree sessions", () => {
@@ -1134,7 +1134,7 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · S Board · : Actions · ? Help");
 });
 
 test("long titles/cwd truncate without exceeding width", () => {
@@ -1192,7 +1192,7 @@ test("lifecycle muting stays independent from cockpit tier color", () => {
   assert.match(archived, /\u001b\[38;2;4;5;6m.*ARCHIVED/);
 });
 
-test("Archived remains the only collapsible cockpit section", () => {
+test("Archived remains an independently collapsible cockpit section", () => {
   const sessions = [
     session("active", "default", "running", "active"),
     { ...session("backlog", "default", "idle", "backlog"), bucket: "backlog" as const },
@@ -1212,13 +1212,13 @@ test("cockpit tier headers keep a shared title column", () => {
     { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const lines = renderSessions(buildRenderModel({ sessions, width: 100 })).lines.map(stripAnsi);
-  const active = lines.find((line) => line.includes("── ACTIVE")) ?? "";
-  const quiet = lines.find((line) => line.includes("── QUIET")) ?? "";
+  const active = lines.find((line) => line.includes("ACTIVE") && /─[▾▸] /.test(line)) ?? "";
+  const quiet = lines.find((line) => line.includes("QUIET") && /─[▾▸] /.test(line)) ?? "";
   const archived = lines.find((line) => line.includes("ARCHIVED") && /─[▾▸] /.test(line)) ?? "";
-  assert.equal(active.indexOf("── ACTIVE"), quiet.indexOf("── QUIET"));
-  assert.equal(active.indexOf("── ACTIVE"), archived.indexOf("─▾ ARCHIVED"));
-  assert.match(active, /── ACTIVE/);
-  assert.match(quiet, /── QUIET/);
+  assert.equal(active.indexOf("─▾ ACTIVE"), quiet.indexOf("─▾ QUIET"));
+  assert.equal(active.indexOf("─▾ ACTIVE"), archived.indexOf("─▾ ARCHIVED"));
+  assert.match(active, /─▾ ACTIVE/);
+  assert.match(quiet, /─▾ QUIET/);
   assert.match(archived, /─▾ ARCHIVED/);
 });
 

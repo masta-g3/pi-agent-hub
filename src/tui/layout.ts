@@ -11,7 +11,7 @@ export type SessionListTarget =
   | { kind: "session-continuation"; id: string }
   | { kind: "archive-disclosure" }
   | { kind: "release-cue" }
-  | { kind: "section-header"; section: "archived" };
+  | { kind: "section-header"; section: "health" | "active" | "quiet" | "archived" };
 
 export interface TierNavigatorTarget {
   tier: CockpitTier;
@@ -496,8 +496,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
       ].join(styles.border(" · "));
     const sectionHeadingIndex = lines.length;
-    const headerTarget = section.collapsible && section.key === "archived"
-      ? { kind: "section-header" as const, section: "archived" as const }
+    const headerTarget = section.collapsible && section.cockpitTier && section.cockpitTier !== "needs-you"
+      ? { kind: "section-header" as const, section: section.cockpitTier }
       : undefined;
     if (section.selected) {
       selectedIndex = lines.length;
@@ -1094,6 +1094,7 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : mode ? styles.accent(mode.short) : "";
   const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
+  const quiet = session.cockpitTier === "quiet" ? styles.muted("quiet") : "";
   const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
   const hierarchy = (tail: string[]) => [
     [hidden, running, ...tail, age],
@@ -1115,9 +1116,9 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   if (session.section === "backlog") {
     const backlog = styles.muted("backlog");
     const group = terminalWidth >= 100 ? styles.dim(session.group) : "";
-    return [join([hidden, backlog, group]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
+    return [join([hidden, backlog, quiet, group]), join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
-  return hierarchy(full ? [full] : []).find(fits) ?? "";
+  return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {
