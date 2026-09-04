@@ -1,5 +1,4 @@
 import { sessionSection, type SessionSection } from "./session-bucket.js";
-import { ticketSearchText } from "./ticket-identity.js";
 import type { SessionTreeIndex } from "./session-tree.js";
 import type { RuntimeSession } from "./types.js";
 
@@ -98,10 +97,12 @@ export function searchableValues(session: RuntimeSession, tree?: SessionTreeInde
     lifecycle,
     session.agentName ?? "",
     session.taskPreview ?? "",
-    ...ticketSearchText(session),
+    session.context?.ticket?.id ?? "",
+    session.context?.ticket?.subtitle ?? "",
+    session.context?.ticket?.description ?? "",
+    session.workflow?.ticketId ?? "",
     session.context?.attention?.kind ?? "",
     session.context?.attention?.text ?? "",
-    session.workflow?.ticketId ?? "",
     session.workflow?.activity?.label ?? "",
     session.workflow?.plan?.phase?.title ?? "",
     session.workflow?.plan?.nextStep ?? "",
