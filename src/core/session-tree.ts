@@ -1,5 +1,6 @@
 import { sessionSection } from "./session-bucket.js";
 import { orderedSessions } from "./session-order.js";
+import { ticketSearchText } from "./ticket-identity.js";
 import type { ManagedSession, RuntimeSession } from "./types.js";
 
 export interface SessionTreeRow {
@@ -176,12 +177,9 @@ export function matchesFilter(session: RuntimeSession, filter: string): boolean 
     sessionSection(session),
     session.agentName ?? "",
     session.taskPreview ?? "",
-    session.context?.ticket?.id ?? "",
-    session.context?.ticket?.subtitle ?? "",
-    session.context?.ticket?.description ?? "",
+    ...ticketSearchText(session),
     session.context?.attention?.kind ?? "",
     session.context?.attention?.text ?? "",
-    session.workflow?.ticketId ?? "",
     session.workflow?.activity?.label ?? "",
     session.workflow?.plan?.phase?.title ?? "",
     session.workflow?.plan?.nextStep ?? "",

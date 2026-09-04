@@ -2892,6 +2892,38 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /sent → api/);
 });
 
+test("unlink ticket sends the exact clear command to the bound session", async () => {
+  const sent: Array<{ tmuxSession: string; message: string }> = [];
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("api", "api"), workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, ticketId: "ENG-42", updatedAt: 2 } },
+    session("docs", "docs"),
+  ] });
+  const view = new SessionsView(controller, () => {}, {
+    sendMessage: async (tmuxSession, message) => { sent.push({ tmuxSession, message }); },
+  });
+
+  view.handleInput(":");
+  view.handleInput("u");
+  view.handleInput("n");
+  view.handleInput("l");
+  view.handleInput("i");
+  view.handleInput("n");
+  view.handleInput("k");
+  view.handleInput(" ");
+  view.handleInput("t");
+  view.handleInput("i");
+  view.handleInput("c");
+  view.handleInput("k");
+  view.handleInput("e");
+  view.handleInput("t");
+  view.handleInput("\r");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(sent, [{ tmuxSession: "pi-agent-hub-api", message: "/wf-clear" }]);
+  assert.match(stripAnsi(view.render(100).join("\n")), /ticket clear sent → api/);
+  assert.equal(controller.snapshot().registry.sessions.length, 2);
+});
+
 test("themed footer text remains styled when input is truncated", () => {
   const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
   const cases = [

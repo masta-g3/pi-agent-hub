@@ -58,9 +58,9 @@ export const COCKPIT_EXPECTED_FRAMES: Record<60 | 100 | 160, string> = {
 │                 │ └ QA                                                                                          │────────────────────────────────────────────│
 │                 │── ACTIVE                                                                                    ·2│▸ Enter  Answer                             │
 │                 │ │ ▾   ◐ Dashboard UI polish                                           ⚙︎1 · ✓ PL─◉ EX─· RV · 8m│  a      Mark read                          │
-│                 │ │ #cockpit-001 · Pi Agent Hub                                                                 │  i      Details                            │
-│                 │ └ └─   ● code-critic Review cockpit hierarchy geometry                                        │  :      Actions                            │
-│                 │ │ ·   ● Package release checks                                                  ✓ PL─✓ EX─◉ RV│                                            │
+│                 │ │ #cockpit-001 · Pi Agent Hub                                                                 │         Unlink ticket                      │
+│                 │ └ └─   ● code-critic Review cockpit hierarchy geometry                                        │  i      Details                            │
+│                 │ │ ·   ● Package release checks                                                  ✓ PL─✓ EX─◉ RV│  :      Actions                            │
 │                 │ └ #cockpit-001 · Release                                                                      │                                            │
 │                 │── QUIET                                                                          ·3 · ?1 child│                                            │
 │                 │   ▸   ○ Quiet parent                                                                   ?1 · 8m│                                            │
