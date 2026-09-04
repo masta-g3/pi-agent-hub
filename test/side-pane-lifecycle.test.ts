@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createSidePaneLifecycle } from "../src/app/side-pane-lifecycle.js";
 import { darkTmuxChrome } from "../src/core/chrome.js";
 import type { TmuxExec } from "../src/core/tmux.js";
-import type { CommandResult, ManagedSession } from "../src/core/types.js";
+import type { CommandResult, ManagedSession, RuntimeSession } from "../src/core/types.js";
 
 interface FakePane { id: string; tty: string; session: string; slot?: 1 | 2 | 3 | 4; title?: string; active: boolean }
 
@@ -124,7 +124,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function session(id: string, status: ManagedSession["status"] = "idle"): ManagedSession {
+function session(id: string, status: ManagedSession["status"] = "idle"): RuntimeSession {
   return { id, title: id.toUpperCase(), cwd: `/repo/${id}`, group: "test", tmuxSession: `pi-agent-hub-${id}`,
     status, createdAt: 1, updatedAt: 1 };
 }
@@ -139,7 +139,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 async function harness(t: TestContext, options: {
   initial?: { session: string; slot?: 1 | 2 | 3 | 4; active?: boolean; title?: string }[];
-  sessions?: ManagedSession[];
+  sessions?: RuntimeSession[];
   width?: number;
   activeRequestIds?: ReadonlyMap<string, string>;
   revealResult?: boolean;
@@ -184,7 +184,7 @@ test("presence adopts named pins and publishes the complete live snapshot", asyn
 });
 
 test("named pane title adds subagent owner and ticket when width permits", async (t) => {
-  const parent = { ...session("parent"), workflow: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, ticketId: "cockpit-007", updatedAt: 1 } };
+  const parent = { ...session("parent"), workflow: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeIndex: 0, ticketId: "cockpit-007", updatedAt: 1 }, context: { version: 1 as const, updatedAt: 1, ticket: { id: "stale-001" } } as const };
   const child = { ...session("child"), kind: "subagent" as const, parentId: "parent" };
   const value = await harness(t, { sessions: [parent, child], initial: [{ session: "pi-agent-hub-child" }] });
   await waitFor(() => value.lifecycle.snapshot().pins.length === 1);

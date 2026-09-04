@@ -1,6 +1,7 @@
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
+import { ticketIdentity } from "../core/ticket-identity.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 
@@ -105,6 +106,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: "Restart choices…", hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: "Send text…", hint: "send one line without opening the session", keys: ["p"], available: liveMainCapability("sendMessage", "send transport unavailable") },
+  { name: "unlink", label: "Unlink ticket", hint: "send /wf-clear and keep this session", keys: [], available: unlinkAvailability },
   { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
@@ -200,6 +202,8 @@ export function selectWorkspaceCommands(
   } else {
     actionNames = ["open", "pin"];
   }
+
+  if (ticketIdentity(session) && session.kind !== "subagent") actionNames = [...actionNames.slice(0, Math.max(0, maxCount - 1)), "unlink"];
 
   const actionsByName = new Map(
     commands
@@ -421,8 +425,16 @@ function makeCommand(command: Omit<DashboardCommand, "bindings" | "searchText"> 
 }
 
 function sessionHint(session: RuntimeSession): string {
-  const ticket = session.context?.ticket?.id ?? session.workflow?.ticketId;
-  return [ticket ? `#${ticket}` : undefined, session.group, session.status].filter(Boolean).join(" · ");
+  const ticket = ticketIdentity(session);
+  return [ticket ? `#${ticket.id}` : undefined, session.group, session.status].filter(Boolean).join(" · ");
+}
+
+function unlinkAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  const main = mainAvailability(session);
+  if (!main.enabled) return main;
+  if (!ticketIdentity(session)) return disabled("session has no ticket");
+  if (!isLive(session)) return disabled("session is not live");
+  return input.capabilities?.sendMessage === true ? enabled() : disabled("send transport unavailable");
 }
 
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {

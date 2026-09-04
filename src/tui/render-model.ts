@@ -2,6 +2,7 @@ import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-buc
 import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
+import { ticketIdentity } from "../core/ticket-identity.js";
 import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
@@ -852,14 +853,11 @@ function visibleAttention(session: RuntimeSession): SessionAttention | undefined
 }
 
 function ticketDisplay(session: RuntimeSession): Pick<RenderSession, "ticketId" | "ticketSubtitle" | "ticketDescription"> {
-  const runtimeId = session.workflow?.ticketId;
-  const contextTicket = session.context?.ticket;
-  if (runtimeId && contextTicket?.id !== runtimeId) return { ticketId: runtimeId };
-  const ticketId = runtimeId ?? contextTicket?.id;
-  return ticketId ? {
-    ticketId,
-    ...(contextTicket?.subtitle ? { ticketSubtitle: contextTicket.subtitle } : {}),
-    ...(contextTicket?.description ? { ticketDescription: contextTicket.description } : {}),
+  const ticket = ticketIdentity(session);
+  return ticket ? {
+    ticketId: ticket.id,
+    ...(ticket.subtitle ? { ticketSubtitle: ticket.subtitle } : {}),
+    ...(ticket.description ? { ticketDescription: ticket.description } : {}),
   } : {};
 }
 
