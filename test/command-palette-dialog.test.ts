@@ -89,6 +89,11 @@ test("rendering is ANSI-width safe at supported widths and hides narrow hints", 
   }
 });
 
+test("palette footer documents Ctrl+N/P navigation", () => {
+  const rendered = renderCommandPalette(createCommandPalette(), commands, 80, 12);
+  assert.match(rendered.lines.at(-1) ?? "", /Ctrl\+N\/P/);
+});
+
 test("short heights window around selection and retain its group context", () => {
   const many = Array.from({ length: 20 }, (_, index) => command(`s${index}`, index < 10 ? "sessions" : "filters", `Item ${index}`));
   const state = { ...createCommandPalette(), selected: 17 };

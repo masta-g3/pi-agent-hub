@@ -54,7 +54,7 @@ test("persisted new-user state reaches the live empty SessionsView", () => {
   assert.equal((view as unknown as { grouping?: unknown }).grouping, "project");
   const text = stripAnsi(view.render(100).join("\n"));
   assert.match(text, /an agent's explicit request lands here/);
-  assert.match(text, /Alt\+Q Return/);
+  assert.match(text, /Ctrl\+Q Return/);
   assert.doesNotMatch(text, /No managed Pi sessions yet/);
 });
 
@@ -287,7 +287,7 @@ test("help overlay opens and closes", () => {
   const help = view.render(120).join("\n");
   assert.match(help, /pi agent hub help/);
   assert.match(help, /Status legend/);
-  assert.match(help, /Alt\+Q/);
+  assert.doesNotMatch(help, /Alt\+Q/);
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
   assert.match(help, /i toggle/);
@@ -981,14 +981,14 @@ test("slot badges and summary preserve holes and focused identity", () => {
   assert.match(rendered, /▣3 Docs/);
 });
 
-test("canonical Alt+Arrow intents move spatially and Alt+Q returns", () => {
+test("canonical Alt+Arrow intents move spatially and Ctrl+Q returns", () => {
   const events: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
     focusSidePaneDirection: (direction) => { events.push(direction); return { kind: "focused" }; },
     returnToCockpit: () => { events.push("return"); return { kind: "focused" }; },
   });
-  for (const sequence of ["\u001b[1;3D", "\u001b[1;3C", "\u001b[1;3A", "\u001b[1;3B", "\u001bq"]) view.handleInput(sequence);
+  for (const sequence of ["\u001b[1;3D", "\u001b[1;3C", "\u001b[1;3A", "\u001b[1;3B", "\u001bq", "\u0011"]) view.handleInput(sequence);
   assert.deepEqual(events, ["left", "right", "up", "down", "return"]);
 });
 
@@ -1872,7 +1872,7 @@ test("question Answer focuses the exact pinned session without opening another t
   }
 });
 
-test("new-user question coaching retires only after successful focus and Alt+Q return", async () => {
+test("new-user question coaching retires only after successful focus and Ctrl+Q return", async () => {
   const oldTmux = process.env.TMUX;
   process.env.TMUX = "/tmp/tmux";
   try {
@@ -1893,11 +1893,11 @@ test("new-user question coaching retires only after successful focus and Alt+Q r
       cohort: "new", phase: "awaiting-return", sessionId: "api", requestId: "question-1",
     });
 
-    view.handleInput("\u0011");
+    view.handleInput("\u001bq");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(saved.at(-1)?.cockpitOnboarding?.phase, "awaiting-return");
 
-    view.handleInput("\u001bq");
+    view.handleInput("\u0011");
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(saved.at(-1)?.cockpitOnboarding, { cohort: "new", phase: "complete" });
   } finally {
@@ -1958,7 +1958,7 @@ test("a fulfilled but unavailable handoff does not start the coaching trip", asy
   }
 });
 
-test("full-screen Alt+Q receipt completes a persisted pending trip", () => {
+test("full-screen Ctrl+Q receipt completes a persisted pending trip", () => {
   const saved: SessionsViewState[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
     initialViewState: { grouping: "project", cockpitOnboarding: {
@@ -1967,7 +1967,7 @@ test("full-screen Alt+Q receipt completes a persisted pending trip", () => {
     saveViewState: (state) => { saved.push(state); },
   });
 
-  view.completeFullScreenReturn("alt-q");
+  view.completeFullScreenReturn("ctrl-q");
 
   assert.deepEqual(saved.at(-1)?.cockpitOnboarding, { cohort: "new", phase: "complete" });
 });

@@ -22,7 +22,7 @@ test("config defaults to the built-in skill pool and MCP catalog", async () => {
   assert.deepEqual(await effectiveSkillPoolDirs(env), [join(root, "skills", "pool")]);
   assert.equal(await effectiveMcpCatalogPath(env), join(root, "mcp.json"));
   assert.equal(await effectiveSessionPrelude(env), undefined);
-  assert.equal(await effectiveWorktreeDefault(env), true);
+  assert.equal(await effectiveWorktreeDefault(env), false);
   assert.deepEqual(await effectiveDashboardThemePreference(env), { syncPi: true });
   assert.deepEqual(await effectiveDashboardShortcuts(env), []);
   assert.equal(await effectiveDashboardAttentionBell(env), false);
@@ -56,7 +56,7 @@ test("worktree default is validated and preserves unrelated session config", asy
   assert.equal(await effectiveSessionPrelude(env), "echo setup");
 
   await unsetWorktreeDefault(env);
-  assert.equal(await effectiveWorktreeDefault(env), true);
+  assert.equal(await effectiveWorktreeDefault(env), false);
   assert.equal(await effectiveSessionPrelude(env), "echo setup");
 
   await writeFile(configPath(env), JSON.stringify({ version: 1, session: { worktreeDefault: "yes" } }), "utf8");

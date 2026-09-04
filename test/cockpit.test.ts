@@ -263,9 +263,9 @@ test("onboarding moments stay deterministic at 60, 100, and 160 columns", () => 
       return [name, lines.map(stripAnsi).join("\n")];
     }));
     assert.match(rendered.empty!, /NEEDS YOU.*an agent's explicit request/s);
-    assert.match(rendered.first!, /API release.*Alt\+Q Return/s);
-    assert.match(rendered.request!, /Which release channel\?.*Alt\+Q Return/s);
-    assert.doesNotMatch(rendered.returned!, /an agent's explicit request lands here|Alt\+Q Return/);
+    assert.match(rendered.first!, /API release.*Ctrl\+Q Return/s);
+    assert.match(rendered.request!, /Which release channel\?.*Ctrl\+Q Return/s);
+    assert.doesNotMatch(rendered.returned!, /an agent's explicit request lands here|Ctrl\+Q Return/);
     assert.match(rendered.updated!, /NEW DAILY LOOP/);
     assert.doesNotMatch(rendered.dismissed!, /NEW DAILY LOOP/);
   }

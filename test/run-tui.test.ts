@@ -205,32 +205,32 @@ test("dashboard action loop stop drains the active producer", async () => {
   assert.equal(stopped, true);
 });
 
-test("dashboard return completion survives refresh failure while rename still refreshes first", async () => {
+test("dashboard Ctrl+Q return completion survives refresh failure while rename still refreshes first", async () => {
   const events: string[] = [];
   const view = {
     openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
-    completeFullScreenReturn: (key: "alt-q") => { events.push(`return:${key}`); },
+    completeFullScreenReturn: (key: "ctrl-q") => { events.push(`return:${key}`); },
   };
-  await assert.rejects(() => processDashboardAction(view, { action: "return", key: "alt-q" }, async () => {
+  await assert.rejects(() => processDashboardAction(view, { action: "return", key: "ctrl-q" }, async () => {
     events.push("refresh");
     throw new Error("refresh failed");
   }), /refresh failed/);
-  assert.deepEqual(events, ["return:alt-q", "refresh"]);
+  assert.deepEqual(events, ["return:ctrl-q", "refresh"]);
 
   events.length = 0;
   await processDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" }, async () => { events.push("refresh"); });
   assert.deepEqual(events, ["refresh", "rename:pi-agent-hub-api"]);
 });
 
-test("dashboard actions route Alt+Q completion separately from rename", () => {
+test("dashboard actions route Ctrl+Q completion separately from rename", () => {
   const events: string[] = [];
   const view = {
     openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
-    completeFullScreenReturn: (key: "alt-q") => { events.push(`return:${key}`); },
+    completeFullScreenReturn: (key: "ctrl-q") => { events.push(`return:${key}`); },
   };
   applyDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" });
-  applyDashboardAction(view, { action: "return", key: "alt-q" });
-  assert.deepEqual(events, ["rename:pi-agent-hub-api", "return:alt-q"]);
+  applyDashboardAction(view, { action: "return", key: "ctrl-q" });
+  assert.deepEqual(events, ["rename:pi-agent-hub-api", "return:ctrl-q"]);
 });
 
 test("restartAllTargets includes only active parent sessions", () => {

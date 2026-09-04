@@ -94,7 +94,7 @@ Optional global config lives at `config.json` under the global state directory:
   },
   "session": {
     "prelude": "eval \"$(ssh-agent -s)\" >/dev/null",
-    "worktreeDefault": true
+    "worktreeDefault": false
   },
   "dashboard": {
     "themeSync": true,
@@ -149,16 +149,16 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
 }
 ```
 
-Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard and tmux focus/return keys are reserved, including `1`–`4` exact slot assignment, `M-1`–`M-4` (`Alt+1`–`Alt+4`) slot focus, `P` next-free/focus, `x` selected-pin close, `+`/`-` resize, `M-q`/`C-q` return, the intent palette `:`, and theme settings `t`; conflicting entries are rejected rather than shadowing Hub behavior. `F`, `o`, and `v` are available for explicit configured sends. Shifted digit characters such as `!` are also available. `send` must be one nonblank line; this is not a shell-command or macro facility.
+Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard and tmux focus/return keys are reserved, including `1`–`4` exact slot assignment, `M-1`–`M-4` (`Alt+1`–`Alt+4`) slot focus, `P` next-free/focus, `x` selected-pin close, `+`/`-` resize, `M-q` (`Alt+Q`, reserved for Pi message editing), `C-q` return, the intent palette `:`, and theme settings `t`; conflicting entries are rejected rather than shadowing Hub behavior. `Ctrl+N` is intentionally configurable in normal dashboard mode, but forms and the command palette keep precedence for their own cycling/navigation behavior. `F`, `o`, and `v` are available for explicit configured sends. Shifted digit characters such as `!` are also available. `send` must be one nonblank line; this is not a shell-command or macro facility.
 
 Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name refresh` is producer-provided and can be configured as an ordinary one-line text send.
 
 ## New-session worktree default
 
-New-session forms open with worktree mode on. Set `session.worktreeDefault` to `false` to start every new form in normal-session mode instead. In the form, focus the Worktree row and press `Space`, or use `Ctrl+T` from any field, to toggle it for an individual session. Omitting or unsetting the option restores the worktree default.
+New-session forms open with worktree mode off. Set `session.worktreeDefault` to `true` to start every new form in worktree mode instead. In the form, focus the Worktree row and press `Space`, or use `Ctrl+T` from any field, to toggle it for an individual session. Omitting or unsetting the option restores the normal-session default.
 
 ```bash
-pi-hub config set worktree-default false
+pi-hub config set worktree-default true
 pi-hub config unset worktree-default
 ```
 

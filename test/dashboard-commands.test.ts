@@ -70,9 +70,9 @@ test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
 });
 
 test("coaching footer keeps the approved daily-loop controls in catalog ownership", () => {
-  assert.equal(dashboardFooter(40, { coaching: true }), "Enter Open · Alt+Q Return · : · ?");
-  assert.equal(dashboardFooter(60, { coaching: true }), "Enter Open · Alt+Q Return · : Actions · ? Help");
-  assert.equal(dashboardFooter(160, { coaching: true }), "Enter Open · Alt+Q Return · : Actions · ? Help");
+  assert.equal(dashboardFooter(40, { coaching: true }), "Enter Open · Ctrl+Q Return · : · ?");
+  assert.equal(dashboardFooter(60, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
+  assert.equal(dashboardFooter(160, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
 });
 
 test("pinned footer is derived from catalog-owned action metadata", () => {

@@ -61,7 +61,7 @@ export async function effectiveSessionPrelude(env: NodeJS.ProcessEnv = process.e
 }
 
 export async function effectiveWorktreeDefault(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  return (await loadSessionsConfig(env)).session?.worktreeDefault ?? true;
+  return (await loadSessionsConfig(env)).session?.worktreeDefault ?? false;
 }
 
 export async function effectiveDashboardThemePreference(env: NodeJS.ProcessEnv = process.env): Promise<DashboardThemePreference> {

@@ -542,7 +542,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     priorityIndexes.push(lines.length);
     pushLine(`${styles.accent("▶")} ${styles.accent("n")}  create the first managed Pi session`);
     priorityIndexes.push(lines.length);
-    pushLine(`${styles.accent("Enter")} opens · ${styles.accent("Alt+Q")} returns · ${styles.accent("?")} keys · ${styles.accent(":")} actions`);
+    pushLine(`${styles.accent("Enter")} opens · ${styles.accent("Ctrl+Q")} returns · ${styles.accent("?")} keys · ${styles.accent(":")} actions`);
   }
   if (board) {
     pushLine("");

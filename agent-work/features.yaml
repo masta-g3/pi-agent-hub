@@ -966,3 +966,13 @@
   created_at: '2026-09-01'
   plan_file: agent-work/history/20260902_dashboard-visibility-001_persistent_cockpit_visibility.md
   completed_at: '2026-09-02'
+- id: fork-compact-001
+  status: done
+  title: Fork compact handoff
+  subtitle: Verify fresh branch compaction handoff
+  description: Fork-and-compact creates a fresh task branch, preserves discussion-only
+    context, and reports only after verified compaction.
+  priority: 2
+  created_at: '2026-09-03'
+  plan_file: agent-work/history/20260903_fork-compact-001_fork_compact_handoff.md
+  completed_at: '2026-09-03'

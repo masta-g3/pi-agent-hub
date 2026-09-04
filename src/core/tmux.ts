@@ -398,12 +398,11 @@ export async function switchClientWithReturn(
 
   const controlSession = await currentTmuxSession(exec);
   const controlClient = await currentTmuxClient(exec);
-  const returnKeys = [...new Set([returnKey, "M-q"])];
+  const returnKeys = [returnKey];
   const keyBindings: SavedKeyBinding[] = [];
   for (const key of returnKeys) {
-    const keyRestorePath = key === returnKey ? restorePath : join(stateDir, "alt-return.previous.tmux");
-    await writeFile(keyRestorePath, await currentKeyBinding(key, exec), "utf8");
-    keyBindings.push({ key, restorePath: keyRestorePath });
+    await writeFile(restorePath, await currentKeyBinding(key, exec), "utf8");
+    keyBindings.push({ key, restorePath });
   }
   if (options.renameKey) {
     const renameRestorePath = join(stateDir, "rename.previous.tmux");
@@ -432,12 +431,10 @@ export async function switchClientWithReturn(
         managedPrefix,
         keyBindings,
         returnSession: options.returnSession,
-        ...(key === "M-q" ? {
-          action: {
-            path: actionPath,
-            json: JSON.stringify({ action: "return", key: "alt-q" }),
-          },
-        } : {}),
+        action: {
+          path: actionPath,
+          json: JSON.stringify({ action: "return", key: "ctrl-q" }),
+        },
       })]);
     }
     if (options.renameKey) {
@@ -525,7 +522,7 @@ export async function installSidebarReturnBinding(options: {
   await withFileLock(activePath, async () => {
     const restorePath = join(stateDir, "previous.tmux");
     const returnKey = options.returnKey ?? "C-q";
-    const keys = [...new Set([returnKey, "M-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"])];
+    const keys = [...new Set([returnKey, "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"])];
     await removeSidebarReturnBindingUnlocked({ stateDir, refuseLiveForeignOwner: true }, exec);
     const previous = await Promise.all(keys.map((key) => currentKeyBinding(key, exec)));
     await writeFile(restorePath, previous.filter(Boolean).join("\n"), "utf8");
@@ -547,7 +544,6 @@ export async function installSidebarReturnBinding(options: {
     ]);
     try {
       await bindIntent(returnKey);
-      if (returnKey !== "M-q") await bindIntent("M-q");
       for (const slot of [1, 2, 3, 4]) await bindIntent(`M-${slot}`, `Escape '${slot}'`);
       const arrows = { Left: "D", Right: "C", Up: "A", Down: "B" } as const;
       for (const [direction, suffix] of Object.entries(arrows)) {

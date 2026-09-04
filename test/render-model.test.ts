@@ -62,7 +62,7 @@ test("new-user coaching teaches the real empty tiers and daily-loop footer", () 
     assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "ACTIVE", "QUIET"]);
     assert.equal(model.guidance.coach, true);
     assert.match(model.footer, /Enter Open/);
-    assert.match(model.footer, /Alt\+Q Return/);
+    assert.match(model.footer, /Ctrl\+Q Return/);
     const rendered = renderSessions(model, darkTheme);
     assert.equal(rendered.lines.every((line) => visibleWidth(line) <= width), true);
     const text = stripAnsi(rendered.lines.join("\n"));
@@ -80,7 +80,7 @@ test("empty coaching keeps its create and return actions at short heights", () =
   const text = stripAnsi(rendered.lines.join("\n"));
   assert.match(text, /NEEDS YOU/);
   assert.match(text, /create the first managed Pi session/);
-  assert.match(text, /Alt\+Q returns/);
+  assert.match(text, /Ctrl\+Q returns/);
   assert.equal(rendered.lines.length, 8);
 
   const roomier = stripAnsi(renderSessions(buildRenderModel({

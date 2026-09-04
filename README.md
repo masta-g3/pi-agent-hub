@@ -17,7 +17,7 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 | Pi-native | Uses Pi sessions, extensions, skills, MCP, and project state directly. |
 | tmux-native | Sessions keep running as normal tmux sessions; you can attach, switch, or recover manually. |
 | One stable dashboard | `pi-hub` always brings you back to the same control center. |
-| Return shortcuts | `Alt+Q` returns and completes the coached first request round trip; `Ctrl+Q` returns without completing it; `Alt+R` opens rename from inside a session. |
+| Return shortcuts | `Ctrl+Q` returns from a live pane and completes the coached first request round trip; `Alt+Q` remains available to Pi for editing the last message; `Alt+R` opens rename from inside a session. |
 | Project-scoped skills/MCP | Pick skills and MCP servers for the selected session's primary repo. |
 | Multi-repo workspaces | Extra repos are symlinked into a runtime workspace; source repos are not moved or owned. |
 | Hub-owned worktrees | Create isolated branch sessions for one or more repos; finish, forget, or discard them explicitly from the dashboard. |
@@ -44,7 +44,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `Alt+1`–`Alt+4` | Focus the corresponding occupied slot from the sidebar or a live pane |
 | `x` | Close the selected session's pin without stopping Pi |
 | `+` / `-` | Resize the main pin split in ten-point steps |
-| `Alt+Q` / `Ctrl+Q` | Return from a live pane to the sidebar; only `Alt+Q` completes first-run coaching |
+| `Ctrl+Q` | Return from a live pane to the sidebar and complete first-run coaching |
 | `/` | Filter sessions |
 | `:` | Search actions, sessions, and named filters |
 | `p` | Send a one-line message to the selected live session without opening it |
@@ -72,7 +72,7 @@ The default project cockpit shows complete session trees in attention order: `NE
 
 A fresh producer request with a request ID adds one six-second band below the cockpit header and a focus-aware tmux message. Click the band or choose **Locate newest request** from `:` to reveal its exact session without opening or acknowledging it. The optional **Attention bell** toggle also lives in `:` and defaults to Off.
 
-On a new empty dashboard, the real cockpit tiers and footer teach one daily loop: create a session, open an explicit request, and return with `Alt+Q`. That coaching retires after the first successful request round trip. Existing users see only one low-priority **NEW DAILY LOOP** row below real attention; select it and press `Enter` to dismiss it.
+On a new empty dashboard, the real cockpit tiers and footer teach one daily loop: create a session, open an explicit request, and return with `Ctrl+Q`. That coaching retires after the first successful request round trip. Existing users see only one low-priority **NEW DAILY LOOP** row below real attention; select it and press `Enter` to dismiss it.
 
 The fleet top line names `FLEET`, `WORKFLOW`, or `PINNED FLEET`, then shows owner-tree, pin, `needs you`, and health signals that fit. A full-width workspace starts with the selected session instead of adding another mode header. With a filter active, tree counts use visible/total form. `▸` marks a collapsed owner with child rows; press `→` to expand it to `▾`, and `←` to collapse it again.
 
@@ -135,7 +135,7 @@ pi-hub config unset worktree-default
 
 `explain` observes the live fleet once and prints the same runtime and cockpit reasoning as the dashboard. It resolves an exact session ID before a unique prefix, reports bounded candidates for ambiguous prefixes, and never updates `registry.json`.
 
-`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form by focusing the Worktree row and pressing `Space`, or with `Ctrl+T`; the branch does not control Pi's native session name. New forms start with worktrees on. Set `worktree-default false` to open them in normal-session mode instead; either toggle can still change the mode per session. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Dashboard archive/backlog/restore never stops tmux or Pi; archiving also closes the session's pin if shown. Archived is a flat newest-first list that shows five parent cascades by default; select the older-items row and press `Enter` or double-click to expand it. Archived cascades become eligible for dashboard cleanup after seven days, but are forgotten only when every tmux session in the cascade is confirmed gone. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
+`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form by focusing the Worktree row and pressing `Space`, or with `Ctrl+T`; the branch does not control Pi's native session name. New forms start with worktrees off. Set `worktree-default true` to open them in worktree mode instead; either toggle can still change the mode per session. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Dashboard archive/backlog/restore never stops tmux or Pi; archiving also closes the session's pin if shown. Archived is a flat newest-first list that shows five parent cascades by default; select the older-items row and press `Enter` or double-click to expand it. Archived cascades become eligible for dashboard cleanup after seven days, but are forgotten only when every tmux session in the cascade is confirmed gone. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
 
 ## Troubleshooting
 
