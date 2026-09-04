@@ -8,7 +8,7 @@ import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } f
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
-import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
+import { applyComputedStatus, computeStatus, HEARTBEAT_STALE_MS, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
 import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
@@ -29,6 +29,7 @@ export class SessionsController {
   private registry: SessionsRegistry;
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
+  private compactionSignals = new Map<string, { tmuxSession: string; expiresAt: number }>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
   private filter: string | undefined;
@@ -70,7 +71,13 @@ export class SessionsController {
           const observation = matchingObservation(session, observations);
           if (!observation) return [session];
           appliedObservationIds.add(session.id);
-          const computed = computeStatus({ session, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: observation.heartbeat, now });
+          const heartbeat = observation.heartbeat;
+          const freshNonCompaction = isFreshHeartbeat(heartbeat, now) && !(heartbeat.operation?.kind === "compact" && heartbeat.operation.phase === "running");
+          if (freshNonCompaction || heartbeat?.state === "error" || heartbeat?.state === "shutdown") this.compactionSignals.delete(session.id);
+          const compaction = this.compactionSignals.get(session.id);
+          if (compaction && (compaction.tmuxSession !== session.tmuxSession || compaction.expiresAt <= now)) this.compactionSignals.delete(session.id);
+          const compactionActive = Boolean(compaction && compaction.tmuxSession === session.tmuxSession && compaction.expiresAt > now);
+          const computed = computeStatus({ session, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: observation.heartbeat, compactionActive, now });
           const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
           observedEvidence.set(session.id, { fingerprint: statusEvidenceFingerprint(updated), evidence: computed.evidence });
           const piName = typeof observation.heartbeat?.piSessionName === "string" ? observation.heartbeat.piSessionName.trim() : "";
@@ -92,17 +99,25 @@ export class SessionsController {
     for (const [id, observation] of observations) {
       const latest = latestById.get(id);
       if (appliedObservationIds.has(id)) {
+        const heartbeat = observation.heartbeat;
+        const operation = heartbeat?.operation;
+        if (observation.presence !== "present" || heartbeat?.state === "error" || heartbeat?.state === "shutdown" || (heartbeat && !(operation?.kind === "compact" && operation.phase === "running"))) {
+          this.compactionSignals.delete(id);
+        } else if (operation?.kind === "compact" && operation.phase === "running" && isFreshHeartbeat(heartbeat, now)) {
+          this.compactionSignals.set(id, { tmuxSession: observation.tmuxSession, expiresAt: now + HEARTBEAT_STALE_MS });
+        }
         const context = observation.heartbeat?.context;
         if (context) this.sessionContexts.set(id, context);
         else this.sessionContexts.delete(id);
         const activeMode = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
-          ? observation.heartbeat.workflow?.activeMode
+          ? observation.heartbeat.activeMode ?? observation.heartbeat.workflow?.activeMode
           : undefined;
         if (activeMode) this.workflowModes.set(id, activeMode);
         else this.workflowModes.delete(id);
       } else if (!latest || latest.tmuxSession !== observation.tmuxSession) {
         this.sessionContexts.delete(id);
         this.workflowModes.delete(id);
+        this.compactionSignals.delete(id);
       }
     }
     for (const session of prunedSessions) await removeDashboardState(session);
@@ -253,6 +268,7 @@ export class SessionsController {
     for (const removedId of ids) {
       this.sessionContexts.delete(removedId);
       this.workflowModes.delete(removedId);
+      this.compactionSignals.delete(removedId);
       this.statusEvidence.delete(removedId);
     }
     this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
@@ -290,11 +306,10 @@ export class SessionsController {
     return this.registry.sessions.map((session) => {
       const context = this.sessionContexts.get(session.id);
       const activeMode = this.workflowModes.get(session.id);
-      const workflow = activeMode && session.workflow ? { ...session.workflow, activeMode } : session.workflow;
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
-      return context || workflow !== session.workflow || statusEvidence
-        ? { ...session, ...(context ? { context } : {}), workflow, ...(statusEvidence ? { statusEvidence } : {}) }
+      return context || activeMode || statusEvidence
+        ? { ...session, ...(context ? { context } : {}), ...(activeMode ? { activeMode } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }

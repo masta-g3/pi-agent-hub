@@ -357,15 +357,23 @@ const WORKFLOW = {
   updatedAt: 1,
 };
 
-const FOCUSED_WORKFLOW = {
-  ...WORKFLOW,
-  activeMode: { id: "focus", short: "FOC", label: "Focus", detail: "turn 4" },
-};
+const FOCUS_MODE = { id: "focus", short: "FOC", label: "Focus", detail: "turn 4" };
+
+test("mode-only Focus renders without changing project tier or board lane", () => {
+  const focused = { ...session("focus", "agents", "waiting"), activeMode: { id: "focus", short: "FOC", label: "Focus" } };
+  const project = buildRenderModel({ sessions: [focused], selectedId: "focus", width: 120, now: 1_000 });
+  assert.equal(project.selected?.activeMode?.short, "FOC");
+  assert.equal(project.selected?.cockpitTier, "quiet");
+  assert.match(renderSessions(project).lines.map(stripAnsi).join("\\n"), /FOC/);
+
+  const board = buildRenderModel({ sessions: [{ ...focused, status: "running" }], selectedId: "focus", grouping: "stage", width: 120, now: 1_000 });
+  assert.equal(board.sections[0]?.title, "OTHER ACTIVE");
+});
 
 test("active workflow mode replaces the Execute short in rows and workspace workflow", () => {
-  const focused = { ...session("focus", "agents", "waiting"), workflow: FOCUSED_WORKFLOW };
+  const focused = { ...session("focus", "agents", "waiting"), workflow: WORKFLOW, activeMode: FOCUS_MODE };
   const model = buildRenderModel({ sessions: [focused], selectedId: "focus", width: 110, now: 1_000 });
-  assert.equal(model.selected?.workflow?.activeMode?.short, "FOC");
+  assert.equal(model.selected?.activeMode?.short, "FOC");
   const parentRow = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("focus")) ?? "";
   assert.match(parentRow, /FOC/);
   assert.doesNotMatch(parentRow, /EX/);
@@ -376,7 +384,7 @@ test("active workflow mode replaces the Execute short in rows and workspace work
 });
 
 test("focused cards stay in Execute and preserve FOC without row group adornments", () => {
-  const focused = { ...session("focus", "agents", "running", "focused-work"), workflow: FOCUSED_WORKFLOW };
+  const focused = { ...session("focus", "agents", "running", "focused-work"), workflow: WORKFLOW, activeMode: FOCUS_MODE };
   const wide = buildRenderModel({ sessions: [focused], selectedId: "focus", grouping: "stage", width: 120 });
   assert.deepEqual(wide.sections.map((section) => section.key), ["execute"]);
   assert.equal(wide.sections[0]?.title, "EXECUTE");
@@ -411,7 +419,7 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
 });
 
 test("stopped focus snapshots render as ordinary Execute sessions", () => {
-  const stopped = { ...session("focus", "agents", "stopped"), workflow: FOCUSED_WORKFLOW };
+  const stopped = { ...session("focus", "agents", "stopped"), workflow: WORKFLOW, activeMode: FOCUS_MODE };
   const groupsText = renderSessions(workspaceModel({
     sessions: [stopped],
     selectedId: "focus",
@@ -435,7 +443,7 @@ test("stopped focus snapshots render as ordinary Execute sessions", () => {
 
 test("focused workflow markers use accent and stay width-safe", () => {
   const theme = { ...darkTheme, accent: "#010203", muted: "#040506", border: "#070809" };
-  const focused = { ...session("focus", "agents", "waiting", "focused-".repeat(8)), workflow: FOCUSED_WORKFLOW, lastActivityAt: 0 };
+  const focused = { ...session("focus", "agents", "waiting", "focused-".repeat(8)), workflow: WORKFLOW, activeMode: FOCUS_MODE, lastActivityAt: 0 };
   for (const width of [40, 60, 110]) {
     const layout = renderSessions(buildRenderModel({ sessions: [focused], selectedId: "focus", width, now: 14 * 60_000 }), theme);
     const rendered = layout.lines.join("\n");
@@ -506,7 +514,7 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
   const sessions = [
     { ...session("running", "default", "running"), workflow: WORKFLOW, lastActivityAt: now - 14 * 60_000 },
     { ...session("waiting", "default", "waiting"), workflow: WORKFLOW, lastActivityAt: now - 14 * 60_000 },
-    { ...session("focused", "default", "waiting"), workflow: FOCUSED_WORKFLOW, lastActivityAt: now - 14 * 60_000 },
+    { ...session("focused", "default", "waiting"), workflow: WORKFLOW, activeMode: FOCUS_MODE, lastActivityAt: now - 14 * 60_000 },
     { ...session("idle", "default", "idle"), lastActivityAt: now - 14 * 60_000 },
     { ...session("backlog", "default", "waiting"), bucket: "backlog" as const, workflow: WORKFLOW, lastActivityAt: now - 14 * 60_000 },
   ];
@@ -681,7 +689,7 @@ test("board group order follows the already ordered lane rows used by navigation
 });
 
 test("parent board rows show the count of starting and running descendants only", () => {
-  const parent = { ...session("parent", "api", "waiting", "Parent task"), workflow: FOCUSED_WORKFLOW };
+  const parent = { ...session("parent", "api", "waiting", "Parent task"), workflow: WORKFLOW, activeMode: FOCUS_MODE };
   const descendants = [
     { ...session("starting", "api", "starting"), kind: "subagent" as const, parentId: "parent" },
     { ...session("running", "api", "running"), kind: "subagent" as const, parentId: "starting" },

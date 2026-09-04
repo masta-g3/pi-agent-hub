@@ -31,6 +31,7 @@ export function computeStatus(input: StatusInput): StatusDecision {
   }
 
   const fallbackFromTmux = (): StatusDecision => {
+    if (input.compactionActive && session.status !== "stopped") return decision("running", "compaction-retained");
     if (tmux.recentActivityMs !== undefined && tmux.recentActivityMs < TMUX_ACTIVE_MS) {
       return decision("running", "fallback-active");
     }
@@ -47,6 +48,7 @@ export function computeStatus(input: StatusInput): StatusDecision {
 
   const stale = now - heartbeat.updatedAt > HEARTBEAT_STALE_MS;
   if (stale) return fallbackFromTmux();
+  if (heartbeat.operation?.kind === "compact" && heartbeat.operation.phase === "running") return decision("running", "compaction-retained");
   if (heartbeat.state === "running" || heartbeat.state === "starting") return decision("running", "heartbeat-active");
 
   const lastAgentEnd = heartbeat.stateSince;

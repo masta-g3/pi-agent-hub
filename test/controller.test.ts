@@ -392,31 +392,31 @@ test("refresh projects active workflow mode only from a fresh heartbeat with con
 
     await writeHeartbeat();
     await controller.refresh(now);
-    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, activeMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, activeMode);
     assert.deepEqual(controller.snapshot().registry.sessions[0]?.workflow, workflow);
     const persisted = JSON.parse(await readFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), "utf8"));
     assert.equal(persisted.sessions[0].workflow.activeMode, undefined);
 
     await writeHeartbeat({ state: "error", message: "provider paused" });
     await controller.refresh(now);
-    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, activeMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, activeMode);
 
     await writeHeartbeat({ workflow });
     await controller.refresh(now + 1);
-    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
 
     await writeHeartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1 });
     await controller.refresh(now);
-    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
 
     await writeHeartbeat({ state: "shutdown" });
     await controller.refresh(now);
-    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
 
     for (presence of ["missing", "unknown"] as const) {
       await writeHeartbeat();
       await controller.refresh(now);
-      assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined, presence);
+      assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined, presence);
     }
   });
 });
@@ -525,7 +525,7 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     await writeRuntime("first", firstMode);
     await controller.refresh(now);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "first");
-    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, firstMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, firstMode);
 
     await writeRuntime("second", secondMode);
     duringPresence = async () => {
@@ -536,11 +536,11 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     };
     await controller.refresh(now + 1);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "first");
-    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, firstMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, firstMode);
 
     await controller.refresh(now + 2);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "second");
-    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, secondMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, secondMode);
 
     duringPresence = async () => {
       await updateRegistry((latest) => ({
@@ -550,7 +550,7 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     };
     await controller.refresh(now + 3);
     assert.equal(controller.snapshot().sessions[0]?.context, undefined);
-    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
   });
 });
 
