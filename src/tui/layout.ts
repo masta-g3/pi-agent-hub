@@ -966,8 +966,8 @@ function workspaceTaskText(workspace: RenderWorkspace): string {
 function workspaceWorkflowLine(session: RenderSession, styles: LayoutStyles): string[] {
   const workflow = session.workflow;
   const step = workflow?.steps[workflow.activeIndex];
-  if (!workflow || !step) return [];
   const mode = activeWorkflowMode(session);
+  if (!workflow || !step) return mode ? [styles.accent(mode.label?.trim() || mode.short.trim())] : [];
   const label = mode?.label?.trim() || mode?.short.trim() || step.label?.trim() || step.short;
   return [`${styles.accent(label)}${styles.dim(` · step ${workflow.activeIndex + 1} of ${workflow.steps.length}`)}`];
 }
@@ -1067,7 +1067,7 @@ function titleStatusRow(session: RenderSession, width: number, styles: LayoutSty
 }
 
 function activeWorkflowMode(session: RenderSession): WorkflowModeDisplay | undefined {
-  return session.status === "stopped" ? undefined : session.workflow?.activeMode;
+  return session.status === "stopped" ? undefined : session.activeMode;
 }
 
 function activeStepShort(workflow: WorkflowRuntimeSnapshot, mode?: WorkflowModeDisplay): string {
@@ -1092,7 +1092,7 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
   const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
-  const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
+  const compact = session.workflow ? railCompact(session.workflow, mode, styles) : mode ? styles.accent(mode.short) : "";
   const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
   const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
   const hierarchy = (tail: string[]) => [

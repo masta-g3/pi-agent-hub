@@ -955,6 +955,17 @@
   - cockpit-004
   plan_file: agent-work/history/20260830_cockpit-012_question_routing.md
   completed_at: '2026-08-30'
+- id: dashboard-visibility-001
+  status: done
+  title: Dashboard visibility
+  subtitle: Persist cockpit visibility controls
+  description: Users can hide cockpit tiers and Backlog, combine lifecycle filters,
+    and restore presentation preferences after dashboard restart without changing
+    session lifecycle.
+  priority: 2
+  created_at: '2026-09-01'
+  plan_file: agent-work/history/20260902_dashboard-visibility-001_persistent_cockpit_visibility.md
+  completed_at: '2026-09-02'
 - id: fork-compact-001
   status: done
   title: Fork compact handoff
@@ -965,3 +976,13 @@
   created_at: '2026-09-03'
   plan_file: agent-work/history/20260903_fork-compact-001_fork_compact_handoff.md
   completed_at: '2026-09-03'
+- id: workflow-focus-001
+  status: done
+  title: Workflow focus status
+  subtitle: Show focus without state coupling
+  description: Workflow focus and transient operations remain visible without changing
+    liveness, attention, lifecycle, or tier classification.
+  priority: 1
+  created_at: '2026-09-03'
+  plan_file: agent-work/history/20260904_workflow-focus-001_workflow_focus_status.md
+  completed_at: '2026-09-04'

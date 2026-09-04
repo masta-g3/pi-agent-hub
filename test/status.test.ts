@@ -158,6 +158,18 @@ test("unchanged computed status keeps the existing row timestamp", () => {
   assert.equal(updated, existing);
 });
 
+test("known compaction keeps a heartbeat gap running", () => {
+  const decision = computeStatus({ session: session({ status: "running" }), tmux: { exists: true }, compactionActive: true, now });
+  assert.equal(decision.status, "running");
+  assert.equal(decision.evidence.reason, "compaction-retained");
+});
+
+test("fresh compaction operation keeps the session running", () => {
+  const decision = computeStatus({ session: session({ status: "waiting" }), tmux: { exists: true }, heartbeat: heartbeat({ state: "waiting", operation: { kind: "compact", phase: "running", id: "op-1" } }), now });
+  assert.equal(decision.status, "running");
+  assert.equal(decision.evidence.reason, "compaction-retained");
+});
+
 test("transient compaction running heartbeat does not advance activity recency", () => {
   const existing = now - 500;
   const transient = applyComputedStatus(

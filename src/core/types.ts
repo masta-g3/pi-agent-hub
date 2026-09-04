@@ -37,6 +37,7 @@ export interface WorkflowActivityDisplay {
 }
 
 export interface WorkflowRuntimeSnapshot extends WorkflowSnapshot {
+  /** @deprecated Producer mode is carried independently on Heartbeat/RuntimeSession. */
   activeMode?: WorkflowModeDisplay;
   activity?: WorkflowActivityDisplay;
   plan?: SessionPlanSummary;
@@ -127,6 +128,7 @@ export type RuntimeStatusReason =
   | "heartbeat-shutdown"
   | "heartbeat-active"
   | "fallback-active"
+  | "compaction-retained"
   | "fallback-starting"
   | "fallback-waiting"
   | "fallback-idle"
@@ -155,6 +157,8 @@ export interface RuntimeStatusEvidence {
 
 export interface RuntimeSession extends ManagedSession {
   context?: PiAgentHubContextV1;
+  /** Fresh, runtime-only producer decoration. */
+  activeMode?: WorkflowModeDisplay;
   workflow?: WorkflowRuntimeSnapshot;
   statusEvidence?: RuntimeStatusEvidence;
 }
@@ -164,11 +168,9 @@ export interface SessionsRegistry {
   sessions: ManagedSession[];
 }
 
-export interface HeartbeatOperation {
-  kind: "fork-compact";
-  phase: "running" | "complete" | "error";
-  id: string;
-}
+export type HeartbeatOperation =
+  | { kind: "compact"; phase: "running" | "complete"; id: string }
+  | { kind: "fork-compact"; phase: "running" | "complete" | "error"; id: string };
 
 export interface Heartbeat {
   managedSessionId: string;
@@ -188,6 +190,7 @@ export interface Heartbeat {
   activeTheme?: ActiveThemeSnapshot;
   piSessionName?: string;
   context?: PiAgentHubContextV1;
+  activeMode?: WorkflowModeDisplay;
   workflow?: WorkflowRuntimeSnapshot;
 }
 
@@ -201,6 +204,8 @@ export interface StatusInput {
   session: ManagedSession;
   tmux: TmuxState;
   heartbeat?: Heartbeat;
+  /** Controller-only transient cache for a bounded compaction heartbeat gap. */
+  compactionActive?: boolean;
   now: number;
 }
 

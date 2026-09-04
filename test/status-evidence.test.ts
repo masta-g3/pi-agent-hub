@@ -103,6 +103,14 @@ test("status evidence names active descendants and inherited quiet placement", (
   assert.ok(quietValues.some((value) => value === "error · quiet · Pi heartbeat reported an error; owner tree is quiet with owner \"Quiet parent\""));
 });
 
+test("status evidence explains retained compaction as useful operational state", () => {
+  const base = session("compacting", { status: "running" });
+  const decision = computeStatus({ session: base, tmux: { exists: true }, compactionActive: true, now });
+  const compacting = { ...base, status: decision.status, statusEvidence: decision.evidence };
+  assert.equal(hasUsefulStatusResult(buildRenderModel({ sessions: [compacting], selectedId: compacting.id, width: 100, now }).selected!), true);
+  assert.ok(values([compacting], compacting.id).some((value) => value === "running · active · compaction is running; heartbeat gap is temporary"));
+});
+
 test("status evidence explains Health, Archived, and retained workflow independently", () => {
   const errorBase = session("broken", { status: "error", error: "failed" });
   const broken = { ...errorBase, statusEvidence: computeStatus({ session: errorBase, tmux: { exists: false }, now }).evidence };

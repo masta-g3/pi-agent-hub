@@ -1,6 +1,6 @@
 import { loadRegistry } from "../core/registry.js";
 import { applyComputedStatus, computeStatus, isFreshHeartbeat } from "../core/status.js";
-import type { ManagedSession, RuntimeSession, SessionsRegistry, WorkflowModeDisplay } from "../core/types.js";
+import type { ManagedSession, RuntimeSession, SessionsRegistry } from "../core/types.js";
 import { buildRenderModel, type RenderSession } from "../tui/render-model.js";
 import { statusEvidenceFields, type StatusEvidenceField } from "../tui/status-evidence.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
@@ -60,16 +60,16 @@ function observedRuntimeSession(session: ManagedSession, observation: SessionObs
   });
   const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
   const context = observation.heartbeat?.context;
-  const activeMode: WorkflowModeDisplay | undefined = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
-    ? observation.heartbeat.workflow?.activeMode
+  const activeMode = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
+    ? observation.heartbeat.activeMode ?? observation.heartbeat.workflow?.activeMode
     : undefined;
-  const workflow = activeMode && updated.workflow ? { ...updated.workflow, activeMode } : updated.workflow;
   const piName = isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.piSessionName?.trim() : undefined;
   return {
     ...updated,
     ...(piName ? { title: piName } : {}),
     ...(context ? { context } : {}),
-    workflow,
+    ...(activeMode ? { activeMode } : {}),
+    workflow: updated.workflow,
     statusEvidence: computed.evidence,
   };
 }

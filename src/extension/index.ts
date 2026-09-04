@@ -6,11 +6,11 @@ import { sessionsStateDir } from "../core/paths.js";
 import { loadThemeCommand } from "../core/theme-command.js";
 import { colorFromAnsi } from "../core/theme-color.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS } from "../core/status.js";
-import { parseWorkflowEntry } from "../core/heartbeat.js";
+import { parseWorkflowRuntime } from "../core/heartbeat.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation } from "../core/types.js";
 
 type PiTheme = {
   name?: string;
@@ -70,6 +70,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let startupCompactionTimer: ReturnType<typeof setTimeout> | undefined;
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number } | undefined;
+  let compactOperation: HeartbeatOperation | undefined;
   let compactionWatchdog: ReturnType<typeof setTimeout> | undefined;
   let lifecycleRevision = 0;
   let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
@@ -131,8 +132,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
         activeTheme: activeTheme(ctx),
         piSessionName: normalizedName(pi.getSessionName?.()),
         context: sessionContextSnapshot(ctx, metadataResetAt),
-        workflow: workflowSnapshot(ctx, metadataResetAt),
-        ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
+        ...workflowRuntime(ctx, metadataResetAt),
+        ...(forkCompactOperation ? { operation: forkCompactOperation } : compactOperation ? { operation: compactOperation } : {}),
       } satisfies Heartbeat);
     });
     heartbeatWrite = write.catch(() => undefined);
@@ -175,6 +176,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (compactionWatchdog) clearTimeout(compactionWatchdog);
     compactionWatchdog = undefined;
     compactionSnapshot = undefined;
+    compactOperation = undefined;
   };
 
   const restoreCompaction = async (ctx: PiContext) => {
@@ -196,10 +198,11 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   const failForkCompaction = async (ctx: PiContext, error: Error) => {
     clearCompaction();
-    await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
     if (forkCompactOperation) {
-      forkCompactOperation = { ...forkCompactOperation, phase: "error" };
-      await heartbeat("error", ctx, `Fork compaction failed: ${error.message}`);
+      forkCompactOperation = { kind: "fork-compact", phase: "error", id: forkCompactOperation.id };
+      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
+    } else {
+      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
     }
   };
 
@@ -224,6 +227,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     clearCompaction();
     const snapshot = { state: currentState, stateSince };
     compactionSnapshot = snapshot;
+    compactOperation = { kind: "compact", phase: "running", id: Date.now().toString(36).slice(-FORK_COMPACT_OPERATION_ID_LENGTH) };
     lifecycleRevision += 1;
     compactionWatchdog = setTimeout(() => {
       if (compactionSnapshot !== snapshot) return;
@@ -234,8 +238,10 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   pi.on("session_compact", async (event, ctx) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     if (event.willRetry) {
+      const snapshot = compactionSnapshot;
       clearCompaction();
       lifecycleRevision += 1;
+      await heartbeat("running", ctx as PiContext, undefined, snapshot?.stateSince);
       return;
     }
     await restoreCompaction(ctx as PiContext);
@@ -275,7 +281,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   });
 }
 
-function workflowSnapshot(ctx: PiContext, minimumEntryTime?: number): WorkflowRuntimeSnapshot | undefined {
+function workflowRuntime(ctx: PiContext, minimumEntryTime?: number): Pick<Heartbeat, "workflow" | "activeMode"> | undefined {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
@@ -283,7 +289,12 @@ function workflowSnapshot(ctx: PiContext, minimumEntryTime?: number): WorkflowRu
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== WORKFLOW_RUNTIME_ENTRY) continue;
       if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
-      return parseWorkflowEntry(entry.data);
+      const parsed = parseWorkflowRuntime(entry.data);
+      const runtime = {
+        ...(parsed.workflow ? { workflow: parsed.workflow } : {}),
+        ...(parsed.activeMode ? { activeMode: parsed.activeMode } : {}),
+      };
+      return Object.keys(runtime).length ? runtime : undefined;
     }
   } catch {}
   return undefined;

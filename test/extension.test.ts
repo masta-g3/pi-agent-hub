@@ -134,10 +134,12 @@ test("compaction publishes transient running and restores or preserves continuat
     const compacting = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(compacting.state, "running");
     assert.equal(compacting.stateSince, started.stateSince);
+    assert.deepEqual(compacting.operation, { kind: "compact", phase: "running", id: compacting.operation?.id });
 
     await handlers.get("session_compact")?.({ reason: "manual", willRetry: false }, ctx);
     const restored = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(restored.state, "waiting");
+    assert.equal(restored.operation, undefined);
     assert.equal(restored.stateSince, started.stateSince);
 
     await handlers.get("session_before_compact")?.({ reason: "overflow", willRetry: true }, ctx);
@@ -838,10 +840,10 @@ test("piAgentHubExtension bridges optional producer mode display into heartbeat"
   assert.deepEqual(heartbeat.workflow, {
     steps: WORKFLOW_STEPS,
     activeIndex: 1,
-    activeMode: FOCUS_MODE,
     ticketId: "workflow-board-001",
     updatedAt: 1_784_772_000_000,
   });
+  assert.deepEqual(heartbeat.activeMode, FOCUS_MODE);
 });
 
 test("piAgentHubExtension drops malformed optional mode without dropping workflow", async () => {
