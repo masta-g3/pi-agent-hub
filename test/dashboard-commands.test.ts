@@ -121,17 +121,6 @@ test("slot commands assign exact free destinations and name occupied conflicts",
   assert.equal(commands(emptyPinState).find((item) => item.id === "action:alpha:slot-3")?.disabledReason, "slot 3 needs 160 columns");
 });
 
-test("unlink ticket is available only for live ticketed main sessions", () => {
-  const ticket = { version: 1 as const, updatedAt: 2, ticket: { id: "ENG-42" } };
-  const selected = session("alpha", { context: ticket });
-  const command = (values: Parameters<typeof buildDashboardCommands>[0]) => buildDashboardCommands(values).find((item) => item.id === "action:alpha:unlink")!;
-  assert.equal(command({ sessions: [selected], selectedId: "alpha", capabilities: allCapabilities }).enabled, true);
-  assert.equal(command({ sessions: [session("alpha", { context: ticket, status: "stopped" })], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "session is not live");
-  assert.equal(command({ sessions: [session("alpha", { context: ticket, kind: "subagent" })], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "unavailable for subagents");
-  assert.equal(command({ sessions: [session("alpha")], selectedId: "alpha", capabilities: allCapabilities }).disabledReason, "session has no ticket");
-  assert.equal(command({ sessions: [selected], selectedId: "alpha", capabilities: { ...allCapabilities, sendMessage: false } }).disabledReason, "send transport unavailable");
-});
-
 test("selected action availability mirrors row and capability guards with reasons", () => {
   const stopped = session("stopped", { status: "stopped" });
   const commands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: {} });

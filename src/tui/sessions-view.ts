@@ -251,8 +251,7 @@ export class SessionsView implements Component {
     }
     const command = commandForKey(this.dashboardCommands(), data);
     if (command) {
-      if (isEnterKey(data) && this.lastWidth < 120 && !this.pinMode() && command.id.endsWith(":open")) this.openWorkspace(false);
-      else this.executeDashboardCommand(command.id);
+      this.executeDashboardCommand(command.id);
       return;
     }
 
@@ -687,19 +686,6 @@ export class SessionsView implements Component {
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
         case "send": this.startSendDialog(); return;
-        case "unlink": {
-          const target = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId);
-          if (!target || !this.actions.sendMessage) {
-            this.message = "send transport unavailable";
-            return;
-          }
-          this.runAction(
-            () => this.actions.sendMessage?.(target.tmuxSession, "/wf-clear"),
-            "sending ticket clear...",
-            () => { this.flashMessage(`ticket clear sent → ${target.title}`); },
-          );
-          return;
-        }
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
@@ -1151,10 +1137,6 @@ export class SessionsView implements Component {
   }
 
   private activateFleetSelection(): void {
-    if (this.lastWidth < 120) {
-      this.openWorkspace(false);
-      return;
-    }
     const command = commandForKey(this.dashboardCommands(), "\r");
     if (command) this.executeDashboardCommand(command.id);
   }
@@ -1798,7 +1780,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  P pin/focus selected     x close selected pin     +/- resize split",
     "  Alt+arrows move spatially     Ctrl+Q return to cockpit",
     "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
-    "  mouse click select · tier navigator jumps at 100+ · double-click workspace below 120, open/switch at 120+ · wheel move",
+    "  mouse click select · tier navigator jumps at 100+ · double-click open/switch · wheel move",
     "",
     heading("Choice dialogs"),
     "  Restart: r selected     n new conversation     a all     Esc cancel",
@@ -1832,7 +1814,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     heading("Action workspace"),
     "  selected session: request · task · workflow position · exceptional guidance · actions",
     "  ▸ marks the primary action; i appends or hides live Details",
-    "  below 120 columns, Enter/double-click opens the workspace first unless pins are visible",
+    "  Enter/double-click opens or switches directly at every width",
     "  with pins, Enter opens directly and i toggles details in the compact decision strip",
   ];
   const inner = Math.max(40, width) - 2;

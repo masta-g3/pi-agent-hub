@@ -58,7 +58,7 @@ test("persisted new-user state reaches the live empty SessionsView", () => {
   assert.doesNotMatch(text, /No managed Pi sessions yet/);
 });
 
-test("narrow workspace keeps evidence behind i and Enter uses a deliberate second step", async () => {
+test("narrow workspace keeps evidence behind i and Enter opens directly", async () => {
   const base = session("api", "Project API");
   const now = 100_000;
   const explained = {
@@ -95,9 +95,6 @@ test("narrow workspace keeps evidence behind i and Enter uses a deliberate secon
   view.handleInput("\u001b");
   assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
 
-  view.handleInput("\r");
-  assert.deepEqual(opened, []);
-  assert.match(stripAnsi(view.render(60).join("\n")), /Project API\s+◐ waiting/);
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
   assert.deepEqual(opened, ["pi-agent-hub-api"]);
@@ -297,7 +294,7 @@ test("help overlay opens and closes", () => {
   assert.match(help, /x close selected pin/);
   assert.match(help, /Alt\+arrows move spatially/);
   assert.doesNotMatch(help, /1-4 assign|Focus panel/);
-  assert.match(help, /double-click opens the workspace first unless pins are visible/);
+  assert.match(help, /Enter\/double-click opens or switches directly at every width/);
   assert.doesNotMatch(help, /Density|compact and all-card/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
@@ -1181,7 +1178,7 @@ test("single mouse click selects without opening", () => {
   assert.deepEqual(switched, []);
 });
 
-test("card continuation rows select and double-click open their narrow workspace", () => {
+test("card continuation rows select and double-click open the live session", () => {
   const switched: string[] = [];
   let now = 100;
   const rich = (id: string, title: string) => ({
@@ -1206,13 +1203,10 @@ test("card continuation rows select and double-click open their narrow workspace
 
   now = 300;
   view.handleInput(mousePressAtLine(continuationIndex));
-  assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
-  view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
 
-test("double-click opens the narrow workspace before the live session", () => {
+test("double-click opens the live session at narrow widths", () => {
   const switched: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -1230,9 +1224,6 @@ test("double-click opens the narrow workspace before the live session", () => {
   view.handleInput(docsClick);
 
   assert.equal(controller.snapshot().selectedId, "docs");
-  assert.deepEqual(switched, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /docs\s+○ idle/);
-  view.handleInput("\r");
   assert.deepEqual(switched, ["pi-agent-hub-docs"]);
 });
 
@@ -1507,7 +1498,7 @@ test("archive disclosure selection repairs when pruning removes the toggle", () 
   assert.ok(controller.snapshot().selectedId);
 });
 
-test("double-click opens the narrow workspace before restarting a stopped session", () => {
+test("double-click restarts a stopped session at narrow widths", () => {
   const restarted: string[] = [];
   let now = 100;
   const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "stopped" }] });
@@ -1523,10 +1514,6 @@ test("double-click opens the narrow workspace before restarting a stopped sessio
   now = 300;
   view.handleInput(click);
 
-  assert.deepEqual(restarted, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /api\s+- stopped/);
-  assert.match(stripAnsi(view.render(100).join("\n")), /▸ Enter\s+Restart/);
-  view.handleInput("\r");
   assert.deepEqual(restarted, ["api"]);
 });
 
@@ -1592,7 +1579,7 @@ test("non-row mouse input cancels a pending double-click", () => {
   now += 50;
   view.handleInput(mousePressAtLine(docsLine));
   now += 50;
-  view.handleInput(mousePressAtLine(docsLine, 99));
+  view.handleInput(mousePressAtLine(docsLine, 150));
   now += 50;
   view.handleInput(mousePressAtLine(docsLine));
 
@@ -2020,7 +2007,7 @@ test("Answer revalidates question context before choosing the pin route", () => 
   }
 });
 
-test("narrow question flow opens the workspace before Answer routes to Pi", async () => {
+test("narrow question flow routes Answer directly to Pi", async () => {
   const oldTmux = process.env.TMUX;
   process.env.TMUX = "/tmp/tmux";
   try {
@@ -2034,11 +2021,6 @@ test("narrow question flow opens the workspace before Answer routes to Pi", asyn
     });
 
     view.render(80);
-    view.handleInput("\r");
-    assert.deepEqual(events, []);
-    assert.match(stripAnsi(view.render(80).join("\n")), /Answer in the Pi session/);
-    assert.match(stripAnsi(view.render(80).join("\n")), /Enter  Answer/);
-
     view.handleInput("\r");
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(events, ["focus:api"]);
@@ -2963,38 +2945,6 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(stripAnsi(view.render(100).join("\n")), /sent → api/);
   now = 3_000;
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /sent → api/);
-});
-
-test("unlink ticket sends the exact clear command to the bound session", async () => {
-  const sent: Array<{ tmuxSession: string; message: string }> = [];
-  const controller = new SessionsController({ version: 1, sessions: [
-    { ...session("api", "api"), workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, ticketId: "ENG-42", updatedAt: 2 } },
-    session("docs", "docs"),
-  ] });
-  const view = new SessionsView(controller, () => {}, {
-    sendMessage: async (tmuxSession, message) => { sent.push({ tmuxSession, message }); },
-  });
-
-  view.handleInput(":");
-  view.handleInput("u");
-  view.handleInput("n");
-  view.handleInput("l");
-  view.handleInput("i");
-  view.handleInput("n");
-  view.handleInput("k");
-  view.handleInput(" ");
-  view.handleInput("t");
-  view.handleInput("i");
-  view.handleInput("c");
-  view.handleInput("k");
-  view.handleInput("e");
-  view.handleInput("t");
-  view.handleInput("\r");
-  await new Promise((resolve) => setImmediate(resolve));
-
-  assert.deepEqual(sent, [{ tmuxSession: "pi-agent-hub-api", message: "/wf-clear" }]);
-  assert.match(stripAnsi(view.render(100).join("\n")), /ticket clear sent → api/);
-  assert.equal(controller.snapshot().registry.sessions.length, 2);
 });
 
 test("themed footer text remains styled when input is truncated", () => {
