@@ -669,6 +669,19 @@ export class SessionsView implements Component {
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
         case "send": this.startSendDialog(); return;
+        case "unlink": {
+          const target = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId);
+          if (!target || !this.actions.sendMessage) {
+            this.message = "send transport unavailable";
+            return;
+          }
+          this.runAction(
+            () => this.actions.sendMessage?.(target.tmuxSession, "/wf-clear"),
+            "sending ticket clear...",
+            () => { this.flashMessage(`ticket clear sent → ${target.title}`); },
+          );
+          return;
+        }
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
