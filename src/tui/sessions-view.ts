@@ -3,6 +3,7 @@ import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import type { ManagedSession, RuntimeSession } from "../core/types.js";
 import { projectStateCwd } from "../core/multi-repo.js";
+import { dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
 import { buildDashboardCommands, commandForKey, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
 import {
@@ -106,6 +107,11 @@ export class SessionsView implements Component {
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {
     this.grouping = actions.initialViewState?.grouping ?? "project";
     this.collapsedSections = new Set(actions.initialViewState?.collapsedSections ?? []);
+    const restoredFilter = actions.initialViewState?.filter;
+    if (restoredFilter) {
+      const filter = serializeDashboardFilter({ lifecycle: new Set(restoredFilter.lifecycle), ...(restoredFilter.text ? { text: restoredFilter.text } : {}) });
+      controller.setFilter(filter);
+    }
     this.cockpitOnboarding = actions.initialViewState?.cockpitOnboarding;
     this.dismissedReleaseCueId = actions.initialViewState?.dismissedReleaseCueId;
     this.releaseCueEnabled = actions.initialViewState !== undefined;
@@ -171,7 +177,7 @@ export class SessionsView implements Component {
       this.clearPendingRestart();
       this.message = undefined;
       this.clearFlash();
-      if (this.controller.snapshot().filter !== undefined) this.controller.setFilter(undefined);
+      if (this.controller.snapshot().filter !== undefined) this.applyFilter(undefined);
       return;
     }
 
@@ -440,6 +446,7 @@ export class SessionsView implements Component {
       setDialog: (dialog) => { this.dialog = dialog; },
       dialog: () => this.dialog,
       setMessage: (message) => { this.message = message; },
+      setFilter: (filter) => this.applyFilter(filter),
       message: () => this.message,
       flashMessage: (text) => this.flashMessage(text),
       runAction: (action, pending, onSuccess) => this.runAction(action, pending, onSuccess),
@@ -460,6 +467,17 @@ export class SessionsView implements Component {
   private startFilter() {
     this.revealedSessionId = undefined;
     this.openDialog(openFilterPrompt);
+  }
+
+  private applyFilter(filter: string | undefined): void {
+    const normalized = filter === undefined ? undefined : serializeDashboardFilter(parseDashboardFilter(filter));
+    this.controller.setFilter(normalized);
+    this.revealedSessionId = undefined;
+    this.archiveDisclosureSelected = false;
+    this.selectedSection = undefined;
+    this.listScrollTop = 0;
+    this.viewStateRevision += 1;
+    this.saveViewState();
   }
 
   private startNewDialog() {
@@ -701,8 +719,7 @@ export class SessionsView implements Component {
         case "size-decrease": this.resizeSidePane(-1); return;
         case "info": this.toggleInfo(); return;
         case "mark-read": {
-          const requestId = this.activeAttentionAnnouncements().find((announcement) =>
-            announcement.sessionId === command.targetSessionId)?.requestId;
+          const requestId = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId)?.context?.attention?.requestId;
           this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId), "marking read...");
           return;
         }
@@ -721,6 +738,7 @@ export class SessionsView implements Component {
       case "action:new": this.startNewDialog(); return;
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
+      case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.toggleGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:help": this.dialog = { kind: "help" }; return;
@@ -758,6 +776,14 @@ export class SessionsView implements Component {
     );
   }
 
+  private toggleBacklogFilter(): void {
+    const parsed = parseDashboardFilter(this.controller.snapshot().filter);
+    const lifecycle = new Set(parsed.lifecycle);
+    if (lifecycle.has("backlog")) lifecycle.delete("backlog");
+    else lifecycle.add("backlog");
+    this.applyFilter(serializeDashboardFilter({ lifecycle, ...(parsed.text ? { text: parsed.text } : {}) }));
+  }
+
   private executeFilterCommand(commandId: string): void {
     if (commandId === "filter:open") {
       this.startFilter();
@@ -765,7 +791,7 @@ export class SessionsView implements Component {
     }
     let filter: string | undefined;
     if (commandId === "filter:clear") filter = undefined;
-    else if (commandId.startsWith("filter:lifecycle:")) filter = commandId.slice("filter:lifecycle:".length);
+    else if (commandId.startsWith("filter:lifecycle:")) filter = `lifecycle:${commandId.slice("filter:lifecycle:".length)}`;
     else if (commandId.startsWith("filter:status:")) filter = commandId.slice("filter:status:".length);
     else if (commandId.startsWith("filter:group:")) filter = decodeURIComponent(commandId.slice("filter:group:".length));
     else {
@@ -773,7 +799,7 @@ export class SessionsView implements Component {
       return;
     }
     this.revealedSessionId = undefined;
-    this.controller.setFilter(filter);
+    this.applyFilter(filter);
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
     this.listScrollTop = 0;
@@ -1043,7 +1069,7 @@ export class SessionsView implements Component {
     this.releaseCueSelected = false;
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
-    if (tier === "archived" && this.collapsedSections.delete("archived")) {
+    if (tier !== "needs-you" && this.collapsedSections.delete(tier)) {
       this.viewStateRevision += 1;
       this.saveViewState();
     }
@@ -1177,6 +1203,7 @@ export class SessionsView implements Component {
     const currentRequestId = questionRequestId(selected);
     const tripRequestId = expectedRequestId && currentRequestId === expectedRequestId ? expectedRequestId : undefined;
     const activeRequest = this.activeAttentionAnnouncements().find((announcement) => announcement.sessionId === selected.id);
+    const currentAttentionRequestId = selected.context?.attention?.requestId;
     const attach = () => {
       const current = this.controller.snapshot().sessions.find((session) => session.id === sessionId);
       if (!current) {
@@ -1186,9 +1213,9 @@ export class SessionsView implements Component {
       const result = this.attachSession(current);
       this.afterSuccessfulHandoff(result, tripRequestId ? { sessionId, requestId: tripRequestId } : undefined);
     };
-    if (selected.status === "waiting" || activeRequest) {
+    if (selected.status === "waiting" || activeRequest || currentAttentionRequestId) {
       try {
-        const result = this.acknowledgeSession(selected.id, tripRequestId ?? activeRequest?.requestId);
+        const result = this.acknowledgeSession(selected.id, tripRequestId ?? currentAttentionRequestId ?? activeRequest?.requestId);
         if (isPromise(result)) {
           this.busy = true;
           this.message = "marking read...";
@@ -1330,22 +1357,24 @@ export class SessionsView implements Component {
     if (this.grouping === "stage") return this.boardRows().map((row) => ({ kind: "session", id: row.id }));
     const projection = this.dashboardProjection(this.controller.snapshot());
     const { allRows, archive, visible: visibleRows, allTree: tree, filterActive } = projection;
-    const sectionOf = (row: typeof allRows[number]) => effectiveSessionLifecycle(row, allRows, tree).section;
-    const targets: SessionListTarget[] = visibleRows
-      .filter((row) => sectionOf(row) !== "archived")
-      .map((row) => ({ kind: "session" as const, id: row.id }));
-    if (this.releaseCueAvailable()) {
-      const firstAfterNeeds = targets.findIndex((target) => target.kind === "session" && projection.cockpitTierById.get(target.id) !== "needs-you");
-      targets.splice(firstAfterNeeds < 0 ? targets.length : firstAfterNeeds, 0, { kind: "release-cue" });
+    const tierOrder: CockpitTier[] = ["needs-you", "health", "active", "quiet", "archived"];
+    const targets: SessionListTarget[] = [];
+    let releaseCueTargetAdded = false;
+    for (const tier of tierOrder) {
+      const allTierRows = allRows.filter((row) => projection.cockpitTierById.get(row.id) === tier);
+      if (!allTierRows.length) continue;
+      if (tier !== "needs-you") targets.push({ kind: "section-header", section: tier });
+      const collapsed = tier !== "needs-you" && this.collapsedSections.has(tier);
+      const rows = visibleRows.filter((row) => projection.cockpitTierById.get(row.id) === tier);
+      const revealed = rows.some((row) => row.id === this.revealedSessionId);
+      if (!collapsed || filterActive || revealed) targets.push(...rows.map((row) => ({ kind: "session" as const, id: row.id })));
+      if (tier === "needs-you" && this.releaseCueAvailable()) {
+        targets.push({ kind: "release-cue" });
+        releaseCueTargetAdded = true;
+      }
+      if (tier === "archived" && archive.showDisclosure && !collapsed) targets.push({ kind: "archive-disclosure" });
     }
-    const allArchived = allRows.filter((row) => sectionOf(row) === "archived");
-    if (!allArchived.length) return targets;
-    const revealsArchived = Boolean(this.revealedSessionId && allArchived.some((row) => row.id === this.revealedSessionId));
-    targets.push({ kind: "section-header", section: "archived" });
-    if (!this.collapsedSections.has("archived") || filterActive || revealsArchived) {
-      targets.push(...visibleRows.filter((row) => sectionOf(row) === "archived").map((row) => ({ kind: "session" as const, id: row.id })));
-      if (archive.showDisclosure && !this.collapsedSections.has("archived")) targets.push({ kind: "archive-disclosure" });
-    }
+    if (this.releaseCueAvailable() && !releaseCueTargetAdded) targets.unshift({ kind: "release-cue" });
     return targets;
   }
 
@@ -1374,9 +1403,9 @@ export class SessionsView implements Component {
     const { allRows, allTree: tree } = projection;
     const selectedRow = allRows.find((row) => row.id === selectedId);
     if (selectedRow && !snapshot.filter?.trim()) {
-      const section = effectiveSessionLifecycle(selectedRow, allRows, tree).section;
-      if (section === "archived" && this.collapsedSections.has("archived")) {
-        this.selectedSection = "archived";
+      const tier = projection.cockpitTierById.get(selectedRow.id);
+      if (tier && tier !== "needs-you" && this.collapsedSections.has(tier)) {
+        this.selectedSection = tier;
         return;
       }
     }
@@ -1426,7 +1455,9 @@ export class SessionsView implements Component {
     if (!sessionId) return undefined;
     const projection = this.dashboardProjection(this.controller.snapshot(), undefined);
     const session = projection.allTree.get(sessionId);
-    return session ? projection.allTree.trace(session).owner?.id : undefined;
+    if (!session) return undefined;
+    const trace = projection.allTree.trace(session);
+    return (trace.owner ?? trace.terminal).id;
   }
 
   private subagentParentIds(): Set<string> {
@@ -1480,6 +1511,8 @@ export class SessionsView implements Component {
 
   private saveViewState() {
     const state: SessionsViewState = { grouping: this.grouping };
+    const filter = this.controller.snapshot().filter;
+    if (filter !== undefined) state.filter = dashboardFilterState(parseDashboardFilter(filter));
     if (this.collapsedSections.size) state.collapsedSections = [...this.collapsedSections];
     if (this.cockpitOnboarding) state.cockpitOnboarding = this.cockpitOnboarding;
     if (this.dismissedReleaseCueId) state.dismissedReleaseCueId = this.dismissedReleaseCueId;

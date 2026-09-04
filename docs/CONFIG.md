@@ -124,6 +124,12 @@ pi-hub config unset worktree-default
 
 `dashboard.attentionBell` enables a best-effort BEL when a fresh request is delivered externally. It defaults to `false`. Use the unbound **Attention bell: On/Off** action in the `:` palette to persist the setting. BEL remains silent when any attached client is already showing Hub or a request in the fresh batch. Text delivery to other eligible clients still proceeds.
 
+### Dashboard view state
+
+`ui-state.json` stores presentation preferences. The dashboard filter is saved as JSON-safe data with `text` and an ordered `lifecycle` array. Lifecycle values are `active`, `backlog`, and `archived`; the selected values match with OR semantics. For example, `lifecycle:archived,backlog release` shows matching Archived or Backlog rows narrowed by `release`. The file also stores independent collapse flags for HEALTH, ACTIVE, QUIET, and ARCHIVED. NEEDS YOU is always expanded. Individual subagent disclosure, filtered reveals, navigator state, and card richness are not persisted. Legacy string filters are normalized when loaded; unknown values are ignored.
+
+The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selection. It changes visibility only. Uppercase `B` remains the lifecycle action that moves the selected session to Backlog.
+
 ## Dashboard shortcuts
 
 `dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.

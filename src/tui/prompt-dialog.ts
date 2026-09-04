@@ -14,7 +14,7 @@ export interface PromptDialog {
 export function openFilterPrompt(ctx: PromptDialogContext): PromptDialog | undefined {
   if (ctx.controller.snapshot().registry.sessions.length === 0) return undefined;
   const draft = createTextInput(ctx.controller.snapshot().filter ?? "");
-  setFilter(ctx, draft.value);
+  ctx.controller.setFilter(draft.value);
   return { kind: "prompt", purpose: "filter", draft };
 }
 
@@ -66,12 +66,13 @@ function handleFilterInput(dialog: PromptDialog, data: string, ctx: PromptDialog
   }
   const edited = editTextInput(data, dialog.draft);
   if (!edited) return dialog;
-  setFilter(ctx, edited.value);
+  ctx.controller.setFilter(edited.value);
   return { ...dialog, draft: edited };
 }
 
 function setFilter(ctx: PromptDialogContext, value: string | undefined): void {
-  ctx.controller.setFilter(value);
+  if (ctx.setFilter) ctx.setFilter(value);
+  else ctx.controller.setFilter(value);
 }
 
 function handleSendInput(dialog: PromptDialog, data: string, ctx: PromptDialogContext): PromptDialog | undefined {
