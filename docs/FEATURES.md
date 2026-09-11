@@ -61,7 +61,7 @@ Ctrl+Q returns to the dashboard
 | `R` | Rename the selected session in a cursor-aware form |
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session |
-| `Shift+F` | Open the fork group form, fork the selected session, name the new Pi session from the primary repo, clear inherited ticket/workflow metadata, and wait for verified compaction with a handoff instruction |
+| `Shift+F` | Choose a group and prepare a fork with cleared task state and compacted history without blocking the dashboard |
 | `a` | Mark the selected waiting session read |
 | `A` | Archive the selected session and close its pin if shown |
 | `B` | Move the selected session to Backlog |
@@ -77,6 +77,16 @@ Ctrl+Q returns to the dashboard
 | `m` | Pick project MCP servers |
 | `t` | Preview and configure the stable dashboard theme; `Enter` applies and `Escape` restores |
 | `S` | Toggle the project cockpit ↔ read-only workflow board |
+
+## Fork and compact
+
+`Shift+F` creates a child named from its primary repo. Its row shows `Preparing fork`, then `Compacting`. Other sessions remain usable, including while Pi starts. The child becomes ready only after verified task reset and Pi-confirmed compaction. When task metadata is present, its producer must clear inherited ticket context, attention, workflow, plan, and focus state. A Pi-confirmed nothing-to-compact result also succeeds after reset. Elapsed time never implies success.
+
+Until ready, Hub blocks opening, pinning, sending prompts, renaming, and further forks of that child. Normal start/restart routes cannot bypass preparation. Selection, organization, `i` details, and confirmed deletion remain available. An unavailable observation keeps the child gated. These guards apply to Hub actions, not raw tmux commands.
+
+A live failed child offers **Open to inspect** without an automatic restart. **Retry preparation** in `:` or the action workspace restarts the same saved child, clears its assignment again, and retries with a new attempt. Retry requires a stopped child or confirmed idle live child; unknown activity and active compaction block it. Without a saved child conversation, delete and recreate the fork.
+
+Preparation survives dashboard restart. Completed reset state survives child restart. The original conversation and shared repository files are unchanged. This is not a Git worktree or an empty conversation: the compacted history still provides discussion context, but the previous task belongs to another agent. Ordinary `f` remains a conversation fork without this preparation gate.
 
 ## Intent palette
 
@@ -98,7 +108,7 @@ Session results search only bounded Hub context: session identity and primary/ad
 - stopped
 ```
 
-Runtime symbols describe liveness only. A waiting row does not imply an explicit request. Any blocking Pi UI prompt reports `waiting` for its prompt span, then restores the prior runtime state; only producer context can turn that wait into explicit attention. The default project cockpit groups complete owner trees into nonempty tiers: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then `ARCHIVED`. `NEEDS YOU` requires producer-confirmed attention on a waiting/idle owner. `HEALTH` requires an owner runtime error. `ACTIVE` requires a starting/running owner or descendant. Other non-archived trees appear in `QUIET`. A running child can activate its owner tree, but child attention/error never promotes the owner and tier placement never changes row status, workflow, lifecycle, or attention. Explicit attention on a child row absent from the visible projection appears as `?N child` on the tier and `?N` on the exact owner; each count disappears when that request row becomes visible through expansion, filtering, or exact reveal. During context compaction, the session shows `running` and then returns to its previous state. If compaction retries, it stays `running` until the next agent turn begins.
+Runtime symbols describe liveness only. A waiting row does not imply an explicit request. Any blocking Pi UI prompt reports `waiting` for its prompt span, then restores the prior runtime state; only producer context can turn that wait into explicit attention. The default project cockpit groups complete owner trees into nonempty tiers: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then `ARCHIVED`. `NEEDS YOU` requires producer-confirmed attention on a waiting/idle owner. `HEALTH` requires an owner runtime error. `ACTIVE` requires a starting/running owner or descendant. Other non-archived trees appear in `QUIET`. A running child can activate its owner tree, but child attention/error never promotes the owner and tier placement never changes row status, workflow, lifecycle, or attention. Explicit attention on a child row absent from the visible projection appears as `?N child` on the tier and `?N` on the exact owner; each count disappears when that request row becomes visible through expansion, filtering, or exact reveal. During context compaction, an independent `◌ Compacting` cue accompanies transient `running` state. Completion or failure restores the prior state unless newer activity owns it; an overflow retry keeps the continuing turn running. Ordinary sessions remain openable during compaction, and their ticket and workflow are unchanged. Compaction failures have separate diagnostics rather than a new workflow stage.
 
 The action workspace shows positive decision content in one order: identity, explicit request, real task text, plain workflow position, exceptional guidance, and enabled commands. Missing categories contribute no rows. Duplicate status explanations and internal provenance labels stay out of the default view. `▸` marks the primary catalog action. At 120+ columns the workspace is persistent on the right. Below 120 columns, `i` opens the exact-session full-width workspace without attaching, restarting, or acknowledging; `Escape` returns to the fleet. `Enter` and session-row double-click open, switch, or restart directly at every width. Action clicks use the same exact-target catalog dispatcher as direct keys and `:`. Disabled commands stay discoverable only in the palette.
 

@@ -84,6 +84,15 @@ export interface ManagedWorktree {
   role: "primary" | "additional";
 }
 
+export interface ForkPreparation {
+  id: string;
+  phase: "preparing" | "compacting" | "ready" | "error";
+  launchConfirmed?: boolean;
+  launchDeadline?: number;
+  outcome?: "compacted" | "not-needed";
+  error?: string;
+}
+
 export interface ManagedSession {
   id: string;
   title: string;
@@ -118,12 +127,14 @@ export interface ManagedSession {
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
   worktrees?: ManagedWorktree[];
+  forkPreparation?: ForkPreparation;
 }
 
 export type RuntimeStatusReason =
   | "tmux-stopped"
   | "tmux-missing"
   | "tmux-unknown"
+  | "fork-launch-pending"
   | "heartbeat-error"
   | "heartbeat-shutdown"
   | "heartbeat-active"
@@ -161,6 +172,8 @@ export interface RuntimeSession extends ManagedSession {
   activeMode?: WorkflowModeDisplay;
   workflow?: WorkflowRuntimeSnapshot;
   statusEvidence?: RuntimeStatusEvidence;
+  operation?: HeartbeatOperation;
+  preparationStatusUnknown?: boolean;
 }
 
 export interface SessionsRegistry {
@@ -168,9 +181,12 @@ export interface SessionsRegistry {
   sessions: ManagedSession[];
 }
 
-export type HeartbeatOperation =
-  | { kind: "compact"; phase: "running" | "complete"; id: string }
-  | { kind: "fork-compact"; phase: "running" | "complete" | "error"; id: string };
+export type HeartbeatOperation = {
+  kind: "compact";
+  phase: "running" | "complete" | "error" | "cancelled";
+  id: string;
+  error?: string;
+};
 
 export interface Heartbeat {
   managedSessionId: string;
@@ -182,6 +198,7 @@ export interface Heartbeat {
   message?: string;
   updatedAt: number;
   operation?: HeartbeatOperation;
+  forkPreparation?: ForkPreparation;
   kind?: "main" | "subagent";
   parentId?: string;
   agentName?: string;

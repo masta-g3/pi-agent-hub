@@ -1,4 +1,5 @@
 import { nextUpdatedAt } from "./session-version.js";
+import { isForkPreparationPending } from "./fork-preparation.js";
 export { readHeartbeat } from "./heartbeat.js";
 import type { ManagedSession, SessionStatus, Heartbeat, RuntimeStatusEvidence, RuntimeStatusReason, StatusInput, WorkflowSnapshot } from "./types.js";
 
@@ -16,7 +17,10 @@ export interface StatusDecision extends ComputedStatus {
 }
 
 export function computeStatus(input: StatusInput): StatusDecision {
-  const { session, tmux, heartbeat, now } = input;
+  const { session, tmux, now } = input;
+  const heartbeat = isForkPreparationPending(session.forkPreparation) && input.heartbeat?.forkPreparation?.id !== session.forkPreparation?.id
+    ? undefined
+    : input.heartbeat;
   const decision = (status: SessionStatus, reason: RuntimeStatusReason, error?: string): StatusDecision => ({
     status,
     ...(error ? { error } : {}),
@@ -24,6 +28,9 @@ export function computeStatus(input: StatusInput): StatusDecision {
   });
 
   if (!tmux.exists) {
+    if (isForkPreparationPending(session.forkPreparation) && !session.forkPreparation?.launchConfirmed) {
+      return decision("starting", "fork-launch-pending");
+    }
     if (session.status === "stopped") return decision("stopped", "tmux-stopped");
     return tmux.error
       ? decision("error", "tmux-unknown", tmux.error)

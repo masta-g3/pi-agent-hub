@@ -986,3 +986,23 @@
   created_at: '2026-09-03'
   plan_file: agent-work/history/20260904_workflow-focus-001_workflow_focus_status.md
   completed_at: '2026-09-04'
+- id: fork-compact-002
+  status: done
+  title: Fork readiness
+  subtitle: Prepare forks without blocking dashboard
+  description: Fork-and-compact keeps the dashboard usable, gates the child until
+    ready, durably clears inherited task state, and shows compaction progress and
+    failures.
+  priority: 2
+  created_at: '2026-09-10'
+  plan_file: agent-work/history/20260910_fork-compact-002_fork_readiness.md
+  completed_at: '2026-09-10'
+- id: hooks-001
+  status: pending
+  title: Hook isolation
+  subtitle: Isolate Git settings in tests
+  description: Pre-push tests clear hook-inherited Git variables before creating temporary
+    repositories so fixtures cannot mutate the source checkout.
+  priority: 1
+  created_at: '2026-09-10'
+  discovered_from: fork-compact-002

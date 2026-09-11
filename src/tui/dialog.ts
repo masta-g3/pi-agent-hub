@@ -42,6 +42,7 @@ export interface SessionLifecycleActions {
   finishWorktree: (sessionId: string) => void | Promise<void>;
   createSession: (input: NewFormSubmission) => unknown;
   forkSession: (sourceSessionId: string, input: ForkDialogInput) => unknown;
+  retryForkPreparation: (sessionId: string) => unknown;
   changeGroup: (sessionId: string, group: string) => unknown;
   archiveSession: (sessionId: string) => unknown;
   backlogSession: (sessionId: string) => unknown;
@@ -154,6 +155,7 @@ export interface SessionsViewActions {
   finishWorktree?: (sessionId: string) => void | Promise<void>;
   createSession?: (input: NewFormSubmission) => unknown;
   forkSession?: (sourceSessionId: string, input: ForkDialogInput) => unknown;
+  retryForkPreparation?: (sessionId: string) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
   archiveSession?: (sessionId: string) => unknown;
   backlogSession?: (sessionId: string) => unknown;
@@ -201,6 +203,7 @@ export interface DialogContext {
   message(): string | undefined;
   flashMessage(text: string): void;
   runAction(action: () => unknown, pending: string, onSuccess?: () => void): void;
+  runBackgroundAction(action: () => unknown, pending: string): void;
   attachSession(session: ManagedSession): void;
   stop(): void;
 }
@@ -210,7 +213,7 @@ export type DialogContextFor<Actions extends object> = Omit<DialogContext, "acti
 
 export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage">>>;
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
-export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll">>>;
+export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll" | "retryForkPreparation">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
 export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;

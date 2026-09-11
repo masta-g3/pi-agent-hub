@@ -1,4 +1,5 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { forkPreparationMessage, isForkPreparationPending } from "../core/fork-preparation.js";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
@@ -931,11 +932,18 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     `“${stripAnsi(session.attention.text)}”`,
     width,
   ) : []);
-  const taskText = workspaceTaskText(workspace);
+  const preparationBlocked = session.preparationStatusUnknown || isForkPreparationPending(session.forkPreparation) || session.forkPreparation?.phase === "error";
+  const taskText = preparationBlocked ? "" : workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
-  const workflow = block("workflow", workspaceWorkflowLine(workflowSession, styles));
-  const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
+  const workflow = block("workflow", preparationBlocked ? [] : workspaceWorkflowLine(workflowSession, styles));
+  const operation = operationText(session);
+  const operationGuidance = operation ? operationAdornment(session, styles, Number.POSITIVE_INFINITY) : undefined;
+  const guidanceText = [
+    session.error ? `Error · ${stripAnsi(session.error)}` : undefined,
+    workspace.guidance && workspace.guidance !== operation ? workspace.guidance : undefined,
+    operationGuidance,
+  ].filter(Boolean).join(" · ");
   const guidance = block("guidance", guidanceText ? wrapWords(guidanceText, width, width) : []);
   const hasBody = [request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
   const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
@@ -1087,6 +1095,8 @@ function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
 
 function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, width: number, terminalWidth: number): string {
   if (session.kind === "subagent") return "";
+  const operation = operationAdornment(session, styles, width);
+  if (operation) return operation;
   const mode = activeWorkflowMode(session);
   const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 8;
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
@@ -1119,6 +1129,33 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     return [join([hidden, backlog, quiet, group]), join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
   return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
+}
+
+function operationText(session: RenderSession): string | undefined {
+  if (session.preparationStatusUnknown) return "Fork preparation status is unavailable.";
+  if (session.forkPreparation?.phase === "error") {
+    const detail = forkPreparationMessage(session.forkPreparation);
+    return detail && detail !== "Preparation failed" ? `Preparation failed · ${detail}` : "Preparation failed";
+  }
+  if (isForkPreparationPending(session.forkPreparation)) return forkPreparationMessage(session.forkPreparation);
+  switch (session.operation?.phase) {
+    case "running": return "Compacting";
+    case "complete": return "Compaction complete";
+    case "error": return session.operation.error ? `Compaction failed · ${session.operation.error}` : "Compaction failed";
+    case "cancelled": return "Compaction cancelled";
+  }
+}
+
+function operationAdornment(session: RenderSession, styles: LayoutStyles, width: number): string {
+  const text = operationText(session);
+  if (!text) return "";
+  const failed = session.forkPreparation?.phase === "error" || session.operation?.phase === "error";
+  const unavailable = session.preparationStatusUnknown || session.operation?.phase === "cancelled";
+  const glyph = failed ? "!" : "◌";
+  const tone = failed ? styles.error : unavailable ? styles.warning : styles.accent;
+  const compact = tone(glyph);
+  const readable = tone(`${glyph} ${text.replace(/[.]$/, "")}`);
+  return displayWidth(readable) + 9 <= width ? readable : compact;
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {

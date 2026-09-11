@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { isForkPreparationPending, forkPreparationMessage } from "../core/fork-preparation.js";
 import { isErrno } from "../core/atomic-json.js";
 import type { TmuxChrome } from "../core/chrome.js";
 import {
@@ -63,6 +64,7 @@ export interface SidePaneLifecycleDependencies {
   ownPane(): string | undefined;
   insideTmux(): boolean;
   sessions(): readonly RuntimeSession[];
+  assertSessionReady?(sessionId: string, allowFailedInspection?: boolean): Promise<void>;
   revealSession(sessionId: string): boolean | void;
   acknowledgeSession(sessionId: string, requestId?: string): Promise<void>;
   activeAttentionRequestId?(sessionId: string): string | undefined;
@@ -227,7 +229,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     if (activeSessionId && activeSessionId !== snapshot.activeSessionId) {
       const active = sessionById(activeSessionId);
       const requestId = active ? deps.activeAttentionRequestId?.(active.id) : undefined;
-      if (active && deps.revealSession(active.id) !== false && (active.status === "waiting" || requestId)) {
+      if (active && !isForkPreparationPending(active.forkPreparation) && deps.revealSession(active.id) !== false && (active.status === "waiting" || requestId)) {
         await deps.acknowledgeSession(active.id, requestId);
       }
     }
@@ -267,7 +269,13 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     if (!ownPane) throw new Error("side pane needs tmux — run pi-hub");
     return ownPane;
   };
-  const revealAndAcknowledge = async (session: ManagedSession): Promise<boolean> => {
+  const checkReady = async (session: ManagedSession, allowFailedInspection = false) => {
+    if (isForkPreparationPending(session.forkPreparation)) throw new Error(`${session.title}: ${forkPreparationMessage(session.forkPreparation)}`);
+    if (session.forkPreparation?.phase === "error" && !allowFailedInspection) throw new Error("Preparation failed; open to inspect or retry preparation");
+    await deps.assertSessionReady?.(session.id, allowFailedInspection);
+  };
+  const revealAndAcknowledge = async (session: ManagedSession, allowFailedInspection = false): Promise<boolean> => {
+    await checkReady(session, allowFailedInspection);
     if (deps.revealSession(session.id) === false) return false;
     const requestId = deps.activeAttentionRequestId?.(session.id);
     if (session.status === "waiting" || requestId) await deps.acknowledgeSession(session.id, requestId);
@@ -289,6 +297,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     if (stopped) throw new Error("dashboard stopped");
     const session = sessionById(sessionId);
     if (!session) throw new Error("session not found");
+    await checkReady(session);
     const ownPane = ownPaneOrThrow();
     const before = await sidePaneStatus({ ownPane }, exec);
     const existing = before.pins.find((pin) => pin.session === session.tmuxSession);
@@ -302,6 +311,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       return afterMutation({ kind: "capacity", capacity: current.capacity, pins: current.pins.length } as const);
     }
     const openingFirst = before.pins.length === 0;
+    await checkReady(session);
     try {
       if (openingFirst) {
         await setDashboardStatusVisible(false);
@@ -396,7 +406,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         if (!destination) return { kind: "unavailable" as const };
         const pin = status.pins.find((item) => item.paneId === destination.paneId);
         const session = pin ? sessionByTmux(pin.session) : active ? sessionByTmux(active.session) : undefined;
-        if (session && !await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
+        if (session && (pin || !isForkPreparationPending(session.forkPreparation)) && !await revealAndAcknowledge(session, !pin)) return { kind: "unavailable" as const };
         await selectPane(destination.paneId, exec);
         await afterMutation(undefined);
         return { kind: "focused" as const };
@@ -410,7 +420,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         const status = await sidePaneStatus({ ownPane }, exec);
         const active = status.pins.find((pin) => pin.active);
         const session = active ? sessionByTmux(active.session) : undefined;
-        if (session && !await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
+        if (session && !isForkPreparationPending(session.forkPreparation) && !await revealAndAcknowledge(session, true)) return { kind: "unavailable" as const };
         await selectPane(ownPane, exec);
         await afterMutation(undefined);
         return { kind: "focused" as const };
@@ -432,7 +442,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         const ownPane = deps.ownPane();
         if (ownPane) await reconcileSidePanes({ ownPane }, exec);
         const session = sessionByTmux(tmuxSession);
-        if (session && !await revealAndAcknowledge(session)) return false;
+        if (session && !await revealAndAcknowledge(session, true)) return false;
         if (session) await deps.configureManagedSession(session, true);
         if (stopped) return false;
         await removeSidebarReturnBinding({ stateDir: deps.sidebarBindingStateDir, onlyOwnerPid: process.pid }, exec);

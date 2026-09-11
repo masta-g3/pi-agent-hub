@@ -1,3 +1,4 @@
+import { isForkPreparationPending } from "../core/fork-preparation.js";
 import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
@@ -71,6 +72,9 @@ export interface RenderSession {
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
+  forkPreparation?: RuntimeSession["forkPreparation"];
+  operation?: RuntimeSession["operation"];
+  preparationStatusUnknown?: boolean;
 }
 
 export interface StatusCounts {
@@ -225,10 +229,11 @@ export interface DashboardProjectionInput {
 export function buildDashboardProjection(input: DashboardProjectionInput): DashboardProjection {
   const board = (input.grouping ?? "project") === "stage";
   const filterActive = Boolean(input.filter?.trim());
-  const sourceRows = orderedSessionRows(input.sessions);
+  const presentationSessions = input.sessions.map(preparationPresentationSession);
+  const sourceRows = orderedSessionRows(presentationSessions);
   const sourceTree = createSessionTreeIndex(sourceRows);
   const { tierById: cockpitTierById, ownerById: cockpitOwnerById, placementById: cockpitPlacementById } = cockpitIndex(sourceRows, sourceTree);
-  const allRows = filterActive ? orderedSessionRows(input.sessions, input.filter) : sourceRows;
+  const allRows = filterActive ? orderedSessionRows(presentationSessions, input.filter) : sourceRows;
   const allTree = filterActive ? createSessionTreeIndex(allRows) : sourceTree;
   const sourceActiveRows = sourceRows.filter((session) => effectiveSessionLifecycle(session, sourceRows, sourceTree).section === "active");
   const activeRows = filterActive
@@ -273,6 +278,13 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     return !tier || tier === "needs-you" || !collapsedSections.has(tier) || revealedIds.has(session.id);
   });
   return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
+}
+
+function preparationPresentationSession(session: RuntimeSession): RuntimeSession {
+  const blocked = session.preparationStatusUnknown || isForkPreparationPending(session.forkPreparation) || session.forkPreparation?.phase === "error";
+  if (!blocked) return session;
+  const { context: _context, workflow: _workflow, activeMode: _activeMode, ...visible } = session;
+  return visible;
 }
 
 function cockpitIndex(
@@ -821,6 +833,9 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
       : {}),
     workflow: session.workflow,
     ...(session.activeMode ? { activeMode: session.activeMode } : {}),
+    forkPreparation: session.forkPreparation,
+    operation: session.operation,
+    preparationStatusUnknown: session.preparationStatusUnknown,
     worktreePath: worktree?.path ?? session.worktreePath,
     worktreeBranch: worktree?.branch ?? session.worktreeBranch,
     worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,

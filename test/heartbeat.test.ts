@@ -14,27 +14,24 @@ const core = {
   updatedAt: 1_000,
 } as const;
 
-test("parses bounded fork compaction operation phases independently from liveness", () => {
+test("parses bounded compaction operation and preparation independently from liveness", () => {
   const forkCore = { ...core, managedSessionId: "fork", state: "running" as const };
-  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "op-1" } }, "fork")?.operation, {
-    kind: "fork-compact",
-    phase: "running",
-    id: "op-1",
+  const parsed = parseHeartbeat({
+    ...forkCore,
+    operation: { kind: "compact", phase: "error", id: "op-2", error: " provider failed " },
+    forkPreparation: { id: "attempt-1", phase: "compacting", launchConfirmed: true },
+  }, "fork");
+  assert.deepEqual(parsed?.operation, { kind: "compact", phase: "error", id: "op-2", error: "provider failed" });
+  assert.deepEqual(parsed?.forkPreparation, { id: "attempt-1", phase: "compacting", launchConfirmed: true });
+  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "cancelled", id: "op-3" } }, "fork")?.operation, {
+    kind: "compact", phase: "cancelled", id: "op-3",
   });
-  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "complete", id: "op-1", extra: true } }, "fork")?.operation, {
-    kind: "fork-compact",
-    phase: "complete",
-    id: "op-1",
-  });
-  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "running", id: "op-2" } }, "fork")?.operation, {
-    kind: "compact",
-    phase: "running",
-    id: "op-2",
-  });
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "error", id: "op-2" } }, "fork")?.operation, undefined);
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "other", phase: "running" } }, "fork")?.operation, undefined);
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "x".repeat(81) } }, "fork")?.operation, undefined);
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "broken" } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "old" } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "running", id: "x".repeat(81) } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "broken", id: "op" } }, "fork")?.operation, undefined);
+  for (const phase of [["running"], { toString: () => "running" }]) {
+    assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase, id: "op" } }, "fork")?.operation, undefined);
+  }
 });
 
 test("heartbeat intake normalizes main and child envelopes", () => {

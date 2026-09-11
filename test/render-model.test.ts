@@ -53,6 +53,35 @@ function workspaceModel(input: BuildRenderModelInput) {
   });
 }
 
+test("preparation and generic compaction cues stay readable and width-safe", () => {
+  const pending = {
+    ...session("pending", "default", "running", "api-service-with-a-readable-title"),
+    forkPreparation: { id: "attempt-1", phase: "preparing" as const },
+    context: { version: 1 as const, updatedAt: 2, ticket: { id: "old", subtitle: "Inherited task must stay hidden" } },
+    workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 2 },
+  };
+  const compacting = {
+    ...session("compact", "default", "running", "docs-service"),
+    operation: { kind: "compact" as const, phase: "running" as const, id: "compact-1" },
+    workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 2 },
+  };
+  for (const width of [40, 80, 100, 119, 120, 159, 160]) {
+    for (const grouping of ["project", "stage"] as const) {
+      for (const [selected, expected] of [[pending, /◌(?: Preparing fork)?/], [compacting, /◌(?: Compacting)?/]] as const) {
+        const model = grouping === "project"
+          ? workspaceModel({ sessions: [selected], selectedId: selected.id, width, height: 12, grouping })
+          : buildRenderModel({ sessions: [selected], selectedId: selected.id, width, height: 12, grouping });
+        const rendered = renderSessions(model, darkTheme);
+        assert.equal(rendered.lines.every((line) => visibleWidth(line) <= width), true, `${width} ${grouping}`);
+        const text = stripAnsi(rendered.lines.join("\n"));
+        assert.match(text, expected, `${width} ${grouping}`);
+        assert.match(text, selected.id === "pending" ? /api-service/ : /docs-service/, `${width} ${grouping}`);
+        if (selected.id === "pending") assert.doesNotMatch(text, /Inherited task must stay hidden/);
+      }
+    }
+  }
+});
+
 test("new-user coaching teaches the real empty tiers and daily-loop footer", () => {
   for (const width of [40, 60, 100, 119, 120, 159, 160]) {
     const model = buildRenderModel({

@@ -21,7 +21,7 @@ function session(id: string, values: Partial<RuntimeSession> = {}): RuntimeSessi
 
 const allCapabilities: DashboardCommandCapabilities = {
   openSession: true, restart: true, deleteSession: true, finishWorktree: true,
-  forkSession: true, renameSession: true, syncPiName: true, sendMessage: true, runConfiguredShortcut: true,
+  forkSession: true, retryForkPreparation: true, renameSession: true, syncPiName: true, sendMessage: true, runConfiguredShortcut: true,
   skills: true, mcp: true, theme: true,
   pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, closeSidePane: true, resizeSidePane: true,
   acknowledge: true, attentionBell: true,
@@ -116,7 +116,7 @@ test("slot commands assign exact free destinations and name occupied conflicts",
   const slot1 = commands(occupied).find((item) => item.id === "action:alpha:slot-1")!;
   assert.equal(slot1.enabled, false);
   assert.equal(slot1.disabledReason, "Slot 1 contains API; close it first");
-  assert.equal(commandForKey(commands(occupied), "\u001b1")?.id, "view:focus-slot-1");
+  assert.equal(commandForKey(commands(occupied), "\u001b1")?.id, "view:focus-slot-1:beta");
   assert.equal(commands(occupied).find((item) => item.id === "view:focus-slot-2")?.disabledReason, "slot 2 is empty");
   assert.equal(commands(emptyPinState).find((item) => item.id === "action:alpha:slot-3")?.disabledReason, "slot 3 needs 160 columns");
 });
@@ -211,6 +211,92 @@ test("configured shortcuts bind the exact session and preserve validated order",
 
   const stopped = buildDashboardCommands({ sessions: [{ ...selected, status: "error" }], selectedId: selected.id, capabilities: allCapabilities, configuredShortcuts: [{ key: "!", send: "/urgent" }] });
   assert.equal(stopped.find((command) => command.id.startsWith("shortcut:"))?.disabledReason, "session is not live");
+});
+
+test("fork preparation gates every interactive exact-session catalog path", () => {
+  const selected = session("pending", {
+    forkPreparation: { id: "attempt-1", phase: "preparing" },
+    preparationStatusUnknown: false,
+  });
+  const commands = buildDashboardCommands({
+    sessions: [selected], selectedId: selected.id, capabilities: allCapabilities,
+    configuredShortcuts: [{ key: "!", send: "/verify" }],
+    pinState: { ...emptyPinState, slots: [selected.id, "other", undefined, undefined], count: 2 },
+  });
+  for (const name of ["open", "restart", "send", "rename", "sync-name", "fork", "fork-compact", "pin", "slot-1", "slot-2"]) {
+    const command = commands.find((item) => item.id === `action:pending:${name}`)!;
+    assert.equal(command.enabled, false, name);
+    assert.equal(command.disabledReason, "Preparing fork", name);
+  }
+  assert.equal(commands.find((item) => item.id.startsWith("shortcut:pending:"))?.disabledReason, "Preparing fork");
+  assert.equal(commands.find((item) => item.id === "view:focus-slot-1:pending")?.disabledReason, "Preparing fork");
+  assert.equal(commands.find((item) => item.id === "action:pending:info")?.enabled, true);
+  assert.equal(commands.find((item) => item.id === "action:pending:delete")?.enabled, true);
+  for (const name of ["move-group", "rename-group", "archive", "backlog", "size-increase", "size-decrease", "reorder-up", "reorder-down"]) {
+    assert.equal(commands.find((item) => item.id === `action:pending:${name}`)?.enabled, true, name);
+  }
+  assert.equal(commands.find((item) => item.id === "action:pending:restore")?.disabledReason, "session already active");
+
+  const workspace = selectWorkspaceCommands(selected, commands, 3);
+  assert.equal(workspace.guidance, "Preparing fork");
+  assert.deepEqual(workspace.actions.map((item) => item.id), ["action:pending:info"]);
+});
+
+test("failed preparation offers exact inspection and safe live-idle or stopped retry without a direct key", () => {
+  const live = session("failed-live", {
+    status: "error",
+    sessionFile: "/tmp/child.jsonl",
+    forkPreparation: { id: "attempt-1", phase: "error", error: "Provider failed" },
+    statusEvidence: {
+      observedAt: 2, reason: "heartbeat-error", tmux: { state: "present" },
+      heartbeat: { freshness: "fresh", state: "error" }, acknowledgement: { state: "not-applicable" }, workflow: { source: "absent" },
+    },
+  });
+  const liveCommands = buildDashboardCommands({ sessions: [live], selectedId: live.id, capabilities: allCapabilities });
+  assert.equal(liveCommands.find((item) => item.id === "action:failed-live:open")?.label, "Open to inspect");
+  assert.equal(liveCommands.find((item) => item.id === "action:failed-live:open")?.enabled, true);
+  assert.equal(liveCommands.find((item) => item.id === "action:failed-live:retry-preparation")?.disabledReason, "wait until the child is idle before retrying");
+  assert.equal(liveCommands.find((item) => item.id === "action:failed-live:move-group")?.enabled, true);
+  assert.equal(liveCommands.find((item) => item.id === "action:failed-live:archive")?.enabled, true);
+
+  const idle = session("failed-idle", {
+    status: "idle",
+    sessionFile: "/tmp/child.jsonl",
+    forkPreparation: { id: "attempt-1", phase: "error", error: "Provider failed" },
+    statusEvidence: {
+      observedAt: 2, reason: "heartbeat-read", tmux: { state: "present" },
+      heartbeat: { freshness: "fresh", state: "waiting" }, acknowledgement: { state: "read" }, workflow: { source: "absent" },
+    },
+  });
+  const idleCommands = buildDashboardCommands({ sessions: [idle], selectedId: idle.id, capabilities: allCapabilities });
+  assert.equal(idleCommands.find((item) => item.id === "action:failed-idle:retry-preparation")?.enabled, true);
+  const compacting = { ...idle, operation: { kind: "compact" as const, phase: "running" as const, id: "compact" } };
+  assert.equal(buildDashboardCommands({ sessions: [compacting], selectedId: compacting.id, capabilities: allCapabilities }).find((item) => item.id === "action:failed-idle:retry-preparation")?.enabled, false);
+
+  const stopped = session("failed-stopped", {
+    status: "stopped", sessionFile: "/tmp/child.jsonl",
+    forkPreparation: { id: "attempt-1", phase: "error", error: "Provider failed" },
+  });
+  const stoppedCommands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: allCapabilities });
+  const retry = stoppedCommands.find((item) => item.id === "action:failed-stopped:retry-preparation")!;
+  assert.equal(retry.enabled, true);
+  assert.deepEqual(retry.bindings, []);
+  assert.equal(commandForKey(stoppedCommands, "y"), undefined);
+  const workspace = selectWorkspaceCommands(stopped, stoppedCommands, 3);
+  assert.equal(workspace.guidance, "Preparation failed · Provider failed");
+  assert.equal(workspace.actions[0]?.id, retry.id);
+});
+
+test("unknown preparation status stays gated and keeps Details as guidance anchor", () => {
+  const selected = session("unknown", {
+    forkPreparation: { id: "attempt-1", phase: "compacting", launchConfirmed: true },
+    preparationStatusUnknown: true,
+  });
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities });
+  assert.equal(commands.find((item) => item.id === "action:unknown:open")?.disabledReason, "Fork preparation status is unavailable.");
+  const workspace = selectWorkspaceCommands(selected, commands, 3);
+  assert.equal(workspace.guidance, "Fork preparation status is unavailable.");
+  assert.equal(workspace.actions[0]?.id, "action:unknown:info");
 });
 
 test("session search composes bounded matchesFilter context and preserves fleet order", () => {

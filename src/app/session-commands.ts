@@ -2,7 +2,7 @@ import { loadRegistry } from "../core/registry.js";
 import { isSubagentSession } from "../core/session-tree.js";
 import { configureManagedSessionStatusBar, sendTextToSession, sessionExists } from "../core/tmux.js";
 import { loadManagedSessionTheme } from "../tui/theme.js";
-import { resolveSession } from "./delete-session.js";
+import { assertManagedSessionReady } from "./session-lifecycle.js";
 
 export {
   managedPiCommand,
@@ -10,8 +10,7 @@ export {
 export type { ForkInput, SessionInput } from "./session-lifecycle.js";
 
 export async function renameManagedSession(id: string, title: string): Promise<void> {
-  const registry = await loadRegistry();
-  const session = resolveSession(registry, id);
+  const session = await assertManagedSessionReady(id);
   const name = title.trim();
   if (isSubagentSession(session)) throw new Error("subagent rows cannot be renamed");
   if (session.status === "stopped" || session.status === "error") throw new Error("restart the Pi session before renaming");

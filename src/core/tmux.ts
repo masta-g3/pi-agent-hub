@@ -12,13 +12,13 @@ import type { CommandResult } from "./types.js";
 const execFileAsync = promisify(execFile);
 
 export interface TmuxExec {
-  exec(command: string, args: string[]): Promise<CommandResult>;
+  exec(command: string, args: string[], options?: { timeout?: number }): Promise<CommandResult>;
 }
 
 export const realTmuxExec: TmuxExec = {
-  async exec(command, args) {
+  async exec(command, args, options) {
     try {
-      const result = await execFileAsync(command, args, { encoding: "utf8" });
+      const result = await execFileAsync(command, args, { encoding: "utf8", ...options });
       return { stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
       if (typeof error === "object" && error !== null && "stdout" in error && "stderr" in error) {
@@ -88,10 +88,11 @@ export async function newSession(options: {
   cwd: string;
   command: string;
   env?: Record<string, string>;
+  timeoutMs?: number;
 }, exec: TmuxExec = realTmuxExec): Promise<void> {
   const assignments = Object.entries(options.env ?? {}).map(([key, value]) => `${key}=${shellQuote(value)}`);
   const command = [...assignments, options.command].join(" ");
-  await exec.exec("tmux", ["new-session", "-d", "-s", options.name, "-c", options.cwd, command]);
+  await exec.exec("tmux", ["new-session", "-d", "-s", options.name, "-c", options.cwd, command], options.timeoutMs === undefined ? undefined : { timeout: options.timeoutMs });
 }
 
 export async function killSession(name: string, exec: TmuxExec = realTmuxExec): Promise<void> {

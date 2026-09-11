@@ -239,7 +239,9 @@ test("restartAllTargets includes only active parent sessions", () => {
   const archived = { ...session("archived", "/repo/archived", "one"), bucket: "archived" as const };
   const subagent = { ...session("subagent", "/repo/active", "one"), kind: "subagent" as const, parentId: active.id };
 
-  assert.deepEqual(restartAllTargets([active, backlog, archived, subagent]), [active]);
+  const preparing = { ...session("preparing", "/repo/preparing", "one"), forkPreparation: { id: "attempt", phase: "compacting" as const } };
+  const failed = { ...session("failed", "/repo/failed", "one"), forkPreparation: { id: "attempt", phase: "error" as const } };
+  assert.deepEqual(restartAllTargets([active, backlog, archived, subagent, preparing, failed]), [active]);
 });
 
 test("persistDashboardThemeSelection saves Pi before Hub and publishes only while synced", async () => {

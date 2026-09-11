@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -13,6 +13,8 @@ import {
   forkManagedSession,
   managedPiCommand,
   restartManagedSessionFresh,
+  restartManagedSession,
+  retryForkPreparation,
   startManagedSession,
   stopManagedSession,
 } from "../src/app/session-lifecycle.js";
@@ -201,6 +203,103 @@ test("addManagedSession injects worktree guidance for a single-repo worktree", a
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
   }
+});
+
+async function withForkFixture(run: (root: string, log: string, history: string) => Promise<void>, tmuxBody = "exit 0") {
+  const root = await mkdtemp(join(tmpdir(), "hub-preparation-action-"));
+  const previous = { dir: process.env.PI_AGENT_HUB_DIR, path: process.env.PATH };
+  const bin = join(root, "bin");
+  const log = join(root, "tmux.log");
+  const history = join(root, "child.jsonl");
+  await mkdir(bin);
+  await writeFile(history, "saved child history\n");
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\n${tmuxBody}\n`);
+  await chmod(join(bin, "tmux"), 0o755);
+  process.env.PI_AGENT_HUB_DIR = join(root, "hub");
+  process.env.PATH = `${bin}:${previous.path ?? ""}`;
+  try { await run(root, log, history); }
+  finally {
+    if (previous.dir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = previous.dir;
+    if (previous.path === undefined) delete process.env.PATH; else process.env.PATH = previous.path;
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("pending fork cannot start, restart, rename, or fork through application routes", async () => {
+  await withForkFixture(async (root, log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, forkPreparation: { id: "attempt", phase: "compacting", launchConfirmed: true } })] });
+    for (const action of [() => startManagedSession("source-session"), () => restartManagedSession("source-session"), () => restartManagedSessionFresh("source-session"), () => renameManagedSession("source-session", "changed"), () => forkManagedSession("source-session")]) {
+      await assert.rejects(action, /Compacting/);
+    }
+    assert.doesNotMatch(await readFile(log, "utf8"), /kill-session|new-session|send-keys|load-buffer/);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  });
+});
+
+test("failed preparation retries the same saved child with a fresh attempt", async () => {
+  await withForkFixture(async (root, log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, forkPreparation: { id: "failed-attempt", phase: "error", error: "provider failed" } })] });
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    await writeFile(heartbeatPath("source-session"), JSON.stringify({ managedSessionId: "source-session", cwd: root, state: "waiting", stateSince: 1, updatedAt: Date.now() }));
+    await retryForkPreparation("source-session");
+    const rows = (await loadRegistry()).sessions;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.id, "source-session");
+    assert.notEqual(rows[0]?.forkPreparation?.id, "failed-attempt");
+    assert.equal(rows[0]?.forkPreparation?.phase, "preparing");
+    const commands = await readFile(log, "utf8");
+    assert.match(commands, /kill-session/);
+    assert.match(commands, /--session/);
+    assert.doesNotMatch(commands, /--fork/);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  });
+});
+
+test("normal fork preserves its launched child when status-bar setup fails", async () => {
+  await withForkFixture(async (root, log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
+    await assert.rejects(() => forkManagedSession("source-session"), /status-bar failed/);
+    assert.equal((await loadRegistry()).sessions.length, 2);
+    const commands = await readFile(log, "utf8");
+    assert.match(commands, /new-session/);
+    assert.doesNotMatch(commands, /kill-session/);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  }, 'if [ "$1" = "set-option" ]; then echo "status-bar failed" >&2; exit 1; fi\nexit 0');
+});
+
+test("fork launch failure removes its unusable child but preserves the source", async () => {
+  await withForkFixture(async (root, _log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
+    await assert.rejects(() => forkManagedSession("source-session", { compact: true }), /spawn failed/);
+    assert.deepEqual((await loadRegistry()).sessions.map((row) => row.id), ["source-session"]);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  }, 'if [ "$1" = "new-session" ]; then echo "spawn failed" >&2; exit 1; fi\nexit 0');
+});
+
+test("stopping an unconfirmed fork prevents its deferred launch", async () => {
+  await withForkFixture(async (root, log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
+    await assert.rejects(() => forkManagedSession("source-session", {
+      compact: true,
+      onRegistered: (child) => stopManagedSession(child.id),
+    }), /cancelled or replaced/);
+    assert.doesNotMatch(await readFile(log, "utf8"), /new-session/);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  }, '[ "$1" = "has-session" ] && exit 1\nexit 0');
+});
+
+test("deletion during deferred launch cleans up the exact late child", async () => {
+  await withForkFixture(async (root, log, history) => {
+    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
+    await assert.rejects(() => forkManagedSession("source-session", {
+      compact: true,
+      async onRegistered(child) {
+        setTimeout(() => { void updateRegistry((registry) => ({ ...registry, sessions: registry.sessions.filter((row) => row.id !== child.id) })); }, 30);
+      },
+    }), /cancelled or replaced/);
+    assert.deepEqual((await loadRegistry()).sessions.map((row) => row.id), ["source-session"]);
+    assert.match(await readFile(log, "utf8"), /kill-session/);
+  }, 'if [ "$1" = "new-session" ]; then sleep 0.2; fi\nexit 0');
 });
 
 function seedRegistry(registry: import("../src/core/types.js").SessionsRegistry, path?: string): Promise<import("../src/core/types.js").SessionsRegistry> {
@@ -439,6 +538,7 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
   try {
     await seedRegistry({ version: 1, sessions: [session({ cwd: primary, sessionFile: history })] });
     await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    let compactionCompleted = false;
     const heartbeatTask = (async () => {
       let child: ManagedSession | undefined;
       while (!child) {
@@ -451,16 +551,20 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
       }), "utf8");
       await writeForkHeartbeat("running");
       await new Promise((resolve) => setTimeout(resolve, 500));
+      compactionCompleted = true;
       await writeForkHeartbeat("complete");
     })();
     const fork = await forkManagedSession("source-session", { compact: true });
+    const returnedBeforeCompletion = !compactionCompleted;
     await heartbeatTask;
+    assert.equal(returnedBeforeCompletion, true, "fork launch must not wait for compaction");
+    assert.ok("forkPreparation" in fork, "the child is gated before its first heartbeat");
     const registry = await loadRegistry();
     assert.equal(registry.sessions.length, 2);
     assert.equal(registry.sessions.find((item) => item.id === "source-session")?.group, "default");
     assert.equal(fork.group, "default");
     const commands = await readFile(log, "utf8");
-    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='1'/);
+    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='[a-f0-9-]{36}'/);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
