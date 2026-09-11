@@ -51,6 +51,7 @@ const SETTLED_HEARTBEAT_DELAYS_MS = [1_000, 3_000, 6_000];
 const THEME_COMMAND_INTERVAL_MS = 1_000;
 const FORK_COMPACT_INSTRUCTIONS = "This session branches from the prior conversation. Another agent will continue that prior work. Preserve product decisions and unresolved context from the discussion that code and docs cannot show. Stop pursuing the prior task and wait for a new task from the user, which may be related or unrelated.";
 const FORK_COMPACT_OPERATION_ID_LENGTH = 16;
+const COMPACTION_COMPLETE_DISPLAY_MS = 5_000;
 
 export default function piAgentHubExtension(pi: ExtensionAPI) {
   const globalState = globalThis as PiAgentHubGlobal;
@@ -70,6 +71,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let compactOperation: HeartbeatOperation | undefined;
+  let compactionCompleteTimer: ReturnType<typeof setTimeout> | undefined;
   let lifecycleRevision = 0;
   let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let heartbeatWrite: Promise<void> = Promise.resolve();
@@ -278,6 +280,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   pi.on("session_info_changed", async (_event, ctx) => applyThemeAndHeartbeat(currentState, ctx as PiContext));
   function clearCompaction() {
+    if (compactionCompleteTimer) clearTimeout(compactionCompleteTimer);
+    compactionCompleteTimer = undefined;
     compactionSnapshot = undefined;
     compactOperation = undefined;
   }
@@ -287,6 +291,13 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (!snapshot || compactOperation?.phase !== "running") return;
     const operation = { kind: "compact" as const, phase, id: compactOperation.id, ...(error ? { error: boundedError(error) } : {}) };
     compactOperation = operation;
+    if (phase === "complete") {
+      compactionCompleteTimer = setTimeout(() => {
+        if (shuttingDown || compactOperation !== operation) return;
+        clearCompaction();
+        void heartbeat(currentState, ctx).catch(() => undefined);
+      }, COMPACTION_COMPLETE_DISPLAY_MS);
+    }
     if (willRetry) {
       lifecycleRevision += 1;
       await heartbeat("running", ctx, undefined, snapshot.stateSince);
@@ -346,6 +357,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
       shuttingDown = true;
+      if (compactionCompleteTimer) clearTimeout(compactionCompleteTimer);
       promptSnapshot = undefined;
       lifecycleRevision += 1;
       if (heartbeatTimer) clearInterval(heartbeatTimer);

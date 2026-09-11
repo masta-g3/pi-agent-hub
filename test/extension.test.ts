@@ -121,7 +121,8 @@ test("compact fork waits for a matching reset receipt, persists checkpoints, and
   }
 });
 
-test("compaction publishes transient running and restores or preserves continuation state", async () => {
+test("compaction publishes transient running and restores or preserves continuation state", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-compaction-"));
   const previousSessionId = process.env[SESSION_ID_ENV];
@@ -134,7 +135,13 @@ test("compaction publishes transient running and restores or preserves continuat
     registerTool() {},
     getSessionName() { return "Compaction"; },
   };
-  const ctx = { cwd: root, hasUI: false };
+  const preparation = { id: "prepared-attempt", phase: "ready", outcome: "compacted" };
+  const ctx = { cwd: root, hasUI: false, sessionManager: {
+    getSessionId: () => "pi-compaction",
+    getBranch: () => [{ type: "custom", customType: "pi-agent-hub-fork-preparation", data: {
+      version: 1, managedSessionId: "compaction", piSessionId: "pi-compaction", preparation,
+    } }],
+  } };
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
@@ -152,6 +159,15 @@ test("compaction publishes transient running and restores or preserves continuat
     assert.equal(restored.state, "waiting");
     assert.equal(restored.operation?.phase, "complete");
     assert.equal(restored.stateSince, started.stateSince);
+    t.mock.timers.tick(4_999);
+    await handlers.get("session_info_changed")?.({}, ctx);
+    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "complete");
+    t.mock.timers.tick(1);
+    await handlers.get("session_info_changed")?.({}, ctx);
+    const expired = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(expired.operation, undefined);
+    assert.equal(expired.stateSince, started.stateSince);
+    assert.deepEqual(expired.forkPreparation, preparation);
 
     await handlers.get("session_before_compact")?.({ reason: "overflow", willRetry: true }, ctx);
     const retrying = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
@@ -159,6 +175,15 @@ test("compaction publishes transient running and restores or preserves continuat
     await handlers.get("session_compact")?.({ reason: "overflow", willRetry: true }, ctx);
     const continuing = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(continuing.state, "running");
+    t.mock.timers.tick(2_000);
+    await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
+    t.mock.timers.tick(3_000);
+    await handlers.get("session_info_changed")?.({}, ctx);
+    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "running");
+    await handlers.get("session_compact_failed")?.({ errorMessage: "Provider failed", aborted: false, willRetry: false }, ctx);
+    t.mock.timers.tick(5_000);
+    await handlers.get("session_info_changed")?.({}, ctx);
+    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "error");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
