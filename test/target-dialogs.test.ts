@@ -17,7 +17,7 @@ function context(controller: SessionsController, actions: DialogContext["actions
     controller, actions, theme: undefined, now: () => 0,
     close: () => { dialog = undefined; }, setDialog: (next) => { dialog = next; }, dialog: () => dialog,
     setMessage: (next) => { message = next; }, message: () => message, flashMessage: () => {},
-    runAction: (action) => { action(); }, attachSession: () => {}, stop: () => {},
+    runAction: (action) => { action(); }, runBackgroundAction: (action) => { action(); }, attachSession: () => {}, stop: () => {},
   };
 }
 

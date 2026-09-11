@@ -89,6 +89,7 @@ function runtimeReason(evidence: RuntimeStatusEvidence): string {
     case "tmux-stopped": return "registered session is stopped and tmux is absent";
     case "tmux-missing": return "tmux session is missing";
     case "tmux-unknown": return "tmux observation failed";
+    case "fork-launch-pending": return "fork launch is awaiting process confirmation";
     case "heartbeat-error": return "Pi heartbeat reported an error";
     case "heartbeat-shutdown": return "Pi heartbeat reported shutdown";
     case "heartbeat-active": return `fresh heartbeat reports ${evidence.heartbeat.state === "starting" ? "starting" : "running"}`;

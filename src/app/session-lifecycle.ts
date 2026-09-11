@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { access, rm, unlink } from "node:fs/promises";
 import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { resolve } from "node:path";
@@ -9,6 +10,8 @@ import { isErrno } from "../core/atomic-json.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath, registryPath, sessionsStateDir } from "../core/paths.js";
 import { readHeartbeat } from "../core/heartbeat.js";
+import { isForkPreparationPending, forkPreparationMessage, reconcileForkPreparation } from "../core/fork-preparation.js";
+import { isFreshHeartbeat } from "../core/status.js";
 import { assertWorktreesClean, assertWorktreesReady, createOwnedWorktrees, finishOwnedWorktrees, isWorktreeSession, PartialWorktreeFailure, remainingWorktreeSession, removeOwnedWorktrees, sessionWorktrees, type FinishedWorktree } from "../core/worktree.js";
 import { renderWorktreeGuidance } from "../core/worktree-context.js";
 import { recordRepoUsage } from "../core/repo-history.js";
@@ -16,9 +19,9 @@ import { createSessionRecord, loadRegistry, provisionalSessionTitle, updateRegis
 import { nextUpdatedAt } from "../core/session-version.js";
 import { nextOrderInGroup } from "../core/session-order.js";
 import { isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
-import { configureManagedSessionStatusBar, killSession, newSession, sessionExists, shellQuote } from "../core/tmux.js";
+import { configureManagedSessionStatusBar, killSession, newSession, sessionExists, sessionPresence, shellQuote } from "../core/tmux.js";
 import { loadManagedSessionTheme } from "../tui/theme.js";
-import type { ManagedSession, ManagedWorktree } from "../core/types.js";
+import type { ForkPreparation, ManagedSession, ManagedWorktree } from "../core/types.js";
 
 export interface SessionInput {
   cwd: string;
@@ -30,10 +33,38 @@ export interface SessionInput {
 export interface ForkInput {
   group?: string;
   compact?: boolean;
+  onRegistered?: (session: ManagedSession) => void | Promise<void>;
 }
 
-const FORK_COMPACT_TIMEOUT_MS = 15_000;
-const FORK_COMPACT_POLL_MS = 50;
+const FORK_LAUNCH_TIMEOUT_MS = 30_000;
+
+function preparationAttempt(): ForkPreparation {
+  return { id: randomUUID(), phase: "preparing", launchDeadline: Date.now() + FORK_LAUNCH_TIMEOUT_MS };
+}
+
+function assertPreparationReady(session: ManagedSession, allowFailedInspection = false): void {
+  if (isForkPreparationPending(session.forkPreparation)) throw new Error(`${session.title}: ${forkPreparationMessage(session.forkPreparation)}`);
+  if (session.forkPreparation?.phase === "error" && !allowFailedInspection) throw new Error(`${session.title}: preparation failed; retry preparation or open to inspect`);
+}
+
+export async function assertManagedSessionReady(id: string, options: { allowFailedInspection?: boolean } = {}): Promise<ManagedSession> {
+  const session = findSession(await loadRegistry(), id);
+  if (!isForkPreparationPending(session.forkPreparation)) {
+    assertPreparationReady(session, options.allowFailedInspection);
+    return session;
+  }
+  const heartbeat = await readHeartbeat(session.id);
+  const presence = await sessionPresence(session.tmuxSession);
+  const preparation = reconcileForkPreparation(session, heartbeat, presence);
+  const registry = await updateRegistry((latest) => {
+    const current = latest.sessions.find((item) => item.id === session.id);
+    if (!current || current.updatedAt !== session.updatedAt || preparation === session.forkPreparation) return latest;
+    return upsertSession(latest, { ...current, forkPreparation: preparation, updatedAt: nextUpdatedAt(current.updatedAt) });
+  });
+  const current = findSession(registry, session.id);
+  assertPreparationReady(current, options.allowFailedInspection);
+  return current;
+}
 
 async function addManagedSessionImpl(input: SessionInput): Promise<ManagedSession> {
   const originalCwd = resolve(input.cwd);
@@ -83,6 +114,7 @@ async function startManagedSessionImpl(
 ): Promise<void> {
   const registry = await loadRegistry();
   let session = findSession(registry, id);
+  assertPreparationReady(session);
   if (isSubagentSession(session)) throw new Error(`Cannot start subagent row: ${session.title}`);
   if (await sessionExists(session.tmuxSession)) {
     await configureManagedSessionStatusBar({ name: session.tmuxSession, title: session.title, cwd: session.cwd, theme: await loadManagedSessionTheme(session) });
@@ -137,6 +169,7 @@ async function stopManagedSessionImpl(id: string): Promise<void> {
 }
 
 async function restartManagedSessionImpl(id: string): Promise<void> {
+  await assertManagedSessionReady(id);
   await stopManagedSessionImpl(id);
   await updateRegistry((registry) => {
     const session = findSession(registry, id);
@@ -147,6 +180,7 @@ async function restartManagedSessionImpl(id: string): Promise<void> {
 }
 
 async function restartManagedSessionFreshImpl(id: string): Promise<void> {
+  await assertManagedSessionReady(id);
   await stopManagedSessionImpl(id);
   await rm(heartbeatPath(id), { force: true });
   await updateRegistry((registry) => {
@@ -159,6 +193,7 @@ async function restartManagedSessionFreshImpl(id: string): Promise<void> {
         status: "starting",
         sessionFile: undefined,
         piSessionId: undefined,
+        forkPreparation: undefined,
         acknowledgedAt: undefined,
         error: undefined,
         activeTheme: undefined,
@@ -170,54 +205,107 @@ async function restartManagedSessionFreshImpl(id: string): Promise<void> {
 }
 
 async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): Promise<ManagedSession> {
-  const registry = await loadRegistry();
-  const source = findSession(registry, sourceId);
+  const source = await assertManagedSessionReady(sourceId);
   if (isSubagentSession(source)) throw new Error(`Cannot fork subagent row: ${source.title}`);
   if (isWorktreeSession(source)) throw new Error("Cannot fork worktree sessions in v1");
   const sourceFile = await savedSessionFile(source);
-  let record = createSessionRecord({
-    cwd: source.cwd,
-    group: input.group ?? source.group,
-    additionalCwds: source.additionalCwds,
-  });
-  record = await ensureMultiRepoWorkspace(record);
-  await updateRegistry((latest) => {
-    const latestSource = findSession(latest, sourceId);
-    if (isSubagentSession(latestSource)) throw new Error(`Cannot fork subagent row: ${latestSource.title}`);
-    record.order = nextOrderInGroup(latest.sessions, record.group);
-    return { ...latest, sessions: [...latest.sessions, record] };
-  });
-  const piArgs = buildPiArgs({ extensionPath: extensionPath(), forkFrom: sourceFile });
+  let record = createSessionRecord({ cwd: source.cwd, group: input.group ?? source.group, additionalCwds: source.additionalCwds });
+  if (input.compact) record.forkPreparation = preparationAttempt();
+  try {
+    record = await ensureMultiRepoWorkspace(record);
+    await updateRegistry((latest) => {
+      const latestSource = findSession(latest, source.id);
+      assertPreparationReady(latestSource);
+      if (isSubagentSession(latestSource) || isWorktreeSession(latestSource) || !sameWorkspaceIdentity(source, latestSource)) {
+        throw new Error("Fork source changed while preparing; retry");
+      }
+      record.order = nextOrderInGroup(latest.sessions, record.group);
+      return { ...latest, sessions: [...latest.sessions, record] };
+    });
+    await input.onRegistered?.(record);
+    await launchFork(record, buildPiArgs({ extensionPath: extensionPath(), forkFrom: sourceFile }));
+    return findSession(await loadRegistry(), record.id);
+  } catch (error) {
+    await handleForkLaunchFailure(record, error);
+    throw error;
+  }
+}
+
+async function assertCurrentForkLaunch(record: ManagedSession): Promise<void> {
+  const current = (await loadRegistry()).sessions.find((item) => item.id === record.id);
+  if (!current || (record.forkPreparation && current.status === "stopped") || current.tmuxSession !== record.tmuxSession || current.forkPreparation?.id !== record.forkPreparation?.id
+    || (current.forkPreparation?.phase === "error" && !current.forkPreparation.launchConfirmed)) throw new Error("Fork launch was cancelled or replaced");
+}
+
+async function launchFork(record: ManagedSession, piArgs: string[]): Promise<void> {
+  const command = managedPiCommand({ piArgs, prelude: await effectiveSessionPrelude() });
+  await assertCurrentForkLaunch(record);
   await newSession({
     name: record.tmuxSession,
     cwd: effectiveSessionCwd(record),
-    command: managedPiCommand({ piArgs, prelude: await effectiveSessionPrelude() }),
+    command,
+    timeoutMs: record.forkPreparation ? FORK_LAUNCH_TIMEOUT_MS : undefined,
     env: {
       [SESSION_ID_ENV]: record.id,
       [STATE_ENV]: sessionsStateDir(),
       [PRIMARY_CWD_ENV]: record.cwd,
-      ...(input.compact ? { [FORK_COMPACT_ENV]: "1" } : {}),
+      ...(record.forkPreparation ? { [FORK_COMPACT_ENV]: record.forkPreparation.id } : {}),
     },
   });
+  await assertCurrentForkLaunch(record);
+  if (record.forkPreparation) await updateRegistry((latest) => {
+    const current = latest.sessions.find((item) => item.id === record.id);
+    if (!current?.forkPreparation || current.forkPreparation.id !== record.forkPreparation?.id || current.forkPreparation.phase === "error") return latest;
+    return upsertSession(latest, { ...current, forkPreparation: { ...current.forkPreparation, launchConfirmed: true }, updatedAt: nextUpdatedAt(current.updatedAt) });
+  });
   await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await loadManagedSessionTheme(record) });
-  if (input.compact) await waitForForkCompaction(record.id);
-  return record;
+  await assertCurrentForkLaunch(record);
 }
 
-async function waitForForkCompaction(sessionId: string): Promise<void> {
-  const deadline = Date.now() + FORK_COMPACT_TIMEOUT_MS;
-  let phase: string | undefined;
-  while (Date.now() < deadline) {
-    const heartbeat = await readHeartbeat(sessionId);
-    const operation = heartbeat?.operation;
-    phase = operation?.phase;
-    if (operation?.kind === "fork-compact") {
-      if (operation.phase === "error") throw new Error(`fork compaction failed for ${sessionId}`);
-      if (operation.phase === "complete") return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, FORK_COMPACT_POLL_MS));
+async function handleForkLaunchFailure(record: ManagedSession, error: unknown): Promise<void> {
+  const current = (await loadRegistry()).sessions.find((item) => item.id === record.id);
+  // Normal forks remain registered so their child can be recovered after a launch error.
+  if (current && !record.forkPreparation) return;
+  // An old attempt must never kill a replacement process using the same tmux name.
+  if (current && (current.forkPreparation?.id !== record.forkPreparation?.id || current.forkPreparation?.phase === "ready")) return;
+  const heartbeat = await readHeartbeat(record.id);
+  const childFile = current?.sessionFile ?? (heartbeat?.forkPreparation?.id === record.forkPreparation?.id ? heartbeat?.piSessionFile : undefined);
+  if (current && childFile && record.forkPreparation) {
+    await updateRegistry((latest) => {
+      const row = latest.sessions.find((item) => item.id === record.id);
+      if (!row || row.forkPreparation?.id !== record.forkPreparation?.id) return latest;
+      return upsertSession(latest, { ...row, sessionFile: childFile, forkPreparation: { ...record.forkPreparation!, phase: "error", error: errorMessage(error).slice(0, 500) }, updatedAt: nextUpdatedAt(row.updatedAt) });
+    });
+    return;
   }
-  throw new Error(`fork compaction timed out for ${sessionId} (last phase: ${phase ?? "none"})`);
+  await rollbackStartedRecord(record);
+}
+
+export async function retryForkPreparation(id: string): Promise<void> {
+  return withLifecycleContext("retry fork preparation", id, async () => {
+    const source = await assertManagedSessionReady(id, { allowFailedInspection: true });
+    if (source.forkPreparation?.phase !== "error" || isSubagentSession(source) || isWorktreeSession(source)) throw new Error("Only failed fork preparation can be retried");
+    const file = await savedSessionFile(source);
+    const presence = await sessionPresence(source.tmuxSession);
+    const heartbeat = await readHeartbeat(source.id);
+    if (presence === "unknown" || (presence === "present" && (!isFreshHeartbeat(heartbeat, Date.now()) || heartbeat.state !== "waiting" || heartbeat.operation?.phase === "running"))) {
+      throw new Error("Wait until this child is idle before retrying preparation");
+    }
+    const attempt = preparationAttempt();
+    const committed = await updateRegistry((latest) => {
+      const current = findSession(latest, source.id);
+      if (current.updatedAt !== source.updatedAt || current.forkPreparation?.id !== source.forkPreparation?.id || current.forkPreparation?.phase !== "error") throw new Error("Fork changed before retry; try again");
+      return upsertSession(latest, { ...current, forkPreparation: attempt, title: provisionalSessionTitle(current.cwd), status: "starting", workflow: undefined, error: undefined, acknowledgedAt: undefined, updatedAt: nextUpdatedAt(current.updatedAt) });
+    });
+    const record = findSession(committed, source.id);
+    try {
+      if (presence === "present") await killSession(record.tmuxSession);
+      await launchFork(record, buildPiArgs({ extensionPath: extensionPath(), sessionFile: file }));
+    } catch (error) {
+      await handleForkLaunchFailure(record, error);
+      throw error;
+    }
+  });
 }
 
 async function rollbackStartedRecord(record: ManagedSession): Promise<void> {
@@ -445,7 +533,10 @@ export async function startManagedSession(
   id: string,
   materializeWorkspace: (session: ManagedSession) => Promise<ManagedSession> = ensureMultiRepoWorkspace,
 ): Promise<void> {
-  return withLifecycleContext("start managed session", id, () => startManagedSessionImpl(id, materializeWorkspace));
+  return withLifecycleContext("start managed session", id, async () => {
+    await assertManagedSessionReady(id);
+    await startManagedSessionImpl(id, materializeWorkspace);
+  });
 }
 
 export async function stopManagedSession(id: string): Promise<void> {

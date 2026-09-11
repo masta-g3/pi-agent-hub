@@ -55,7 +55,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
-import { handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
+import { handleConfirmInput, openDeleteDialog, openFinishDialog, openRetryForkPreparationDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
@@ -449,6 +449,7 @@ export class SessionsView implements Component {
       message: () => this.message,
       flashMessage: (text) => this.flashMessage(text),
       runAction: (action, pending, onSuccess) => this.runAction(action, pending, onSuccess),
+      runBackgroundAction: (action, pending) => this.runBackgroundAction(action, pending),
       attachSession: (session) => this.attachSession(session),
       stop: () => this.stop(),
     };
@@ -542,6 +543,7 @@ export class SessionsView implements Component {
       deleteSession: Boolean(this.actions.deleteSession),
       finishWorktree: Boolean(this.actions.finishWorktree),
       forkSession: Boolean(this.actions.forkSession),
+      retryForkPreparation: Boolean(this.actions.retryForkPreparation),
       renameSession: Boolean(this.actions.renameSession),
       syncPiName: true,
       sendMessage: Boolean(this.actions.sendMessage),
@@ -690,6 +692,7 @@ export class SessionsView implements Component {
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
         case "fork-compact": this.startForkDialog(true); return;
+        case "retry-preparation": this.startRetryForkPreparationDialog(command.targetSessionId); return;
         case "move-group": this.startGroupDialog(); return;
         case "rename-group": this.startRenameGroupDialog(); return;
         case "archive": this.moveSelectedToBucket("archived"); return;
@@ -713,7 +716,7 @@ export class SessionsView implements Component {
         case "reorder-down": this.reorderSelected(1); return;
       }
     }
-    const focusSlot = command.id.match(/^view:focus-slot-([1-4])$/)?.[1];
+    const focusSlot = command.id.match(/^view:focus-slot-([1-4])(?:[:].+)?$/)?.[1];
     if (focusSlot) {
       this.focusSidePaneSlot(Number(focusSlot) as 1 | 2 | 3 | 4);
       return;
@@ -828,6 +831,10 @@ export class SessionsView implements Component {
     this.listScrollTop = 0;
     this.viewStateRevision += 1;
     return true;
+  }
+
+  private startRetryForkPreparationDialog(sessionId: string) {
+    this.openDialog((ctx) => openRetryForkPreparationDialog(ctx, sessionId));
   }
 
   private startSendDialog() {
@@ -1147,6 +1154,10 @@ export class SessionsView implements Component {
     this.message = undefined;
     const selected = this.controller.selected();
     if (!selected) return;
+    if (selected.forkPreparation?.phase === "error" && !selected.preparationStatusUnknown) {
+      this.attachSession(selected);
+      return;
+    }
     if (selected.status === "stopped" || selected.status === "error") {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
       else this.message = `session ${selected.status}; press r twice to restart`;
@@ -1681,6 +1692,21 @@ export class SessionsView implements Component {
     if (!this.flash) return;
     const now = this.actions.now?.() ?? Date.now();
     if (this.flash.expiresAt <= now) this.flash = undefined;
+  }
+
+  private runBackgroundAction(action: () => unknown, pendingMessage: string): void {
+    try {
+      const result = action();
+      this.message = pendingMessage;
+      if (!isPromise(result)) return;
+      void result.then(() => {
+        if (this.message === pendingMessage) this.message = undefined;
+      }).catch((error: unknown) => {
+        this.message = errorMessage(error);
+      });
+    } catch (error) {
+      this.message = errorMessage(error);
+    }
   }
 
   private runAction(action: () => unknown, pendingMessage: string, onSuccess?: () => void): void {

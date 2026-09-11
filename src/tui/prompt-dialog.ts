@@ -1,4 +1,5 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { forkPreparationMessage, isForkPreparationPending } from "../core/fork-preparation.js";
 import { createTextInput, editTextInput, isEnterKey, renderTextInput, type TextInputState } from "./text-input.js";
 import { styleToken, type SessionsTheme } from "./theme.js";
 import type { PromptDialogContext } from "./dialog.js";
@@ -23,6 +24,10 @@ export function openSendPrompt(ctx: PromptDialogContext): PromptDialog | undefin
   if (!selected) return undefined;
   if (selected.kind === "subagent") {
     ctx.setMessage("subagent rows cannot receive input");
+    return undefined;
+  }
+  if (isForkPreparationPending(selected.forkPreparation) || selected.preparationStatusUnknown || selected.forkPreparation?.phase === "error") {
+    ctx.setMessage(selected.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(selected.forkPreparation) ?? "Fork preparation is not ready.");
     return undefined;
   }
   if (selected.status === "stopped" || selected.status === "error") {
@@ -81,8 +86,12 @@ function handleSendInput(dialog: PromptDialog, data: string, ctx: PromptDialogCo
     return undefined;
   }
   if (isEnterKey(data)) {
-    const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
+    const target = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
     if (!target) return undefined;
+    if (isForkPreparationPending(target.forkPreparation) || target.preparationStatusUnknown || target.forkPreparation?.phase === "error") {
+      ctx.setMessage(target.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(target.forkPreparation) ?? "Fork preparation is not ready.");
+      return undefined;
+    }
     const message = dialog.draft.value.trim();
     if (!message) return { ...dialog, error: "message is required" };
     ctx.runAction(

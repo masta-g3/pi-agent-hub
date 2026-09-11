@@ -23,7 +23,7 @@ import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lif
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
-import { addManagedSession, forkManagedSession, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
+import { addManagedSession, assertManagedSessionReady, forkManagedSession, retryForkPreparation, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
 import { renameManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
@@ -194,7 +194,7 @@ export async function processDashboardAction(
 }
 
 export function restartAllTargets(sessions: ManagedSession[]): ManagedSession[] {
-  return sessions.filter((session) => session.kind !== "subagent" && sessionSection(session) === "active");
+  return sessions.filter((session) => session.kind !== "subagent" && sessionSection(session) === "active" && (!session.forkPreparation || session.forkPreparation.phase === "ready"));
 }
 
 export interface ThemeRefreshLoopOptions {
@@ -362,6 +362,24 @@ export async function runTui(): Promise<void> {
     await controller.refresh();
     await observeAttention();
   };
+  const forkLaunches = new Set<Promise<unknown>>();
+  const refreshForks = async () => {
+    if (stopped) return;
+    await (stopLoop?.refresh() ?? refreshDashboard());
+    tui.requestRender();
+  };
+  const launchInBackground = (action: () => Promise<unknown>) => {
+    const task = action().finally(async () => { forkLaunches.delete(task); await refreshForks(); });
+    forkLaunches.add(task);
+    return task;
+  };
+  const readyTmuxTarget = async (tmuxSession: string, allowFailedInspection = false) => {
+    const target = controller.snapshot().registry.sessions.find((item) => item.tmuxSession === tmuxSession);
+    if (!target) throw new Error("session not found");
+    const current = await assertManagedSessionReady(target.id, { allowFailedInspection });
+    if (current.tmuxSession !== tmuxSession) throw new Error("session target changed");
+    return current;
+  };
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -372,7 +390,7 @@ export async function runTui(): Promise<void> {
       terminal.write(MOUSE_DISABLE);
       tui.stop();
     };
-    void Promise.all([sidePanes?.stop() ?? Promise.resolve(), actionDrain])
+    void Promise.all([sidePanes?.stop() ?? Promise.resolve(), actionDrain, Promise.allSettled([...forkLaunches])])
       .finally(() => viewStateWriter.drain())
       .then(() => process.env.TMUX ? setDashboardMouse({ name: DASHBOARD_SESSION, enabled: false }).catch(() => {}) : undefined)
       .finally(finish);
@@ -397,6 +415,7 @@ export async function runTui(): Promise<void> {
     ownPane: () => process.env.TMUX_PANE,
     insideTmux: () => Boolean(process.env.TMUX),
     sessions: () => controller.snapshot().registry.sessions,
+    assertSessionReady: (sessionId, allowFailedInspection) => assertManagedSessionReady(sessionId, { allowFailedInspection }).then(() => undefined),
     revealSession: (sessionId) => view.revealSession(sessionId),
     acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
     activeAttentionRequestId: currentAttentionRequestId,
@@ -435,7 +454,8 @@ export async function runTui(): Promise<void> {
   view = new SessionsView(controller, stop, {
     initialViewState,
     saveViewState(state) { viewStateWriter.save(state); },
-    attachOutsideTmux(tmuxSession) {
+    async attachOutsideTmux(tmuxSession) {
+      await readyTmuxTarget(tmuxSession, true);
       stop();
       const attach = attachSessionCommand(tmuxSession);
       spawn(attach.command, attach.args, { stdio: "inherit" });
@@ -503,7 +523,11 @@ export async function runTui(): Promise<void> {
       });
     },
     forkSession(sourceSessionId, input) {
-      return mutateRegistry(async () => { await forkManagedSession(sourceSessionId, input); });
+      if (!input.compact) return mutateRegistry(async () => { await forkManagedSession(sourceSessionId, input); });
+      return launchInBackground(() => forkManagedSession(sourceSessionId, { ...input, onRegistered: refreshForks }));
+    },
+    retryForkPreparation(sessionId) {
+      return launchInBackground(() => retryForkPreparation(sessionId));
     },
     changeGroup(sessionId, group) {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));
@@ -534,13 +558,13 @@ export async function runTui(): Promise<void> {
     reorderSession(sessionId, delta) {
       return mutateRegistry(() => controller.reorderSession(sessionId, delta));
     },
-    sendMessage(tmuxSession, message) {
+    async sendMessage(tmuxSession, message) {
+      await readyTmuxTarget(tmuxSession);
       return sendTextToSession(tmuxSession, message);
     },
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
-      const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
-      if (!session) throw new Error("session not found");
+      const session = await assertManagedSessionReady(sessionId);
       await sendTextToSession(session.tmuxSession, shortcut.send);
     },
     acknowledgeSession(sessionId, requestId) {

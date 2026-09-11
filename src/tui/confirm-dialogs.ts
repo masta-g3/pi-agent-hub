@@ -2,13 +2,14 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
+import { canRetryForkPreparation } from "./dashboard-commands.js";
 import { errorMessage, isPromise, type ConfirmDialogContext } from "./dialog.js";
 import { renderDialog } from "./layout.js";
 import { styleToken, type SessionsTheme } from "./theme.js";
 
 export interface ConfirmDialog {
   kind: "confirm";
-  purpose: "delete" | "finish";
+  purpose: "delete" | "finish" | "retryForkPreparation";
   targetId: string;
   busy: false | "session" | "subagents" | "worktree" | "finish";
 }
@@ -17,6 +18,15 @@ export function openDeleteDialog(ctx: ConfirmDialogContext): ConfirmDialog | und
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
   return { kind: "confirm", purpose: "delete", targetId: selected.id, busy: false };
+}
+
+export function openRetryForkPreparationDialog(ctx: ConfirmDialogContext, targetId: string): ConfirmDialog | undefined {
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === targetId);
+  if (!target || !canRetryForkPreparation(target)) {
+    ctx.setMessage("preparation retry is no longer available");
+    return undefined;
+  }
+  return { kind: "confirm", purpose: "retryForkPreparation", targetId, busy: false };
 }
 
 export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | undefined {
@@ -39,11 +49,14 @@ export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | und
 
 export function handleConfirmInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
   if (dialog.purpose === "delete") return handleDeleteInput(dialog, data, ctx);
+  if (dialog.purpose === "retryForkPreparation") return handleRetryInput(dialog, data, ctx);
   return handleFinishInput(dialog, data, ctx);
 }
 
 export function renderConfirmDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDialogContext): string[] {
-  return dialog.purpose === "delete" ? renderDeleteDialog(dialog, width, ctx) : renderFinishDialog(dialog, width, ctx);
+  if (dialog.purpose === "delete") return renderDeleteDialog(dialog, width, ctx);
+  if (dialog.purpose === "retryForkPreparation") return renderRetryDialog(dialog, width, ctx);
+  return renderFinishDialog(dialog, width, ctx);
 }
 
 export function renderRestartDialog(width: number, ctx: ConfirmDialogContext): string[] {
@@ -76,6 +89,22 @@ function handleDeleteInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDial
   return runConfirmAction(busyDialog, action, successMessage, ctx);
 }
 
+function handleRetryInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
+  if (matchesKey(data, Key.escape)) {
+    if (dialog.busy) return dialog;
+    ctx.setMessage(undefined);
+    return undefined;
+  }
+  if (data !== "y" || dialog.busy) return dialog;
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  if (!target || !canRetryForkPreparation(target)) {
+    ctx.setMessage("preparation retry is no longer available");
+    return undefined;
+  }
+  ctx.runBackgroundAction(() => ctx.actions.retryForkPreparation?.(dialog.targetId), "starting preparation retry...");
+  return undefined;
+}
+
 function handleFinishInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
   if (matchesKey(data, Key.escape)) {
     if (dialog.busy) return dialog;
@@ -87,7 +116,7 @@ function handleFinishInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDial
   return runConfirmAction(busyDialog, ctx.actions.finishWorktree, "worktree finished", ctx);
 }
 
-function runConfirmAction(dialog: ConfirmDialog, action: ((id: string) => void | Promise<void>) | undefined, successMessage: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
+function runConfirmAction(dialog: ConfirmDialog, action: ((id: string) => unknown) | undefined, successMessage: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
   try {
     const result = action?.(dialog.targetId);
     if (isPromise(result)) {
@@ -124,6 +153,19 @@ function renderDeleteDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDi
     ...(worktree ? [ctx.actions.finishWorktree ? "d keeps worktree and branch; D deletes the clean worktree and branch; w merges instead." : "d keeps worktree and branch; D deletes the clean worktree and branch."] : []),
     "",
     ...choices.filter(Boolean),
+    hintLine("Esc cancel", ctx.theme),
+  ], width, ctx.theme);
+}
+
+function renderRetryDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDialogContext): string[] {
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  return renderDialog("Retry fork preparation", [
+    target ? `target  ${target.title}` : "target  none",
+    "",
+    "Restarts this child and clears its task assignment again.",
+    "Conversation history and shared files are kept.",
+    "",
+    dialog.busy || ctxMessage(ctx) ? (ctxMessage(ctx) ?? "starting retry...") : confirmLine("warning", "y retry preparation"),
     hintLine("Esc cancel", ctx.theme),
   ], width, ctx.theme);
 }

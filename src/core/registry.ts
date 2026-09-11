@@ -5,6 +5,7 @@ import { multiRepoWorkspaceDir, normalizeAdditionalCwds } from "./multi-repo.js"
 import { MANAGED_SESSION_PREFIX } from "./names.js";
 import { registryPath } from "./paths.js";
 import { nextUpdatedAt } from "./session-version.js";
+import { parseForkPreparation } from "./fork-preparation.js";
 import type { SessionsRegistry, ManagedSession } from "./types.js";
 
 export const emptyRegistry = (): SessionsRegistry => ({ version: 1, sessions: [] });
@@ -17,7 +18,16 @@ function registryStore(path: string): JsonStore<SessionsRegistry> {
       if (registry.version !== 1 || !Array.isArray(registry.sessions)) {
         throw new Error(`Unsupported registry format: ${path}`);
       }
-      return registry;
+      return {
+        ...registry,
+        sessions: registry.sessions.map((session) => {
+          if (!session || typeof session !== "object") return session;
+          const { forkPreparation: rawPreparation, ...rest } = session as ManagedSession;
+          const forkPreparation = parseForkPreparation(rawPreparation);
+          if (rawPreparation !== undefined && !forkPreparation) throw new Error(`Invalid fork preparation for session ${session.id}`);
+          return { ...rest, ...(forkPreparation ? { forkPreparation } : {}) };
+        }),
+      } as SessionsRegistry;
     },
     snapshot: (registry) => JSON.stringify(registry),
   };

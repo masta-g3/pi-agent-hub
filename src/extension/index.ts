@@ -5,12 +5,13 @@ import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
 import { sessionsStateDir } from "../core/paths.js";
 import { loadThemeCommand } from "../core/theme-command.js";
 import { colorFromAnsi } from "../core/theme-color.js";
-import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS } from "../core/status.js";
+import { HEARTBEAT_INTERVAL_MS } from "../core/status.js";
 import { parseWorkflowRuntime } from "../core/heartbeat.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, ForkPreparation, Heartbeat, HeartbeatOperation } from "../core/types.js";
+import { FORK_PREPARATION_ENTRY, RESET_CONFIRMATION_ERROR, RESET_CONFIRMATION_TIMEOUT_MS, WORKFLOW_RESET_CAPABILITY, WORKFLOW_RESET_ENTRY, isNoWorkCompactionError, parseForkAttempt, parsePreparationCheckpoint, resetReceiptMatches } from "./fork-preparation.js";
 
 type PiTheme = {
   name?: string;
@@ -21,7 +22,7 @@ type PiTheme = {
 type PiContext = {
   cwd: string;
   hasUI?: boolean;
-  compact: (options?: { customInstructions?: string; onComplete?: () => void; onError?: (error: Error) => void }) => void;
+  compact: (options?: { customInstructions?: string; onComplete?: (result: unknown) => void; onError?: (error: Error) => void }) => void;
   ui?: {
     theme?: PiTheme;
     getTheme?: (name: string) => Theme | undefined;
@@ -57,26 +58,25 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   globalState[EXTENSION_KEY] = true;
 
   const extensionStartedAt = Date.now();
+  let forkMarkerPending = process.env[FORK_COMPACT_ENV] !== undefined;
+  let forkAttemptId = parseForkAttempt(process.env[FORK_COMPACT_ENV]);
   let currentState: Heartbeat["state"] = "starting";
   let stateSince = extensionStartedAt;
-  let forkCompactPending = process.env[FORK_COMPACT_ENV] === "1";
-  if (forkCompactPending) delete process.env[FORK_COMPACT_ENV];
-  const forkCompactOperationId = forkCompactPending ? extensionStartedAt.toString(36).slice(-FORK_COMPACT_OPERATION_ID_LENGTH) : undefined;
-  let forkCompactOperation: HeartbeatOperation | undefined;
-  let metadataResetAt: number | undefined;
+  let forkPreparation: ForkPreparation | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let themeCommandTimer: ReturnType<typeof setInterval> | undefined;
   let startupHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let startupCompactionTimer: ReturnType<typeof setTimeout> | undefined;
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
-  let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number } | undefined;
+  let compactionSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let compactOperation: HeartbeatOperation | undefined;
-  let compactionWatchdog: ReturnType<typeof setTimeout> | undefined;
   let lifecycleRevision = 0;
   let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let heartbeatWrite: Promise<void> = Promise.resolve();
   let lastThemeRevision: string | undefined;
   let mcpCleanup: (() => Promise<void>) | undefined;
+  let shuttingDown = false;
+  const finalizers = new Set<Promise<void>>();
 
   async function applyThemeCommand(ctx: PiContext): Promise<boolean> {
     if (!process.env[SESSION_ID_ENV] || process.env.PI_TMUX_SUBAGENTS_JOB_ID || ctx.hasUI === false || !ctx.ui?.getTheme || !ctx.ui.setTheme) return false;
@@ -105,7 +105,6 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   }
 
   async function heartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string, stateSinceOverride?: number) {
-    // pi-tmux-subagents child bootstrap owns its richer Agent Hub heartbeat.
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     const id = process.env[SESSION_ID_ENV];
     if (!id) return;
@@ -114,30 +113,121 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       stateSince = stateSinceOverride ?? Date.now();
     }
     const file = join(process.env[STATE_ENV] ?? sessionsStateDir(), "heartbeats", `${id}.json`);
-    const write = heartbeatWrite.then(async () => {
-      await writeJsonAtomic(file, {
-        managedSessionId: id,
-        cwd: ctx.cwd,
-        piSessionFile: ctx.sessionManager?.getSessionFile?.(),
-        piSessionId: ctx.sessionManager?.getSessionId?.(),
-        state,
-        stateSince,
-        message,
-        updatedAt: Date.now(),
-        kind: process.env[KIND_ENV] as "subagent" | undefined,
-        parentId: process.env[PARENT_ID_ENV],
-        agentName: process.env.PI_SUBAGENT_AGENT,
-        taskPreview: process.env.PI_SUBAGENT_TASK_PREVIEW,
-        resultPath: process.env.PI_SUBAGENT_RESULT_PATH,
-        activeTheme: activeTheme(ctx),
-        piSessionName: normalizedName(pi.getSessionName?.()),
-        context: sessionContextSnapshot(ctx, metadataResetAt),
-        ...workflowRuntime(ctx, metadataResetAt),
-        ...(forkCompactOperation ? { operation: forkCompactOperation } : compactOperation ? { operation: compactOperation } : {}),
-      } satisfies Heartbeat);
-    });
+    const snapshot = {
+      managedSessionId: id,
+      cwd: ctx.cwd,
+      piSessionFile: ctx.sessionManager?.getSessionFile?.(),
+      piSessionId: ctx.sessionManager?.getSessionId?.(),
+      state,
+      stateSince,
+      message,
+      updatedAt: Date.now(),
+      kind: process.env[KIND_ENV] as "subagent" | undefined,
+      parentId: process.env[PARENT_ID_ENV],
+      agentName: process.env.PI_SUBAGENT_AGENT,
+      taskPreview: process.env.PI_SUBAGENT_TASK_PREVIEW,
+      resultPath: process.env.PI_SUBAGENT_RESULT_PATH,
+      activeTheme: activeTheme(ctx),
+      piSessionName: normalizedName(pi.getSessionName?.()),
+      ...(!forkPreparation || forkPreparation.phase === "ready" ? {
+        context: sessionContextSnapshot(ctx),
+        ...workflowRuntime(ctx),
+      } : {}),
+      ...(compactOperation ? { operation: { ...compactOperation } } : {}),
+      ...(forkPreparation ? { forkPreparation: { ...forkPreparation } } : {}),
+    } satisfies Heartbeat;
+    const write = heartbeatWrite.then(() => writeJsonAtomic(file, snapshot));
     heartbeatWrite = write.catch(() => undefined);
     await write;
+  }
+
+  const entries = (ctx: PiContext) => ctx.sessionManager?.getBranch?.() ?? [];
+  const customData = (entry: unknown, customType: string): unknown | undefined => {
+    const item = entry as { type?: string; customType?: string; data?: unknown } | undefined;
+    return item?.type === "custom" && item.customType === customType ? item.data : undefined;
+  };
+
+  function matchingCheckpoint(ctx: PiContext): ForkPreparation | undefined {
+    const managedSessionId = process.env[SESSION_ID_ENV];
+    const piSessionId = ctx.sessionManager?.getSessionId?.();
+    if (!managedSessionId || !piSessionId) return undefined;
+    const branch = entries(ctx);
+    for (let index = branch.length - 1; index >= 0; index -= 1) {
+      const checkpoint = parsePreparationCheckpoint(customData(branch[index], FORK_PREPARATION_ENTRY));
+      if (checkpoint?.managedSessionId === managedSessionId && checkpoint.piSessionId === piSessionId) return checkpoint.preparation;
+    }
+    return undefined;
+  }
+
+  function persistPreparation(ctx: PiContext, preparation: ForkPreparation): void {
+    const managedSessionId = process.env[SESSION_ID_ENV];
+    const piSessionId = ctx.sessionManager?.getSessionId?.();
+    if (!managedSessionId || !piSessionId) throw new Error("Fork preparation identity is unavailable");
+    pi.appendEntry(FORK_PREPARATION_ENTRY, { version: 1, managedSessionId, piSessionId, preparation });
+    forkPreparation = preparation;
+  }
+
+  const isCustomEntry = (entry: unknown, customType: string): boolean => {
+    const item = entry as { type?: string; customType?: string } | undefined;
+    return item?.type === "custom" && item.customType === customType;
+  };
+
+  const hasProducerEntries = (ctx: PiContext) => entries(ctx).some((entry) =>
+    isCustomEntry(entry, WORKFLOW_RUNTIME_ENTRY) || isCustomEntry(entry, SESSION_CONTEXT_ENTRY));
+
+  const hasResetReceipt = (ctx: PiContext, attemptId: string) => entries(ctx).some((entry) =>
+    resetReceiptMatches(customData(entry, WORKFLOW_RESET_ENTRY), attemptId));
+
+  async function awaitResetReceipt(ctx: PiContext, attemptId: string): Promise<void> {
+    const capability = Boolean((globalThis as Record<symbol, unknown>)[WORKFLOW_RESET_CAPABILITY]);
+    if (!capability && !hasProducerEntries(ctx)) return;
+    const deadline = Date.now() + RESET_CONFIRMATION_TIMEOUT_MS;
+    while (!shuttingDown && Date.now() < deadline) {
+      if (hasResetReceipt(ctx, attemptId)) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(RESET_CONFIRMATION_ERROR);
+  }
+
+  function trackFinalizer(work: () => Promise<void>): void {
+    if (shuttingDown) return;
+    const promise = work().catch(() => undefined).finally(() => finalizers.delete(promise));
+    finalizers.add(promise);
+  }
+
+  async function finalizePreparation(ctx: PiContext, attemptId: string, outcome: "compacted" | "not-needed" | Error): Promise<void> {
+    if (shuttingDown || forkPreparation?.id !== attemptId || forkPreparation.phase === "ready" || forkPreparation.phase === "error") return;
+    const result: ForkPreparation = outcome instanceof Error
+      ? { id: attemptId, phase: "error", launchConfirmed: true, error: boundedError(outcome.message) }
+      : { id: attemptId, phase: "ready", launchConfirmed: true, outcome };
+    try {
+      persistPreparation(ctx, result);
+      await heartbeat(currentState, ctx);
+    } catch (error) {
+      const failed = { id: attemptId, phase: "error" as const, launchConfirmed: true, error: boundedError(errorMessage(error)) };
+      forkPreparation = failed;
+      try {
+        persistPreparation(ctx, failed);
+        await heartbeat(currentState, ctx);
+      } catch {}
+    }
+  }
+
+  async function coordinateForkPreparation(ctx: PiContext, attemptId: string): Promise<void> {
+    try {
+      await awaitResetReceipt(ctx, attemptId);
+      if (shuttingDown || forkPreparation?.id !== attemptId) return;
+      persistPreparation(ctx, { id: attemptId, phase: "compacting", launchConfirmed: true });
+      await heartbeat(currentState, ctx);
+      if (shuttingDown || forkPreparation?.id !== attemptId) return;
+      ctx.compact({
+        customInstructions: FORK_COMPACT_INSTRUCTIONS,
+        onComplete: () => trackFinalizer(() => finalizePreparation(ctx, attemptId, "compacted")),
+        onError: (error) => trackFinalizer(() => finalizePreparation(ctx, attemptId, isNoWorkCompactionError(error) ? "not-needed" : error)),
+      });
+    } catch (error) {
+      await finalizePreparation(ctx, attemptId, error instanceof Error ? error : new Error(String(error)));
+    }
   }
 
   pi.on("before_agent_start", async (event) => {
@@ -149,62 +239,65 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     const piCtx = ctx as PiContext;
-    const compactFork = forkCompactPending;
-    if (compactFork) {
-      forkCompactPending = false;
-      metadataResetAt = extensionStartedAt;
-      forkCompactOperation = { kind: "fork-compact", phase: "running", id: forkCompactOperationId ?? extensionStartedAt.toString(36) };
+    const startupAttemptId = forkAttemptId;
+    if (forkMarkerPending) delete process.env[FORK_COMPACT_ENV];
+    forkMarkerPending = false;
+    forkAttemptId = undefined;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (themeCommandTimer) clearInterval(themeCommandTimer);
+    for (const timer of startupHeartbeatTimers) clearTimeout(timer);
+    startupHeartbeatTimers = [];
+    if (startupCompactionTimer) clearTimeout(startupCompactionTimer);
+    startupCompactionTimer = undefined;
+    for (const timer of settledHeartbeatTimers) clearTimeout(timer);
+    settledHeartbeatTimers = [];
+    clearCompaction();
+    if (startupAttemptId) {
+      forkPreparation = { id: startupAttemptId, phase: "preparing", launchConfirmed: true };
       const resetName = basename(process.env[PRIMARY_CWD_ENV] ?? "").trim() || "pi-session";
       pi.setSessionName(resetName);
+    } else {
+      const restored = matchingCheckpoint(piCtx);
+      if (restored && (restored.phase === "preparing" || restored.phase === "compacting")) {
+        try {
+          persistPreparation(piCtx, { id: restored.id, phase: "error", launchConfirmed: true, error: "Fork preparation was interrupted; retry preparation" });
+        } catch {
+          forkPreparation = { id: restored.id, phase: "error", launchConfirmed: true, error: "Fork preparation was interrupted; retry preparation" };
+        }
+      } else {
+        forkPreparation = restored;
+      }
     }
     await publishLifecycle("waiting", piCtx);
     heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
     themeCommandTimer = setInterval(() => void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined), THEME_COMMAND_INTERVAL_MS);
     startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
-    if (compactFork) {
-      startupCompactionTimer = setTimeout(() => piCtx.compact({
-        customInstructions: FORK_COMPACT_INSTRUCTIONS,
-        onComplete: () => completeForkCompaction(piCtx),
-        onError: (error) => failForkCompaction(piCtx, error),
-      }), 0);
-    }
+    if (startupAttemptId) startupCompactionTimer = setTimeout(() => void coordinateForkPreparation(piCtx, startupAttemptId).catch(() => undefined), 0);
     mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
   });
 
   pi.on("session_info_changed", async (_event, ctx) => applyThemeAndHeartbeat(currentState, ctx as PiContext));
-  const clearCompaction = () => {
-    if (compactionWatchdog) clearTimeout(compactionWatchdog);
-    compactionWatchdog = undefined;
+  function clearCompaction() {
     compactionSnapshot = undefined;
     compactOperation = undefined;
-  };
+  }
 
-  const restoreCompaction = async (ctx: PiContext) => {
+  async function finishCompaction(ctx: PiContext, phase: "complete" | "error" | "cancelled", error?: string, willRetry = false) {
     const snapshot = compactionSnapshot;
-    clearCompaction();
-    if (snapshot) {
+    if (!snapshot || compactOperation?.phase !== "running") return;
+    const operation = { kind: "compact" as const, phase, id: compactOperation.id, ...(error ? { error: boundedError(error) } : {}) };
+    compactOperation = operation;
+    if (willRetry) {
+      lifecycleRevision += 1;
+      await heartbeat("running", ctx, undefined, snapshot.stateSince);
+    } else if (lifecycleRevision === snapshot.ownedRevision) {
       lifecycleRevision += 1;
       await heartbeat(snapshot.state, ctx, undefined, snapshot.stateSince);
-    }
-  };
-
-  const completeForkCompaction = async (ctx: PiContext) => {
-    await restoreCompaction(ctx);
-    if (!forkCompactOperation) return;
-    forkCompactOperation = { ...forkCompactOperation, phase: "complete" };
-    await heartbeat(currentState, ctx);
-    forkCompactOperation = undefined;
-  };
-
-  const failForkCompaction = async (ctx: PiContext, error: Error) => {
-    clearCompaction();
-    if (forkCompactOperation) {
-      forkCompactOperation = { kind: "fork-compact", phase: "error", id: forkCompactOperation.id };
-      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
     } else {
-      await publishLifecycle("error", ctx, `Fork compaction failed: ${error.message}`);
+      lifecycleRevision += 1;
+      await heartbeat(currentState, ctx);
     }
-  };
+  }
 
   pi.on("agent_start", async (_event, ctx) => {
     clearCompaction();
@@ -213,11 +306,9 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     await publishLifecycle("running", ctx as PiContext);
   });
   pi.on("agent_end", async (_event, ctx) => {
-    clearCompaction();
     await publishLifecycle("waiting", ctx as PiContext);
   });
   pi.on("agent_settled", async (_event, ctx) => {
-    clearCompaction();
     await publishLifecycle("waiting", ctx as PiContext);
     for (const timer of settledHeartbeatTimers) clearTimeout(timer);
     settledHeartbeatTimers = SETTLED_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void heartbeat(currentState, ctx as PiContext), delay));
@@ -225,34 +316,26 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   pi.on("session_before_compact", async (_event, ctx) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     clearCompaction();
-    const snapshot = { state: currentState, stateSince };
-    compactionSnapshot = snapshot;
+    const ownedRevision = ++lifecycleRevision;
+    compactionSnapshot = { state: currentState, stateSince, ownedRevision };
     compactOperation = { kind: "compact", phase: "running", id: Date.now().toString(36).slice(-FORK_COMPACT_OPERATION_ID_LENGTH) };
-    lifecycleRevision += 1;
-    compactionWatchdog = setTimeout(() => {
-      if (compactionSnapshot !== snapshot) return;
-      void restoreCompaction(ctx as PiContext);
-    }, HEARTBEAT_STALE_MS);
-    await heartbeat("running", ctx as PiContext, undefined, snapshot.stateSince);
+    await heartbeat("running", ctx as PiContext, undefined, stateSince);
   });
   pi.on("session_compact", async (event, ctx) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
-    if (event.willRetry) {
-      const snapshot = compactionSnapshot;
-      clearCompaction();
-      lifecycleRevision += 1;
-      await heartbeat("running", ctx as PiContext, undefined, snapshot?.stateSince);
-      return;
-    }
-    await restoreCompaction(ctx as PiContext);
+    await finishCompaction(ctx as PiContext, "complete", undefined, event.willRetry);
   });
-  (pi.on as any)("ui_prompt_start", async (_event: unknown, ctx: PiContext) => {
+  pi.on("session_compact_failed", async (event, ctx) => {
+    if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
+    await finishCompaction(ctx as PiContext, event.aborted ? "cancelled" : "error", event.errorMessage, event.willRetry);
+  });
+  pi.on("ui_prompt_start", async (_event, ctx) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID || promptSnapshot) return;
     lifecycleRevision += 1;
     promptSnapshot = { state: currentState, stateSince, ownedRevision: lifecycleRevision };
     await heartbeat("waiting", ctx as PiContext);
   });
-  (pi.on as any)("ui_prompt_end", async (_event: unknown, ctx: PiContext) => {
+  pi.on("ui_prompt_end", async (_event, ctx) => {
     if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
     const snapshot = promptSnapshot;
     promptSnapshot = undefined;
@@ -262,7 +345,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     try {
-      clearCompaction();
+      shuttingDown = true;
       promptSnapshot = undefined;
       lifecycleRevision += 1;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -273,22 +356,30 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       startupCompactionTimer = undefined;
       for (const timer of settledHeartbeatTimers) clearTimeout(timer);
       settledHeartbeatTimers = [];
+      await Promise.all([...finalizers]);
+      if (forkPreparation && (forkPreparation.phase === "preparing" || forkPreparation.phase === "compacting")) {
+        const interrupted = { id: forkPreparation.id, phase: "error" as const, launchConfirmed: true, error: "Fork preparation was interrupted; retry preparation" };
+        try { persistPreparation(ctx as PiContext, interrupted); } catch { forkPreparation = interrupted; }
+      }
       await mcpCleanup?.();
       await heartbeat("shutdown", ctx as PiContext);
+      await heartbeatWrite;
     } finally {
       delete globalState[EXTENSION_KEY];
     }
   });
 }
 
-function workflowRuntime(ctx: PiContext, minimumEntryTime?: number): Pick<Heartbeat, "workflow" | "activeMode"> | undefined {
+function boundedError(value: string): string { return value.trim().slice(0, 500) || "Fork preparation failed"; }
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+
+function workflowRuntime(ctx: PiContext): Pick<Heartbeat, "workflow" | "activeMode"> | undefined {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== WORKFLOW_RUNTIME_ENTRY) continue;
-      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       const parsed = parseWorkflowRuntime(entry.data);
       const runtime = {
         ...(parsed.workflow ? { workflow: parsed.workflow } : {}),
@@ -300,20 +391,13 @@ function workflowRuntime(ctx: PiContext, minimumEntryTime?: number): Pick<Heartb
   return undefined;
 }
 
-function entryUpdatedAt(data: unknown): number {
-  if (typeof data !== "object" || data === null) return 0;
-  const updatedAt = (data as { updatedAt?: unknown }).updatedAt;
-  return typeof updatedAt === "number" && Number.isFinite(updatedAt) ? updatedAt : 0;
-}
-
-function sessionContextSnapshot(ctx: PiContext, minimumEntryTime?: number) {
+function sessionContextSnapshot(ctx: PiContext) {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== SESSION_CONTEXT_ENTRY) continue;
-      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       return parseSessionContext(entry.data);
     }
   } catch {}

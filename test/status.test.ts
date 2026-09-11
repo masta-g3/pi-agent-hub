@@ -96,9 +96,19 @@ test("periodic heartbeat updates liveness without changing acknowledgement seman
   assert.equal(computeStatus({ session: acknowledged, tmux: { exists: true }, heartbeat: beat, now }).status, "idle");
 });
 
-test("missing tmux maps to error unless session is stopped", () => {
+test("missing tmux maps to error unless session is stopped or launch is not confirmed", () => {
   assert.equal(computeStatus({ session: session(), tmux: { exists: false }, now }).status, "error");
   assert.equal(computeStatus({ session: session({ status: "stopped" }), tmux: { exists: false }, now }).status, "stopped");
+  const pending = computeStatus({
+    session: session({ status: "starting", forkPreparation: { id: "attempt", phase: "preparing" } }),
+    tmux: { exists: false }, now,
+  });
+  assert.equal(pending.status, "starting");
+  assert.equal(pending.evidence.reason, "fork-launch-pending");
+  assert.equal(computeStatus({
+    session: session({ status: "starting", forkPreparation: { id: "attempt", phase: "preparing", launchConfirmed: true } }),
+    tmux: { exists: false }, now,
+  }).status, "error");
 });
 
 test("stale heartbeat falls back to tmux activity", () => {
@@ -234,6 +244,12 @@ test("apply computed status retains producer activity and plan while dropping tr
     activity: { id: "review", label: "Reviewing implementation", pass: 2 },
     plan: { tasks: { completed: 2, total: 3 } },
   });
+});
+
+test("a previous attempt shutdown cannot mark a new retry stopped", () => {
+  const retry = { ...session({ status: "starting" }), forkPreparation: { id: "new-attempt", phase: "preparing" as const } };
+  const decision = computeStatus({ session: retry, tmux: { exists: true }, heartbeat: { managedSessionId: retry.id, cwd: retry.cwd, state: "shutdown", stateSince: 1, updatedAt: 2, forkPreparation: { id: "old-attempt", phase: "error" } }, now: 3 });
+  assert.equal(decision.status, "starting");
 });
 
 test("mark acknowledged turns waiting into idle", () => {

@@ -1,0 +1,7 @@
+# Planning environment cautions
+
+- The original `/Users/manager/Code/agents/pi-agent-hub` directory contains source files but `.git/config` sets `core.bare=true`. Normal `git status` fails. Explicit `--git-dir` and `--work-tree` inspection shows unrelated staged and unstaged differences. Do not repair the configuration or use its index for this ticket. Use the approved `fork-compact-002` worktree.
+- The root source differs from the approved main commit. Main already includes independent activeMode and generic compactOperation support. Early scouts read the older root files; the plan was corrected against the worktree.
+- Root node_modules contains Pi 0.83.0 while installed Pi is 0.85.1 and the source manifest requests a newer minimum than 0.83.0. Resolve worktree dependencies before validating the real compaction-failure event contract. Do not mistake compilation against the old install for supported-runtime validation.
+- Rules tests inherit `PI_AGENT_HUB_PRIMARY_CWD` from the parent managed session unless explicitly removed. This redirected fixture ticket reads into the real Hub repository and caused false baseline failures. Run the Rules wrapper with `env -u PI_AGENT_HUB_PRIMARY_CWD`.
+- The first functional-testing subagent stopped after ten minutes before publishing a final report, although its isolated fixtures and JSON results survived. A bounded second testing worker reran the fixtures, saved `validation.md`, and removed both temporary fixture directories. Use short test-only follow-up tasks once the fixture exists.

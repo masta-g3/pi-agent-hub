@@ -25,7 +25,9 @@ Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi ru
 
 ## Quick start
 
-Requirements: Pi 0.84.4+, Node.js 22.19+, and tmux 3.1+.
+Requirements: Pi 0.85.1+, Node.js 22.19+, and tmux 3.1+.
+
+If you use the Rules `workflow-runtime` extension, update its installed copy together with Hub for Fork and compact. Editing a Rules checkout alone does not update that installed extension.
 
 ```bash
 npm install -g pi-agent-hub
@@ -56,7 +58,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `R` | Rename the selected session |
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session |
-| `Shift+F` | Choose a group, fork, name the new Pi session from its primary repo, clear inherited ticket/workflow metadata, and compact |
+| `Shift+F` | Choose a group and prepare a fork with cleared task state and compacted history while the dashboard stays usable |
 | `a` | Mark the selected waiting session read |
 | `A` / `B` / `U` | Archive and close its pin if shown, move to Backlog, or restore the selected session |
 | `w` | Finish a hub-owned worktree session |
@@ -67,6 +69,8 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `K` / `J` | Move the selected Active/Backlog session up/down within its group |
 | `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
 | Click / double-click | Select / open or switch the session directly at every width |
+
+Fork and compact gates only the new child until task reset and compaction finish. `i` shows preparation details. Failed children offer inspection or **Retry preparation** in `:`, which reuses the same child and conversation. Conversation history and shared repository files remain intact. See [Fork and compact](docs/FEATURES.md#fork-and-compact) for access and recovery limits.
 
 The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. A hidden child request instead adds `?N child` to its tier and `?N` to its owning row whenever the request row is absent from the visible projection; each count disappears when that request row becomes visible. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
 

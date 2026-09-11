@@ -100,6 +100,109 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   assert.deepEqual(opened, ["pi-agent-hub-api"]);
 });
 
+test("compact fork launch does not make other sessions globally busy", async () => {
+  const first = { ...session("first", "first"), status: "running" as const };
+  const second = { ...session("second", "second"), status: "running" as const };
+  let finishFork!: () => void;
+  const fork = new Promise<void>((resolve) => { finishFork = resolve; });
+  const opened: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [first, second] }), () => {}, {
+    forkSession: () => fork,
+    attachOutsideTmux: (tmux) => { opened.push(tmux); },
+    switchInsideTmux: (tmux) => { opened.push(tmux); },
+  });
+
+  view.render(80);
+  view.handleInput("F");
+  view.handleInput("\r");
+  assert.equal((view as unknown as { busy: boolean }).busy, false);
+  view.handleInput("j");
+  view.handleInput("\r");
+  assert.deepEqual(opened, ["pi-agent-hub-second"]);
+
+  finishFork();
+  await fork;
+});
+
+test("pending preparation blocks keyboard, configured send, pin, and double-click paths", () => {
+  let now = 100;
+  const pending = {
+    ...session("pending", "pending"), status: "running" as const,
+    forkPreparation: { id: "attempt-1", phase: "compacting" as const, launchConfirmed: true },
+  };
+  const opened: string[] = [];
+  const pinned: string[] = [];
+  const sent: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [pending] }), () => {}, {
+    now: () => now,
+    attachOutsideTmux: (tmux) => { opened.push(tmux); },
+    pinSidePane: (id) => { pinned.push(id); return { kind: "pinned", session: pending.tmuxSession, slot: 1 }; },
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
+    dashboardShortcuts: [{ key: "!", send: "/verify" }],
+    runDashboardShortcut: (id) => { sent.push(id); },
+  });
+  view.handleInput("\r");
+  view.handleInput("P");
+  view.handleInput("!");
+  let lines = view.render(80);
+  const row = lines.findIndex((line) => stripAnsi(line).includes("pending"));
+  view.handleInput(mousePressAtLine(row));
+  now += 50;
+  lines = view.render(80);
+  view.handleInput(mousePressAtLine(lines.findIndex((line) => stripAnsi(line).includes("pending"))));
+  assert.deepEqual({ opened, pinned, sent }, { opened: [], pinned: [], sent: [] });
+  assert.match(stripAnsi(view.render(80).join("\n")), /Compacting/);
+});
+
+test("failed preparation opens live child for inspection and retries a live idle exact child through confirmation", async () => {
+  const live = {
+    ...session("failed-live", "failed-live"), status: "running" as const,
+    sessionFile: "/tmp/live.jsonl",
+    forkPreparation: { id: "attempt-1", phase: "error" as const, error: "Provider failed" },
+    statusEvidence: {
+      observedAt: 2, reason: "heartbeat-error" as const, tmux: { state: "present" as const },
+      heartbeat: { freshness: "fresh" as const, state: "error" as const },
+      acknowledgement: { state: "not-applicable" as const }, workflow: { source: "absent" as const },
+    },
+  };
+  const opened: string[] = [];
+  let restarted = false;
+  const liveView = new SessionsView(new SessionsController({ version: 1, sessions: [live] }), () => {}, {
+    attachOutsideTmux: (tmux) => { opened.push(tmux); }, switchInsideTmux: (tmux) => { opened.push(tmux); },
+    restart: () => { restarted = true; },
+  });
+  liveView.handleInput("\r");
+  assert.deepEqual(opened, [live.tmuxSession]);
+  assert.equal(restarted, false);
+
+  const idle = {
+    ...session("failed-idle", "failed-idle"), status: "idle" as const,
+    sessionFile: "/tmp/idle.jsonl",
+    forkPreparation: { id: "attempt-2", phase: "error" as const, error: "Interrupted" },
+    statusEvidence: {
+      observedAt: 2, reason: "heartbeat-read" as const, tmux: { state: "present" as const },
+      heartbeat: { freshness: "fresh" as const, state: "waiting" as const },
+      acknowledgement: { state: "read" as const }, workflow: { source: "absent" as const },
+    },
+  };
+  const retried: string[] = [];
+  let finishRetry!: () => void;
+  const retry = new Promise<void>((resolve) => { finishRetry = resolve; });
+  const idleView = new SessionsView(new SessionsController({ version: 1, sessions: [idle] }), () => {}, {
+    retryForkPreparation: (id) => { retried.push(id); return retry; },
+  });
+  idleView.handleInput(":");
+  for (const char of "retry preparation") idleView.handleInput(char);
+  idleView.handleInput("\r");
+  assert.match(stripAnsi(idleView.render(80).join("\n")), /Retry fork preparation/);
+  idleView.handleInput("y");
+  assert.deepEqual(retried, [idle.id]);
+  assert.equal((idleView as unknown as { busy: boolean }).busy, false);
+  assert.doesNotMatch(stripAnsi(idleView.render(80).join("\n")), /Retry fork preparation/);
+  finishRetry();
+  await retry;
+});
+
 test("info waits for matching evidence from a refresh", async () => {
   const base = session("api", "api");
   const now = 100_000;
