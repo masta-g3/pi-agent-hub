@@ -73,7 +73,7 @@ async function waitFor(predicate: () => boolean | Promise<boolean>) {
   }
 }
 
-const checkpoint = (managedSessionId: string, piSessionId: string, phase: "ready" | "compacting"): Entry => ({
+const checkpoint = (managedSessionId: string, piSessionId: string, phase: "ready" | "compacting" | "error"): Entry => ({
   type: "custom", customType: FORK_PREPARATION_ENTRY,
   data: { version: 1, managedSessionId, piSessionId, preparation: { id: attempt, phase, ...(phase === "ready" ? { outcome: "compacted" } : {}) } },
 });
@@ -122,6 +122,19 @@ test("registered producer without a receipt cannot bypass reset on an empty bran
   } finally {
     if (previous === undefined) delete globals[WORKFLOW_RESET_CAPABILITY]; else globals[WORKFLOW_RESET_CAPABILITY] = previous;
   }
+});
+
+test("failed checkpoints still publish current producer context without resetting on resume", async () => {
+  const context = { version: 1, updatedAt: 10, ticket: { id: "manual-001", subtitle: "Keep the current task" } };
+  const entries = [checkpoint("managed-fixture", "pi-fixture", "error"), { type: "custom", customType: "pi-agent-hub-context", data: context }];
+  await fixture(async (value) => {
+    await value.start();
+    const heartbeat = await value.read();
+    assert.equal(heartbeat.forkPreparation?.phase, "error");
+    assert.deepEqual(heartbeat.context, context);
+    assert.equal(value.calls(), 0);
+    assert.equal(value.branch.length, 2);
+  }, { marker: false, entries });
 });
 
 test("resume ignores copied preparation and reports its own incomplete checkpoint", async () => {

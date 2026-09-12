@@ -2,14 +2,14 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
 import type { ManagedSession } from "../core/types.js";
-import { canRetryForkPreparation } from "./dashboard-commands.js";
+import { canCancelForkPreparation, canRetryForkPreparation } from "./dashboard-commands.js";
 import { errorMessage, isPromise, type ConfirmDialogContext } from "./dialog.js";
 import { renderDialog } from "./layout.js";
 import { styleToken, type SessionsTheme } from "./theme.js";
 
 export interface ConfirmDialog {
   kind: "confirm";
-  purpose: "delete" | "finish" | "retryForkPreparation";
+  purpose: "delete" | "finish" | "retryForkPreparation" | "cancelForkPreparation";
   targetId: string;
   busy: false | "session" | "subagents" | "worktree" | "finish";
 }
@@ -27,6 +27,15 @@ export function openRetryForkPreparationDialog(ctx: ConfirmDialogContext, target
     return undefined;
   }
   return { kind: "confirm", purpose: "retryForkPreparation", targetId, busy: false };
+}
+
+export function openCancelForkPreparationDialog(ctx: ConfirmDialogContext, targetId: string): ConfirmDialog | undefined {
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === targetId);
+  if (!target || !canCancelForkPreparation(target) || !ctx.actions.cancelForkPreparation) {
+    ctx.setMessage("preparation cancellation is no longer available");
+    return undefined;
+  }
+  return { kind: "confirm", purpose: "cancelForkPreparation", targetId, busy: false };
 }
 
 export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | undefined {
@@ -50,12 +59,14 @@ export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | und
 export function handleConfirmInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
   if (dialog.purpose === "delete") return handleDeleteInput(dialog, data, ctx);
   if (dialog.purpose === "retryForkPreparation") return handleRetryInput(dialog, data, ctx);
+  if (dialog.purpose === "cancelForkPreparation") return handleCancelPreparationInput(dialog, data, ctx);
   return handleFinishInput(dialog, data, ctx);
 }
 
 export function renderConfirmDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDialogContext): string[] {
   if (dialog.purpose === "delete") return renderDeleteDialog(dialog, width, ctx);
   if (dialog.purpose === "retryForkPreparation") return renderRetryDialog(dialog, width, ctx);
+  if (dialog.purpose === "cancelForkPreparation") return renderCancelPreparationDialog(dialog, width, ctx);
   return renderFinishDialog(dialog, width, ctx);
 }
 
@@ -102,6 +113,26 @@ function handleRetryInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialo
     return undefined;
   }
   ctx.runBackgroundAction(() => ctx.actions.retryForkPreparation?.(dialog.targetId), "starting preparation retry...");
+  return undefined;
+}
+
+function handleCancelPreparationInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext): ConfirmDialog | undefined {
+  if (matchesKey(data, Key.escape)) {
+    if (dialog.busy) return dialog;
+    ctx.setMessage(undefined);
+    return undefined;
+  }
+  if (data !== "y" || dialog.busy) return dialog;
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  if (!target || !canCancelForkPreparation(target) || !ctx.actions.cancelForkPreparation) {
+    ctx.setMessage("preparation cancellation is no longer available");
+    return undefined;
+  }
+  ctx.runAction(
+    () => ctx.actions.cancelForkPreparation?.(dialog.targetId),
+    "cancelling preparation...",
+    () => ctx.setMessage("preparation cancelled; session kept"),
+  );
   return undefined;
 }
 
@@ -166,6 +197,20 @@ function renderRetryDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDia
     "Conversation history and shared files are kept.",
     "",
     dialog.busy || ctxMessage(ctx) ? (ctxMessage(ctx) ?? "starting retry...") : confirmLine("warning", "y retry preparation"),
+    hintLine("Esc cancel", ctx.theme),
+  ], width, ctx.theme);
+}
+
+function renderCancelPreparationDialog(dialog: ConfirmDialog, width: number, ctx: ConfirmDialogContext): string[] {
+  const target = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  return renderDialog("Cancel fork preparation", [
+    target ? `target  ${target.title}` : "target  none",
+    "",
+    "Remove the preparation restriction.",
+    "Keep the current conversation and task state.",
+    "No reset, compaction, or restart.",
+    "",
+    dialog.busy || ctxMessage(ctx) ? (ctxMessage(ctx) ?? "cancelling preparation...") : confirmLine("warning", "y cancel preparation"),
     hintLine("Esc cancel", ctx.theme),
   ], width, ctx.theme);
 }

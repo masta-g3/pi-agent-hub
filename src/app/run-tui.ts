@@ -23,7 +23,7 @@ import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lif
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
-import { addManagedSession, assertManagedSessionReady, forkManagedSession, retryForkPreparation, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
+import { addManagedSession, assertManagedSessionReady, forkManagedSession, retryForkPreparation, cancelForkPreparation, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
 import { renameManagedSession, syncManagedSessionStatusBars } from "./session-commands.js";
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
@@ -528,6 +528,9 @@ export async function runTui(): Promise<void> {
     },
     retryForkPreparation(sessionId) {
       return launchInBackground(() => retryForkPreparation(sessionId));
+    },
+    cancelForkPreparation(sessionId) {
+      return mutateRegistry(() => cancelForkPreparation(sessionId));
     },
     changeGroup(sessionId, group) {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));

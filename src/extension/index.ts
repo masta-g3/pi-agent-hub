@@ -131,7 +131,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       resultPath: process.env.PI_SUBAGENT_RESULT_PATH,
       activeTheme: activeTheme(ctx),
       piSessionName: normalizedName(pi.getSessionName?.()),
-      ...(!forkPreparation || forkPreparation.phase === "ready" ? {
+      // The registry keeps failed-attempt metadata hidden until the user releases its gate.
+      ...(!forkPreparation || forkPreparation.phase === "ready" || forkPreparation.phase === "error" ? {
         context: sessionContextSnapshot(ctx),
         ...workflowRuntime(ctx),
       } : {}),

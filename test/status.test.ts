@@ -34,6 +34,30 @@ function heartbeat(overrides: Partial<Heartbeat> = {}): Heartbeat {
   };
 }
 
+test("a fresh unread wait clears only the prior activity's acknowledgement", () => {
+  const previous = session({ acknowledgedAt: now - 2_000 });
+  for (const [name, hb, expected] of [
+    ["new wait", heartbeat(), undefined],
+    ["same wait", heartbeat({ stateSince: now - 2_000 }), previous.acknowledgedAt],
+    ["older wait", heartbeat({ stateSince: now - 3_000 }), previous.acknowledgedAt],
+    ["stale wait", heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1 }), previous.acknowledgedAt],
+    ["missing heartbeat", undefined, previous.acknowledgedAt],
+    ["running", heartbeat({ state: "running" }), previous.acknowledgedAt],
+  ] as const) {
+    const decision = computeStatus({ session: previous, heartbeat: hb, tmux: { exists: true }, now });
+    const updated = applyComputedStatus(previous, decision, now, hb);
+    assert.equal(updated.acknowledgedAt, expected, name);
+  }
+  const hb = heartbeat();
+  const decision = computeStatus({ session: previous, heartbeat: hb, tmux: { exists: true }, now });
+  const waiting = applyComputedStatus(previous, decision, now, hb);
+  assert.equal(waiting.status, "waiting");
+  assert.equal(applyComputedStatus(waiting, decision, now + 1, hb), waiting);
+  const acknowledged = markAcknowledged(waiting, now + 2);
+  const read = computeStatus({ session: acknowledged, heartbeat: hb, tmux: { exists: true }, now: now + 3 });
+  assert.equal(applyComputedStatus(acknowledged, read, now + 3, hb).acknowledgedAt, now + 2);
+});
+
 test("malformed heartbeat is treated as missing", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-heartbeat-"));
   const previous = process.env.PI_AGENT_HUB_DIR;

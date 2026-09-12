@@ -39,6 +39,7 @@ export interface DashboardCommandCapabilities {
   finishWorktree?: boolean;
   forkSession?: boolean;
   retryForkPreparation?: boolean;
+  cancelForkPreparation?: boolean;
   renameSession?: boolean;
   syncPiName?: boolean;
   sendMessage?: boolean;
@@ -112,6 +113,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
   { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
   { name: "retry-preparation", label: "Retry preparation…", hint: "restart this child and clear its task assignment again", keys: [], available: retryPreparationAvailability },
+  { name: "cancel-preparation", label: "Cancel preparation and keep session…", hint: "remove the preparation restriction without changing conversation or task state", keys: [], available: cancelPreparationAvailability },
   { name: "move-group", label: "Move group…", hint: "change this session's group", keys: ["g"], available: mainAvailability },
   { name: "rename-group", label: "Rename group…", hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
   { name: "archive", label: "Archive", hint: "move to Archived without stopping Pi", keys: ["A"], available: bucketAvailability("archived") },
@@ -174,7 +176,7 @@ export function selectWorkspaceCommands(
   if (preparationReason) {
     guidance = preparationReason;
     actionNames = session.forkPreparation?.phase === "error"
-      ? ["open", "retry-preparation", "info"]
+      ? ["retry-preparation", "cancel-preparation", "open", "info"]
       : ["info"];
   } else if (attention) {
     if (attention.kind === "ready") {
@@ -283,7 +285,7 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
   const preparationReason = preparationBlockReason(session);
   const allowedDuringPreparation = spec.name === "delete" || spec.name === "info" || spec.name === "close-pin"
-    || spec.name === "retry-preparation"
+    || spec.name === "retry-preparation" || spec.name === "cancel-preparation"
     || ["move-group", "rename-group", "archive", "backlog", "restore", "reorder-up", "reorder-down", "size-increase", "size-decrease"].includes(spec.name)
     || (spec.name === "open" && preparationInspectable(session));
   const availability = input.interactionBlockedReason
@@ -475,6 +477,16 @@ export function canRetryForkPreparation(session: RuntimeSession): boolean {
   return session.statusEvidence?.tmux.state === "present"
     && session.statusEvidence.heartbeat.freshness === "fresh"
     && session.statusEvidence.heartbeat.state === "waiting";
+}
+
+function cancelPreparationAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (session.forkPreparation?.phase !== "error") return disabled("preparation has not failed");
+  if (!canCancelForkPreparation(session)) return disabled("unavailable for subagents");
+  return input.capabilities?.cancelForkPreparation === true ? enabled() : disabled("preparation cancellation unavailable");
+}
+
+export function canCancelForkPreparation(session: RuntimeSession): boolean {
+  return session.forkPreparation?.phase === "error" && session.kind !== "subagent";
 }
 
 function renameAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {

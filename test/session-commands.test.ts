@@ -10,6 +10,7 @@ import { heartbeatPath } from "../src/core/paths.js";
 import { PRIMARY_CWD_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import {
   addManagedSession,
+  cancelForkPreparation,
   forkManagedSession,
   managedPiCommand,
   restartManagedSessionFresh,
@@ -18,6 +19,7 @@ import {
   startManagedSession,
   stopManagedSession,
 } from "../src/app/session-lifecycle.js";
+import { SessionsController } from "../src/app/controller.js";
 import { renameManagedSession } from "../src/app/session-commands.js";
 import type { ManagedSession } from "../src/core/types.js";
 
@@ -233,6 +235,49 @@ test("pending fork cannot start, restart, rename, or fork through application ro
     }
     assert.doesNotMatch(await readFile(log, "utf8"), /kill-session|new-session|send-keys|load-buffer/);
     assert.equal(await readFile(history, "utf8"), "saved child history\n");
+  });
+});
+
+test("cancel failed preparation keeps the session and ignores the old heartbeat gate", async () => {
+  await withForkFixture(async (root, log, history) => {
+    const original = session({ cwd: root, sessionFile: history, forkPreparation: { id: "failed-attempt", phase: "error", error: "reset missing" } });
+    await seedRegistry({ version: 1, sessions: [original] });
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    const context = { version: 1, updatedAt: 10, ticket: { id: "manual-001", subtitle: "Keep current work" } };
+    const heartbeat = JSON.stringify({ managedSessionId: original.id, cwd: root, state: "waiting", stateSince: 1, updatedAt: Date.now(), forkPreparation: original.forkPreparation, context });
+    await writeFile(heartbeatPath(original.id), heartbeat);
+    const controller = new SessionsController(undefined, async () => "present");
+    await controller.refresh();
+    assert.equal(controller.snapshot().sessions[0]?.context, undefined);
+    const before = (await loadRegistry()).sessions[0]!;
+    await cancelForkPreparation(original.id);
+    const after = (await loadRegistry()).sessions[0]!;
+    const { forkPreparation: _preparation, ...kept } = before;
+    assert.deepEqual(after, { ...kept, updatedAt: after.updatedAt });
+    assert.ok(after.updatedAt > before.updatedAt);
+    assert.equal(await readFile(history, "utf8"), "saved child history\n");
+    assert.equal(await readFile(heartbeatPath(original.id), "utf8"), heartbeat);
+    await assert.rejects(readFile(log), { code: "ENOENT" });
+    await controller.refresh();
+    assert.equal(controller.snapshot().sessions[0]?.forkPreparation, undefined);
+    assert.deepEqual(controller.snapshot().sessions[0]?.context, context);
+    await assert.rejects(() => cancelForkPreparation(original.id), /Only failed fork preparation/);
+  });
+});
+
+test("preparation cancellation rejects active attempts and subagents", async () => {
+  await withForkFixture(async (root, _log, history) => {
+    for (const change of [
+      { forkPreparation: { id: "attempt", phase: "preparing" } },
+      { forkPreparation: { id: "attempt", phase: "compacting" } },
+      { forkPreparation: { id: "attempt", phase: "ready", outcome: "compacted" } },
+      { kind: "subagent", forkPreparation: { id: "attempt", phase: "error" } },
+    ] as const) {
+      await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, ...change })] });
+      const before = await loadRegistry();
+      await assert.rejects(() => cancelForkPreparation("source-session"), /Only failed fork preparation/);
+      assert.deepEqual(await loadRegistry(), before);
+    }
   });
 });
 

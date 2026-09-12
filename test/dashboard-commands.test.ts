@@ -21,7 +21,7 @@ function session(id: string, values: Partial<RuntimeSession> = {}): RuntimeSessi
 
 const allCapabilities: DashboardCommandCapabilities = {
   openSession: true, restart: true, deleteSession: true, finishWorktree: true,
-  forkSession: true, retryForkPreparation: true, renameSession: true, syncPiName: true, sendMessage: true, runConfiguredShortcut: true,
+  forkSession: true, retryForkPreparation: true, cancelForkPreparation: true, renameSession: true, syncPiName: true, sendMessage: true, runConfiguredShortcut: true,
   skills: true, mcp: true, theme: true,
   pinSidePane: true, assignSidePaneSlot: true, focusSidePaneSlot: true, closeSidePane: true, resizeSidePane: true,
   acknowledge: true, attentionBell: true,
@@ -284,7 +284,35 @@ test("failed preparation offers exact inspection and safe live-idle or stopped r
   assert.equal(commandForKey(stoppedCommands, "y"), undefined);
   const workspace = selectWorkspaceCommands(stopped, stoppedCommands, 3);
   assert.equal(workspace.guidance, "Preparation failed · Provider failed");
-  assert.equal(workspace.actions[0]?.id, retry.id);
+  assert.deepEqual(workspace.actions.map((item) => item.id), [
+    retry.id,
+    "action:failed-stopped:cancel-preparation",
+    "action:failed-stopped:info",
+  ]);
+});
+
+test("failed preparation cancellation is exact-parent-only and does not require an idle child", () => {
+  const failed = session("failed-live", {
+    status: "running",
+    forkPreparation: { id: "attempt-1", phase: "error", error: "Provider failed" },
+  });
+  const commands = buildDashboardCommands({ sessions: [failed], selectedId: failed.id, capabilities: allCapabilities });
+  const cancel = commands.find((item) => item.id === "action:failed-live:cancel-preparation")!;
+  assert.equal(cancel.label, "Cancel preparation and keep session…");
+  assert.equal(cancel.enabled, true);
+  assert.deepEqual(cancel.bindings, []);
+  assert.deepEqual(selectWorkspaceCommands(failed, commands, 3).actions.map((item) => item.id), [
+    "action:failed-live:cancel-preparation",
+    "action:failed-live:open",
+    "action:failed-live:info",
+  ]);
+
+  const subagent = { ...failed, id: "worker", kind: "subagent" as const, parentId: failed.id };
+  assert.equal(buildDashboardCommands({ sessions: [subagent], selectedId: subagent.id, capabilities: allCapabilities })
+    .find((item) => item.id === "action:worker:cancel-preparation")?.disabledReason, "unavailable for subagents");
+  const ready = { ...failed, id: "ready", forkPreparation: { id: "attempt-1", phase: "ready" as const, outcome: "compacted" as const } };
+  assert.equal(buildDashboardCommands({ sessions: [ready], selectedId: ready.id, capabilities: allCapabilities })
+    .find((item) => item.id === "action:ready:cancel-preparation")?.disabledReason, "preparation has not failed");
 });
 
 test("unknown preparation status stays gated and keeps Details as guidance anchor", () => {

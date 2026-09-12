@@ -652,17 +652,20 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const afterIndexes = list.targets.flatMap((target, index) => target?.kind === "session" && index > list.selectedEndIndex ? [index] : []);
   const titleLimit = Math.max(0, safeCapacity - selectedLength);
   let best: { before: number; after: number; distance: number; contexts: Set<number> } | undefined;
-  const beforeContexts = new Set(list.contextIndexes.get(list.selectedIndex) ?? []);
+  // A selected heading already occupies a row; it must not also appear as context.
+  const contextFor = (index: number) => (list.contextIndexes.get(index) ?? [])
+    .filter((contextIndex) => contextIndex < list.selectedIndex || contextIndex > list.selectedEndIndex);
+  const beforeContexts = new Set(contextFor(list.selectedIndex));
   for (let before = 0; before <= Math.min(beforeIndexes.length, titleLimit); before += 1) {
     if (before) {
       const titleIndex = beforeIndexes[beforeIndexes.length - before]!;
-      for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) beforeContexts.add(contextIndex);
+      for (const contextIndex of contextFor(titleIndex)) beforeContexts.add(contextIndex);
     }
     const contexts = new Set(beforeContexts);
     for (let after = 0; after <= Math.min(afterIndexes.length, titleLimit - before); after += 1) {
       if (after) {
         const titleIndex = afterIndexes[after - 1]!;
-        for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) contexts.add(contextIndex);
+        for (const contextIndex of contextFor(titleIndex)) contexts.add(contextIndex);
       }
       if (selectedLength + before + after + contexts.size > safeCapacity) continue;
       const firstIndex = before ? beforeIndexes[beforeIndexes.length - before]! : list.selectedIndex;
@@ -678,7 +681,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   }
   if (!best) {
     const availableContext = Math.max(0, safeCapacity - selectedLength);
-    const selectedContext = (list.contextIndexes.get(list.selectedIndex) ?? []).slice(-availableContext);
+    const selectedContext = contextFor(list.selectedIndex).slice(-availableContext);
     const selectedIndex = selectedContext.length;
     return {
       lines: [...selectedContext.map((index) => list.lines[index] ?? ""), ...list.lines.slice(list.selectedIndex, list.selectedEndIndex + 1)],
@@ -729,7 +732,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const keptContinuations = new Set(continuationCandidates.slice(0, remaining).map((candidate) => candidate.index));
   const emittedContexts = new Set<number>();
   const rowsForTitle = (titleIndex: number, includeSelectedSpan = false) => {
-    const rows = (list.contextIndexes.get(titleIndex) ?? []).filter((index) => !emittedContexts.has(index));
+    const rows = contextFor(titleIndex).filter((index) => !emittedContexts.has(index));
     for (const index of rows) emittedContexts.add(index);
     if (includeSelectedSpan) return [...rows, ...Array.from({ length: selectedLength }, (_, offset) => list.selectedIndex + offset)];
     rows.push(titleIndex);

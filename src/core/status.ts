@@ -110,6 +110,9 @@ function workflowEvidence(sessionWorkflow: WorkflowSnapshot | undefined, heartbe
 export function applyComputedStatus(session: ManagedSession, computed: ComputedStatus, now = Date.now(), heartbeat?: Heartbeat): ManagedSession {
   return updateSession(session, {
     status: computed.status,
+    acknowledgedAt: computed.status === "waiting" && session.acknowledgedAt !== undefined
+      && isFreshHeartbeat(heartbeat, now) && heartbeat.stateSince > session.acknowledgedAt
+      ? undefined : session.acknowledgedAt,
     error: computed.error,
     sessionFile: heartbeat?.piSessionFile ?? session.sessionFile,
     piSessionId: heartbeat?.piSessionId ?? session.piSessionId,

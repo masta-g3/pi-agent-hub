@@ -203,6 +203,45 @@ test("failed preparation opens live child for inspection and retries a live idle
   await retry;
 });
 
+test("failed preparation cancellation confirms exact retained state and rechecks the target", async () => {
+  const failed = {
+    ...session("failed-cancel", "failed-cancel"), status: "running" as const,
+    forkPreparation: { id: "attempt-3", phase: "error" as const, error: "Provider failed" },
+  };
+  const cancelled: string[] = [];
+  let finishCancel!: () => void;
+  const cancellation = new Promise<void>((resolve) => { finishCancel = resolve; });
+  const controller = new SessionsController({ version: 1, sessions: [failed] });
+  const view = new SessionsView(controller, () => {}, {
+    cancelForkPreparation: (id) => { cancelled.push(id); return cancellation; },
+  });
+  view.handleInput(":");
+  for (const char of "cancel preparation") view.handleInput(char);
+  view.handleInput("\r");
+  const confirmation = stripAnsi(view.render(80).join("\n"));
+  assert.match(confirmation, /Cancel fork preparation/);
+  assert.match(confirmation, /Remove the preparation restriction/);
+  assert.match(confirmation, /Keep the current conversation and task state/);
+  assert.match(confirmation, /No reset, compaction, or restart/);
+  view.handleInput("y");
+  assert.deepEqual(cancelled, [failed.id]);
+  assert.equal((view as unknown as { busy: boolean }).busy, true);
+  finishCancel();
+  await cancellation;
+
+  const changedController = new SessionsController({ version: 1, sessions: [failed] });
+  const changedView = new SessionsView(changedController, () => {}, { cancelForkPreparation: (id) => { cancelled.push(id); } });
+  changedView.handleInput(":");
+  for (const char of "cancel preparation") changedView.handleInput(char);
+  changedView.handleInput("\r");
+  (changedController as unknown as { registry: { version: 1; sessions: ManagedSession[] } }).registry = {
+    version: 1, sessions: [{ ...failed, forkPreparation: { id: "attempt-3", phase: "ready", outcome: "compacted" } }],
+  };
+  changedView.handleInput("y");
+  assert.deepEqual(cancelled, [failed.id]);
+  assert.match(stripAnsi(changedView.render(80).join("\n")), /preparation cancellation is no longer available/);
+});
+
 test("info waits for matching evidence from a refresh", async () => {
   const base = session("api", "api");
   const now = 100_000;
@@ -1687,6 +1726,29 @@ test("non-row mouse input cancels a pending double-click", () => {
   view.handleInput(mousePressAtLine(docsLine));
 
   assert.deepEqual(switched, []);
+});
+
+test("overflow section headers collapse by keyboard and by mouse after selection redraw", () => {
+  for (const method of ["keyboard", "mouse"] as const) {
+    for (const width of [80, 120, 160]) {
+      let now = 1_000;
+      const rows = Array.from({ length: 60 }, (_, index) => ({ ...session(`row-${index}`, `row-${index}`), status: index < 20 ? "error" as const : index < 40 ? "running" as const : "idle" as const }));
+      const controller = new SessionsController({ version: 1, sessions: rows });
+      controller.selectSession("row-50");
+      const saved: SessionsViewState[] = [];
+      const view = new SessionsView(controller, () => {}, { terminalRows: () => 12, now: () => now, saveViewState: (state) => saved.push(state) });
+      const lines = view.render(width);
+      const header = lines.findIndex((line) => /▾ QUIET/.test(stripAnsi(line)));
+      assert.ok(header >= 0);
+      view.handleInput(mousePressAtLine(header));
+      const selected = view.render(width);
+      assert.equal(selected.filter((line) => /▾ QUIET/.test(stripAnsi(line))).length, 1);
+      now += 50;
+      view.handleInput(method === "keyboard" ? "\r" : mousePressAtLine(header));
+      assert.ok(saved.at(-1)?.collapsedSections?.includes("quiet"), `${method} width ${width}`);
+      assert.match(stripAnsi(view.render(width).join("\n")), /▸ QUIET/);
+    }
+  }
 });
 
 test("mouse section headers block stale actions and session rows restore exact workspace targets", () => {

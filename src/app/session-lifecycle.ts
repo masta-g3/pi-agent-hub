@@ -281,6 +281,16 @@ async function handleForkLaunchFailure(record: ManagedSession, error: unknown): 
   await rollbackStartedRecord(record);
 }
 
+export async function cancelForkPreparation(id: string): Promise<void> {
+  return withLifecycleContext("cancel fork preparation", id, async () => {
+    await updateRegistry((latest) => {
+      const current = findSession(latest, id);
+      if (current.forkPreparation?.phase !== "error" || isSubagentSession(current)) throw new Error("Only failed fork preparation can be cancelled");
+      return upsertSession(latest, { ...current, forkPreparation: undefined, updatedAt: nextUpdatedAt(current.updatedAt) });
+    });
+  });
+}
+
 export async function retryForkPreparation(id: string): Promise<void> {
   return withLifecycleContext("retry fork preparation", id, async () => {
     const source = await assertManagedSessionReady(id, { allowFailedInspection: true });

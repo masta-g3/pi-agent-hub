@@ -53,6 +53,22 @@ function workspaceModel(input: BuildRenderModelInput) {
   });
 }
 
+test("overflow renders each section header once and retains its mouse target", () => {
+  const sessions = Array.from({ length: 60 }, (_, index) => session(`row-${index}`, "default", index < 20 ? "error" : index < 40 ? "running" : "idle"));
+  for (const width of [80, 100, 120, 160]) {
+    for (const height of [8, 12, 24]) {
+      for (const selectedSection of ["health", "active", "quiet"] as const) {
+        const model = buildRenderModel({ sessions, selectedSection, width, height, grouping: "project" });
+        const layout = renderSessions(model, darkTheme);
+        const headers = layout.rowTargets.filter((target) => target?.kind === "section-header");
+        assert.equal(headers.filter((target) => target?.section === selectedSection).length, 1, `${width}x${height} ${selectedSection}`);
+        assert.equal(new Set(headers.map((target) => target?.section)).size, headers.length);
+        assert.ok(layout.lines.length <= height);
+      }
+    }
+  }
+});
+
 test("preparation and generic compaction cues stay readable and width-safe", () => {
   const pending = {
     ...session("pending", "default", "running", "api-service-with-a-readable-title"),

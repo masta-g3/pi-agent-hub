@@ -84,7 +84,9 @@ Ctrl+Q returns to the dashboard
 
 Until ready, Hub blocks opening, pinning, sending prompts, renaming, and further forks of that child. Normal start/restart routes cannot bypass preparation. Selection, organization, `i` details, and confirmed deletion remain available. An unavailable observation keeps the child gated. These guards apply to Hub actions, not raw tmux commands.
 
-A live failed child offers **Open to inspect** without an automatic restart. **Retry preparation** in `:` or the action workspace restarts the same saved child, clears its assignment again, and retries with a new attempt. Retry requires a stopped child or confirmed idle live child; unknown activity and active compaction block it. Without a saved child conversation, delete and recreate the fork.
+A live failed child offers **Open to inspect** without an automatic restart. **Retry preparation** in `:` or the action workspace restarts the same saved child, clears its assignment again, and retries with a new attempt. Retry requires a stopped child or confirmed idle live child; unknown activity and active compaction block it. Retry requires a saved child conversation.
+
+If you recovered the child manually, choose **Cancel preparation and keep session** in `:` or the action workspace. Confirming removes only the failed preparation restriction. It does not restart Pi, compact, clear task state, or change the conversation. This is an explicit bypass, not verification that automatic preparation succeeded. Old heartbeats and checkpoints cannot restore the cancelled restriction.
 
 Preparation survives dashboard restart. Completed reset state survives child restart. The original conversation and shared repository files are unchanged. This is not a Git worktree or an empty conversation: the compacted history still provides discussion context, but the previous task belongs to another agent. Ordinary `f` remains a conversation fork without this preparation gate.
 

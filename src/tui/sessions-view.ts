@@ -55,7 +55,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
-import { handleConfirmInput, openDeleteDialog, openFinishDialog, openRetryForkPreparationDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
+import { handleConfirmInput, openCancelForkPreparationDialog, openDeleteDialog, openFinishDialog, openRetryForkPreparationDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
@@ -544,6 +544,7 @@ export class SessionsView implements Component {
       finishWorktree: Boolean(this.actions.finishWorktree),
       forkSession: Boolean(this.actions.forkSession),
       retryForkPreparation: Boolean(this.actions.retryForkPreparation),
+      cancelForkPreparation: Boolean(this.actions.cancelForkPreparation),
       renameSession: Boolean(this.actions.renameSession),
       syncPiName: true,
       sendMessage: Boolean(this.actions.sendMessage),
@@ -693,6 +694,7 @@ export class SessionsView implements Component {
         case "fork": this.startForkDialog(); return;
         case "fork-compact": this.startForkDialog(true); return;
         case "retry-preparation": this.startRetryForkPreparationDialog(command.targetSessionId); return;
+        case "cancel-preparation": this.startCancelForkPreparationDialog(command.targetSessionId); return;
         case "move-group": this.startGroupDialog(); return;
         case "rename-group": this.startRenameGroupDialog(); return;
         case "archive": this.moveSelectedToBucket("archived"); return;
@@ -835,6 +837,10 @@ export class SessionsView implements Component {
 
   private startRetryForkPreparationDialog(sessionId: string) {
     this.openDialog((ctx) => openRetryForkPreparationDialog(ctx, sessionId));
+  }
+
+  private startCancelForkPreparationDialog(sessionId: string) {
+    this.openDialog((ctx) => openCancelForkPreparationDialog(ctx, sessionId));
   }
 
   private startSendDialog() {
