@@ -12,6 +12,7 @@ export interface ThemeDialog {
   syncPi: boolean;
   selected: ThemeDialogSelection;
   originalSetting: string;
+  automaticPair: { lightTheme: string; darkTheme: string };
   pending?: boolean;
   error?: string;
 }
@@ -41,6 +42,10 @@ export function createThemeDialog(input: ThemeDialogInput): ThemeDialog {
     syncPi: input.syncPi,
     selected,
     originalSetting: input.setting,
+    automaticPair: automatic ?? {
+      lightTheme: names.includes("light") ? "light" : names[0] ?? "light",
+      darkTheme: names.includes("dark") ? "dark" : names[0] ?? "dark",
+    },
   };
 }
 
@@ -79,14 +84,15 @@ export function handleThemeDialogInput(dialog: ThemeDialog, data: string, ctx: T
     return { ...dialog, syncPi: !dialog.syncPi, error: undefined };
   }
   if ((dialog.selected === "automaticLight" || dialog.selected === "automaticDark") && (matchesKey(data, Key.left) || matchesKey(data, Key.right))) {
-    const automatic = automaticPair(dialog);
+    const automatic = dialog.automaticPair;
     const current = dialog.selected === "automaticLight" ? automatic.lightTheme : automatic.darkTheme;
     const nextName = cycle(dialog.names, current, matchesKey(data, Key.right) ? 1 : -1);
-    const setting = dialog.selected === "automaticLight"
-      ? `${nextName}/${automatic.darkTheme}`
-      : `${automatic.lightTheme}/${nextName}`;
+    const automaticPair = dialog.selected === "automaticLight"
+      ? { ...automatic, lightTheme: nextName }
+      : { ...automatic, darkTheme: nextName };
+    const setting = `${automaticPair.lightTheme}/${automaticPair.darkTheme}`;
     ctx.actions.previewDashboardTheme?.(setting);
-    return { ...dialog, setting, error: undefined };
+    return { ...dialog, setting, automaticPair, error: undefined };
   }
   if (matchesKey(data, Key.down) || data === "j" || matchesKey(data, Key.up) || data === "k") {
     const rows = selectionRows(dialog);
@@ -149,15 +155,8 @@ function settingForSelection(dialog: ThemeDialog, selection: ThemeDialogSelectio
 }
 
 function automaticSetting(dialog: ThemeDialog): string {
-  const pair = automaticPair(dialog);
+  const pair = dialog.automaticPair;
   return `${pair.lightTheme}/${pair.darkTheme}`;
-}
-
-function automaticPair(dialog: ThemeDialog): { lightTheme: string; darkTheme: string } {
-  return parseAutomaticTheme(dialog.setting) ?? {
-    lightTheme: dialog.names.includes("light") ? "light" : dialog.names[0] ?? "light",
-    darkTheme: dialog.names.includes("dark") ? "dark" : dialog.names[0] ?? "dark",
-  };
 }
 
 function cycle(names: string[], current: string, delta: -1 | 1): string {

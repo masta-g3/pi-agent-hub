@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { DefaultResourceLoader, SettingsManager, type Theme as PiTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -100,6 +102,20 @@ export function resolveThemeName(setting: string | undefined, appearance: Termin
   if (automatic) return appearance === "light" ? automatic.lightTheme : automatic.darkTheme;
   if (setting?.includes("/")) return undefined;
   return setting?.trim() || undefined;
+}
+
+export async function readDashboardAppearance(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  readPreferences: () => Promise<string> = async () => {
+    const { stdout } = await promisify(execFile)("/usr/bin/defaults", ["export", "NSGlobalDomain", "-"], { timeout: 1_000 });
+    return stdout;
+  },
+): Promise<TerminalAppearance> {
+  if (platform !== "darwin") return detectTerminalAppearance(env);
+  const preferences = await readPreferences();
+  // macOS omits AppleInterfaceStyle in light mode. Export avoids a missing-key error.
+  return /<key>AppleInterfaceStyle<\/key>\s*<string>Dark<\/string>/.test(preferences) ? "dark" : "light";
 }
 
 export function detectTerminalAppearance(env: NodeJS.ProcessEnv = process.env): TerminalAppearance {

@@ -6,6 +6,7 @@ import test from "node:test";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
   detectTerminalAppearance,
+  readDashboardAppearance,
   effectiveDashboardTheme,
   loadGlobalThemeCatalog,
   parseAutomaticTheme,
@@ -46,6 +47,18 @@ test("automatic theme settings parse and resolve once for terminal appearance", 
   assert.equal(detectTerminalAppearance({ COLORFGBG: "15;0" }), "dark");
   assert.equal(detectTerminalAppearance({ COLORFGBG: "0;245" }), "dark");
   assert.equal(detectTerminalAppearance({}), "dark");
+});
+
+test("dashboard appearance follows macOS changes without a terminal hint", async () => {
+  let preferences = '<plist><dict><key>AppleInterfaceStyleSwitchesAutomatically</key><true/></dict></plist>';
+  const readPreferences = async () => preferences;
+  assert.equal(await readDashboardAppearance({}, "darwin", readPreferences), "light");
+  preferences = '<plist><dict><key>AppleInterfaceStyle</key>\n<string>Dark</string></dict></plist>';
+  assert.equal(await readDashboardAppearance({ COLORFGBG: "0;15" }, "darwin", readPreferences), "dark");
+  preferences = '<plist><dict/></plist>';
+  assert.equal(await readDashboardAppearance({ COLORFGBG: "15;0" }, "darwin", readPreferences), "light");
+  assert.equal(await readDashboardAppearance({ COLORFGBG: "0;15" }, "linux", async () => { throw new Error("must not query macOS"); }), "light");
+  await assert.rejects(readDashboardAppearance({}, "darwin", async () => { throw new Error("read failed"); }), /read failed/);
 });
 
 test("global theme catalog includes built-ins and global themes but excludes project themes", async () => {

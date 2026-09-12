@@ -7,7 +7,7 @@ import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
 import { MOUSE_DISABLE, MOUSE_ENABLE } from "../tui/mouse.js";
 import type { NewFormContext } from "../tui/new-form.js";
-import { dashboardThemeForSetting, detectTerminalAppearance, effectiveDashboardTheme, loadGlobalThemeCatalog, loadManagedSessionTheme, saveGlobalPiTheme, type SessionsTheme } from "../tui/theme.js";
+import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTheme, loadGlobalThemeCatalog, loadManagedSessionTheme, saveGlobalPiTheme, type SessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
@@ -283,7 +283,7 @@ export async function runTui(): Promise<void> {
   await cleanupRetiredSessionMetadata();
   const controller = new SessionsController();
   await controller.refresh();
-  const terminalAppearance = detectTerminalAppearance();
+  let terminalAppearance = await readDashboardAppearance();
   const themeCatalog = await loadGlobalThemeCatalog();
   let themePreference = await effectiveDashboardThemePreference();
   let dashboardTheme = await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
@@ -628,6 +628,7 @@ export async function runTui(): Promise<void> {
       await setProjectMcpServers(projectCwd, items.filter((item) => item.enabled).map((item) => item.name));
     },
     async themeSettings() {
+      terminalAppearance = await readDashboardAppearance();
       themePreference = await effectiveDashboardThemePreference();
       dashboardTheme = await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
       return {
@@ -670,6 +671,7 @@ export async function runTui(): Promise<void> {
     initialTheme: theme,
     suspended: () => themePreviewActive,
     async load() {
+      terminalAppearance = await readDashboardAppearance();
       themePreference = await effectiveDashboardThemePreference();
       dashboardTheme = await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
       return dashboardTheme.theme;

@@ -63,6 +63,22 @@ test("theme dialog configures an Automatic pair and toggles Pi sync", () => {
   assert.equal(dialog.syncPi, false);
 });
 
+test("theme dialog retains saved and edited Automatic pairs across fixed previews", async () => {
+  const ctx = context();
+  let dialog = createThemeDialog({ names, setting: "catppuccin-latte/catppuccin-mocha", syncPi: true });
+  for (const key of ["j", "j", "j", "k"]) dialog = handleThemeDialogInput(dialog, key, ctx)!;
+  assert.equal(dialog.selected, "automatic");
+  assert.equal(dialog.setting, "catppuccin-latte/catppuccin-mocha");
+  dialog = handleThemeDialogInput(dialog, "j", ctx)!;
+  dialog = handleThemeDialogInput(dialog, "\u001b[D", ctx)!;
+  assert.equal(dialog.setting, "light/catppuccin-mocha");
+  for (const key of ["j", "j", "k"]) dialog = handleThemeDialogInput(dialog, key, ctx)!;
+  assert.equal(dialog.setting, "light/catppuccin-mocha");
+  handleThemeDialogInput(dialog, "\r", ctx);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(ctx.applies, [{ setting: "light/catppuccin-mocha", syncPi: true }]);
+});
+
 test("theme dialog Enter submits the visible setting", async () => {
   const ctx = context();
   const dialog = createThemeDialog({ names, setting: "light/dark", syncPi: false });
