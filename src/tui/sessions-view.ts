@@ -1821,7 +1821,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "",
     heading("New-session form"),
     "  Tab/↑↓ move     Space toggles Worktree row     Ctrl+T toggles anywhere     Ctrl+O choose repo",
-    "  Alt+A add repo     Alt+X remove extra",
+    "  Ctrl+R add repo    Ctrl+X remove extra",
     "",
     heading("Pickers and themes"),
     "  pickers: ←→/Tab switch columns; theme: live preview, Enter apply, Esc cancel",

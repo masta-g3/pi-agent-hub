@@ -30,7 +30,7 @@ Ctrl+Q returns to the dashboard
 | Intent palette | `:` in the dashboard | Search target-aware actions, sessions through bounded context, and named filters without replacing direct keys. |
 | Action workspace | Select a session; use `i` below 120 columns | Read positive task context, plain workflow position, exceptional guidance, and enabled actions without reading raw pane output. |
 | Explainable status | `i` in the dashboard or `pi-hub explain <id-or-prefix>` | Inspect live tmux, heartbeat, read-state, runtime-decision, cockpit-placement, and workflow provenance without changing session state; `i` adds it to the workspace and the CLI prints it. |
-| Multi-repo workspaces | `Alt+A` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
+| Multi-repo workspaces | `Ctrl+R` in the new-session form | Work across repos through a symlink workspace without moving or owning source repos. |
 | Hub-owned worktree sessions | `Ctrl+T` in the new-session form, `w` to finish | Create Git worktrees under hub state for one or more repos and explicitly finish, forget, or discard them. |
 | Project Skills | `s` picker | Attach Pi skills to the selected session's primary repo. |
 | Project MCP servers | `m` picker | Enable MCP tools for the selected session's primary repo. |
@@ -199,8 +199,8 @@ While editing the form:
 
 | Key | Action |
 | --- | --- |
-| `Alt+A` | Add another repo row |
-| `Alt+X` | Remove the focused extra repo row |
+| `Ctrl+R` | Add another repo row |
+| `Ctrl+X` | Remove the focused extra repo row |
 | `Ctrl+N` / `Ctrl+P` | In the new-session form, cycle known cwd suggestions; in the move-group form, cycle groups; in the command palette, move selection. A configured Ctrl+N shortcut runs only in normal dashboard mode. |
 | `Ctrl+O` | Open the recent-repo picker |
 | `Ctrl+T` | Toggle hub-owned worktree mode |

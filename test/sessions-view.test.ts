@@ -2411,7 +2411,7 @@ test("new form worktree mode supports additional repos", () => {
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\u001ba");
+  view.handleInput("\u0012");
   for (const char of "/tmp/web") view.handleInput(char);
   view.handleInput("\u0014");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
@@ -2428,7 +2428,7 @@ test("new form add repo shortcut submits one additional cwd", () => {
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\u001ba");
+  view.handleInput("\u0012");
   assert.match(view.render(120).join("\n"), /\+ repo/);
   for (const char of "/tmp/web") view.handleInput(char);
   view.handleInput("\r");
@@ -2444,7 +2444,7 @@ test("new form add repo shortcut supports more than two additional cwds", () => 
   });
   view.handleInput("n");
   for (const repo of ["/tmp/web", "/tmp/shared", "/tmp/docs"]) {
-    view.handleInput("\u001ba");
+    view.handleInput("\u0012");
     for (const char of repo) view.handleInput(char);
   }
   view.handleInput("\r");
@@ -2459,10 +2459,10 @@ test("new form remove shortcut removes focused extra repo and omits blank rows",
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\u001ba");
+  view.handleInput("\u0012");
   for (const char of "/tmp/web") view.handleInput(char);
-  view.handleInput("\u001ba");
-  view.handleInput("\u001bx");
+  view.handleInput("\u0012");
+  view.handleInput("\u0018");
   view.handleInput("\r");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"] });
@@ -2475,7 +2475,7 @@ test("new form remove shortcut is a no-op on primary repo", () => {
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\u001bx");
+  view.handleInput("\u0018");
   view.handleInput("\r");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api" });
@@ -2546,7 +2546,7 @@ test("new form ctrl-n cycles cwd suggestions on extra repo fields", () => {
     newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
   });
   view.handleInput("n");
-  view.handleInput("\u001ba");
+  view.handleInput("\u0012");
   view.handleInput("\u000e");
   view.handleInput("\u000e");
   view.handleInput("\r");
@@ -2579,7 +2579,7 @@ test("new form repo picker selects extra repo without changing group", () => {
     newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
   });
   view.handleInput("n");
-  view.handleInput("\u001ba");
+  view.handleInput("\u0012");
   view.handleInput("\u000f");
   for (const char of "web") view.handleInput(char);
   view.handleInput("\r");

@@ -47,7 +47,7 @@ export function renderNewSessionDialog(dialog: NewSessionDialog | RepoPickerDial
     fields: newFormFields(dialog.form),
     focus: dialog.form.focus,
     footer: newFormFooter(dialog.form),
-    narrowFooter: "tab · alt-a · enter · esc",
+    narrowFooter: "tab · ctrl-r · enter · esc",
   }, width, ctx.theme);
 }
 
@@ -67,8 +67,8 @@ function handleNewFormInput(dialog: NewSessionDialog, data: string, ctx: NewSess
     ctx.setMessage(undefined);
     return { ...dialog, form: toggleWorktree(form) };
   }
-  if (matchesKey(data, Key.alt("a"))) return { ...dialog, form: addRepo(form) };
-  if (matchesKey(data, Key.alt("x"))) return { ...dialog, form: removeFocusedRepo(form) };
+  if (matchesKey(data, Key.ctrl("r"))) return { ...dialog, form: addRepo(form) };
+  if (matchesKey(data, Key.ctrl("x"))) return { ...dialog, form: removeFocusedRepo(form) };
   if (matchesKey(data, Key.ctrl("o"))) return startRepoPicker(dialog);
   if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) return { ...dialog, form: moveFocus(form, 1) };
   if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) return { ...dialog, form: moveFocus(form, -1) };
@@ -109,8 +109,8 @@ function newFormFooter(state: NewFormState): string {
   const parts = ["tab/↑↓ move"];
   if (state.focus.startsWith("repo:")) {
     if ((focus.suggestions?.length ?? 0) > 0) parts.push("ctrl-o choose repo");
-    parts.push("alt-a add repo");
-    if (state.focus !== "repo:0") parts.push("alt-x remove");
+    parts.push("ctrl-r add repo");
+    if (state.focus !== "repo:0") parts.push("ctrl-x remove");
   }
   if (state.focus === "worktree") parts.push("space toggle");
   parts.push("ctrl-t worktree", "enter create", "esc cancel");

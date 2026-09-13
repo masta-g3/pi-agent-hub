@@ -339,7 +339,7 @@ test("renderForm renders optional section headers width-safely", () => {
       { key: "title", label: "title", value: "api" },
     ],
     focus: "repo:0",
-    footer: "tab next · alt-a add repo · enter create · esc cancel",
+    footer: "tab next · ctrl-r add repo · enter create · esc cancel",
   }, 42, darkTheme);
 
   const text = stripAnsi(lines.join("\n"));
