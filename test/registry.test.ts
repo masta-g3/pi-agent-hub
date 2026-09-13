@@ -39,6 +39,7 @@ test("concurrent atomic writes keep valid JSON", async () => {
 test("registry update/load round trip", async () => {
   const path = await tempPath("registry.json");
   const session = createSessionRecord({ cwd: "/tmp/project", group: "work", now: 10 });
+  assert.equal(session.title, "New · project");
   await updateRegistry(() => ({ version: 1, sessions: [session] }), path);
   assert.deepEqual(await loadRegistry(path), { version: 1, sessions: [session] });
 });

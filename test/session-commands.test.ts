@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { loadRegistry, updateRegistry } from "../src/core/registry.js";
 import { heartbeatPath } from "../src/core/paths.js";
+import { nameCommandPath } from "../src/core/name-command.js";
 import { PRIMARY_CWD_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import {
   addManagedSession,
@@ -112,27 +113,69 @@ test("managedPiCommand treats whitespace-only prelude as unset", () => {
   assert.equal(managedPiCommand({ prelude: "   ", piArgs: ["--help"] }), "pi '--help'");
 });
 
-test("renameManagedSession sends exact Pi name command and never mutates the cached title", async () => {
+test("renameManagedSession publishes an exact-conversation command without typing into Pi", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-rename-"));
-  const bin = join(root, "bin");
-  const log = join(root, "tmux.log");
-  await mkdir(bin);
-  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nexit 0\n`, "utf8");
-  await chmod(join(bin, "tmux"), 0o755);
   const oldDir = process.env.PI_AGENT_HUB_DIR;
-  const oldPath = process.env.PATH;
   process.env.PI_AGENT_HUB_DIR = join(root, "hub");
-  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
+  const writeHeartbeat = (name: string) => writeFile(heartbeatPath("api"), JSON.stringify({
+    managedSessionId: "api", piSessionId: "conversation-api", piSessionName: name, cwd: "/tmp/api",
+    state: "waiting", stateSince: 1, updatedAt: Date.now(),
+  }), "utf8");
   try {
-    const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
     await updateRegistry(() => ({ version: 1, sessions: [managed] }));
-    await renameManagedSession("api", "Canonical Name");
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    await writeHeartbeat("api");
+    const rename = renameManagedSession("api", "Canonical Name");
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        const command = JSON.parse(await readFile(nameCommandPath("api"), "utf8")) as { piSessionId: string; name: string };
+        assert.deepEqual([command.piSessionId, command.name], ["conversation-api", "Canonical Name"]);
+        await writeHeartbeat("Canonical Name");
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    await rename;
     assert.equal((await loadRegistry()).sessions[0]?.title, "api");
-    assert.match(await readFile(log, "utf8"), /set-buffer .* -- \/name Canonical Name[\s\S]*paste-buffer[\s\S]*send-keys .* Enter/);
     await assert.rejects(renameManagedSession("api", "bad\nname"), /one nonblank line/);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
-    process.env.PATH = oldPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("renameManagedSession rejects linked tickets before publish and during confirmation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-ticket-rename-"));
+  const oldDir = process.env.PI_AGENT_HUB_DIR;
+  process.env.PI_AGENT_HUB_DIR = join(root, "hub");
+  const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
+  const writeHeartbeat = async (linked: boolean) => {
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    await writeFile(heartbeatPath("api"), JSON.stringify({
+      managedSessionId: "api", piSessionId: "conversation-api", piSessionName: "api", cwd: "/tmp/api",
+      state: "waiting", stateSince: 1, updatedAt: Date.now(),
+      ...(linked ? { context: { version: 1, updatedAt: Date.now(), ticket: { id: "naming-001" } } } : {}),
+    }), "utf8");
+  };
+  try {
+    await updateRegistry(() => ({ version: 1, sessions: [managed] }));
+    await writeHeartbeat(true);
+    await assert.rejects(renameManagedSession("api", "Manual Name"), /linked ticket owns the session name/);
+    await assert.rejects(readFile(nameCommandPath("api"), "utf8"), /ENOENT/);
+
+    await writeHeartbeat(false);
+    const rename = renameManagedSession("api", "Race Name");
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try { await readFile(nameCommandPath("api"), "utf8"); break; }
+      catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
+    }
+    await writeHeartbeat(true);
+    await assert.rejects(rename, /linked ticket owns the session name/);
+  } finally {
+    if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -155,6 +198,7 @@ test("addManagedSession creates multi-repo worktree sessions in a source-pi work
     const saved = registry.sessions[0]!;
 
     assert.equal(saved.id, created.id);
+    assert.equal(saved.title, "New · api");
     assert.equal(saved.worktreeOwnedByHub, true);
     assert.equal(saved.worktrees?.length, 2);
     assert.equal(saved.cwd, saved.worktrees![0]!.path);
@@ -196,6 +240,10 @@ test("addManagedSession injects worktree guidance for a single-repo worktree", a
     const commands = await readFile(log, "utf8");
 
     assert.equal(created.additionalCwds, undefined);
+    assert.equal(created.title, "New · api");
+    assert.match(commands, /'--name' 'New · api'/);
+    const more = await Promise.all([addManagedSession({ cwd: repo }), addManagedSession({ cwd: repo })]);
+    assert.deepEqual(new Set(more.map((item) => item.title)), new Set(["New · api · 2", "New · api · 3"]));
     assert.match(commands, new RegExp(`${WORKTREE_GUIDANCE_ENV}=`));
     assert.match(commands, new RegExp(`${SUBAGENT_PROMPT_APPEND_ENV}=`));
     assert.match(commands, new RegExp((created.worktreeRepoRoot ?? "missing").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -494,7 +542,7 @@ test("restartManagedSessionFresh clears saved Pi state and starts a new tmux ses
     const registry = await loadRegistry();
     const restarted = registry.sessions[0]!;
     assert.equal(restarted.status, "starting");
-    assert.equal(restarted.title, "project");
+    assert.equal(restarted.title, "New · project");
     assert.equal(restarted.sessionFile, undefined);
     assert.equal(restarted.piSessionId, undefined);
     assert.equal(restarted.acknowledgedAt, undefined);
@@ -504,6 +552,7 @@ test("restartManagedSessionFresh clears saved Pi state and starts a new tmux ses
     const commands = await readFile(log, "utf8");
     assert.match(commands, /kill-session -t pi-agent-hub-source/);
     assert.match(commands, /new-session .*PI_AGENT_HUB_SESSION_ID='source-session'/);
+    assert.match(commands, /'--name' 'New · project'/);
     assert.doesNotMatch(commands, new RegExp(`${WORKTREE_GUIDANCE_ENV}=`));
     assert.doesNotMatch(commands, new RegExp(`${SUBAGENT_PROMPT_APPEND_ENV}=`));
     assert.match(commands, /set-option -t pi-agent-hub-source status on/);
@@ -555,6 +604,11 @@ test("forkManagedSession exports the fork record primary cwd without changing co
     const fork = await forkManagedSession("source-session");
     const commands = await readFile(log, "utf8");
     assert.equal(fork.cwd, primary);
+    assert.equal(fork.title, "Fork · source");
+    assert.match(commands, /'--name' 'Fork · source'/);
+    const second = await forkManagedSession("source-session");
+    assert.equal(second.title, "Fork · source · 2");
+    assert.equal((await loadRegistry()).sessions.find((item) => item.id === "source-session")?.title, "source");
     assert.match(commands, new RegExp(`${PRIMARY_CWD_ENV}='${primary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
     assert.doesNotMatch(commands, new RegExp(`${PRIMARY_CWD_ENV}='${additional.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
     assert.match(commands, /--fork/);

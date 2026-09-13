@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
 import { heartbeatPath, multiRepoWorkspacePath } from "../src/core/paths.js";
+import { nameCommandPath } from "../src/core/name-command.js";
 import { updateRegistry } from "../src/core/registry.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -733,7 +734,9 @@ test("archive pruning removes expired archived rows only when tmux is missing", 
     await updateRegistry(() => registry);
     await mkdir(multiRepoWorkspacePath("archived"), { recursive: true });
     await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "name-commands"), { recursive: true });
     await writeFile(heartbeatPath("archived"), `${JSON.stringify({ state: "shutdown", updatedAt: 1, stateSince: 1 })}\n`, "utf8");
+    await writeFile(nameCommandPath("archived"), "{}\n", "utf8");
     const controller = new SessionsController(registry);
 
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
@@ -745,6 +748,7 @@ test("archive pruning removes expired archived rows only when tmux is missing", 
     assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["active", "backlog"]);
     await assertPathMissing(multiRepoWorkspacePath("archived"));
     await assertPathMissing(heartbeatPath("archived"));
+    await assertPathMissing(nameCommandPath("archived"));
   });
 });
 

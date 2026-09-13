@@ -52,7 +52,7 @@ test("deleteManagedSession accepts id prefix and removes the full-id heartbeat",
 
   const deleted = await deleteManagedSession(session.id.slice(0, 8), { env });
 
-  assert.deepEqual(deleted, { id: session.id, title: "api" });
+  assert.deepEqual(deleted, { id: session.id, title: "New · api" });
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
   await assert.rejects(readFile(heartbeatPath(session.id, env), "utf8"), /ENOENT/);
 });
@@ -98,7 +98,7 @@ test("deleteManagedSubagentSessions removes child rows without deleting parent",
 
   const deleted = await deleteManagedSubagentSessions(parent.id, { env });
 
-  assert.deepEqual(deleted, { id: parent.id, title: "api", count: 1 });
+  assert.deepEqual(deleted, { id: parent.id, title: "New · api", count: 1 });
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [parent] });
   assert.equal(await readFile(heartbeatPath(parent.id, env), "utf8"), JSON.stringify({ ok: true }));
   await assert.rejects(readFile(heartbeatPath(child.id, env), "utf8"), /ENOENT/);
@@ -156,7 +156,7 @@ test("pi-agent-hub delete removes registry row and heartbeat file", async () => 
     encoding: "utf8",
   });
 
-  assert.match(result.stdout, new RegExp(`deleted ${session.id}\\tapi`));
+  assert.match(result.stdout, new RegExp(`deleted ${session.id}\\tNew · api`));
   assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
   await assert.rejects(readFile(heartbeatPath(session.id, env), "utf8"), /ENOENT/);
 });

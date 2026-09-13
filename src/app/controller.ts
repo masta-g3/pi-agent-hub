@@ -2,6 +2,7 @@ import { unlink } from "node:fs/promises";
 import { isErrno } from "../core/atomic-json.js";
 import { removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath } from "../core/paths.js";
+import { nameCommandPath } from "../core/name-command.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, updateRegistry } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
 import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } from "../core/session-bucket.js";
@@ -390,7 +391,9 @@ function expiredArchivedCascadeIds(
 
 async function removeDashboardState(session: ManagedSession): Promise<void> {
   await removeMultiRepoWorkspace(session);
-  await unlink(heartbeatPath(session.id)).catch((error: unknown) => {
-    if (!isErrno(error, "ENOENT")) throw error;
-  });
+  for (const file of [heartbeatPath(session.id), nameCommandPath(session.id)]) {
+    await unlink(file).catch((error: unknown) => {
+      if (!isErrno(error, "ENOENT")) throw error;
+    });
+  }
 }

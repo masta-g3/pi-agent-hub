@@ -35,7 +35,7 @@ npm test
 npm run package:check
 ```
 
-Do not run these concurrently: both rebuild `dist`.
+Do not run these concurrently: both rebuild `dist`. If the linked Hub is in use, run `npm run typecheck` without rebuilding it. For tests, compile with `tsc -p tsconfig.json --outDir <temporary-directory>`, link that directory's `node_modules` to the checkout, add a `package.json` containing `{"type":"module"}`, and run its emitted `test/*.test.js` files. Remove the temporary directory afterward. Direct Node TypeScript execution does not resolve this repo's `.js` source imports.
 
 ## Git hooks
 

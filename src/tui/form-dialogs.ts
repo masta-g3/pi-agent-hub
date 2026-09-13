@@ -77,6 +77,10 @@ export function openRenameSessionForm(ctx: FormDialogContext, returnTmuxSession?
     ctx.setMessage("subagent rows cannot be renamed");
     return undefined;
   }
+  if (selected.context?.ticket) {
+    ctx.setMessage("linked ticket owns the session name");
+    return undefined;
+  }
   if (selected.status === "stopped" || selected.status === "error") {
     ctx.setMessage("restart the Pi session before renaming");
     return undefined;
@@ -187,6 +191,10 @@ function submitRenameSessionDialog(dialog: FormDialog, ctx: FormDialogContext): 
   }
   if (isForkPreparationPending(target.forkPreparation) || target.preparationStatusUnknown || target.forkPreparation?.phase === "error") {
     ctx.setMessage(target.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(target.forkPreparation) ?? "Fork preparation is not ready.");
+    return undefined;
+  }
+  if (target.context?.ticket) {
+    ctx.setMessage("linked ticket owns the session name");
     return undefined;
   }
   const result = validateRequired(dialog.form);

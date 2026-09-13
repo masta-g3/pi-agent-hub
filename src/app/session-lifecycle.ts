@@ -15,8 +15,9 @@ import { isFreshHeartbeat } from "../core/status.js";
 import { assertWorktreesClean, assertWorktreesReady, createOwnedWorktrees, finishOwnedWorktrees, isWorktreeSession, PartialWorktreeFailure, remainingWorktreeSession, removeOwnedWorktrees, sessionWorktrees, type FinishedWorktree } from "../core/worktree.js";
 import { renderWorktreeGuidance } from "../core/worktree-context.js";
 import { recordRepoUsage } from "../core/repo-history.js";
-import { createSessionRecord, loadRegistry, provisionalSessionTitle, updateRegistry, upsertSession } from "../core/registry.js";
+import { availableSessionTitle, createSessionRecord, loadRegistry, provisionalSessionTitle, updateRegistry, upsertSession } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
+import { nameCommandPath } from "../core/name-command.js";
 import { nextOrderInGroup } from "../core/session-order.js";
 import { isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { configureManagedSessionStatusBar, killSession, newSession, sessionExists, sessionPresence, shellQuote } from "../core/tmux.js";
@@ -90,6 +91,7 @@ async function addManagedSessionImpl(input: SessionInput): Promise<ManagedSessio
       record = await ensureMultiRepoWorkspace(record);
     }
     await updateRegistry((registry) => {
+      record.title = availableSessionTitle(record.title, registry.sessions);
       record.order = nextOrderInGroup(registry.sessions, record.group);
       return { ...registry, sessions: [...registry.sessions, record] };
     });
@@ -136,7 +138,7 @@ async function startManagedSessionImpl(
     });
   });
   session = findSession(committed, session.id);
-  const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile });
+  const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile, ...(!session.sessionFile ? { name: session.title } : {}) });
   const worktreeGuidance = renderWorktreeGuidance(session);
   await newSession({
     name: session.tmuxSession,
@@ -189,7 +191,10 @@ async function restartManagedSessionFreshImpl(id: string): Promise<void> {
       ...registry,
       sessions: registry.sessions.map((item) => item.id === session.id ? {
         ...item,
-        title: provisionalSessionTitle(session.worktrees?.find((worktree) => worktree.role === "primary")?.repoRoot ?? session.worktreeRepoRoot ?? session.cwd),
+        title: availableSessionTitle(
+          provisionalSessionTitle(session.worktrees?.find((worktree) => worktree.role === "primary")?.repoRoot ?? session.worktreeRepoRoot ?? session.cwd),
+          registry.sessions.filter((other) => other.id !== session.id),
+        ),
         status: "starting",
         sessionFile: undefined,
         piSessionId: undefined,
@@ -219,11 +224,12 @@ async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): 
       if (isSubagentSession(latestSource) || isWorktreeSession(latestSource) || !sameWorkspaceIdentity(source, latestSource)) {
         throw new Error("Fork source changed while preparing; retry");
       }
+      record.title = availableSessionTitle(`Fork · ${latestSource.title}`, latest.sessions);
       record.order = nextOrderInGroup(latest.sessions, record.group);
       return { ...latest, sessions: [...latest.sessions, record] };
     });
     await input.onRegistered?.(record);
-    await launchFork(record, buildPiArgs({ extensionPath: extensionPath(), forkFrom: sourceFile }));
+    await launchFork(record, buildPiArgs({ extensionPath: extensionPath(), forkFrom: sourceFile, name: record.title }));
     return findSession(await loadRegistry(), record.id);
   } catch (error) {
     await handleForkLaunchFailure(record, error);
@@ -305,7 +311,7 @@ export async function retryForkPreparation(id: string): Promise<void> {
     const committed = await updateRegistry((latest) => {
       const current = findSession(latest, source.id);
       if (current.updatedAt !== source.updatedAt || current.forkPreparation?.id !== source.forkPreparation?.id || current.forkPreparation?.phase !== "error") throw new Error("Fork changed before retry; try again");
-      return upsertSession(latest, { ...current, forkPreparation: attempt, title: provisionalSessionTitle(current.cwd), status: "starting", workflow: undefined, error: undefined, acknowledgedAt: undefined, updatedAt: nextUpdatedAt(current.updatedAt) });
+      return upsertSession(latest, { ...current, forkPreparation: attempt, status: "starting", workflow: undefined, error: undefined, acknowledgedAt: undefined, updatedAt: nextUpdatedAt(current.updatedAt) });
     });
     const record = findSession(committed, source.id);
     try {
@@ -458,9 +464,11 @@ export async function removeSessions(sessions: ManagedSession[], path: string, e
   for (const item of sessions) await removeMultiRepoWorkspace(item, env);
   await updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.filter((item) => !ids.has(item.id)) }), path);
   for (const item of sessions) {
-    await unlink(heartbeatPath(item.id, env)).catch((error: unknown) => {
-      if (!isErrno(error, "ENOENT")) throw error;
-    });
+    for (const file of [heartbeatPath(item.id, env), nameCommandPath(item.id, env)]) {
+      await unlink(file).catch((error: unknown) => {
+        if (!isErrno(error, "ENOENT")) throw error;
+      });
+    }
   }
 }
 

@@ -1,9 +1,10 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { basename, join } from "node:path";
-import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
+import { join } from "node:path";
+import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
 import { sessionsStateDir } from "../core/paths.js";
 import { loadThemeCommand } from "../core/theme-command.js";
+import { loadNameCommand, NAME_COMMAND_TIMEOUT_MS } from "../core/name-command.js";
 import { colorFromAnsi } from "../core/theme-color.js";
 import { HEARTBEAT_INTERVAL_MS } from "../core/status.js";
 import { parseWorkflowRuntime } from "../core/heartbeat.js";
@@ -66,6 +67,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let forkPreparation: ForkPreparation | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let themeCommandTimer: ReturnType<typeof setInterval> | undefined;
+  let nameCommandTimer: ReturnType<typeof setInterval> | undefined;
   let startupHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
   let startupCompactionTimer: ReturnType<typeof setTimeout> | undefined;
   let settledHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
@@ -76,6 +78,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let heartbeatWrite: Promise<void> = Promise.resolve();
   let lastThemeRevision: string | undefined;
+  let lastNameRevision: string | undefined;
+  let acceptingNameCommands = false;
   let mcpCleanup: (() => Promise<void>) | undefined;
   let shuttingDown = false;
   const finalizers = new Set<Promise<void>>();
@@ -93,6 +97,24 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  async function applyNameCommand(ctx: PiContext): Promise<void> {
+    const id = process.env[SESSION_ID_ENV];
+    if (!id || process.env.PI_TMUX_SUBAGENTS_JOB_ID || !acceptingNameCommands) return;
+    try {
+      const command = await loadNameCommand(id);
+      if (!acceptingNameCommands || !command || command.revision === lastNameRevision
+        || command.piSessionId !== ctx.sessionManager?.getSessionId?.()
+        || command.updatedAt <= extensionStartedAt || command.updatedAt > Date.now()
+        || Date.now() - command.updatedAt >= NAME_COMMAND_TIMEOUT_MS) return;
+      lastNameRevision = command.revision;
+      if (sessionContextSnapshot(ctx)?.ticket) return;
+      pi.setSessionName(command.name);
+      await heartbeat(currentState, ctx);
+    } catch {
+      // The caller requires heartbeat confirmation and reports a timeout on failure.
     }
   }
 
@@ -248,6 +270,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     forkAttemptId = undefined;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (themeCommandTimer) clearInterval(themeCommandTimer);
+    if (nameCommandTimer) clearInterval(nameCommandTimer);
     for (const timer of startupHeartbeatTimers) clearTimeout(timer);
     startupHeartbeatTimers = [];
     if (startupCompactionTimer) clearTimeout(startupCompactionTimer);
@@ -257,8 +280,6 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     clearCompaction();
     if (startupAttemptId) {
       forkPreparation = { id: startupAttemptId, phase: "preparing", launchConfirmed: true };
-      const resetName = basename(process.env[PRIMARY_CWD_ENV] ?? "").trim() || "pi-session";
-      pi.setSessionName(resetName);
     } else {
       const restored = matchingCheckpoint(piCtx);
       if (restored && (restored.phase === "preparing" || restored.phase === "compacting")) {
@@ -273,13 +294,18 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     }
     await publishLifecycle("waiting", piCtx);
     heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
+    acceptingNameCommands = true;
+    nameCommandTimer = setInterval(() => void applyNameCommand(piCtx), THEME_COMMAND_INTERVAL_MS);
     themeCommandTimer = setInterval(() => void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined), THEME_COMMAND_INTERVAL_MS);
     startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
     if (startupAttemptId) startupCompactionTimer = setTimeout(() => void coordinateForkPreparation(piCtx, startupAttemptId).catch(() => undefined), 0);
     mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
   });
 
-  pi.on("session_info_changed", async (_event, ctx) => applyThemeAndHeartbeat(currentState, ctx as PiContext));
+  pi.on("session_info_changed", async (_event, ctx) => {
+    await applyNameCommand(ctx as PiContext);
+    await applyThemeAndHeartbeat(currentState, ctx as PiContext);
+  });
   function clearCompaction() {
     if (compactionCompleteTimer) clearTimeout(compactionCompleteTimer);
     compactionCompleteTimer = undefined;
@@ -356,6 +382,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     await heartbeat(snapshot.state, ctx as PiContext, undefined, snapshot.stateSince);
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    acceptingNameCommands = false;
     try {
       shuttingDown = true;
       if (compactionCompleteTimer) clearTimeout(compactionCompleteTimer);
@@ -363,6 +390,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
       lifecycleRevision += 1;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (themeCommandTimer) clearInterval(themeCommandTimer);
+      if (nameCommandTimer) clearInterval(nameCommandTimer);
       for (const timer of startupHeartbeatTimers) clearTimeout(timer);
       startupHeartbeatTimers = [];
       if (startupCompactionTimer) clearTimeout(startupCompactionTimer);

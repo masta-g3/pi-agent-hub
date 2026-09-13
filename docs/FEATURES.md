@@ -80,7 +80,7 @@ Ctrl+Q returns to the dashboard
 
 ## Fork and compact
 
-`Shift+F` creates a child named from its primary repo. Its row shows `Preparing fork`, then `Compacting`. Other sessions remain usable, including while Pi starts. The child becomes ready only after verified task reset and Pi-confirmed compaction. When task metadata is present, its producer must clear inherited ticket context, attention, workflow, plan, and focus state. A Pi-confirmed nothing-to-compact result also succeeds after reset. Elapsed time never implies success.
+`Shift+F` creates a child with the default fork name. Its row shows `Preparing fork`, then `Compacting`. Other sessions remain usable, including while Pi starts. The child becomes ready only after verified task reset and Pi-confirmed compaction. When task metadata is present, its producer must clear inherited ticket context, attention, workflow, plan, and focus state. A Pi-confirmed nothing-to-compact result also succeeds after reset. Elapsed time never implies success.
 
 Until ready, Hub blocks opening, pinning, sending prompts, renaming, and further forks of that child. Normal start/restart routes cannot bypass preparation. Selection, organization, `i` details, and confirmed deletion remain available. An unavailable observation keeps the child gated. These guards apply to Hub actions, not raw tmux commands.
 
@@ -205,9 +205,19 @@ While editing the form:
 | `Ctrl+O` | Open the recent-repo picker |
 | `Ctrl+T` | Toggle hub-owned worktree mode |
 
-Extra repos are symlinked into one runtime workspace. Project rows place an accented `⎇` before a worktree title and show a dim compact `⧉ N` badge after a multi-repo title; the selected-session workspace retains the full branch and compact `⧉N` repository count. The primary cwd remains the main project for skills and MCP state. Hub exports that `ManagedSession.cwd` as `PI_AGENT_HUB_PRIMARY_CWD` to every managed parent process so producer extensions can resolve project-local files when Pi runs from a multi-repo workspace or resumes fork-origin history. It never exports the workspace path or an extra repo as the primary cwd. Hub uses the primary repo basename as a provisional dashboard label until Pi publishes its canonical native session name.
+Extra repos are symlinked into one runtime workspace. Project rows place an accented `⎇` before a worktree title and show a dim compact `⧉ N` badge after a multi-repo title; the selected-session workspace retains the full branch and compact `⧉N` repository count. The primary cwd remains the main project for skills and MCP state. Hub exports that `ManagedSession.cwd` as `PI_AGENT_HUB_PRIMARY_CWD` to every managed parent process so producer extensions can resolve project-local files when Pi runs from a multi-repo workspace or resumes fork-origin history. It never exports the workspace path or an extra repo as the primary cwd.
 
 When worktree mode is enabled, the `branch` field creates the same new local branch in every selected repo. It does not control the session name.
+
+## Session names
+
+New sessions and fresh-conversation restarts use `New · <primary repository folder>`. Both fork actions use `Fork · <source session name>`. Hub adds ` · 2`, ` · 3`, etc. when the default name is already in the registry. Worktree sessions use the source repository folder, not the generated worktree folder or branch.
+
+These are initial Pi names, not permanent labels. In an unlinked session, manual or agent names replace the whole default, and resuming a saved conversation preserves its name.
+
+With the workflow runtime installed, a linked ticket owns the session name. The name identifies the task, not its current stage: manual Rename and AI naming cannot replace the ticket title, and `/session-name refresh` keeps that title. Hub disables Rename while ticket context is present. Clearing the workflow rail does not unlink the ticket.
+
+A normal Hub fork retains its ticket and can return to that ticket's title. Fork and compact clears the inherited ticket and starts with the fork name. Native Pi forks also clear the ticket; these unlinked children can be renamed without changing the original session.
 
 ## Groups and session actions
 
@@ -253,7 +263,7 @@ Worktree sessions are opt-in and hub-owned:
 <PI_AGENT_HUB_DIR>/worktrees/<repo-name>/<session-id-prefix>-<branch-slug>/
 ```
 
-New-session forms start with worktree mode off. Focus the Worktree row and press `Space`, or press `Ctrl+T` from anywhere in the form, to toggle it. Run `pi-hub config set worktree-default true` if you want every new form to start in worktree mode instead. Then enter the branch name. Hub still uses the primary repo basename as the provisional title; Pi naming is independent. If extra repo rows are present, Hub creates one worktree per repo using that same branch name, then starts Pi in the same symlink workspace shape used by normal multi-repo sessions. Workspace `.pi` points at the primary source repo's `.pi`, not a worktree, so project state does not dirty the worktree.
+New-session forms start with worktree mode off. Focus the Worktree row and press `Space`, or press `Ctrl+T` from anywhere in the form, to toggle it. Run `pi-hub config set worktree-default true` if you want every new form to start in worktree mode instead. Then enter the branch name. If extra repo rows are present, Hub creates one worktree per repo using that same branch name, then starts Pi in the same symlink workspace shape used by normal multi-repo sessions. Workspace `.pi` points at the primary source repo's `.pi`, not a worktree, so project state does not dirty the worktree.
 
 Hub gives each managed parent agent a mapping from its Hub-owned runtime worktrees to the original repositories. `pi-tmux-subagents` children receive the same mapping when they inherit the optional prompt bridge. Agents make task and setup changes only in the worktrees. When required local configuration is missing, they may inspect the original repository and copy only the required files into the matching worktree; they must not modify the original repository for task setup or copy secrets unless the task requires them. Generated multi-repo workspace instructions include the same mapping.
 

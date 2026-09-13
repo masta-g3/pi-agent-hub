@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import piAgentHubExtension from "../src/extension/index.js";
@@ -8,6 +8,8 @@ import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../src/core/worktree-context.js";
 import { heartbeatPath } from "../src/core/paths.js";
 import { publishThemeCommand } from "../src/core/theme-command.js";
+import { nameCommandPath, publishNameCommand } from "../src/core/name-command.js";
+import { writeJsonAtomic } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
 import { parseForkAttempt, parsePreparationCheckpoint } from "../src/extension/fork-preparation.js";
 
@@ -39,6 +41,76 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
 
+test("name commands apply once to the exact conversation and ignore stale, expired, or malformed requests", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-name-command-"));
+  const oldDir = process.env[STATE_ENV];
+  const oldId = process.env[SESSION_ID_ENV];
+  process.env[STATE_ENV] = root;
+  process.env[SESSION_ID_ENV] = "rename-test";
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 100_000 });
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const names: string[] = [];
+  let nativeName = "original";
+  let branch: unknown[] = [];
+  const ctx = { cwd: root, hasUI: false, sessionManager: { getSessionId: () => "conversation", getBranch: () => branch } };
+  const poll = async () => {
+    t.mock.timers.tick(1_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+  try {
+    piAgentHubExtension({
+      on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<void>) => { handlers.set(event, handler); },
+      registerTool() {},
+      getSessionName: () => nativeName,
+      setSessionName: (name: string) => { names.push(name); nativeName = name; },
+    } as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    await publishNameCommand("rename-test", "conversation", "old");
+    await poll();
+    assert.deepEqual(names, []);
+    await publishNameCommand("rename-test", "different-conversation", "wrong target");
+    await poll();
+    assert.deepEqual(names, []);
+    await publishNameCommand("rename-test", "conversation", "expired");
+    t.mock.timers.tick(6_000);
+    await poll();
+    assert.deepEqual(names, []);
+    const malformed = await publishNameCommand("rename-test", "conversation", "valid");
+    await writeJsonAtomic(nameCommandPath("rename-test"), { ...malformed, name: "bad\nname" });
+    await poll();
+    assert.deepEqual(names, []);
+    await writeJsonAtomic(nameCommandPath("rename-test"), { ...malformed, updatedAt: Date.now() + 60_000 });
+    await poll();
+    assert.deepEqual(names, []);
+    branch = [{ type: "custom", customType: "pi-agent-hub-context", data: {
+      version: 1, updatedAt: Date.now(), ticket: { id: "naming-001", subtitle: "Stable ticket names" },
+    } }];
+    await publishNameCommand("rename-test", "conversation", "Blocked Manual Name");
+    await poll();
+    assert.deepEqual(names, [], "a linked ticket must block a pending manual name command");
+    branch = [];
+    await poll();
+    assert.deepEqual(names, [], "unlinking must not replay the blocked request");
+    await publishNameCommand("rename-test", "conversation", "Canonical Name");
+    await poll();
+    assert.deepEqual(names, ["Canonical Name"]);
+    const heartbeat = JSON.parse(await readFile(heartbeatPath("rename-test"), "utf8")) as Heartbeat;
+    assert.equal(heartbeat.piSessionName, "Canonical Name");
+    nativeName = "Changed in Pi";
+    await poll();
+    assert.deepEqual(names, ["Canonical Name"]);
+    assert.equal(nativeName, "Changed in Pi");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    if (oldDir === undefined) delete process.env[STATE_ENV]; else process.env[STATE_ENV] = oldDir;
+    if (oldId === undefined) delete process.env[SESSION_ID_ENV]; else process.env[SESSION_ID_ENV] = oldId;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("compact fork waits for a matching reset receipt, persists checkpoints, and becomes ready", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-fork-compact-"));
@@ -62,7 +134,7 @@ test("compact fork waits for a matching reset receipt, persists checkpoints, and
     registerTool() {},
     appendEntry(customType: string, data: unknown) { branch.push({ type: "custom", customType, data }); },
     setSessionName(name: string) { names.push(name); },
-    getSessionName() { return names.at(-1); },
+    getSessionName() { return names.at(-1) ?? "Fork · source"; },
   };
   const ctx = {
     cwd: root, hasUI: false,
@@ -84,7 +156,8 @@ test("compact fork waits for a matching reset receipt, persists checkpoints, and
     assert.equal(heartbeat.activeMode, undefined, "inherited mode must stay hidden before reset confirmation");
     branch.push({ type: "custom", customType: "workflow-runtime-reset", data: { version: 1, id: "fork-attempt-0001", status: "ready" } });
     await waitFor(() => compactions.length === 1);
-    assert.deepEqual(names, ["example-api"]);
+    assert.deepEqual(names, [], "preserve the name initialized by --name");
+    assert.equal(pi.getSessionName(), "Fork · source");
     assert.ok((compactions[0].customInstructions?.length ?? 0) <= 500);
     heartbeat = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(heartbeat.forkPreparation?.phase, "compacting");
@@ -110,7 +183,7 @@ test("compact fork waits for a matching reset receipt, persists checkpoints, and
     };
     await handlers.get("session_start")?.({ reason: "new" }, nextCtx);
     await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.deepEqual(names, ["example-api"], "the consumed startup marker must not reset a later session");
+    assert.deepEqual(names, [], "the consumed startup marker must not reset a later session");
     assert.equal(compactions.length, 1, "the consumed startup marker must not compact a later session");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);

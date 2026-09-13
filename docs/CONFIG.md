@@ -25,7 +25,7 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 
 A Pi extension can append a latest-snapshot custom entry with `customType: "pi-agent-hub-context"`. Version 1 accepts a bounded ticket id, optional subtitle and description, and optional explicit `ready`, `question`, or `blocked` attention. Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
 
-Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`. Hub uses the primary repo basename as a provisional label, then caches each nonblank heartbeat name. `R` sends exact `/name <text>` to a live Pi session. `N` remains manual recovery from persisted Pi `session_info`.
+Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`; Hub caches each nonblank heartbeat name. See [Session names](FEATURES.md#session-names) for initial names and ticket ownership. `R` renames an unlinked live session without submitting its editor contents. `N` reads the saved Pi name from `session_info`; it does not generate a new name.
 
 If generic context and workflow runtime contain different ticket ids, Hub keeps the workflow ticket id and suppresses context subtitle/description. Attention stays independent and appears only on waiting/idle rows.
 

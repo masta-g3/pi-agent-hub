@@ -493,6 +493,7 @@ function renameAvailability(session: RuntimeSession, input: DashboardCommandInpu
   const main = mainAvailability(session);
   if (!main.enabled) return main;
   if (!isLive(session)) return disabled("restart the Pi session before renaming");
+  if (session.context?.ticket) return disabled("linked ticket owns the session name");
   return input.capabilities?.renameSession === true ? enabled() : disabled("rename transport unavailable");
 }
 

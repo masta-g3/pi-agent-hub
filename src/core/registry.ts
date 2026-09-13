@@ -71,7 +71,14 @@ export function createSessionRecord(input: NewSessionInput): ManagedSession {
 }
 
 export function provisionalSessionTitle(cwd: string): string {
-  return basename(resolve(cwd)) || "pi-session";
+  return `New · ${basename(resolve(cwd)) || "pi-session"}`;
+}
+
+export function availableSessionTitle(base: string, sessions: readonly Pick<ManagedSession, "title">[]): string {
+  const titles = new Set(sessions.map((session) => session.title));
+  let title = base;
+  for (let suffix = 2; titles.has(title); suffix += 1) title = `${base} · ${suffix}`;
+  return title;
 }
 
 export function normalizeGroup(group: string | undefined): string {

@@ -121,6 +121,17 @@ test("slot commands assign exact free destinations and name occupied conflicts",
   assert.equal(commands(emptyPinState).find((item) => item.id === "action:alpha:slot-3")?.disabledReason, "slot 3 needs 160 columns");
 });
 
+test("linked ticket context disables manual rename with the naming owner reason", () => {
+  const linked = session("linked", {
+    context: { version: 1, updatedAt: 2, ticket: { id: "naming-001", subtitle: "Stable ticket names" } },
+  });
+  const rename = buildDashboardCommands({ sessions: [linked], selectedId: linked.id, capabilities: allCapabilities })
+    .find((command) => command.id === "action:linked:rename");
+
+  assert.equal(rename?.enabled, false);
+  assert.equal(rename?.disabledReason, "linked ticket owns the session name");
+});
+
 test("selected action availability mirrors row and capability guards with reasons", () => {
   const stopped = session("stopped", { status: "stopped" });
   const commands = buildDashboardCommands({ sessions: [stopped], selectedId: stopped.id, capabilities: {} });
