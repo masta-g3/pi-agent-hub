@@ -37,6 +37,14 @@ npm run package:check
 
 Do not run these concurrently: both rebuild `dist`. If the linked Hub is in use, run `npm run typecheck` without rebuilding it. For tests, compile with `tsc -p tsconfig.json --outDir <temporary-directory>`, link that directory's `node_modules` to the checkout, add a `package.json` containing `{"type":"module"}`, and run its emitted `test/*.test.js` files. Remove the temporary directory afterward. Direct Node TypeScript execution does not resolve this repo's `.js` source imports.
 
+## Feature-only installation
+
+Before installing from a dirty checkout, confirm which changes the user approved. The working-tree diff can include unrelated work or reversions of shipped behavior; a passing build alone does not make that whole diff safe to install.
+
+For a feature-only install, use temporary staging from an agreed committed baseline plus the reviewed patch. From inside that directory, run `npm ci --ignore-scripts` with its own lockfile, then test and pack it. Do not mix dependencies from the installed package and another checkout. Install the tested tarball rather than linking the dirty checkout. Keep the exact patch and validation evidence under the ticket's `agent-work/` directory until closeout; remove temporary staging afterward.
+
+Installation does not reload an already running dashboard. Quit that dashboard with `q`, then run `pi-hub` to load the installed code; managed Pi sessions remain running.
+
 ## Git hooks
 
 This repo includes lightweight local hooks in `.githooks/`:

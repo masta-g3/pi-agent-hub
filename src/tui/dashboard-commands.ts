@@ -69,6 +69,7 @@ export interface DashboardCommandInput {
   selectedId?: string;
   filter?: string;
   grouping?: "project" | "stage";
+  fleetGrouping?: "status" | "repo";
   configuredShortcuts?: readonly DashboardShortcut[];
   capabilities?: DashboardCommandCapabilities;
   pinState?: DashboardPinState;
@@ -279,7 +280,7 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
   if (width < 60) return ["↑↓", item("/", "Filter"), item("b", "Backlog"), palette, help].join(" · ");
   const filter = item("/", "Filter");
   if (width < 100) return ["↑↓ Move", openItem, filter, item("b", "Backlog"), palette, help].join(" · ");
-  return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, item("b", "Backlog"), fromView("view:grouping", "Board"), palette, help].join(" · ");
+  return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, item("b", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"), palette, help].join(" · ");
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
@@ -398,7 +399,18 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
     makeCommand({ id: "view:theme", group: "views", label: "Theme…", hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
-    makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle project and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board project stage grouping view" }),
+    makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),
+    makeCommand({
+      id: "view:fleet-grouping",
+      group: "views",
+      label: input.fleetGrouping === "repo" ? "Group fleet by status" : "Group fleet by repo",
+      hint: "toggle status-first and repo-first fleet grouping",
+      displayKey: "v",
+      bindings: [{ key: "v" }],
+      enabled: input.grouping !== "stage",
+      disabledReason: input.grouping === "stage" ? "return to the fleet first" : undefined,
+      searchText: "v fleet group grouping status repo repository view",
+    }),
     makeCommand({
       id: "view:backlog",
       group: "views",
@@ -583,6 +595,7 @@ function reorderAvailability(session: RuntimeSession, input: DashboardCommandInp
   const main = mainAvailability(session);
   if (!main.enabled) return main;
   if (input.grouping === "stage") return disabled("switch to project grouping to reorder");
+  if (input.fleetGrouping === "repo") return disabled("switch to Status grouping to reorder");
   if (input.filter !== undefined) return disabled("clear filter to reorder");
   if (session.bucket === "archived") return disabled("Archived is sorted by archive time");
   return enabled();

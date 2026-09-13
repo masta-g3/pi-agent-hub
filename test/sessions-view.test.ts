@@ -439,7 +439,7 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Enter\/double-click opens or switches directly at every width/);
   assert.doesNotMatch(help, /Density|compact and all-card/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
-  assert.match(help, /Project view: Needs you · Health · Active · Quiet/);
+  assert.match(help, /Status fleet: Needs you · Health · Active · Quiet/);
   assert.match(help, /only explicit producer attention enters Needs you/);
   assert.match(help, /Archived is flat and chronological/);
   assert.match(help, /Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE/);
@@ -728,6 +728,147 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
 });
 
+test("v toggles repo fleet grouping and S retains it across the workflow board", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("a", "api"), cwd: "/repos/api", workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } },
+  ] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, { saveViewState: (state) => saved.push(state) });
+
+  view.handleInput("v");
+  assert.equal((view as unknown as { fleetGrouping: string }).fleetGrouping, "repo");
+  assert.deepEqual(saved.at(-1), { grouping: "project", fleetGrouping: "repo" });
+
+  view.handleInput("S");
+  view.handleInput("v");
+  assert.equal((view as unknown as { fleetGrouping: string }).fleetGrouping, "repo", "v is inert on the board");
+  assert.match(view.render(120).join("\n"), /return to the fleet first/);
+  view.handleInput("S");
+  assert.equal((view as unknown as { fleetGrouping: string }).fleetGrouping, "repo");
+});
+
+test("view switches retain the exact selected descendant and folded repo reveals", () => {
+  const parent = { ...session("parent", "Parent"), cwd: "/repos/api", status: "running" as const };
+  const child = { ...session("child", "Child"), kind: "subagent" as const, parentId: "parent", agentName: "worker", status: "running" as const };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+  view.render(100);
+  view.handleInput("v");
+  view.handleInput("\u001b[C");
+  controller.selectSession("child");
+  view.render(100);
+  view.handleInput("S");
+  view.render(100);
+  assert.equal(controller.snapshot().selectedId, "child");
+  const state = view as unknown as { collapsedRepos: Set<string>; rowTargets: ({ kind: string; id?: string } | undefined)[] };
+  assert.ok(state.rowTargets.some((target) => target?.kind === "session" && target.id === "child"));
+  state.collapsedRepos.add("/repos/api");
+  view.handleInput("S");
+  view.render(100);
+  assert.equal(controller.snapshot().selectedId, "child");
+  assert.ok(state.rowTargets.some((target) => target?.kind === "session" && target.id === "child"));
+  assert.ok(state.collapsedRepos.has("/repos/api"));
+});
+
+test("repo filters preserve other folds and removed selections repair to remaining headers", () => {
+  const alpha = { ...session("alpha", "Alpha"), cwd: "/repos/alpha" };
+  const beta = { ...session("beta", "Beta"), cwd: "/repos/beta" };
+  const controller = new SessionsController({ version: 1, sessions: [alpha, beta] });
+  const view = new SessionsView(controller, () => {}, { initialViewState: { grouping: "project", fleetGrouping: "repo" } });
+  const state = view as unknown as { collapsedRepos: Set<string>; selectedRepo?: string };
+  state.collapsedRepos.add("/repos/alpha");
+  state.collapsedRepos.add("/repos/beta");
+  state.selectedRepo = "/repos/alpha";
+  controller.setFilter("Alpha");
+  view.render(100);
+  assert.ok(state.collapsedRepos.has("/repos/beta"));
+  controller.setFilter(undefined);
+  (controller as unknown as { registry: { version: 1; sessions: ManagedSession[] } }).registry = { version: 1, sessions: [beta] };
+  view.render(100);
+  assert.equal(state.selectedRepo, "/repos/beta");
+  assert.ok(!state.collapsedRepos.has("/repos/alpha"));
+});
+
+test("repo headers cannot open a stale session workspace or refresh its evidence", () => {
+  const controller = new SessionsController({ version: 1, sessions: [{ ...session("api", "API"), cwd: "/repos/api" }] });
+  let refreshes = 0;
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", fleetGrouping: "repo" },
+    refreshStatusEvidence: async () => { refreshes += 1; },
+  });
+  const state = view as unknown as { selectedRepo?: string; workspaceSessionId?: string; workspaceEvidenceSessionId?: string };
+  state.selectedRepo = "/repos/api";
+  view.render(60);
+  view.handleInput("i");
+  view.render(60);
+  assert.equal(refreshes, 0);
+  assert.equal(state.workspaceSessionId, undefined);
+  assert.equal(state.workspaceEvidenceSessionId, undefined);
+  view.handleInput("j");
+  assert.equal(state.selectedRepo, undefined);
+});
+
+test("mouse selection of archive disclosure clears the previous repo target", () => {
+  const active = { ...session("api", "API"), cwd: "/repos/api" };
+  const rows = Array.from({ length: 7 }, (_, index) => ({ ...session(`old-${index}`, `Old ${index}`),
+    cwd: "/repos/api", bucket: "archived" as const, bucketChangedAt: index + 1 }));
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [active, ...rows] }), () => {}, {
+    initialViewState: { grouping: "project", fleetGrouping: "repo" }, terminalRows: () => 50,
+  });
+  const state = view as unknown as { selectedRepo?: string; archiveExpanded: boolean; listStartX: number; rowTargets: ({ kind: string } | undefined)[] };
+  state.selectedRepo = "/repos/api";
+  view.render(100);
+  const row = state.rowTargets.findIndex((target) => target?.kind === "archive-disclosure");
+  assert.ok(row >= 0);
+  view.handleInput(`\u001b[<0;${state.listStartX + 1};${row + 1}M`);
+  assert.equal(state.selectedRepo, undefined);
+  view.handleInput("\r");
+  assert.equal(state.archiveExpanded, true);
+});
+
+test("repo archive reveal does not create invisible disclosure keyboard targets", () => {
+  const rows = Array.from({ length: 7 }, (_, index) => ({ ...session(`old-${index}`, `Old ${index}`),
+    cwd: "/repos/api", bucket: "archived" as const, bucketChangedAt: index + 1 }));
+  const controller = new SessionsController({ version: 1, sessions: rows });
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", fleetGrouping: "repo", collapsedSections: ["archived"] },
+    terminalRows: () => 40,
+  });
+  view.revealSession("old-0");
+  view.render(100);
+  const state = view as unknown as { rowTargets: ({ kind: string; id?: string } | undefined)[]; visibleListTargets(): { kind: string; id?: string }[] };
+  assert.ok(state.rowTargets.some((target) => target?.kind === "session" && target.id === "old-0"));
+  assert.equal(state.visibleListTargets().some((target) => target.kind === "archive-disclosure"),
+    state.rowTargets.some((target) => target?.kind === "archive-disclosure"));
+});
+
+test("repo headers select without folding and Enter toggles the exact repo", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("api", "API session"), cwd: "/repos/api" },
+    { ...session("docs", "Docs session"), cwd: "/repos/docs" },
+  ] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+  view.handleInput("v");
+  const rendered = view.render(100);
+  const header = rendered.findIndex((line) => stripAnsi(line).includes("▾ api"));
+  assert.ok(header >= 0);
+
+  view.handleInput(mousePressAtLine(header, 4));
+  assert.equal((view as unknown as { selectedRepo?: string }).selectedRepo, "/repos/api");
+  assert.match(stripAnsi(view.render(100).join("\n")), /API session/);
+
+  view.handleInput("\r");
+  const collapsed = view.render(100);
+  assert.doesNotMatch(stripAnsi(collapsed.join("\n")), /API session/);
+  assert.equal(controller.snapshot().selectedId, "api", "folding a repo does not retarget the stale session identity");
+
+  const collapsedHeader = collapsed.findIndex((line) => stripAnsi(line).includes("▸ api"));
+  view.handleInput(mousePressAtLine(collapsedHeader, 4));
+  view.handleInput(mousePressAtLine(collapsedHeader, 4));
+  assert.match(stripAnsi(view.render(100).join("\n")), /API session/, "double-click expands the exact repo");
+});
+
+
 test("Space expands and collapses the selected board parent tree", () => {
   const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
@@ -937,18 +1078,6 @@ test("reorder is disabled in stage grouping", () => {
 
   assert.deepEqual(deltas, []);
   assert.match(view.render(120).join("\n"), /switch to project grouping to reorder/);
-});
-
-test("v has no built-in view behavior or persisted state", () => {
-  const saved: SessionsViewState[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, {
-    saveViewState: (state) => { saved.push(state); },
-  });
-
-  view.handleInput("v");
-
-  assert.deepEqual(saved, []);
 });
 
 test("view state saves preserve onboarding and release cue fields", () => {
@@ -1909,7 +2038,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌│ .*session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌\s+·\s+○ session-12 \[default\]/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog is clipped with a resize marker", () => {
@@ -3097,7 +3226,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌│ ·\s+○ api/);
+  assert.match(prompt, /▌\s+·\s+○ api \[default\]/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;
@@ -3903,16 +4032,16 @@ test("palette shows blocked actions with reasons and does not execute them", () 
   assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
 });
 
-test("palette and direct v execute configured dashboard shortcuts", () => {
+test("palette and direct configured keys execute dashboard shortcuts", () => {
   const sent: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "v", label: "Verify", send: "/verify" }],
+    dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "z", label: "Verify", send: "/verify" }],
     runDashboardShortcut: (id, shortcut) => { sent.push(`${id}:${shortcut.send}`); },
     terminalRows: () => 30,
   });
 
   view.render(100);
-  view.handleInput("v");
+  view.handleInput("z");
   view.handleInput(":");
   for (const char of "summarize") view.handleInput(char);
   view.handleInput("\r");

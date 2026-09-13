@@ -52,7 +52,8 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `p` | Send a one-line message to the selected live session without opening it |
 | `?` | Show help and status legend |
 | `i` | Explain the selected session's runtime status and cockpit placement |
-| `S` | Toggle the project cockpit ↔ read-only workflow board |
+| `v` | Toggle Status ↔ Repo grouping in the fleet |
+| `S` | Open the read-only workflow board or return to the chosen fleet grouping |
 | `q` | Quit the dashboard |
 | `r` | Open restart choices (`r` selected, `n` new conversation, `a` all active sessions) |
 | `R` | Rename the selected session |
@@ -66,7 +67,7 @@ Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the f
 | `↑↓` / `j` / `k` | Move selection |
 | `←` / `→` | Collapse or expand the selected subagent tree; add Shift for all trees |
 | `g` / `G` | Move a session to a group (Ctrl+N/P cycles visible groups) or rename its group |
-| `K` / `J` | Move the selected Active/Backlog session up/down within its group |
+| `K` / `J` | Move the selected Active/Backlog session within its group in Status view |
 | `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
 | Click / double-click | Select / open or switch the session directly at every width |
 
@@ -74,7 +75,9 @@ Fork and compact gates only the new child until task reset and compaction finish
 
 New sessions start as `New · repository`; forks start as `Fork · source name`. Duplicate defaults get ` · 2`, ` · 3`, etc. Later task names replace these defaults; linked ticket names take priority. See [Session names](docs/FEATURES.md#session-names).
 
-The default project cockpit shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. A hidden child request instead adds `?N child` to its tier and `?N` to its owning row whenever the request row is absent from the visible projection; each count disappears when that request row becomes visible. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Groups and Backlog appear as row metadata, while Archived remains the only collapsible project section.
+The default Status view shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. A hidden child request instead adds `?N child` to its tier and `?N` to its owning row whenever the request row is absent from the visible projection; each count disappears when that request row becomes visible. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Backlog appears as row metadata; each parent shows its group only in the title badge. HEALTH, ACTIVE, QUIET and ARCHIVED can collapse; NEEDS YOU stays expanded.
+
+Parent-session titles carry the chosen `[group]` badge once, immediately after the title. Press `v` for alphabetical repo sections with flat session lists, or press it again for Status view. Single-click selects a repo header; `Enter` or double-click folds it. Repo grouping still uses the actual primary source path: worktrees stay with their source repo and multi-repo sessions stay under their primary repo. The selected-session action workspace shows the actual repository. See [Repo grouping](docs/FEATURES.md#repo-grouping) for ordering, counts and disclosure behavior.
 
 A fresh producer request with a request ID adds one six-second band below the cockpit header and a focus-aware tmux message. Click the band or choose **Locate newest request** from `:` to reveal its exact session without opening or acknowledging it. The optional **Attention bell** toggle also lives in `:` and defaults to Off.
 
@@ -88,9 +91,9 @@ Press `i` to append `LIVE DETAILS` in the same workspace: useful tmux, heartbeat
 
 Press `:` to search the same actions exposed by direct keys, jump to sessions through bounded title/group/project/task/ticket/attention/workflow context, or apply named lifecycle, status, and group filters. Unavailable actions remain visible with a reason. Selecting a session only reveals and selects its current row in Hub; it does not attach, restart, or mark it read. `/` remains the fast free-text fleet filter, and `?` remains direct Help.
 
-The cockpit uses one adaptive hierarchy whose card richness is derived per render, not saved as a view setting. Active parent sessions gain bounded request, ticket, and group continuation lines as space permits; Backlog and Archived parents remain single-line, and subagents use compact micro rows. At 100+ columns, rich project and board trees use a `│`/`└` gutter. The whole visible owner tree receives the selection background, while `▌` still identifies the exact keyboard and action target. At the right edge of Active parent rows, hidden requests survive width pressure longest, followed by active descendants, workflow, and age; Backlog and Archived retain their lifecycle-specific tails. A mouse-only five-tier navigator shows presentation-owner counts and jumps to the first visible owner without entering keyboard session order. It is hidden in the workflow board, pin mode, narrow layouts, and full-screen workspace.
+The cockpit uses one adaptive hierarchy whose card richness is derived per render, not saved as a view setting. Active parent sessions gain bounded request and ticket continuation lines as space permits; Backlog and Archived parents remain single-line, and subagents use compact micro rows. At 100+ columns, rich project and board trees use a `│`/`└` gutter. The whole visible owner tree receives the selection background, while `▌` still identifies the exact keyboard and action target. At the right edge of Active parent rows, hidden requests survive width pressure longest, followed by active descendants, workflow, and age; Backlog and Archived retain their lifecycle-specific tails. A mouse-only five-tier navigator shows presentation-owner counts and jumps to the first visible owner without entering keyboard session order. It is shown only in Status view and hidden in Repo view, the workflow board, pin mode, narrow layouts, and full-screen workspace.
 
-`S` switches to the read-only workflow board, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. At 100+ columns, board cards add producer activity and an eight-cell `■`/`□` plan bar when valid progress exists; narrow boards keep one-line cards. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in both views: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow facts separate from exceptional Hub guidance.
+`S` switches between the chosen fleet grouping and the read-only workflow board, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. At 100+ columns, board cards add producer activity and an eight-cell `■`/`□` plan bar when valid progress exists; narrow boards keep one-line cards. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in the fleet and board: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow facts separate from exceptional Hub guidance.
 
 ## Install
 

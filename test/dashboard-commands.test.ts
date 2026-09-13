@@ -49,10 +49,9 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   for (const binding of [
     "Enter", "C-m", "C-j", "r", "p", "R", "e", "N", "M-n", "f", "F", "g", "G", "A", "B", "b", "U",
     "d", "w", "s", "m", "P", "1", "2", "3", "4", "x", "+", "-", "i", "a", "K", "Shift+Up", "J", "Shift+Down",
-    "/", "n", "t", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
+    "/", "n", "t", "v", "S", ":", "?", "q", "M-1", "M-2", "M-3", "M-4",
   ]) assert.ok(catalogBindings.has(binding), `missing binding ${binding}`);
   assert.equal(commands.some((command) => command.id === "view:density"), false);
-  assert.equal(catalogBindings.has("v"), false);
 });
 
 test("Backlog visibility is a catalog-owned toggle distinct from moving a session", () => {
@@ -337,6 +336,30 @@ test("unknown preparation status stays gated and keeps Details as guidance ancho
   assert.equal(workspace.guidance, "Fork preparation status is unavailable.");
   assert.equal(workspace.actions[0]?.id, "action:unknown:info");
 });
+
+test("fleet grouping command uses v and is disabled on the workflow board", () => {
+  const fleet = buildDashboardCommands({ sessions: [], grouping: "project", fleetGrouping: "status" });
+  const toggle = fleet.find((command) => command.id === "view:fleet-grouping");
+  assert.equal(toggle?.displayKey, "v");
+  assert.equal(toggle?.label, "Group fleet by repo");
+  assert.equal(toggle?.enabled, true);
+  assert.equal(commandForKey(fleet, "v")?.id, "view:fleet-grouping");
+
+  const repo = buildDashboardCommands({ sessions: [], grouping: "project", fleetGrouping: "repo" });
+  assert.equal(repo.find((command) => command.id === "view:fleet-grouping")?.label, "Group fleet by status");
+
+  const board = buildDashboardCommands({ sessions: [], grouping: "stage", fleetGrouping: "repo" });
+  const disabled = board.find((command) => command.id === "view:fleet-grouping");
+  assert.equal(disabled?.enabled, false);
+  assert.equal(disabled?.disabledReason, "return to the fleet first");
+});
+
+test("repo fleet disables manual session reorder", () => {
+  const selected = session("alpha");
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, grouping: "project", fleetGrouping: "repo" });
+  assert.equal(commands.find((command) => command.id === "action:alpha:reorder-up")?.disabledReason, "switch to Status grouping to reorder");
+});
+
 
 test("session search composes bounded matchesFilter context and preserves fleet order", () => {
   const previewOnly = session("preview", { title: "Plain", resultSummary: "secret pane output" });

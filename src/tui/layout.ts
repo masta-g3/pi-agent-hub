@@ -12,6 +12,7 @@ export type SessionListTarget =
   | { kind: "session-continuation"; id: string }
   | { kind: "archive-disclosure" }
   | { kind: "release-cue" }
+  | { kind: "repo-header"; repoKey: string }
   | { kind: "section-header"; section: "health" | "active" | "quiet" | "archived" };
 
 export interface TierNavigatorTarget {
@@ -65,7 +66,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceWidth = model.showWorkspace || (!model.pinMode && syntheticSelection && width >= 120)
     ? (width >= 160 ? 44 : 34)
     : 0;
-  const navigatorWidth = model.grouping === "project" && !model.pinMode && width >= 100 ? (width >= 120 ? 17 : 16) : 0;
+  const navigatorWidth = model.grouping === "project" && model.fleetGrouping === "status" && !model.pinMode && width >= 100 ? (width >= 120 ? 17 : 16) : 0;
   const listWidth = bodyWidth
     - workspaceWidth - (workspaceWidth ? 1 : 0)
     - navigatorWidth - (navigatorWidth ? 1 : 0);
@@ -461,7 +462,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       ? !siblings.slice(index + 1).some((candidate) => candidate.kind === "subagent" && candidate.parentId === session.parentId)
       : false;
     const gutterColumn = model.width >= 100 && !model.pinMode;
-    pushLine(renderSessionRow(session, width, styles, { board, terminalWidth: model.width, childLast, gutterColumn }), { kind: "session", id: session.id }, session);
+    pushLine(renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn }), { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
     if (shape === "full-parent" && !model.pinMode) {
       for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width)) {
@@ -492,21 +493,30 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     if (!firstSection) pushLine("");
     const headingRight = board
       ? styles.dim(`·${section.sessionsTotal}`)
-      : [
-        cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`),
-        ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
-      ].join(styles.border(" · "));
+      : section.repoKey
+        ? [
+          styles.dim(section.sessionsVisible !== undefined && section.sessionsVisible !== section.sessionsTotal
+            ? `${section.sessionsVisible}/${section.sessionsTotal}` : `·${section.sessionsTotal}`),
+          ...(section.ownerAttentionCount ? [styles.warning(`${section.ownerAttentionCount} needs you`)] : []),
+          ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
+        ].join(styles.border(" · "))
+        : [
+          cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`),
+          ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
+        ].join(styles.border(" · "));
     const sectionHeadingIndex = lines.length;
-    const headerTarget = section.collapsible && section.cockpitTier && section.cockpitTier !== "needs-you"
-      ? { kind: "section-header" as const, section: section.cockpitTier }
-      : undefined;
+    const headerTarget = section.repoKey
+      ? { kind: "repo-header" as const, repoKey: section.repoKey }
+      : section.collapsible && section.cockpitTier && section.cockpitTier !== "needs-you"
+        ? { kind: "section-header" as const, section: section.cockpitTier }
+        : undefined;
     if (section.selected) {
       selectedIndex = lines.length;
       selectedEndIndex = lines.length;
     }
     const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
     pushLine(
-      sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier),
+      sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -879,11 +889,8 @@ function adaptiveCardLines(
     const text = session.attention ? `“${summary}”` : summary;
     lines.push({ line: styles.muted(truncate(text, width)), priority: 0 });
   }
-  if (terminalWidth >= 80) {
-    const meta = [session.ticketId ? `#${session.ticketId}` : "", terminalWidth >= 100 ? session.group : ""]
-      .filter(Boolean)
-      .join(styles.border(" · "));
-    if (meta) lines.push({ line: styles.dim(truncate(meta, width)), priority: 2 });
+  if (terminalWidth >= 80 && session.ticketId) {
+    lines.push({ line: styles.dim(truncate(`#${session.ticketId}`, width)), priority: 2 });
   }
   return lines;
 }
@@ -919,7 +926,7 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   });
   const meta = [
     session.ticketId ? `#${session.ticketId}` : undefined,
-    session.group,
+    session.repoLabel,
     session.repoCount > 1 ? `⧉${session.repoCount}` : undefined,
     session.worktreeBranch ? `⎇ ${session.worktreeBranch}` : undefined,
     session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
@@ -1096,7 +1103,7 @@ function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
   return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
 }
 
-function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, width: number, terminalWidth: number): string {
+function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, repoMode: boolean, width: number, terminalWidth: number): string {
   if (session.kind === "subagent") return "";
   const operation = operationAdornment(session, styles, width);
   if (operation) return operation;
@@ -1126,10 +1133,14 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     const archived = styles.dim(session.archivedAge);
     return [join([hidden, archived]), hidden, archived].find(fits) ?? "";
   }
+  if (repoMode) {
+    const label = cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]);
+    const lifecycle = session.section === "backlog" ? styles.muted("backlog") : "";
+    return [...hierarchy([lifecycle, label, ...(full ? [full] : [])]), label].find(fits) ?? "";
+  }
   if (session.section === "backlog") {
     const backlog = styles.muted("backlog");
-    const group = terminalWidth >= 100 ? styles.dim(session.group) : "";
-    return [join([hidden, backlog, quiet, group]), join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
+    return [join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
   return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
 }
@@ -1248,11 +1259,20 @@ function cockpitTone(tier: CockpitTier | undefined, styles: LayoutStyles): (text
   return tier ? styles.muted : styles.border;
 }
 
-function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier): string {
-  const tone = cockpitTone(tier, styles);
+const COCKPIT_ROW_LABELS: Record<CockpitTier, string> = {
+  "needs-you": "NEEDS YOU",
+  health: "HEALTH",
+  active: "ACTIVE",
+  quiet: "QUIET",
+  archived: "ARCHIVED",
+};
+
+function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier, repo = false): string {
+  const tone = repo ? styles.text : cockpitTone(tier, styles);
+  const disclosureTone = repo ? styles.accent : tone;
   const prefix = collapsed === undefined
     ? tone("──")
-    : `${selected ? styles.accent("▌") : tone("─")}${tone(collapsed ? "▸" : "▾")}`;
+    : `${selected ? styles.accent("▌") : tone("─")}${disclosureTone(collapsed ? "▸" : "▾")}`;
   return twoColumn(`${prefix}${tone(` ${title} `)}`, right, width);
 }
 
@@ -1264,6 +1284,7 @@ function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], s
 
 interface SessionRowOptions {
   board: boolean;
+  repoMode: boolean;
   terminalWidth: number;
   childLast: boolean;
   gutterColumn: boolean;
@@ -1294,16 +1315,28 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     ? styles.accent(session.boardExpanded ? "▾" : "▸")
     : styles.dim("·");
   const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
-  const worktree = !options.board && session.worktreeBranch ? styles.accent("⎇ ") : "";
-  const repo = !options.board && options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
-  const suffix = repo;
+  const worktree = session.worktreeBranch ? styles.accent("⎇ ") : "";
+  const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
+  const badgeBudget = Math.min(options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
+  const badge = ` ${renderGroupBadge(session.group, badgeBudget, styles)}`;
+  const suffix = `${badge}${repoCount}`;
   const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix));
-  const right = rowRightAdornment(session, styles, options.board, rightWidthBase, options.terminalWidth);
+  const right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;
-  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix) - rightSpace);
+  const minimumTitle = Math.min(8, Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - 4));
+  const availableSuffix = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - minimumTitle - rightSpace);
+  const fittedBadgeWidth = Math.min(badgeBudget, Math.max(0, availableSuffix - 1));
+  const fittedBadge = fittedBadgeWidth >= 3 ? ` ${renderGroupBadge(session.group, fittedBadgeWidth, styles)}` : "";
+  const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableSuffix ? repoCount : "";
+  const fittedSuffix = `${fittedBadge}${fittedCount}`;
+  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedSuffix) - rightSpace);
   const title = styles.text(truncate(session.title, titleWidth));
-  const left = `${prefix}${worktree}${title}${suffix}`;
+  const left = `${prefix}${worktree}${title}${fittedSuffix}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
+}
+
+function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {
+  return `${styles.accent("[")}${styles.text(truncate(group, width - 2))}${styles.accent("]")}`;
 }
 
 export interface FormField {

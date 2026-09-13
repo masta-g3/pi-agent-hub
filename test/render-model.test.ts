@@ -200,6 +200,169 @@ test("release cue is version-scoped and never co-renders with coaching", () => {
   assert.equal(coached.guidance.releaseCue, undefined);
 });
 
+test("repo identity uses primary source paths and disambiguates duplicate basenames across the full fleet", () => {
+  const sessions = [
+    { ...session("plain", "default", "idle", "Plain"), cwd: "/work/alpha/api", additionalCwds: ["/work/extra"] },
+    { ...session("duplicate", "default", "running", "Duplicate"), cwd: "/other/beta/api" },
+    { ...session("worktree", "default", "idle", "Worktree"), cwd: "/state/worktrees/api", worktrees: [{ path: "/state/worktrees/api", repoRoot: "/source/product", branch: "feature/x", baseBranch: "main", role: "primary" as const }] },
+    { ...session("legacy", "default", "idle", "Legacy"), cwd: "/state/legacy", worktreePath: "/state/legacy", worktreeRepoRoot: "/source/legacy-product", worktreeBranch: "legacy", worktreeBaseBranch: "main", worktreeOwnedByHub: true },
+    { ...session("root", "default", "idle", "Root"), cwd: "/" },
+  ];
+  const model = buildRenderModel({ sessions, width: 120 });
+  const rows = new Map(modelRows(model).map((row) => [row.id, row]));
+
+  assert.equal(rows.get("plain")?.repoKey, "/work/alpha/api");
+  assert.equal(rows.get("worktree")?.repoKey, "/source/product");
+  assert.equal(rows.get("legacy")?.repoKey, "/source/legacy-product");
+  assert.equal(rows.get("root")?.repoLabel, "/");
+  assert.notEqual(rows.get("plain")?.repoLabel, rows.get("duplicate")?.repoLabel);
+  assert.match(rows.get("plain")?.repoLabel ?? "", /api/);
+  assert.match(rows.get("duplicate")?.repoLabel ?? "", /api/);
+});
+
+test("repo fleet sections are alphabetical, flat, collapsible, and retain a separate archive", () => {
+  const attention = { version: 1 as const, updatedAt: 2, attention: { requestId: "r1", kind: "question" as const, text: "Choose" } };
+  const sessions = [
+    { ...session("z-quiet", "one", "idle", "Z quiet"), cwd: "/repos/zeta" },
+    { ...session("a-active", "two", "running", "A active"), cwd: "/repos/alpha" },
+    { ...session("a-needs", "three", "waiting", "A needs"), cwd: "/repos/alpha", context: attention },
+    { ...session("a-child", "different", "idle", "child"), cwd: "/elsewhere", kind: "subagent" as const, parentId: "a-active", context: { ...attention, attention: { ...attention.attention, requestId: "child" } } },
+    { ...session("archived", "four", "stopped", "Old"), cwd: "/repos/alpha", bucket: "archived" as const, bucketChangedAt: 1 },
+  ];
+  const model = buildRenderModel({ sessions, width: 100, fleetGrouping: "repo", expandedProjectParentIds: new Set(["a-active"]) });
+
+  assert.deepEqual(model.sections.map((section) => section.title), ["alpha", "zeta", "ARCHIVED"]);
+  assert.deepEqual(model.sections[0]?.groups.map((group) => group.name), [""]);
+  assert.deepEqual(model.sections[0]?.groups[0]?.sessions.map((row) => row.id), ["a-needs", "a-active", "a-child"]);
+  assert.equal(model.sections[0]?.sessionsTotal, 2);
+  assert.equal(model.sections[0]?.ownerAttentionCount, 1);
+  assert.equal(model.sections[0]?.hiddenChildRequestCount, 0);
+  assert.equal(model.cockpitNavigation.length, 5);
+
+  const key = model.sections[0]?.repoKey;
+  assert.ok(key);
+  const collapsed = buildRenderModel({ sessions, width: 100, fleetGrouping: "repo", collapsedRepos: new Set([key!]), selectedRepo: key });
+  assert.equal(collapsed.sections[0]?.collapsed, true);
+  assert.equal(collapsed.sections[0]?.groups.length, 0);
+  assert.equal(collapsed.sections[0]?.hiddenChildRequestCount, 1);
+  const layout = renderSessions(collapsed);
+  assert.ok(layout.rowTargets.some((target) => target?.kind === "repo-header" && target.repoKey === key));
+  assert.equal(layout.navigatorWidth, 0);
+  const expandedText = renderSessions(model).lines.map(stripAnsi);
+  assert.doesNotMatch(expandedText.find((line) => line.includes("child")) ?? "", /\[[^\]]+\]/);
+});
+
+test("repo projection preserves health order, Backlog, and unresolved ancestry without duplicates", () => {
+  const rows = [
+    { ...session("quiet", "z", "idle"), cwd: "/repo/app" },
+    { ...session("active", "a", "running"), cwd: "/repo/app" },
+    { ...session("error", "z", "error"), cwd: "/repo/app" },
+    { ...session("backlog", "a", "idle"), cwd: "/repo/app", bucket: "backlog" as const },
+    { ...session("orphan", "a", "idle"), cwd: "/repo/orphan", kind: "subagent" as const, parentId: "missing" },
+    { ...session("cycle-a", "a", "idle"), cwd: "/repo/cycle", kind: "subagent" as const, parentId: "cycle-b" },
+    { ...session("cycle-b", "a", "idle"), cwd: "/repo/cycle", kind: "subagent" as const, parentId: "cycle-a" },
+  ];
+  const model = buildRenderModel({ sessions: rows, width: 100, fleetGrouping: "repo" });
+  const app = model.sections.find((section) => section.repoKey === "/repo/app")!;
+  assert.deepEqual(app.groups.flatMap((group) => group.sessions.map((row) => row.id)), ["error", "active", "quiet", "backlog"]);
+  assert.equal(modelRows(model).find((row) => row.id === "backlog")?.section, "backlog");
+  assert.deepEqual(new Set(modelRows(model).map((row) => row.id)), new Set(rows.map((row) => row.id)));
+  assert.equal(modelRows(model).length, rows.length);
+});
+
+test("filtered repo headers retain full-fleet request scope without child promotion", () => {
+  const request = { version: 1 as const, updatedAt: 2, attention: { requestId: "r", kind: "question" as const, text: "Choose" } };
+  const parent = { ...session("parent", "default", "idle", "Find me"), cwd: "/repo/app" };
+  const child = { ...session("child", "default", "waiting"), kind: "subagent" as const, parentId: "parent", context: request };
+  const other = { ...session("other", "default", "waiting"), cwd: "/repo/app", context: request };
+  const hiddenChild = { ...child, id: "hidden-child", parentId: "other" };
+  const model = buildRenderModel({ sessions: [parent, child, other, hiddenChild], width: 100, fleetGrouping: "repo", filter: "Find me" });
+  const section = model.sections[0]!;
+  assert.equal(section.sessionsVisible, 1);
+  assert.equal(section.sessionsTotal, 2);
+  assert.equal(section.ownerAttentionCount, 1);
+  assert.equal(section.hiddenChildRequestCount, 1);
+  assert.equal(modelRows(model)[0]?.cockpitTier, "quiet");
+});
+
+test("group badges retain complete brackets and Unicode at narrow widths", () => {
+  const parent = { ...session("one", "😀 Project with a long label", "running", "Task"), cwd: "/repos/actual" };
+  for (const width of [40, 44, 52]) {
+    const layout = renderSessions(buildRenderModel({ sessions: [parent], width, fleetGrouping: "repo" }));
+    const index = layout.rowTargets.findIndex((target) => target?.kind === "session");
+    assert.match(stripAnsi(layout.lines[index]!), /Task \[😀 [^\]]+\]/);
+    assert.ok(layout.lines.every((line) => visibleWidth(line) <= width));
+  }
+});
+
+test("parent cards show the chosen group once and keep actual repo identity separate", () => {
+  const parent = { ...session("parent", "My project", "running", "Task"), cwd: "/repos/actual-repo",
+    workflow: WORKFLOW, context: { version: 1 as const, updatedAt: 2, ticket: { id: "task-001", subtitle: "Do the useful work" } } };
+  for (const width of [40, 60, 100, 160]) {
+    for (const grouping of ["project", "stage"] as const) {
+      for (const pinned of [false, true]) {
+        const model = buildRenderModel({ sessions: [parent], selectedId: parent.id, width, grouping,
+          ...(pinned ? { pinSlots: [parent.id] } : {}) });
+        const layout = renderSessions(model);
+        const card = layout.lines.filter((_, index) => {
+          const target = layout.rowTargets[index];
+          return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === parent.id;
+        }).map(stripAnsi).join("\n");
+        assert.match(card, /Task \[My project\]/, `${width} ${grouping}: ${card}`);
+        assert.equal(card.match(/My project/g)?.length, 1, card);
+      }
+    }
+  }
+  const workspace = stripAnsi(renderSessions(workspaceModel({ sessions: [parent], selectedId: parent.id, width: 160 })).lines.join("\n"));
+  assert.match(workspace, /actual-repo/);
+  const repoView = buildRenderModel({ sessions: [parent], width: 100, fleetGrouping: "repo" });
+  assert.equal(repoView.sections[0]?.repoKey, "/repos/actual-repo");
+  assert.equal(repoView.sections[0]?.title, "actual-repo");
+});
+
+test("repo reveal and filtering share header visibility and effective folds", () => {
+  const parent = { ...session("parent", "default", "idle"), cwd: "/repos/alpha" };
+  const child = { ...session("child", "default", "idle"), kind: "subagent" as const, parentId: "parent", taskPreview: "needle" };
+  const other = { ...session("other", "default", "idle"), cwd: "/repos/beta" };
+  const collapsedRepos = new Set(["/repos/alpha"]);
+  const input = { sessions: [parent, child, other], fleetGrouping: "repo" as const, collapsedRepos, width: 60,
+    expandedProjectParentIds: new Set(["parent"]) };
+  const revealed = buildRenderModel({ ...input, selectedId: "child", revealedSessionId: "child" });
+  const repo = revealed.sections.find((section) => section.repoKey === "/repos/alpha")!;
+  assert.equal(repo.collapsed, false);
+  assert.deepEqual(repo.groups.flatMap((group) => group.sessions.map((row) => row.id)), ["parent", "child"]);
+  assert.ok(renderSessions(revealed).rowTargets.some((target) => target?.kind === "session" && target.id === "child"));
+  const filtered = buildDashboardProjection({ ...input, filter: "needle" });
+  assert.deepEqual(filtered.repoSections.map((section) => section.key), ["/repos/alpha"]);
+  assert.deepEqual([...collapsedRepos], ["/repos/alpha"]);
+});
+
+test("group badges stay complete and width-safe in status repo board archive and pin rows", () => {
+  const first = { ...session("one", "default", "running", "Important title"), cwd: "/very/long/alpha-parent/shared-repository-name" };
+  const second = { ...session("two", "default", "idle", "Second title"), cwd: "/very/long/beta-parent/shared-repository-name" };
+  const archived = { ...session("old", "default", "stopped", "Old title"), cwd: "/archive/archive-repo", bucket: "archived" as const, bucketChangedAt: 1 };
+  for (const input of [
+    { sessions: [first, second, archived], selectedId: "one", width: 44 },
+    { sessions: [first, second], selectedId: "one", width: 52, fleetGrouping: "repo" as const },
+    { sessions: [{ ...first, workflow: WORKFLOW }, second], selectedId: "one", width: 60, grouping: "stage" as const },
+    { sessions: [first, second], selectedId: "one", width: 80, pinSlots: ["one"] },
+  ]) {
+    const layout = renderSessions(buildRenderModel(input));
+    for (const line of layout.lines) assert.ok(visibleWidth(line) <= input.width, line);
+    const rows = layout.lines.filter((_, index) => {
+      const target = layout.rowTargets[index];
+      return target?.kind === "session" && (target.id === "one" || target.id === "two");
+    }).map(stripAnsi);
+    assert.equal(rows.length, 2);
+    assert.ok(rows.every((line) => /\[[^\]]+\]/.test(line)), rows.join("\n"));
+  }
+  const archivedRow = renderSessions(buildRenderModel({ sessions: [archived], width: 60 })).lines.map(stripAnsi).find((line) => line.includes("Old title")) ?? "";
+  assert.match(archivedRow, /\[default\]/);
+  const narrow = renderSessions(buildRenderModel({ sessions: [first, second], width: 60 })).lines.map(stripAnsi);
+  const badges = narrow.filter((line) => /Important|Second/.test(line)).map((line) => line.match(/\[([^\]]+)\]/)?.[1]);
+  assert.deepEqual(badges, ["default", "default"]);
+});
+
 test("dashboard projection supplies the same visible rows as rendering", () => {
   const sessions = [session("parent", "app", "running"), { ...session("child", "app", "running"), kind: "subagent" as const, parentId: "parent" }];
   const projection = buildDashboardProjection({ sessions, expandedProjectParentIds: new Set(["parent"]) });
@@ -380,7 +543,7 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
   const worker = { ...session("worker", "app", "running", "Worker"), kind: "subagent" as const, parentId: "parent" };
   const collapsed = renderSessions(buildRenderModel({ sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1 })).lines.map(stripAnsi);
   assert.match(collapsed.find((line) => line.includes("ACTIVE")) ?? "", /·1 · \?1 child/);
-  assert.match(collapsed.find((line) => line.includes("Parent")) ?? "", /Parent\s+\?1 · ⚙︎1 · .*EX.* · 8m/);
+  assert.match(collapsed.find((line) => line.includes("Parent")) ?? "", /Parent \[app\]\s+\?1 · ⚙︎1 · .*EX.* · 8m/);
 
   const expanded = renderSessions(buildRenderModel({
     sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1, expandedProjectParentIds: new Set(["parent"]),
@@ -457,9 +620,10 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
     grouping: "stage",
     width: 40,
   })).lines.map(stripAnsi).join("\n");
-  assert.match(titleFirst, /focus-title-12345678/);
+  assert.match(titleFirst, /focus-ti/);
+  assert.match(titleFirst, /\[[^\]]+\]/);
   assert.match(titleFirst, /FOC/);
-  const titleCard = titleFirst.split("\n").find((line) => /[┣┗].*focus-title/.test(line)) ?? "";
+  const titleCard = titleFirst.split("\n").find((line) => /[┣┗].*focus-ti/.test(line)) ?? "";
   assert.doesNotMatch(titleCard, /agents/);
 });
 
@@ -479,8 +643,7 @@ test("stopped focus snapshots render as ordinary Execute sessions", () => {
   const boardCard = boardText.split("\n").find((line) => line.includes("focus")) ?? "";
   assert.match(boardText, /EXECUTE/);
   assert.match(boardText, /agents\s+·1/);
-  assert.match(boardCard, /focus/);
-  assert.doesNotMatch(boardCard, /agents/);
+  assert.match(boardCard, /focus \[agents\]/);
   assert.doesNotMatch(boardCard, /FOC/);
   assert.match(boardCard, /\bEX\b/);
   assert.doesNotMatch(boardText, /mode\s+Focus/);
@@ -596,7 +759,7 @@ test("archive age takes priority over the workflow rail", () => {
   const archived = { ...session("a", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 100, lastActivityAt: 100 + day, workflow: WORKFLOW };
   const model = buildRenderModel({ sessions: [archived, session("b", "default", "running")], selectedId: "a", width: 110, now: 100 + 2 * day });
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("- a"));
-  assert.match(row ?? "", /a\s+2d/);
+  assert.match(row ?? "", /a \[default\]\s+2d/);
   assert.doesNotMatch(row ?? "", /\[exp|EX/);
   assert.equal(model.selected?.archiveRetentionIn, "5d");
 });
@@ -666,13 +829,13 @@ test("board projection omits orphan and cyclic subagent rows from every lane", (
   assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions.map((row) => row.id))), ["parent"]);
 });
 
-test("board rows nest under one group heading instead of repeating the group at right", () => {
+test("board rows retain their group badge under the group heading", () => {
   const model = buildRenderModel({ sessions: [{ ...session("p", "agents", "running"), workflow: WORKFLOW }], grouping: "stage", width: 120 });
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("● p"));
   const listCell = row ?? "";
   assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /agents\s+·1/);
-  assert.match(listCell, /● p/);
-  assert.doesNotMatch(listCell, /agents|4\/7/);
+  assert.match(listCell, /● p \[agents\]/);
+  assert.doesNotMatch(listCell, /4\/7/);
   assert.match(listCell, /\bEX\b/);
 });
 
@@ -1003,7 +1166,7 @@ test("project view defaults to cockpit tiers with Backlog as row metadata", () =
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.deepEqual(model.sections.map((section) => section.key), ["quiet"]);
   assert.match(rendered, /QUIET/);
-  assert.match(rendered, /backlog[\s\S]*experiments/);
+  assert.match(rendered, /bk \[experiments\].*backlog/);
   assert.doesNotMatch(rendered, /view lanes|── BACKLOG/);
 });
 
@@ -1044,7 +1207,7 @@ test("groups keep stable order and expose unacknowledged waiting counts", () => 
 
   const rendered = renderSessions(buildRenderModel({ sessions, width: 40 })).lines.map(stripAnsi).join("\\n");
   assert.match(rendered, /QUIET/);
-  assert.match(rendered, /default-waiting.*default/);
+  assert.match(rendered, /default-waiti… \[default\]/);
   assert.doesNotMatch(rendered, /default.*◐1/);
 });
 
@@ -1171,7 +1334,7 @@ test("narrow layout hides preview and uses readable compact footer", () => {
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
 });
 
 test("wide footer stays stable for worktree sessions", () => {
@@ -1179,7 +1342,7 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
 });
 
 test("long titles/cwd truncate without exceeding width", () => {
@@ -1211,8 +1374,11 @@ test("error reason appears in selected metadata", () => {
 
 test("selected and stopped rows have distinct treatments with stopped rows last", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "stopped", "api"), session("b", "default", "idle", "docs")], selectedId: "b", width: 100 });
-  const lines = renderSessions(model).lines.join("\n");
-  assert.match(lines, /▌│ ·\s+○ docs[\s\S]*│ ·\s+- api/);
+  const layout = renderSessions(model);
+  const lines = layout.lines.map(stripAnsi).join("\n");
+  const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "b");
+  assert.match(stripAnsi(layout.lines[selectedRow] ?? ""), /▌\s+·\s+○ docs \[default\]/);
+  assert.ok(lines.indexOf("○ docs") < lines.indexOf("- api"));
   assert.doesNotMatch(lines, /Stopped/);
 });
 
@@ -1343,7 +1509,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   assert.equal(model.selected?.repoCount, 3);
   const rendered = renderSessions(model, { ...darkTheme, accent: "#010203" }).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇ api ⧉ 3/);
+  assert.match(plain, /○ ▢1 ⎇ api \[default\] ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.match(rendered, /\u001b\[38;2;1;2;3m⎇/);
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
@@ -1397,7 +1563,7 @@ test("narrow rows drop oversized group metadata before the session title", () =>
 });
 
 
-test("fixed row badges cannot preserve metadata by crowding out the title", () => {
+test("fixed group badges preserve the full group and a readable title", () => {
   const parent = {
     ...session("parent", "engineering-x", "waiting", "Authoritative title"),
     additionalCwds: ["/repo/two", "/repo/three"],
@@ -1405,25 +1571,26 @@ test("fixed row badges cannot preserve metadata by crowding out the title", () =
     context: { version: 1 as const, updatedAt: 1, attention: { kind: "question" as const, text: "Review this" } },
   };
   const child = { ...session("child", "engineering-x", "idle", "worker"), kind: "subagent" as const, parentId: "parent" };
-  const lines = renderSessions(buildRenderModel({
+  const layout = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "parent", width: 40,
     pinSlots: ["parent"],
-  })).lines.map(stripAnsi);
-  const row = lines.find((line) => line.includes("Authoritative title")) ?? "";
+  }));
+  const index = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "parent");
+  const row = stripAnsi(layout.lines[index] ?? "");
 
-  assert.match(row, /Authoritative title/);
-  assert.doesNotMatch(row, /engineering-x/);
+  assert.match(row, /Authorit/);
+  assert.match(row, /\[engineering-x\]/);
   assert.equal(visibleWidth(row), 40);
 });
 
 
 test("group row tags remain visible when space permits", () => {
   const group = "release-group";
-  const lines = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 })).lines.map(stripAnsi);
-  const titleIndex = lines.findIndex((line) => /▌│ ·\s+○ release/.test(line));
+  const layout = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 }));
+  const titleIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "a");
   assert.notEqual(titleIndex, -1);
-  assert.match(lines.slice(titleIndex, titleIndex + 2).join("\n"), /release[\s\S]*release-group/);
-  for (const line of lines) assert.ok(visibleWidth(line) <= 100, line);
+  assert.match(stripAnsi(layout.lines[titleIndex] ?? ""), /▌\s+·\s+○ release \[release-group\]/);
+  for (const line of layout.lines) assert.ok(visibleWidth(line) <= 100, line);
 });
 
 
@@ -1543,10 +1710,10 @@ test("adaptive richness stays Active-main-only and ANSI width safe", () => {
     const text = layout.lines.map(stripAnsi).join("\n");
     assert.match(text, /Parent activity|#parent-001/);
     assert.doesNotMatch(text, /Child activity|Backlog activity|Archived activity|#child-001|#backlog-001|#archived-001/);
-    assert.match(text, width >= 100 ? /▌│ ▾\s+◐ Parent title/ : /▌ ▾\s+◐ Parent title/);
+    assert.match(text, width >= 100 ? /▌│ ▾\s+◐ Parent/ : /▌ ▾\s+◐ Parent/);
     assert.match(text, /└─\s+○ worker/);
     assert.match(text, /·\s+○ Backlog/);
-    assert.match(text, /- Archived title/);
+    assert.match(text, /- Archived/);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
 });
@@ -1576,8 +1743,7 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   const crossGroup = sessions.slice(0, 2).map((row, index) => ({ ...row, group: index ? "beta-project" : "alpha-project" }));
   const grouped = renderSessions(buildRenderModel({ sessions: crossGroup, selectedId: "s1", width: 60, height: 10 }));
   const groupedText = grouped.lines.map(stripAnsi).join("\n");
-  assert.match(groupedText, /Stored session 1/);
-  assert.doesNotMatch(groupedText, /beta-project/);
+  assert.match(groupedText, /Stored session 1 \[beta-project\]/);
 });
 
 test("generic attention is gated to waiting/idle and stays searchable on its own subagent", () => {
@@ -1774,7 +1940,7 @@ test("generic context and producer attention define canonical parent hierarchy",
   const model = workspaceModel({ sessions: [named], selectedId: "named", width: 160, grouping: "project", now: 2 });
   const output = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
   assert.match(output, /Canonical Name/);
-  assert.match(output, /#metadata-redesign-001 · agents/);
+  assert.match(output, /#metadata-redesign-001 · Canonical Name/);
   assert.match(output, /Simplify session context/);
   assert.doesNotMatch(output, /Reviewing implementation \(pass 2\)/);
   assert.doesNotMatch(output, /ticket:/);
@@ -1830,11 +1996,12 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
 
   assert.match(text, /▌│ ▾ \? ◐ .*Release decision/);
   assert.match(text, /“Use the approved card hierarchy\?”/);
-  assert.match(text, /#cockpit-008 · agents/);
+  assert.match(text, /#cockpit-008/);
+  assert.equal(text.match(/agents/g)?.length, 1);
   assert.match(text, /└─  .*● .*frontend-designer Review cockpit hierarchy geometry/);
   assert.doesNotMatch(text, /frontend-designer.*EX|frontend-designer.*agents/);
-  assert.equal(text.match(/Theme spike/g)?.length, 1);
-  assert.equal(text.match(/Old notes/g)?.length, 1);
+  assert.equal(text.split("\n").filter((line) => line.includes("Theme spike")).length, 1);
+  assert.equal(text.split("\n").filter((line) => line.includes("Old notes")).length, 1);
 });
 
 test("project tier navigator is independent, responsive, and keeps zero tiers", () => {

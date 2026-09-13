@@ -72,6 +72,7 @@ export class SessionsView implements Component {
   private workspaceEvidenceSessionId: string | undefined;
   private lastWidth = 120;
   private grouping: "project" | "stage";
+  private fleetGrouping: "status" | "repo";
   private pendingRestart: { sessionId: string } | undefined;
   private lastMouseClick: { target: string; at: number } | undefined;
   private busy = false;
@@ -79,6 +80,8 @@ export class SessionsView implements Component {
   private archiveDisclosureSelected = false;
   private selectedSection: CollapsibleSection | undefined;
   private collapsedSections = new Set<CollapsibleSection>();
+  private collapsedRepos = new Set<string>();
+  private selectedRepo: string | undefined;
   private rowTargets: (SessionListTarget | undefined)[] = [];
   private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
@@ -106,6 +109,7 @@ export class SessionsView implements Component {
 
   constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {
     this.grouping = actions.initialViewState?.grouping ?? "project";
+    this.fleetGrouping = actions.initialViewState?.fleetGrouping ?? "status";
     this.collapsedSections = new Set(actions.initialViewState?.collapsedSections ?? []);
     const restoredFilter = actions.initialViewState?.filter;
     if (restoredFilter) {
@@ -216,10 +220,10 @@ export class SessionsView implements Component {
       }
       return;
     }
-    if (this.archiveDisclosureSelected || this.selectedSection) {
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) {
       if (matchesKey(data, Key.down) || data === "j") this.moveSelection(1);
       else if (matchesKey(data, Key.up) || data === "k") this.moveSelection(-1);
-      else if (isEnterKey(data)) this.selectedSection ? this.toggleSection(this.selectedSection) : this.toggleArchiveDisclosure();
+      else if (isEnterKey(data)) this.selectedRepo ? this.toggleRepo(this.selectedRepo) : this.selectedSection ? this.toggleSection(this.selectedSection) : this.toggleArchiveDisclosure();
       else if (data === "i") this.toggleInfo();
       else {
         const command = commandForKey(this.dashboardCommands(false, "select a session first"), data);
@@ -315,7 +319,7 @@ export class SessionsView implements Component {
       width,
       filter,
       filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter",
-      workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection
+      workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo
         ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
@@ -323,6 +327,7 @@ export class SessionsView implements Component {
       height,
       listScrollTop: this.listScrollTop,
       grouping: this.grouping,
+      fleetGrouping: this.fleetGrouping,
       now,
       pinSlots: sidePaneState.slots,
       activePinnedSessionId: sidePaneState.activeSessionId,
@@ -332,6 +337,8 @@ export class SessionsView implements Component {
       archiveDisclosureSelected: this.archiveDisclosureSelected,
       selectedSection: this.selectedSection,
       collapsedSections: this.collapsedSections,
+      collapsedRepos: this.collapsedRepos,
+      selectedRepo: this.selectedRepo,
       expandedBoardParentIds: this.expandedBoardParentIds,
       expandedProjectParentIds: this.expandedProjectParentIds,
       revealedSessionId: this.revealedSessionId,
@@ -388,7 +395,7 @@ export class SessionsView implements Component {
   }
 
   private toggleInfo(): void {
-    if (this.archiveDisclosureSelected || this.selectedSection) {
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) {
       this.flashMessage("select a session to show status evidence");
       return;
     }
@@ -420,7 +427,7 @@ export class SessionsView implements Component {
   }
 
   private openWorkspace(showEvidence: boolean): void {
-    if (this.archiveDisclosureSelected || this.selectedSection) return;
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) return;
     const selected = this.controller.selected();
     if (!selected) return;
     this.workspaceSessionId = selected.id;
@@ -475,6 +482,7 @@ export class SessionsView implements Component {
     this.revealedSessionId = undefined;
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
+    this.selectedRepo = undefined;
     this.listScrollTop = 0;
     this.viewStateRevision += 1;
     this.saveViewState();
@@ -532,7 +540,7 @@ export class SessionsView implements Component {
 
   private dashboardCommands(includeSelected = true, interactionBlockedReason?: string): DashboardCommand[] {
     const snapshot = this.controller.snapshot();
-    const blockedReason = interactionBlockedReason ?? ((this.archiveDisclosureSelected || this.selectedSection || (this.grouping === "stage" && !this.boardRows().length))
+    const blockedReason = interactionBlockedReason ?? ((this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || (this.grouping === "stage" && !this.boardRows().length))
       ? "select a visible session first"
       : undefined);
     const selected = includeSelected && !blockedReason ? this.controller.selected() : undefined;
@@ -565,6 +573,7 @@ export class SessionsView implements Component {
       selectedId: selectedVisible?.id,
       filter: snapshot.filter,
       grouping: this.grouping,
+      fleetGrouping: this.fleetGrouping,
       configuredShortcuts: this.actions.dashboardShortcuts,
       capabilities,
       attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
@@ -584,8 +593,10 @@ export class SessionsView implements Component {
     const unfiltered = buildDashboardProjection({
       sessions: snapshot.sessions,
       grouping: this.grouping,
+      fleetGrouping: this.fleetGrouping,
       archiveExpanded: this.archiveExpanded,
       collapsedSections: this.collapsedSections,
+      collapsedRepos: this.collapsedRepos,
       expandedBoardParentIds: this.expandedBoardParentIds,
       expandedProjectParentIds: this.expandedProjectParentIds,
       revealedSessionId: this.revealedSessionId,
@@ -731,6 +742,7 @@ export class SessionsView implements Component {
       case "view:attention-bell": this.toggleAttentionBell(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.toggleGrouping(); return;
+      case "view:fleet-grouping": this.toggleFleetGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:help": this.dialog = { kind: "help" }; return;
       case "view:quit": this.stop(); return;
@@ -830,6 +842,7 @@ export class SessionsView implements Component {
     this.revealedSessionId = targetId;
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
+    this.selectedRepo = undefined;
     this.listScrollTop = 0;
     this.viewStateRevision += 1;
     return true;
@@ -1024,29 +1037,14 @@ export class SessionsView implements Component {
       this.lastMouseClick = undefined;
       return;
     }
-    if (target.kind === "release-cue") {
-      this.releaseCueSelected = true;
-      this.archiveDisclosureSelected = false;
-      this.selectedSection = undefined;
-    } else if (target.kind === "archive-disclosure") {
-      this.releaseCueSelected = false;
-      this.archiveDisclosureSelected = true;
-      this.selectedSection = undefined;
-    } else if (target.kind === "section-header") {
-      this.releaseCueSelected = false;
-      this.selectedSection = target.section;
-      this.archiveDisclosureSelected = false;
-    } else {
-      if (target.id !== this.revealedSessionId) this.revealedSessionId = undefined;
-      if (!this.controller.selectSession(target.id)) {
-        this.lastMouseClick = undefined;
-        return;
-      }
-      this.releaseCueSelected = false;
-      this.archiveDisclosureSelected = false;
-      this.selectedSection = undefined;
+    if ((target.kind === "session" || target.kind === "session-continuation") && target.id !== this.revealedSessionId) {
+      this.revealedSessionId = undefined;
     }
-    const targetKey = target.kind === "release-cue" ? target.kind : target.kind === "archive-disclosure" ? target.kind : target.kind === "section-header" ? `section:${target.section}` : `session:${target.id}`;
+    if (!this.selectListTarget(target)) {
+      this.lastMouseClick = undefined;
+      return;
+    }
+    const targetKey = target.kind === "release-cue" ? target.kind : target.kind === "archive-disclosure" ? target.kind : target.kind === "section-header" ? `section:${target.section}` : target.kind === "repo-header" ? `repo:${target.repoKey}` : `session:${target.id}`;
     const now = this.actions.now?.() ?? Date.now();
     const elapsed = this.lastMouseClick ? now - this.lastMouseClick.at : undefined;
     const doubleClick = this.lastMouseClick?.target === targetKey && elapsed !== undefined && elapsed >= 0 && elapsed <= DOUBLE_CLICK_MS;
@@ -1055,12 +1053,13 @@ export class SessionsView implements Component {
       if (target.kind === "release-cue") this.dismissReleaseCue();
       else if (target.kind === "archive-disclosure") this.toggleArchiveDisclosure();
       else if (target.kind === "section-header") this.toggleSection(target.section);
+      else if (target.kind === "repo-header") this.toggleRepo(target.repoKey);
       else this.activateFleetSelection();
     }
   }
 
   private jumpToCockpitTier(tier: CockpitTier): void {
-    if (this.grouping !== "project") return;
+    if (this.grouping !== "project" || this.fleetGrouping !== "status") return;
     const projection = this.dashboardProjection(this.controller.snapshot());
     const ownerId = projection.cockpitNavigation.find((entry) => entry.tier === tier)?.firstOwnerId;
     if (!ownerId) return;
@@ -1303,6 +1302,7 @@ export class SessionsView implements Component {
   private releaseCueAvailable(): boolean {
     return this.releaseCueEnabled
       && this.grouping === "project"
+      && this.fleetGrouping === "status"
       && !this.pinMode()
       && !this.controller.snapshot().filter?.trim()
       && !this.workspaceSessionId
@@ -1329,33 +1329,43 @@ export class SessionsView implements Component {
         ? this.archiveDisclosureSelected
         : target.kind === "section-header"
           ? this.selectedSection === target.section
-          : !this.releaseCueSelected && !this.archiveDisclosureSelected && !this.selectedSection && target.id === previousId));
+          : target.kind === "repo-header"
+            ? this.selectedRepo === target.repoKey
+            : !this.releaseCueSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && target.id === previousId));
     const next = targets[(index + delta + targets.length) % targets.length];
-    if (!next) return;
-    if (next.kind === "release-cue") {
-      this.releaseCueSelected = true;
-      this.archiveDisclosureSelected = false;
-      this.selectedSection = undefined;
-    } else if (next.kind === "archive-disclosure") {
-      this.releaseCueSelected = false;
-      this.archiveDisclosureSelected = true;
-      this.selectedSection = undefined;
-    } else if (next.kind === "section-header") {
-      this.releaseCueSelected = false;
-      this.archiveDisclosureSelected = false;
-      this.selectedSection = next.section;
-    } else {
-      this.releaseCueSelected = false;
-      this.archiveDisclosureSelected = false;
-      this.selectedSection = undefined;
-      this.controller.selectSession(next.id);
-    }
+    if (next) this.selectListTarget(next);
+  }
+
+  private selectListTarget(next: SessionListTarget): boolean {
+    if ((next.kind === "session" || next.kind === "session-continuation") && !this.controller.selectSession(next.id)) return false;
+    this.releaseCueSelected = next.kind === "release-cue";
+    this.archiveDisclosureSelected = next.kind === "archive-disclosure";
+    this.selectedSection = next.kind === "section-header" ? next.section : undefined;
+    this.selectedRepo = next.kind === "repo-header" ? next.repoKey : undefined;
+    return true;
   }
 
   private visibleListTargets(): SessionListTarget[] {
     if (this.grouping === "stage") return this.boardRows().map((row) => ({ kind: "session", id: row.id }));
     const projection = this.dashboardProjection(this.controller.snapshot());
-    const { allRows, archive, visible: visibleRows, allTree: tree, filterActive } = projection;
+    if (this.fleetGrouping === "repo") {
+      const targets: SessionListTarget[] = [];
+      for (const repo of projection.repoSections) {
+        targets.push({ kind: "repo-header", repoKey: repo.key });
+        if (!repo.collapsed) targets.push(...repo.rows.map((row) => ({ kind: "session" as const, id: row.id })));
+      }
+      const archived = projection.visible.filter((row) => projection.cockpitTierById.get(row.id) === "archived");
+      const allArchived = projection.allRows.some((row) => projection.cockpitTierById.get(row.id) === "archived");
+      if (allArchived) {
+        targets.push({ kind: "section-header", section: "archived" });
+        if (!this.collapsedSections.has("archived") || projection.filterActive || archived.some((row) => row.id === this.revealedSessionId)) {
+          targets.push(...archived.map((row) => ({ kind: "session" as const, id: row.id })));
+          if (projection.archiveDisclosureVisible) targets.push({ kind: "archive-disclosure" });
+        }
+      }
+      return targets;
+    }
+    const { allRows, visible: visibleRows, filterActive } = projection;
     const tierOrder: CockpitTier[] = ["needs-you", "health", "active", "quiet", "archived"];
     const targets: SessionListTarget[] = [];
     let releaseCueTargetAdded = false;
@@ -1371,7 +1381,7 @@ export class SessionsView implements Component {
         targets.push({ kind: "release-cue" });
         releaseCueTargetAdded = true;
       }
-      if (tier === "archived" && archive.showDisclosure && !collapsed) targets.push({ kind: "archive-disclosure" });
+      if (tier === "archived" && projection.archiveDisclosureVisible) targets.push({ kind: "archive-disclosure" });
     }
     if (this.releaseCueAvailable() && !releaseCueTargetAdded) targets.unshift({ kind: "release-cue" });
     return targets;
@@ -1383,6 +1393,7 @@ export class SessionsView implements Component {
       this.releaseCueSelected = false;
       this.archiveDisclosureSelected = false;
       this.selectedSection = undefined;
+      this.selectedRepo = undefined;
       return;
     }
     if (this.releaseCueSelected) {
@@ -1395,6 +1406,8 @@ export class SessionsView implements Component {
     }
     if (this.selectedSection && targets.some((target) => target.kind === "section-header" && target.section === this.selectedSection)) return;
     this.selectedSection = undefined;
+    if (this.selectedRepo && targets.some((target) => target.kind === "repo-header" && target.repoKey === this.selectedRepo)) return;
+    this.selectedRepo = undefined;
     const selectedId = this.controller.snapshot().selectedId;
     if (targets.some((target) => target.kind === "session" && target.id === selectedId)) return;
     const snapshot = this.controller.snapshot();
@@ -1403,7 +1416,16 @@ export class SessionsView implements Component {
     const selectedRow = allRows.find((row) => row.id === selectedId);
     if (selectedRow && !snapshot.filter?.trim()) {
       const tier = projection.cockpitTierById.get(selectedRow.id);
-      if (tier && tier !== "needs-you" && this.collapsedSections.has(tier)) {
+      if (this.grouping === "project" && this.fleetGrouping === "repo" && tier !== "archived") {
+        const ownerId = projection.cockpitOwnerById.get(selectedRow.id);
+        const repoKey = ownerId ? projection.repoIdentityByOwnerId.get(ownerId)?.key : undefined;
+        if (repoKey && this.collapsedRepos.has(repoKey)) {
+          this.selectedRepo = repoKey;
+          return;
+        }
+      }
+      if (this.grouping === "project" && (this.fleetGrouping === "status" || tier === "archived")
+        && tier && tier !== "needs-you" && this.collapsedSections.has(tier)) {
         this.selectedSection = tier;
         return;
       }
@@ -1413,8 +1435,8 @@ export class SessionsView implements Component {
       this.controller.selectSession(boardParentId);
       return;
     }
-    const fallback = [...targets].reverse().find((target): target is Extract<SessionListTarget, { kind: "session" }> => target.kind === "session");
-    if (fallback) this.controller.selectSession(fallback.id);
+    const fallback = [...targets].reverse().find((target) => target.kind === "session") ?? targets[0];
+    if (fallback) this.selectListTarget(fallback);
   }
 
   private toggleArchiveDisclosure() {
@@ -1433,18 +1455,30 @@ export class SessionsView implements Component {
     this.normalizeListSelection();
   }
 
+  private toggleRepo(repoKey: string) {
+    this.revealedSessionId = undefined;
+    if (this.collapsedRepos.has(repoKey)) this.collapsedRepos.delete(repoKey);
+    else this.collapsedRepos.add(repoKey);
+    this.viewStateRevision += 1;
+    this.normalizeListSelection();
+  }
+
   private boardRows() {
     return this.dashboardProjection(this.controller.snapshot()).boardProjection.rows;
   }
 
   private dashboardProjection(snapshot: ReturnType<SessionsController["snapshot"]>, filterOverride?: string): DashboardProjection {
     const filter = filterOverride === undefined ? snapshot.filter?.trim() || undefined : filterOverride;
-    const key = `${this.grouping}|${this.archiveExpanded}|${snapshot.sessions.length}|${this.viewStateRevision}|${filter ?? ""}|${this.revealedSessionId ?? ""}|${[...this.collapsedSections].join(",")}|${[...this.expandedBoardParentIds].join(",")}|${[...this.expandedProjectParentIds].join(",")}`;
+    const key = `${this.grouping}|${this.fleetGrouping}|${this.archiveExpanded}|${snapshot.sessions.length}|${this.viewStateRevision}|${filter ?? ""}|${this.revealedSessionId ?? ""}|${[...this.collapsedSections].join(",")}|${[...this.collapsedRepos].join(",")}|${[...this.expandedBoardParentIds].join(",")}|${[...this.expandedProjectParentIds].join(",")}`;
     if (this.projection && this.projectionRegistry === snapshot.registry && this.projectionKey === key) return this.projection;
     this.projection = buildDashboardProjection({ sessions: snapshot.sessions, filter, grouping: this.grouping,
-      archiveExpanded: this.archiveExpanded, collapsedSections: this.collapsedSections,
+      fleetGrouping: this.fleetGrouping,
+      archiveExpanded: this.archiveExpanded, collapsedSections: this.collapsedSections, collapsedRepos: this.collapsedRepos,
+      selectedRepo: this.selectedRepo,
       expandedBoardParentIds: this.expandedBoardParentIds, expandedProjectParentIds: this.expandedProjectParentIds,
       revealedSessionId: this.revealedSessionId });
+    const repoKeys = new Set([...this.projection.repoIdentityByOwnerId.values()].map((identity) => identity.key));
+    for (const repoKey of this.collapsedRepos) if (!repoKeys.has(repoKey)) this.collapsedRepos.delete(repoKey);
     this.projectionRegistry = snapshot.registry;
     this.projectionKey = key;
     return this.projection;
@@ -1510,6 +1544,7 @@ export class SessionsView implements Component {
 
   private saveViewState() {
     const state: SessionsViewState = { grouping: this.grouping };
+    if (this.fleetGrouping === "repo") state.fleetGrouping = "repo";
     const filter = this.controller.snapshot().filter;
     if (filter !== undefined) state.filter = dashboardFilterState(parseDashboardFilter(filter));
     if (this.collapsedSections.size) state.collapsedSections = [...this.collapsedSections];
@@ -1519,15 +1554,23 @@ export class SessionsView implements Component {
   }
 
   private toggleGrouping() {
-    this.revealedSessionId = undefined;
+    const previousId = this.controller.snapshot().selectedId;
+    const exactSelection = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected;
+    const ownerId = exactSelection ? this.topLevelBoardParentId(previousId) : undefined;
+    this.revealedSessionId = exactSelection ? previousId : undefined;
     this.clearPendingRestart();
     this.clearFlash();
     this.message = undefined;
     this.grouping = this.grouping === "project" ? "stage" : "project";
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
+    this.selectedRepo = undefined;
+    this.releaseCueSelected = false;
+    if (ownerId && ownerId !== previousId) {
+      (this.grouping === "stage" ? this.expandedBoardParentIds : this.expandedProjectParentIds).add(ownerId);
+    }
+    this.viewStateRevision += 1;
     this.saveViewState();
-    const previousId = this.controller.snapshot().selectedId;
     if (this.grouping !== "stage") {
       this.normalizeListSelection();
       return;
@@ -1540,12 +1583,37 @@ export class SessionsView implements Component {
     }
   }
 
+  private toggleFleetGrouping() {
+    if (this.grouping === "stage") {
+      this.message = "return to the fleet first";
+      return;
+    }
+    const selectedId = this.controller.snapshot().selectedId;
+    const exactSelection = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected;
+    this.revealedSessionId = exactSelection ? selectedId : undefined;
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+    this.fleetGrouping = this.fleetGrouping === "status" ? "repo" : "status";
+    this.releaseCueSelected = false;
+    this.archiveDisclosureSelected = false;
+    this.selectedSection = undefined;
+    this.selectedRepo = undefined;
+    this.viewStateRevision += 1;
+    this.saveViewState();
+    this.normalizeListSelection();
+  }
+
   private reorderSelected(delta: -1 | 1) {
     this.clearPendingRestart();
     this.clearFlash();
     this.message = undefined;
     if (this.grouping === "stage") {
       this.message = "switch to project grouping to reorder";
+      return;
+    }
+    if (this.fleetGrouping === "repo") {
+      this.message = "switch to Status grouping to reorder";
       return;
     }
     if (this.controller.snapshot().filter !== undefined) {
@@ -1830,7 +1898,8 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  Ctrl+Q pinned pane to cockpit     Alt+R rename session",
     "",
     heading("Sections and views"),
-    "  Project view: Needs you · Health · Active · Quiet; groups appear on session rows",
+    "  Status fleet: Needs you · Health · Active · Quiet; groups appear on session rows",
+    "  v toggles flat repo sections; Enter/double-click folds the selected repo header",
     "  only explicit producer attention enters Needs you; Backlog stays labeled in Quiet when inactive",
     "  Archived is flat and chronological; Enter/double-click reveals older rows",
     "  Archived cascades auto-remove after 7d once every tmux session is gone",

@@ -1,3 +1,4 @@
+import { basename, dirname, parse, resolve, sep } from "node:path";
 import { isForkPreparationPending } from "../core/fork-preparation.js";
 import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
@@ -30,6 +31,8 @@ export interface RenderSession {
   additionalCwds: string[];
   workspaceCwd?: string;
   repoCount: number;
+  repoKey: string;
+  repoLabel: string;
   group: string;
   section: SessionSection;
   bucketChangedAt?: number;
@@ -101,9 +104,12 @@ export interface ArchiveDisclosure {
 export interface RenderSection {
   key: string;
   cockpitTier?: CockpitTier;
+  repoKey?: string;
   title: string;
   statusCounts: StatusCounts;
   sessionsTotal: number;
+  sessionsVisible?: number;
+  ownerAttentionCount?: number;
   groups: RenderGroup[];
   collapsible?: boolean;
   collapsed?: boolean;
@@ -189,6 +195,7 @@ export interface RenderModel {
   footer: string;
   filter?: string;
   grouping: "project" | "stage";
+  fleetGrouping: "status" | "repo";
   pinMode: boolean;
   pinSummary?: RenderPinSummary;
   attentionAnnouncements: readonly AttentionAnnouncement[];
@@ -198,6 +205,21 @@ export interface RenderModel {
   };
 }
 
+export interface RepoIdentity {
+  key: string;
+  label: string;
+}
+
+export interface RepoProjectionSection {
+  key: string;
+  collapsed: boolean;
+  label: string;
+  ownerIds: readonly string[];
+  visibleOwnerIds: readonly string[];
+  ownerAttentionCount: number;
+  rows: readonly RuntimeSession[];
+}
+
 export interface DashboardProjection {
   allRows: RuntimeSession[];
   allTree: SessionTreeIndex<RuntimeSession>;
@@ -205,6 +227,7 @@ export interface DashboardProjection {
   boardProjection: BoardProjection<RuntimeSession>;
   boardTotalCardCount: number;
   archive: ReturnType<typeof archiveSectionRows>;
+  archiveDisclosureVisible: boolean;
   cockpitNavigation: CockpitNavigationEntry[];
   visible: RuntimeSession[];
   filterActive: boolean;
@@ -212,17 +235,67 @@ export interface DashboardProjection {
   cockpitTierById: ReadonlyMap<string, CockpitTier>;
   cockpitOwnerById: ReadonlyMap<string, string>;
   cockpitPlacementById: ReadonlyMap<string, CockpitPlacementReason>;
+  repoIdentityByOwnerId: ReadonlyMap<string, RepoIdentity>;
+  repoSections: readonly RepoProjectionSection[];
 }
 
 export interface DashboardProjectionInput {
   sessions: RuntimeSession[];
   filter?: string;
   grouping?: "project" | "stage";
+  fleetGrouping?: "status" | "repo";
   archiveExpanded?: boolean;
   collapsedSections?: ReadonlySet<CollapsibleSection>;
   expandedBoardParentIds?: ReadonlySet<string>;
   expandedProjectParentIds?: ReadonlySet<string>;
+  collapsedRepos?: ReadonlySet<string>;
+  selectedRepo?: string;
   revealedSessionId?: string;
+}
+
+export function repoIdentities(
+  rows: readonly RuntimeSession[],
+  ownerById: ReadonlyMap<string, string>,
+): Map<string, RepoIdentity> {
+  const keysByOwner = new Map<string, string>();
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  for (const ownerId of new Set(ownerById.values())) {
+    const owner = rowById.get(ownerId);
+    if (!owner) continue;
+    keysByOwner.set(ownerId, resolve(primaryWorktree(owner)?.repoRoot ?? owner.cwd));
+  }
+  const uniqueKeys = [...new Set(keysByOwner.values())];
+  const byName = new Map<string, string[]>();
+  for (const key of uniqueKeys) {
+    const name = basename(key) || parse(key).root || key;
+    const values = byName.get(name) ?? [];
+    values.push(key);
+    byName.set(name, values);
+  }
+  const identityByKey = new Map<string, RepoIdentity>();
+  for (const [name, keys] of byName) {
+    for (const key of keys) {
+      let qualifier: string | undefined;
+      if (keys.length > 1) {
+        const parentParts = pathParts(dirname(key));
+        for (let length = 1; length <= parentParts.length; length += 1) {
+          const candidate = parentParts.slice(-length).join(sep) || parse(key).root;
+          if (keys.every((other) => other === key || pathParts(dirname(other)).slice(-length).join(sep) !== candidate)) {
+            qualifier = candidate;
+            break;
+          }
+        }
+        qualifier ??= dirname(key);
+      }
+      identityByKey.set(key, { key, label: qualifier ? `${name} · ${qualifier}` : name });
+    }
+  }
+  return new Map([...keysByOwner].map(([ownerId, key]) => [ownerId, identityByKey.get(key)!]));
+}
+
+function pathParts(path: string): string[] {
+  const root = parse(path).root;
+  return path.slice(root.length).split(sep).filter(Boolean);
 }
 
 /** Structural dashboard rows shared by rendering and navigation. */
@@ -262,6 +335,14 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   }
   const visibleProjectRows = visibleTreeRows(archive.rows, allRows, input.expandedProjectParentIds ?? new Set(), filterActive);
   const projectRows = orderCockpitRows(visibleProjectRows, cockpitTierById);
+  const repoIdentityByOwnerId = repoIdentities(sourceRows, cockpitOwnerById);
+  const repoSections = buildRepoSections(sourceRows, projectRows, cockpitTierById, cockpitOwnerById, repoIdentityByOwnerId)
+    .filter((section) => !filterActive || section.visibleOwnerIds.length > 0)
+    .map((section) => ({
+      ...section,
+      collapsed: input.collapsedRepos?.has(section.key) === true && !filterActive
+        && !section.rows.some((row) => revealedIds.has(row.id)),
+    }));
   const cockpitNavigation = COCKPIT_TIER_ORDER.map((tier) => {
     const owners = allRows.filter((row) => cockpitTierById.get(row.id) === tier && cockpitOwnerById.get(row.id) === row.id);
     const firstOwner = projectRows.find((row) => cockpitTierById.get(row.id) === tier && cockpitOwnerById.get(row.id) === row.id);
@@ -273,11 +354,19 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     };
   });
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
-  const visible = board ? boardProjection.rows : filterActive ? projectRows : projectRows.filter((session) => {
+  const statusVisible = filterActive ? projectRows : projectRows.filter((session) => {
     const tier = cockpitTierById.get(session.id);
     return !tier || tier === "needs-you" || !collapsedSections.has(tier) || revealedIds.has(session.id);
   });
-  return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById };
+  const repoVisible = repoSections.flatMap((section) => section.collapsed ? [] : section.rows);
+  const archivedVisible = projectRows.filter((row) => cockpitTierById.get(row.id) === "archived" && (
+    filterActive || !collapsedSections.has("archived") || revealedIds.has(row.id)
+  ));
+  const repo = !board && (input.fleetGrouping ?? "status") === "repo";
+  const visible = board ? boardProjection.rows : repo ? [...repoVisible, ...archivedVisible] : statusVisible;
+  return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive,
+    archiveDisclosureVisible: archive.showDisclosure && !collapsedSections.has("archived"),
+    cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById, repoIdentityByOwnerId, repoSections };
 }
 
 function preparationPresentationSession(session: RuntimeSession): RuntimeSession {
@@ -285,6 +374,33 @@ function preparationPresentationSession(session: RuntimeSession): RuntimeSession
   if (!blocked) return session;
   const { context: _context, workflow: _workflow, activeMode: _activeMode, ...visible } = session;
   return visible;
+}
+
+function buildRepoSections(
+  sourceRows: RuntimeSession[],
+  projectRows: RuntimeSession[],
+  tierById: ReadonlyMap<string, CockpitTier>,
+  ownerById: ReadonlyMap<string, string>,
+  identities: ReadonlyMap<string, RepoIdentity>,
+): RepoProjectionSection[] {
+  const sourceById = new Map(sourceRows.map((row) => [row.id, row]));
+  const sourceOwners = [...new Set(ownerById.values())]
+    .flatMap((id) => sourceById.get(id) ?? [])
+    .filter((row) => tierById.get(row.id) !== "archived");
+  const keys = [...new Set(sourceOwners.flatMap((owner) => identities.get(owner.id)?.key ?? []))]
+    .sort((left, right) => {
+      const a = [...identities.values()].find((identity) => identity.key === left)?.label ?? left;
+      const b = [...identities.values()].find((identity) => identity.key === right)?.label ?? right;
+      return a.localeCompare(b) || left.localeCompare(right);
+    });
+  return keys.map((key) => {
+    const ownerIds = sourceOwners.filter((owner) => identities.get(owner.id)?.key === key).map((owner) => owner.id);
+    const ownerSet = new Set(ownerIds);
+    const rows = projectRows.filter((row) => tierById.get(row.id) !== "archived" && ownerSet.has(ownerById.get(row.id) ?? row.id));
+    const visibleOwnerIds = [...new Set(rows.map((row) => ownerById.get(row.id) ?? row.id))];
+    const ownerAttentionCount = sourceOwners.filter((owner) => ownerIds.includes(owner.id) && visibleAttention(owner)).length;
+    return { key, label: identities.get(ownerIds[0]!)!.label, ownerIds, visibleOwnerIds, ownerAttentionCount, rows, collapsed: false };
+  });
 }
 
 function cockpitIndex(
@@ -381,6 +497,7 @@ export interface BuildRenderModelInput {
   workspaceEvidenceVisible?: boolean;
   workspaceFullScreen?: boolean;
   grouping?: "project" | "stage";
+  fleetGrouping?: "status" | "repo";
   now?: number;
   pinSlots?: readonly (string | undefined)[];
   activePinnedSessionId?: string;
@@ -392,6 +509,8 @@ export interface BuildRenderModelInput {
   collapsedSections?: ReadonlySet<CollapsibleSection>;
   expandedBoardParentIds?: ReadonlySet<string>;
   expandedProjectParentIds?: ReadonlySet<string>;
+  collapsedRepos?: ReadonlySet<string>;
+  selectedRepo?: string;
   revealedSessionId?: string;
   structuralProjection?: DashboardProjection;
   attentionAnnouncements?: readonly AttentionAnnouncement[];
@@ -404,15 +523,16 @@ export interface BuildRenderModelInput {
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const grouping = input.grouping ?? "project";
+  const fleetGrouping = input.fleetGrouping ?? "status";
   const projection = input.structuralProjection ?? buildDashboardProjection(input);
-  const { allRows, allTree, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById } = projection;
+  const { allRows, allTree, boardProjection, boardTotalCardCount, archive, cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById, repoIdentityByOwnerId, repoSections } = projection;
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
-  const selectedId = pickSelectedId(input.archiveDisclosureSelected || input.selectedSection ? allRows : visible, input.selectedId);
+  const selectedId = pickSelectedId(input.archiveDisclosureSelected || input.selectedSection || input.selectedRepo ? allRows : visible, input.selectedId);
   const pinSlots = input.pinSlots ?? [];
   const pinned = new Set(pinSlots.filter((id): id is string => Boolean(id)));
   const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
   const pinMode = pinned.size > 0;
-  const guidanceVisible = !input.guidanceHidden && !board && !pinMode && !filterActive && !input.workspaceFullScreen;
+  const guidanceVisible = !input.guidanceHidden && !board && fleetGrouping === "status" && !pinMode && !filterActive && !input.workspaceFullScreen;
   const coach = guidanceVisible && coachingActive(input.cockpitOnboarding);
   const showReleaseCue = guidanceVisible && input.releaseCueEnabled === true
     && releaseCueVisible(input.cockpitOnboarding, input.dismissedReleaseCueId);
@@ -427,31 +547,40 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   // Build each source row once. Visible selection is a small overlay: lifecycle
   // headers and archive disclosure can suppress the list highlight while keeping
   // the selected row available to the details pane.
-  const allMapped = allRows.map((session) => toRenderSession(
-    session, session.id === selectedId, allRows, allTree, input.now,
-    slotBySession.get(session.id), pinned.has(session.id), session.id === input.activePinnedSessionId, board, subagentStats.get(session.id), treeExpanded(session.id),
-    cockpitTierById.get(session.id)!, cockpitOwnerById.get(session.id)!, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id),
-  ));
+  const allMapped = allRows.map((session) => {
+    const ownerId = cockpitOwnerById.get(session.id)!;
+    return toRenderSession(
+      session, session.id === selectedId, allRows, allTree, input.now,
+      slotBySession.get(session.id), pinned.has(session.id), session.id === input.activePinnedSessionId, board, subagentStats.get(session.id), treeExpanded(session.id),
+      cockpitTierById.get(session.id)!, ownerId, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id), repoIdentityByOwnerId.get(ownerId)!,
+    );
+  });
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
-  const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.releaseCueSelected;
+  const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.selectedRepo && !input.releaseCueSelected;
   const mapped = visible.flatMap((session) => {
     const rendered = mappedById.get(session.id);
     return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId }] : [];
   });
+  const archiveDisclosure = projection.archiveDisclosureVisible ? {
+    expanded: input.archiveExpanded ?? false,
+    hiddenParents: archive.hiddenParents,
+    selected: input.archiveDisclosureSelected ?? false,
+  } : undefined;
   const sections = board
     ? lanesForBoard(mapped, boardProjection)
-    : cockpitSectionsForSessions(mapped, allMapped, archive.showDisclosure && !collapsedSections.has("archived") ? {
-      expanded: input.archiveExpanded ?? false,
-      hiddenParents: archive.hiddenParents,
-      selected: input.archiveDisclosureSelected ?? false,
-    } : undefined, collapsedSections, input.selectedSection,
-    filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
+    : fleetGrouping === "repo"
+      ? repoSectionsForSessions(repoSections, mapped, allMapped, attentiveDescendantIds, visibleIds, input.selectedRepo,
+        cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
+          filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), false)
+          .filter((section) => section.cockpitTier === "archived"))
+      : cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
+        filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
   const selectedSource = selected ? allTree.get(selected.id) : undefined;
   const ownerSource = selectedSource ? allTree.trace(selectedSource).owner : undefined;
-  const workspace = selected && input.workspaceCommands && !input.releaseCueSelected ? {
+  const workspace = selected && input.workspaceCommands && !input.releaseCueSelected && !input.selectedRepo ? {
     ...input.workspaceCommands,
     session: selected,
     ...(ownerSource && ownerSource.id !== selected.id ? { owner: mappedById.get(ownerSource.id) } : {}),
@@ -494,6 +623,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, { coaching: coach }),
     filter: input.filter,
     grouping,
+    fleetGrouping,
     pinMode,
     attentionAnnouncements: input.attentionAnnouncements ?? [],
     guidance: {
@@ -705,6 +835,44 @@ function boardGroupsForSessions(sessions: RenderSession[]): RenderGroup[] {
   } satisfies RenderGroup));
 }
 
+function repoSectionsForSessions(
+  projection: readonly RepoProjectionSection[],
+  sessions: RenderSession[],
+  allSessions: RenderSession[],
+  attentiveDescendantIds: ReadonlyMap<string, Set<string>>,
+  visibleIds: ReadonlySet<string>,
+  selectedRepo: string | undefined,
+  archived: RenderSection[],
+): RenderSection[] {
+  const visibleById = new Map(sessions.map((session) => [session.id, session]));
+  const allById = new Map(allSessions.map((session) => [session.id, session]));
+  const repos = projection.map((repo) => {
+    const sectionSessions = repo.rows.flatMap((row) => visibleById.get(row.id) ?? []);
+    const collapsed = repo.collapsed;
+    return {
+      key: `repo:${repo.key}`,
+      repoKey: repo.key,
+      title: repo.label,
+      statusCounts: countRenderSessions(repo.ownerIds.flatMap((id) => allById.get(id) ?? [])),
+      sessionsTotal: repo.ownerIds.length,
+      sessionsVisible: repo.visibleOwnerIds.length,
+      ownerAttentionCount: repo.ownerAttentionCount,
+      hiddenChildRequestCount: repo.ownerIds.reduce((sum, ownerId) => sum + [...(attentiveDescendantIds.get(ownerId) ?? [])]
+        .filter((descendantId) => !visibleIds.has(descendantId)).length, 0),
+      groups: collapsed ? [] : [{
+        name: "",
+        statusCounts: countRenderSessions(sectionSessions),
+        attentionCount: countAttentionSessions(sectionSessions),
+        sessions: sectionSessions,
+      }],
+      collapsible: true,
+      collapsed,
+      selected: selectedRepo === repo.key,
+    } satisfies RenderSection;
+  });
+  return [...repos, ...archived];
+}
+
 function cockpitSectionsForSessions(
   sessions: RenderSession[],
   allSessions: RenderSession[],
@@ -781,7 +949,7 @@ function descendantAttentionIds(
   return ids;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason, hiddenChildRequestCount: number): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason, hiddenChildRequestCount: number, repoIdentity: RepoIdentity): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -798,6 +966,8 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     additionalCwds: session.additionalCwds ?? [],
     workspaceCwd: session.workspaceCwd,
     repoCount: 1 + (session.additionalCwds?.length ?? 0),
+    repoKey: repoIdentity.key,
+    repoLabel: repoIdentity.label,
     group: session.group,
     section: lifecycle.section,
     bucketChangedAt: lifecycle.bucketChangedAt,

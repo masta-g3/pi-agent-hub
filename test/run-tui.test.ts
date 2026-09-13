@@ -106,11 +106,13 @@ test("attention delivery isolates client failures and rings once when all locati
 test("view state normalizes the JSON-safe lifecycle filter and cockpit collapse tiers", () => {
   assert.deepEqual(normalizeSessionsViewState({
     grouping: "stage",
+    fleetGrouping: "repo",
     filter: { text: "release", lifecycle: ["archived", "backlog", "backlog", "future"] },
     density: "all-cards",
     collapsedSections: ["backlog", "health", "archived", "health"],
   }), {
     grouping: "stage",
+    fleetGrouping: "repo",
     filter: { text: "release", lifecycle: ["backlog", "archived"] },
     collapsedSections: ["health", "archived"],
   });
@@ -118,7 +120,8 @@ test("view state normalizes the JSON-safe lifecycle filter and cockpit collapse 
     grouping: "project",
     filter: { text: "release", lifecycle: ["backlog", "archived"] },
   });
-  assert.deepEqual(normalizeSessionsViewState({ grouping: "unknown", density: "compact" }), { grouping: "project" });
+  assert.deepEqual(normalizeSessionsViewState({ grouping: "unknown", fleetGrouping: "unknown", density: "compact" }), { grouping: "project" });
+  assert.deepEqual(normalizeSessionsViewState({ fleetGrouping: "status" }), { grouping: "project" });
 });
 
 test("view state classifies only a missing empty dashboard as a new cohort", () => {

@@ -137,6 +137,7 @@ export function normalizeSessionsViewState(
     : undefined;
   return {
     grouping: saved.grouping === "stage" ? "stage" : "project",
+    ...(saved.fleetGrouping === "repo" ? { fleetGrouping: "repo" as const } : {}),
     ...(filter ? { filter } : {}),
     ...(collapsedSections.length ? { collapsedSections } : {}),
     ...(cockpitOnboarding ? { cockpitOnboarding } : {}),

@@ -251,7 +251,7 @@ test("dashboard shortcut config rejects conflicts and invalid send values", asyn
     version: 1,
     dashboard: { shortcuts: [{ key: "v", send: "/session-name refresh" }] },
   }), "utf8");
-  assert.deepEqual(await effectiveDashboardShortcuts(env), [{ key: "v", send: "/session-name refresh" }]);
+  await assert.rejects(() => effectiveDashboardShortcuts(env), /conflicts with a built-in dashboard shortcut/);
 
   await writeFile(configPath(env), JSON.stringify({
     version: 1,

@@ -26,6 +26,7 @@ export type CollapsibleSection = "health" | "active" | "quiet" | "archived";
 
 export interface SessionsViewState {
   grouping: "project" | "stage";
+  fleetGrouping?: "status" | "repo";
   filter?: DashboardFilterState;
   collapsedSections?: CollapsibleSection[];
   cockpitOnboarding?: CockpitOnboardingState;
