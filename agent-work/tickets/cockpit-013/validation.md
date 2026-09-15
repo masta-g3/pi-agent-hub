@@ -37,6 +37,16 @@ All disposable sessions, servers, browser fixtures, scripts, logs, and compiler 
 
 The redundant Hub build archive and installation patch were removed from repository artifacts at commit closeout. The source commit reproduces the implementation; the portable question archive and two PR images remain useful after commit. No npm publication occurred. Fork hosting and branch/PR pushes were separately approved.
 
+## Working indicator follow-up
+
+The user approved an animated `PI is working…` line below Conversation messages, then requested installation, commit and push. It uses the existing 250 ms dashboard loop, reserves one history row without changing action hit targets, and disappears when the panel closes, the session stops working, a question appears, or observation fails. This small follow-up has no separate feature or plan.
+
+- Targeted ephemeral checks covered changing frames, below-message placement, inactive/question/error states and width safety. All 68 relevant existing tests and TypeScript passed; temporary checks were removed. The feature branch's full 1,025 tests then passed outside the unsafe Git hook environment.
+- Preserve the newer combined installation, not the feature worktree alone: archive local commit `c2f8df9`, apply `agent-work/install/conversation-integration.patch` from local commit `c86c99f`, then apply this follow-up's three-file `src/` diff over `11dbfff`. Those root commits were maintained by the other session and were not pushed by this follow-up.
+- That combined staging passed 984 tests and package checks with its own clean dependencies. Installed from its tested tarball, SHA-256 `5a10cb6c12a56150953d76b9296c90c91799e58d10a1ddbad9c9e84760d96734`. All installed `dist/src` files and `dist/cli.js` matched. Before installation, only the three intended modules and their maps/declarations differed from the previous installation.
+- Private rollback and installed archives remain under `~/.pi/agent/pi-agent-hub/backups/working-indicator-20260914/`. No Pi settings or questionnaire package changed. Quit and reopen Hub to load the indicator; no Pi session reload is required.
+- `working-before.png` / `working-after.png` show synthetic actual-renderer fixtures against the previous installed and updated combined versions, not user conversations. Browser, server and staging artifacts were removed afterward.
+
 ## Existing advisories
 
 Baseline npm installs reported 7 Hub advisories and 34 in the question monorepo. No unrelated dependency update was included to address them.

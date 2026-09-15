@@ -694,6 +694,7 @@ export async function runTui(): Promise<void> {
     },
   });
   stopActionLoop = startDashboardActionLoop(async () => {
+    if (view.conversationWorking) tui.requestRender();
     const action = await consumeDashboardAction();
     if (!action) return;
     await processDashboardAction(view, action, refreshDashboard);
