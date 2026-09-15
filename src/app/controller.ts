@@ -9,8 +9,7 @@ import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } f
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
-import { applyComputedStatus, computeStatus, HEARTBEAT_STALE_MS, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
-import { isForkPreparationPending, reconcileForkPreparation } from "../core/fork-preparation.js";
+import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
 import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
@@ -32,9 +31,6 @@ export class SessionsController {
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
-  private operationSignals = new Map<string, RuntimeSession["operation"]>();
-  private preparationStatusUnknown = new Set<string>();
-  private compactionSignals = new Map<string, { tmuxSession: string; expiresAt: number }>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
   private filter: string | undefined;
@@ -76,25 +72,11 @@ export class SessionsController {
           const observation = matchingObservation(session, observations);
           if (!observation) return [session];
           appliedObservationIds.add(session.id);
-          const heartbeat = observation.heartbeat;
-          const forkPreparation = reconcileForkPreparation(session, heartbeat, observation.presence, now);
-          const observedSession = forkPreparation === session.forkPreparation ? session : { ...session, forkPreparation };
-          const suppressPreparationMetadata = Boolean(forkPreparation && forkPreparation.phase !== "ready");
-          const statusHeartbeat = suppressPreparationMetadata && heartbeat ? { ...heartbeat, workflow: undefined, activeMode: undefined, context: undefined, piSessionName: undefined } : heartbeat;
-          const freshNonCompaction = isFreshHeartbeat(heartbeat, now) && !(heartbeat.operation?.kind === "compact" && heartbeat.operation.phase === "running");
-          if (freshNonCompaction || heartbeat?.state === "error" || heartbeat?.state === "shutdown") this.compactionSignals.delete(session.id);
-          const compaction = this.compactionSignals.get(session.id);
-          if (compaction && (compaction.tmuxSession !== session.tmuxSession || compaction.expiresAt <= now)) this.compactionSignals.delete(session.id);
-          const compactionActive = Boolean(compaction && compaction.tmuxSession === session.tmuxSession && compaction.expiresAt > now);
-          const computed = computeStatus({ session: observedSession, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: statusHeartbeat, compactionActive, now });
-          let updated = applyComputedStatus(observedSession, computed, now, statusHeartbeat);
-          if (suppressPreparationMetadata && updated.workflow) updated = { ...updated, workflow: undefined, updatedAt: nextUpdatedAt(updated.updatedAt, now) };
-          if (updated.updatedAt === session.updatedAt && JSON.stringify(updated.forkPreparation) !== JSON.stringify(session.forkPreparation)) {
-            updated = { ...updated, updatedAt: nextUpdatedAt(updated.updatedAt, now) };
-          }
+          const computed = computeStatus({ session, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: observation.heartbeat, now });
+          const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
           observedEvidence.set(session.id, { fingerprint: statusEvidenceFingerprint(updated), evidence: computed.evidence });
           const piName = typeof observation.heartbeat?.piSessionName === "string" ? observation.heartbeat.piSessionName.trim() : "";
-          const title = !suppressPreparationMetadata && piName && isFreshHeartbeat(observation.heartbeat, now) && session.updatedAt === observation.observedUpdatedAt && piName !== updated.title
+          const title = piName && isFreshHeartbeat(observation.heartbeat, now) && session.updatedAt === observation.observedUpdatedAt && piName !== updated.title
             ? piName
             : undefined;
           return [{ ...updated, ...(title ? { title, updatedAt: nextUpdatedAt(updated.updatedAt, now) } : {}) }];
@@ -112,31 +94,14 @@ export class SessionsController {
     for (const [id, observation] of observations) {
       const latest = latestById.get(id);
       if (appliedObservationIds.has(id)) {
-        const heartbeat = observation.heartbeat;
-        const operation = heartbeat?.operation;
-        if (observation.presence !== "present" || heartbeat?.state === "error" || heartbeat?.state === "shutdown" || (heartbeat && !(operation?.kind === "compact" && operation.phase === "running"))) {
-          this.compactionSignals.delete(id);
-        } else if (operation?.kind === "compact" && operation.phase === "running" && isFreshHeartbeat(heartbeat, now)) {
-          this.compactionSignals.set(id, { tmuxSession: observation.tmuxSession, expiresAt: now + HEARTBEAT_STALE_MS });
-        }
-        const preparation = latest?.forkPreparation;
-        const suppressPreparationMetadata = Boolean(preparation && preparation.phase !== "ready");
-        const matchingPreparation = observation.heartbeat?.forkPreparation?.id === preparation?.id;
-        if (preparation && isForkPreparationPending(preparation) && (observation.presence === "unknown" || Boolean(preparation.launchConfirmed && (!matchingPreparation || !isFreshHeartbeat(observation.heartbeat, now))))) {
-          this.preparationStatusUnknown.add(id);
-        } else this.preparationStatusUnknown.delete(id);
-        const context = suppressPreparationMetadata ? undefined : observation.heartbeat?.context;
+        const context = observation.heartbeat?.context;
         if (context) this.sessionContexts.set(id, context);
         else this.sessionContexts.delete(id);
-        const freshOperation = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.operation : undefined;
-        if (freshOperation) this.operationSignals.set(id, freshOperation);
-        else this.operationSignals.delete(id);
-        const interaction = !suppressPreparationMetadata && observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
-          ? observation.heartbeat.interaction : undefined;
+        const interaction = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.interaction : undefined;
         if (interaction) this.interactions.set(id, interaction);
         else this.interactions.delete(id);
-        const activeMode = !suppressPreparationMetadata && observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
-          ? observation.heartbeat.activeMode ?? observation.heartbeat.workflow?.activeMode
+        const activeMode = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
+          ? observation.heartbeat.workflow?.activeMode
           : undefined;
         if (activeMode) this.workflowModes.set(id, activeMode);
         else this.workflowModes.delete(id);
@@ -144,9 +109,6 @@ export class SessionsController {
         this.sessionContexts.delete(id);
         this.workflowModes.delete(id);
         this.interactions.delete(id);
-        this.compactionSignals.delete(id);
-        this.operationSignals.delete(id);
-        this.preparationStatusUnknown.delete(id);
       }
     }
     for (const session of prunedSessions) await removeDashboardState(session);
@@ -187,7 +149,7 @@ export class SessionsController {
     }
     await this.mutateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((session) => session.id === id && !isForkPreparationPending(session.forkPreparation) ? markAcknowledged(session, now, requestId !== undefined) : session),
+      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined) : session),
     }));
   }
 
@@ -265,7 +227,7 @@ export class SessionsController {
 
   async syncPiName(id: string, now = Date.now()): Promise<SyncPiNameResult> {
     const selected = this.registry.sessions.find((session) => session.id === id);
-    if (!selected?.sessionFile || isForkPreparationPending(selected.forkPreparation)) return { status: "unavailable" };
+    if (!selected?.sessionFile) return { status: "unavailable" };
     let name: string | undefined;
     try {
       name = await readPiSessionName(selected.sessionFile);
@@ -276,7 +238,7 @@ export class SessionsController {
     if (!name) return { status: "unnamed" };
     await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
-      if (!current || current.title === name || isForkPreparationPending(current.forkPreparation)) return latest;
+      if (!current || current.title === name) return latest;
       return {
         ...latest,
         sessions: latest.sessions.map((session) => session.id === id ? { ...session, title: name, updatedAt: nextUpdatedAt(session.updatedAt, now) } : session),
@@ -298,9 +260,6 @@ export class SessionsController {
       this.sessionContexts.delete(removedId);
       this.workflowModes.delete(removedId);
       this.interactions.delete(removedId);
-      this.operationSignals.delete(removedId);
-      this.preparationStatusUnknown.delete(removedId);
-      this.compactionSignals.delete(removedId);
       this.statusEvidence.delete(removedId);
     }
     this.registry = { ...this.registry, sessions: this.registry.sessions.filter((session) => !ids.has(session.id)) };
@@ -339,12 +298,11 @@ export class SessionsController {
       const context = this.sessionContexts.get(session.id);
       const activeMode = this.workflowModes.get(session.id);
       const interaction = this.interactions.get(session.id);
-      const operation = this.operationSignals.get(session.id);
-      const preparationStatusUnknown = this.preparationStatusUnknown.has(session.id);
+      const workflow = activeMode && session.workflow ? { ...session.workflow, activeMode } : session.workflow;
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
-      return context || interaction || activeMode || operation || preparationStatusUnknown || statusEvidence
-        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), ...(activeMode ? { activeMode } : {}), ...(operation ? { operation } : {}), ...(preparationStatusUnknown ? { preparationStatusUnknown: true } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
+      return interaction || context || workflow !== session.workflow || statusEvidence
+        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), workflow, ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }

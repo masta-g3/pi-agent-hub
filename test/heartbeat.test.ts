@@ -14,24 +14,21 @@ const core = {
   updatedAt: 1_000,
 } as const;
 
-test("parses bounded compaction operation and preparation independently from liveness", () => {
+test("parses bounded fork compaction operation phases independently from liveness", () => {
   const forkCore = { ...core, managedSessionId: "fork", state: "running" as const };
-  const parsed = parseHeartbeat({
-    ...forkCore,
-    operation: { kind: "compact", phase: "error", id: "op-2", error: " provider failed " },
-    forkPreparation: { id: "attempt-1", phase: "compacting", launchConfirmed: true },
-  }, "fork");
-  assert.deepEqual(parsed?.operation, { kind: "compact", phase: "error", id: "op-2", error: "provider failed" });
-  assert.deepEqual(parsed?.forkPreparation, { id: "attempt-1", phase: "compacting", launchConfirmed: true });
-  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "cancelled", id: "op-3" } }, "fork")?.operation, {
-    kind: "compact", phase: "cancelled", id: "op-3",
+  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "op-1" } }, "fork")?.operation, {
+    kind: "fork-compact",
+    phase: "running",
+    id: "op-1",
   });
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "old" } }, "fork")?.operation, undefined);
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "running", id: "x".repeat(81) } }, "fork")?.operation, undefined);
-  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase: "broken", id: "op" } }, "fork")?.operation, undefined);
-  for (const phase of [["running"], { toString: () => "running" }]) {
-    assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "compact", phase, id: "op" } }, "fork")?.operation, undefined);
-  }
+  assert.deepEqual(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "complete", id: "op-1", extra: true } }, "fork")?.operation, {
+    kind: "fork-compact",
+    phase: "complete",
+    id: "op-1",
+  });
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "other", phase: "running" } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "running", id: "x".repeat(81) } }, "fork")?.operation, undefined);
+  assert.equal(parseHeartbeat({ ...forkCore, operation: { kind: "fork-compact", phase: "broken" } }, "fork")?.operation, undefined);
 });
 
 test("heartbeat intake normalizes main and child envelopes", () => {
@@ -160,18 +157,6 @@ test("heartbeat intake isolates malformed optional metadata", () => {
     activeTheme: { name: 1, sourcePath: false, tokens: { accent: "#abcdef", warning: Number.NaN, unknown: "ignored" } },
   }, "api");
   assert.deepEqual(badTheme, { ...core, context: validContext, workflow: validWorkflow, activeTheme: { tokens: { accent: "#abcdef" } } });
-});
-
-test("accepts a valid mode without a workflow rail", () => {
-  const heartbeat = parseHeartbeat({ ...core, workflow: { activeMode: { id: "focus", short: "FOC", label: "Focus" }, updatedAt: 1_000 } }, "api");
-  assert.deepEqual(heartbeat?.activeMode, { id: "focus", short: "FOC", label: "Focus" });
-  assert.equal(heartbeat?.workflow, undefined);
-});
-
-test("invalid workflow metadata does not hide a valid independent mode", () => {
-  const heartbeat = parseHeartbeat({ ...core, workflow: { steps: [], activeIndex: 0, activeMode: { id: "focus", short: "FOC" }, updatedAt: 1_000 } }, "api");
-  assert.deepEqual(heartbeat?.activeMode, { id: "focus", short: "FOC" });
-  assert.equal(heartbeat?.workflow, undefined);
 });
 
 test("invalid workflow decorations do not hide a valid base snapshot", () => {

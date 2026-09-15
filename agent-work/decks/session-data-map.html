@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard metadata map</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f3ef;
+    --panel: #ffffff;
+    --panel-2: #ebeae5;
+    --text: #22262c;
+    --muted: #626a73;
+    --line: #c7c5be;
+    --native: #69717a;
+    --rules: #8b5900;
+    --rules-bg: #fff0d2;
+    --plan: #006b78;
+    --plan-bg: #ddf4f5;
+    --model: #6843a5;
+    --model-bg: #eee7fc;
+    --good: #247247;
+    --warn: #a14432;
+    --radius: 10px;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --max: 1120px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f24;
+      --panel-2: #262a30;
+      --text: #edf0f3;
+      --muted: #b0b7c0;
+      --line: #464c55;
+      --native: #aeb5be;
+      --rules: #f0bd67;
+      --rules-bg: #352918;
+      --plan: #78d1dc;
+      --plan-bg: #173239;
+      --model: #c0a8f5;
+      --model-bg: #2d2542;
+      --good: #7bd59f;
+      --warn: #ff9a86;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.48 var(--sans); }
+  main { width: min(calc(100% - 2rem), var(--max)); margin: 0 auto; padding: 2.4rem 0 3.5rem; }
+  h1, h2, h3 { margin: 0; line-height: 1.14; letter-spacing: -.02em; }
+  h1 { font-size: clamp(2rem, 5vw, 3.7rem); }
+  h2 { font-size: clamp(1.35rem, 2.7vw, 2rem); }
+  h3 { font-size: 1rem; letter-spacing: 0; }
+  p { max-width: 76ch; }
+  code, .mono { font-family: var(--mono); font-size: .92em; }
+  code { background: var(--panel-2); padding: .08em .28em; border-radius: 4px; }
+  .kicker { margin: 0 0 .65rem; color: var(--muted); font: 700 .73rem/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+  .lead { color: var(--muted); font-size: 1.08rem; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: end; }
+  .legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; max-width: 34rem; }
+  .chip { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid currentColor; border-radius: 999px; padding: .3rem .58rem; font: 700 .73rem/1.2 var(--mono); }
+  .chip .anchor { margin-right: 0; }
+  .chip.rules { color: var(--rules); background: var(--rules-bg); }
+  .chip.plan { color: var(--plan); background: var(--plan-bg); }
+  .chip.model { color: var(--model); background: var(--model-bg); }
+  .native-note { flex-basis: 100%; text-align: right; color: var(--muted); font-size: .8rem; }
+  section { margin-top: 3.5rem; }
+  .section-head { display: flex; justify-content: space-between; align-items: end; gap: 1rem; margin-bottom: 1.2rem; }
+  .section-head p { margin: 0; color: var(--muted); }
+  .dashboard-shell { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; box-shadow: 0 14px 36px color-mix(in srgb, var(--text) 8%, transparent); }
+  .window-bar { display: flex; justify-content: space-between; gap: 1rem; padding: .55rem .8rem; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font: 700 .72rem/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+  .dashboard { display: grid; grid-template-columns: minmax(350px, .9fr) minmax(410px, 1.1fr); }
+  .pane { min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane-title { display: flex; justify-content: space-between; padding: .65rem .85rem; border-bottom: 1px solid var(--line); color: var(--muted); font: 700 .72rem/1 var(--mono); }
+  pre.mock { margin: 0; min-height: 29rem; padding: 1rem; overflow-x: auto; color: var(--native); background: var(--panel); font: 13px/1.63 var(--mono); tab-size: 2; }
+  .rules-text { color: var(--rules); font-weight: 700; }
+  .plan-text { color: var(--plan); font-weight: 700; }
+  .model-text { color: var(--model); font-weight: 700; }
+  .native-text { color: var(--text); }
+  .dim { color: var(--muted); }
+  .anchor { display: inline-grid; place-items: center; width: 1.1rem; height: 1.1rem; margin-right: .2rem; border: 1px solid currentColor; border-radius: 50%; font: 800 .68rem/1 var(--sans); vertical-align: .08rem; }
+  .mock-caption { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+  .mock-caption div { padding: .75rem 1rem; color: var(--muted); font-size: .82rem; }
+  .mock-caption div + div { border-left: 1px solid var(--line); }
+  .mock-caption strong { color: var(--text); }
+  .sources { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
+  .source { border: 1px solid var(--line); border-top-width: 4px; border-radius: var(--radius); background: var(--panel); padding: 1rem; }
+  .source.rules { border-top-color: var(--rules); }
+  .source.plan { border-top-color: var(--plan); }
+  .source.model { border-top-color: var(--model); }
+  .source h3 { display: flex; align-items: center; gap: .45rem; margin-bottom: .85rem; }
+  .facts { margin: 0; display: grid; grid-template-columns: 5.3rem 1fr; gap: .52rem .65rem; font-size: .86rem; }
+  .facts dt { color: var(--muted); font: 700 .72rem/1.35 var(--mono); text-transform: uppercase; }
+  .facts dd { margin: 0; }
+  .source .fields { margin-top: .8rem; padding-top: .7rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .table-wrap:focus-visible { outline: 3px solid var(--model); outline-offset: 3px; }
+  table { width: 100%; min-width: 760px; border-collapse: collapse; font-size: .88rem; }
+  caption { text-align: left; padding: .8rem 1rem; color: var(--muted); }
+  th, td { padding: .66rem .75rem; border-top: 1px solid var(--line); vertical-align: top; }
+  thead th { background: var(--panel-2); color: var(--muted); font-size: .74rem; text-align: left; text-transform: uppercase; letter-spacing: .05em; }
+  tbody th { font: 650 .83rem/1.35 var(--mono); text-align: left; }
+  .tag { display: inline-block; border-radius: 999px; padding: .12rem .42rem; font: 700 .7rem/1.3 var(--mono); white-space: nowrap; }
+  .tag.support { color: var(--muted); background: var(--panel-2); }
+  .tag.input { color: var(--plan); background: var(--plan-bg); }
+  .tag.limited { color: var(--model); background: var(--model-bg); }
+  .tag.gap { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .takeaway { margin-top: 1rem; padding: 1rem 1.1rem; border-left: 4px solid var(--model); background: var(--model-bg); }
+  .takeaway strong { display: block; margin-bottom: .25rem; }
+  .takeaway p { margin: 0; color: var(--muted); }
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+  @media (max-width: 880px) {
+    header, .dashboard, .sources { grid-template-columns: 1fr; }
+    .legend { justify-content: flex-start; }
+    .native-note { text-align: left; }
+    .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+    pre.mock { min-height: 0; }
+    .mock-caption { grid-template-columns: 1fr; }
+    .mock-caption div + div { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 580px) {
+    main { width: min(calc(100% - 1rem), var(--max)); padding-top: 1.4rem; }
+    .section-head { display: block; }
+    .section-head p { margin-top: .4rem; }
+    .table-wrap::before { content: "Swipe to see the full table →"; display: block; padding: .55rem .75rem; color: var(--muted); font-size: .78rem; }
+  }
+  @media print {
+    :root { color-scheme: light; --bg: #fff; --panel: #fff; --panel-2: #eee; --text: #111; --muted: #444; --line: #aaa; }
+    main { width: 100%; padding: 0; }
+    section { margin-top: 1.7rem; break-inside: avoid; }
+    .dashboard-shell { box-shadow: none; }
+    .dashboard { grid-template-columns: 1fr; }
+    .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
+    pre.mock { font-size: 8pt; min-height: 0; overflow: visible; }
+    .table-wrap { overflow: visible; }
+    table { min-width: 0; font-size: 7.5pt; }
+    th, td { padding: .35rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <p class="kicker">Current dashboard mapping · 2 Aug 2026</p>
+      <h1>Where dashboard context comes from</h1>
+      <p class="lead">The dashboard joins workflow position, parsed plan facts, and model-derived session context. The colors below show which producer supplied each visible value.</p>
+    </div>
+    <div class="legend" role="group" aria-label="Metadata source colors">
+      <span class="chip rules"><span class="anchor">1</span>Rules runtime</span>
+      <span class="chip plan"><span class="anchor">2</span>Parsed plan</span>
+      <span class="chip model"><span class="anchor">3</span>Summary model</span>
+      <span class="chip"><span class="anchor">H</span>Hub stored title</span>
+      <span class="native-note">Other neutral text is Hub-owned chrome or stored session data.</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="mock-title">
+    <div class="section-head">
+      <div><p class="kicker">Annotated dashboard mock</p><h2 id="mock-title">Every colored value is derived metadata</h2></div>
+      <p>Stage view · junction density · selected waiting session</p>
+    </div>
+
+    <div class="dashboard-shell">
+      <div class="window-bar"><span>Pi Agent Hub</span><span>Active 3 · Waiting 1</span></div>
+      <div class="dashboard">
+        <div class="pane">
+          <div class="pane-title"><span>SESSIONS</span><span>STAGE VIEW</span></div>
+          <pre class="mock" role="img" aria-label="Mock session list with a selected waiting session. Rules runtime fields are marked 1, parsed plan fields are marked 2, and summary-model fields are marked 3."><span class="rules-text"><span class="anchor">1</span>EXECUTE</span>                              <span class="dim">·2</span>
+
+<span class="dim">agents</span>
+<span class="native-text">┣</span> <span class="model-text">?</span> <span class="native-text">◐ <span class="anchor">H</span>Junction cards</span>                <span class="rules-text">EX</span>
+<span class="native-text">┃</span>   <span class="rules-text"><span class="anchor">1</span>ticket: dashboard-scanability-007</span>
+<span class="native-text">┃</span>   <span class="plan-text"><span class="anchor">2</span>Scan-friendly junction dashboard cards</span>
+<span class="native-text">┃</span>   <span class="rules-text"><span class="anchor">1</span>✓◉···</span>  <span class="plan-text"><span class="anchor">2</span>Phase 2/4 · 8/11</span>
+<span class="native-text">┃</span>   <span class="model-text"><span class="anchor">3</span>Windowing tests now pass</span>
+<span class="native-text">└ ◐ API cleanup</span>                      <span class="rules-text">EX</span>
+
+<span class="dim">infra</span>
+<span class="native-text">└ ● Migration runner</span>                 <span class="rules-text">FOC</span> <span class="dim">⚙︎2</span></pre>
+        </div>
+
+        <div class="pane">
+          <div class="pane-title"><span>DETAILS</span><span>SELECTED SESSION</span></div>
+          <pre class="mock" role="img" aria-label="Mock selected-session details showing workflow rail, parsed plan fields, and semantic metadata fields."><span class="native-text">Junction cards                      ◐ waiting</span>
+<span class="rules-text"><span class="anchor">1</span>PL─▐EX▌─RV─RF─CM · dashboard-scanability-007</span>
+<span class="dim">~/Code/agents/pi-agent-hub · ⎇ main</span>
+
+<span class="dim">── work ─</span>
+<span class="plan-text"><span class="anchor">2</span>feature   Scan-friendly junction dashboard cards</span>
+<span class="plan-text"><span class="anchor">2</span>phase     2/4 · Render cards · 3/5</span>
+<span class="plan-text"><span class="anchor">2</span>progress  8/11 tasks (plan)</span>
+<span class="model-text"><span class="anchor">3</span>attention ? Choose compact-list width</span>
+<span class="plan-text"><span class="anchor">2</span>next      → Verify short-height windowing</span>
+
+<span class="dim">── metadata ─  </span><span class="model-text"><span class="anchor">3</span>via pi-session-summary · 8s</span>
+<span class="model-text"><span class="anchor">3</span>goal  Ship scan-friendly dashboard cards</span>
+<span class="model-text"><span class="anchor">3</span>prog  Windowing tests now pass</span>
+<span class="model-text"><span class="anchor">3</span>next  Review rendered narrow states</span>
+
+<span class="dim">── preview ─</span>
+<span class="native-text">Tests: 686 passed</span></pre>
+        </div>
+      </div>
+      <div class="mock-caption">
+        <div><strong><span class="anchor">H</span> Title:</strong> Hub renders its stored <code>session.title</code>. It is set at creation, by <code>R</code> rename, or by <code>N</code> sync from Pi.</div>
+        <div><strong>Not colored:</strong> liveness, group, branch, age, subagent count, and preview are Hub-owned.</div>
+        <div><strong>Pi name:</strong> Session Summary can generate it, but Rules and <code>features.yaml</code> do not directly set Hub’s title.</div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="source-title">
+    <div class="section-head">
+      <div><p class="kicker">The three producers</p><h2 id="source-title">Intent, mechanism, and timing</h2></div>
+      <p>All three paths are optional and independently validated.</p>
+    </div>
+
+    <div class="sources">
+      <article class="source rules">
+        <h3><span class="rules-text"><span class="anchor">1</span></span>Rules runtime</h3>
+        <dl class="facts">
+          <dt>Owner</dt><dd><code>rules/extensions/workflow-runtime</code></dd>
+          <dt>Intent</dt><dd>Show where the ticket sits in the tracked workflow.</dd>
+          <dt>Mechanism</dt><dd>No model and no prompt. Workflow skill, ticket, and Focus events append a Pi session entry. Hub copies it through the heartbeat.</dd>
+          <dt>When</dt><dd>State changes immediately. Hub heartbeats at agent start/end and every 15 seconds, then refreshes the dashboard in about 1 second.</dd>
+        </dl>
+        <div class="fields"><strong>Visible fields:</strong> workflow lane, step rail, ticket id, Focus mode.</div>
+      </article>
+
+      <article class="source plan">
+        <h3><span class="plan-text"><span class="anchor">2</span></span>Parsed plan</h3>
+        <dl class="facts">
+          <dt>Owner</dt><dd>Artifacts in the active repo; parsed by <code>pi-session-summary</code>.</dd>
+          <dt>Intent</dt><dd>Show the authored feature, checklist phase, progress, and next explicit task.</dd>
+          <dt>Mechanism</dt><dd>No model and no prompt. A deterministic parser reads <code>agent-work/features.yaml</code> and its linked Markdown plan, then writes the metadata JSON.</dd>
+          <dt>When</dt><dd>Turn start, every tool result, and before each semantic model call. Changed plan data reaches Hub on its next ~1-second refresh.</dd>
+        </dl>
+        <div class="fields"><strong>Visible fields:</strong> <code>plan.feature</code>, phase, task counts, phase counts, plan next step.</div>
+      </article>
+
+      <article class="source model">
+        <h3><span class="model-text"><span class="anchor">3</span></span>Summary model</h3>
+        <dl class="facts">
+          <dt>Owner</dt><dd><code>pi-session-summary</code></dd>
+          <dt>Intent</dt><dd>Explain the stable goal, latest verified progress, next action, and human handoff.</dd>
+          <dt>Mechanism</dt><dd>A model prompt receives bounded Pi activity facts plus compact ticket context. Output is sanitized and confidence-gated before the metadata file is written.</dd>
+          <dt>When</dt><dd>Turn start: 1.2 seconds. Activity: 2-second debounce and 5-second minimum model interval. Final output: 0.5 seconds. Calls time out after 2.5 seconds with no retry.</dd>
+        </dl>
+        <div class="fields"><strong>Visible fields:</strong> status, goal, semantic next step, attention, provenance age.</div>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="leftover-title">
+    <div class="section-head">
+      <div><p class="kicker">Not prominent in the dashboard</p><h2 id="leftover-title">Hidden, support-only, or currently unmapped</h2></div>
+      <p>“Not visible” does not always mean “not useful.”</p>
+    </div>
+
+    <div class="table-wrap" tabindex="0" role="region" aria-labelledby="leftover-title">
+      <table>
+        <caption>Fields and inputs that do not become normal dashboard text.</caption>
+        <thead><tr><th scope="col">Field or input</th><th scope="col">State</th><th scope="col">Current purpose or limitation</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">workflow.updatedAt</th><td><span class="tag support">support</span></td><td>Validates producer state, selects the canonical workflow definition, and retains workflow position. It is not printed.</td></tr>
+          <tr><th scope="row">confidence</th><td><span class="tag support">gate</span></td><td>Below 0.5 removes semantic fields. Deterministic <code>plan</code> data survives. The score is not printed.</td></tr>
+          <tr><th scope="row">feature.description</th><td><span class="tag input">input only</span></td><td>Grounds the model with the full tracked objective. It is not published as a dashboard field.</td></tr>
+          <tr><th scope="row">metadata.stage</th><td><span class="tag limited">low visibility</span></td><td>Appears only in expanded details and only when attention is absent. It never controls workflow lanes.</td></tr>
+          <tr><th scope="row">semantic nextStep</th><td><span class="tag gap">mapping gap</span></td><td>It can appear in details when distinct from plan data. When no deterministic plan next step exists, current junction projection can suppress it as if the card rendered it, but the card does not.</td></tr>
+          <tr><th scope="row">Pi session name</th><td><span class="tag limited">separate path</span></td><td>Not stored in metadata JSON. Session Summary can set the Pi name; Hub uses its stored title until the user runs name sync.</td></tr>
+          <tr><th scope="row">raw activity + full checklist</th><td><span class="tag input">not published</span></td><td>Bounded activity stays model-input-only. The full checklist stays in Session Summary's local todo drawer.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="takeaway">
+      <strong>Consolidation lens</strong>
+      <p>The strongest overlap is ticket selection and “next action” naming. Workflow position, deterministic plan state, semantic progress, and Hub liveness remain different concepts.</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

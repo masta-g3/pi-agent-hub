@@ -105,148 +105,6 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   assert.deepEqual(opened, ["pi-agent-hub-api"]);
 });
 
-test("compact fork launch does not make other sessions globally busy", async () => {
-  const first = { ...session("first", "first"), status: "running" as const };
-  const second = { ...session("second", "second"), status: "running" as const };
-  let finishFork!: () => void;
-  const fork = new Promise<void>((resolve) => { finishFork = resolve; });
-  const opened: string[] = [];
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [first, second] }), () => {}, {
-    forkSession: () => fork,
-    attachOutsideTmux: (tmux) => { opened.push(tmux); },
-    switchInsideTmux: (tmux) => { opened.push(tmux); },
-  });
-
-  view.render(80);
-  view.handleInput("F");
-  view.handleInput("\r");
-  assert.equal((view as unknown as { busy: boolean }).busy, false);
-  view.handleInput("j");
-  view.handleInput("\r");
-  assert.deepEqual(opened, ["pi-agent-hub-second"]);
-
-  finishFork();
-  await fork;
-});
-
-test("pending preparation blocks keyboard, configured send, pin, and double-click paths", () => {
-  let now = 100;
-  const pending = {
-    ...session("pending", "pending"), status: "running" as const,
-    forkPreparation: { id: "attempt-1", phase: "compacting" as const, launchConfirmed: true },
-  };
-  const opened: string[] = [];
-  const pinned: string[] = [];
-  const sent: string[] = [];
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [pending] }), () => {}, {
-    now: () => now,
-    attachOutsideTmux: (tmux) => { opened.push(tmux); },
-    pinSidePane: (id) => { pinned.push(id); return { kind: "pinned", session: pending.tmuxSession, slot: 1 }; },
-    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50 }),
-    dashboardShortcuts: [{ key: "!", send: "/verify" }],
-    runDashboardShortcut: (id) => { sent.push(id); },
-  });
-  view.handleInput("\r");
-  view.handleInput("P");
-  view.handleInput("!");
-  let lines = view.render(80);
-  const row = lines.findIndex((line) => stripAnsi(line).includes("pending"));
-  view.handleInput(mousePressAtLine(row));
-  now += 50;
-  lines = view.render(80);
-  view.handleInput(mousePressAtLine(lines.findIndex((line) => stripAnsi(line).includes("pending"))));
-  assert.deepEqual({ opened, pinned, sent }, { opened: [], pinned: [], sent: [] });
-  assert.match(stripAnsi(view.render(80).join("\n")), /Compacting/);
-});
-
-test("failed preparation opens live child for inspection and retries a live idle exact child through confirmation", async () => {
-  const live = {
-    ...session("failed-live", "failed-live"), status: "running" as const,
-    sessionFile: "/tmp/live.jsonl",
-    forkPreparation: { id: "attempt-1", phase: "error" as const, error: "Provider failed" },
-    statusEvidence: {
-      observedAt: 2, reason: "heartbeat-error" as const, tmux: { state: "present" as const },
-      heartbeat: { freshness: "fresh" as const, state: "error" as const },
-      acknowledgement: { state: "not-applicable" as const }, workflow: { source: "absent" as const },
-    },
-  };
-  const opened: string[] = [];
-  let restarted = false;
-  const liveView = new SessionsView(new SessionsController({ version: 1, sessions: [live] }), () => {}, {
-    attachOutsideTmux: (tmux) => { opened.push(tmux); }, switchInsideTmux: (tmux) => { opened.push(tmux); },
-    restart: () => { restarted = true; },
-  });
-  liveView.handleInput("\r");
-  assert.deepEqual(opened, [live.tmuxSession]);
-  assert.equal(restarted, false);
-
-  const idle = {
-    ...session("failed-idle", "failed-idle"), status: "idle" as const,
-    sessionFile: "/tmp/idle.jsonl",
-    forkPreparation: { id: "attempt-2", phase: "error" as const, error: "Interrupted" },
-    statusEvidence: {
-      observedAt: 2, reason: "heartbeat-read" as const, tmux: { state: "present" as const },
-      heartbeat: { freshness: "fresh" as const, state: "waiting" as const },
-      acknowledgement: { state: "read" as const }, workflow: { source: "absent" as const },
-    },
-  };
-  const retried: string[] = [];
-  let finishRetry!: () => void;
-  const retry = new Promise<void>((resolve) => { finishRetry = resolve; });
-  const idleView = new SessionsView(new SessionsController({ version: 1, sessions: [idle] }), () => {}, {
-    retryForkPreparation: (id) => { retried.push(id); return retry; },
-  });
-  idleView.handleInput(":");
-  for (const char of "retry preparation") idleView.handleInput(char);
-  idleView.handleInput("\r");
-  assert.match(stripAnsi(idleView.render(80).join("\n")), /Retry fork preparation/);
-  idleView.handleInput("y");
-  assert.deepEqual(retried, [idle.id]);
-  assert.equal((idleView as unknown as { busy: boolean }).busy, false);
-  assert.doesNotMatch(stripAnsi(idleView.render(80).join("\n")), /Retry fork preparation/);
-  finishRetry();
-  await retry;
-});
-
-test("failed preparation cancellation confirms exact retained state and rechecks the target", async () => {
-  const failed = {
-    ...session("failed-cancel", "failed-cancel"), status: "running" as const,
-    forkPreparation: { id: "attempt-3", phase: "error" as const, error: "Provider failed" },
-  };
-  const cancelled: string[] = [];
-  let finishCancel!: () => void;
-  const cancellation = new Promise<void>((resolve) => { finishCancel = resolve; });
-  const controller = new SessionsController({ version: 1, sessions: [failed] });
-  const view = new SessionsView(controller, () => {}, {
-    cancelForkPreparation: (id) => { cancelled.push(id); return cancellation; },
-  });
-  view.handleInput(":");
-  for (const char of "cancel preparation") view.handleInput(char);
-  view.handleInput("\r");
-  const confirmation = stripAnsi(view.render(80).join("\n"));
-  assert.match(confirmation, /Cancel fork preparation/);
-  assert.match(confirmation, /Remove the preparation restriction/);
-  assert.match(confirmation, /Keep the current conversation and task state/);
-  assert.match(confirmation, /No reset, compaction, or restart/);
-  view.handleInput("y");
-  assert.deepEqual(cancelled, [failed.id]);
-  assert.equal((view as unknown as { busy: boolean }).busy, true);
-  finishCancel();
-  await cancellation;
-
-  const changedController = new SessionsController({ version: 1, sessions: [failed] });
-  const changedView = new SessionsView(changedController, () => {}, { cancelForkPreparation: (id) => { cancelled.push(id); } });
-  changedView.handleInput(":");
-  for (const char of "cancel preparation") changedView.handleInput(char);
-  changedView.handleInput("\r");
-  (changedController as unknown as { registry: { version: 1; sessions: ManagedSession[] } }).registry = {
-    version: 1, sessions: [{ ...failed, forkPreparation: { id: "attempt-3", phase: "ready", outcome: "compacted" } }],
-  };
-  changedView.handleInput("y");
-  assert.deepEqual(cancelled, [failed.id]);
-  assert.match(stripAnsi(changedView.render(80).join("\n")), /preparation cancellation is no longer available/);
-});
-
 test("info waits for matching evidence from a refresh", async () => {
   const base = session("api", "api");
   const now = 100_000;
@@ -873,7 +731,6 @@ test("repo headers select without folding and Enter toggles the exact repo", () 
   assert.match(stripAnsi(view.render(100).join("\n")), /API session/, "double-click expands the exact repo");
 });
 
-
 test("Space expands and collapses the selected board parent tree", () => {
   const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
@@ -885,7 +742,7 @@ test("Space expands and collapses the selected board parent tree", () => {
   assert.match(fleetText(view.render(120)), /api/);
 
   view.handleInput(" ");
-  assert.match(fleetText(view.render(120)), /▾\s+○ api/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api/);
   assert.match(fleetText(view.render(120)), /worker/);
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -971,7 +828,7 @@ test("left and right arrows collapse and expand the selected board tree", () => 
 
   view.handleInput("S");
   view.handleInput("\u001b[C");
-  assert.match(fleetText(view.render(120)), /▾\s+○ api[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -1052,6 +909,11 @@ test("board filters reveal collapsed child matches without persisting expansion"
   view.handleInput("\r");
   assert.match(fleetText(view.render(120)), /api[\s\S]*worker-special/);
   view.handleInput(" ");
+  assert.doesNotMatch(fleetText(view.render(120)), /worker-special/);
+  view.handleInput("\u001b[C");
+  assert.match(fleetText(view.render(120)), /worker-special/);
+  view.handleInput("\u001b[1;2D");
+  assert.doesNotMatch(fleetText(view.render(120)), /worker-special/);
 
   view.handleInput("\u001b");
   assert.match(fleetText(view.render(120)), /api/);
@@ -1198,8 +1060,8 @@ test("named pin presence updates rendering without registry mutation", () => {
   state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
   const rendered = stripAnsi(view.render(100).join("\n"));
   assert.match(rendered, /PINNED · ▢1 docs · ▣2 api/);
-  assert.match(rendered, /○ ▣2 api/);
-  assert.match(rendered, /○ ▢1 docs/);
+  assert.match(rendered, /○ ▣2 \[default\] api/);
+  assert.match(rendered, /○ ▢1 \[default\] docs/);
   assert.strictEqual(controller.snapshot().registry, before);
 });
 
@@ -1372,7 +1234,7 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 function rowIndexFor(rendered: string[], title: string): number {
   const index = rendered.findIndex((line) => {
     const text = stripAnsi(line);
-    return ["●", "◐", "○", "×", "-"].some((symbol) => text.includes(`${symbol} ${title}`));
+    return ["●", "◐", "○", "×", "-"].some((symbol) => text.includes(symbol) && text.includes(`] ${title}`));
   });
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
@@ -1590,7 +1452,7 @@ test("Archived collapse persists its state", () => {
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ARCHIVED/);
-  assert.doesNotMatch(collapsed, /\n.*○ archived/);
+  assert.doesNotMatch(collapsed, /\n.*○ \[default\] archived/);
   assert.match(collapsed, /backlog/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
 });
@@ -1607,12 +1469,62 @@ test("all non-attention tiers can collapse and retain counts", () => {
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ACTIVE\s+·1/);
   assert.match(collapsed, /▸ QUIET\s+·1/);
-  assert.doesNotMatch(collapsed, /● running|○ quiet/);
+  assert.doesNotMatch(collapsed, /● \[default\] running|○ \[default\] quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
   assert.match(expanded, /▾ ACTIVE/);
-  assert.match(expanded, /● running/);
+  assert.match(expanded, /● \[default\] running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
+});
+
+test("filtered tier folds are interactive and do not persist", () => {
+  for (const tier of ["health", "active", "quiet", "archived"] as const) {
+    const row = { ...session("match", "unique-match"),
+      status: tier === "health" ? "error" as const : tier === "active" ? "running" as const : "idle" as const,
+      ...(tier === "archived" ? { bucket: "archived" as const } : {}),
+    };
+    const saved: SessionsViewState[] = [];
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [row] }), () => {}, {
+      initialViewState: { grouping: "project", collapsedSections: [tier] },
+      saveViewState: (state) => saved.push(state),
+    });
+    view.handleInput("/");
+    for (const char of "unique-match") view.handleInput(char);
+    view.handleInput("\r");
+    assert.match(fleetText(view.render(120)), /unique-match/);
+    const header = view.render(120).findIndex((line) => stripAnsi(line).includes(tier.toUpperCase()));
+    view.handleInput(mousePressAtLine(header));
+    view.handleInput("\r");
+    assert.doesNotMatch(fleetText(view.render(120)), /\[default\] unique-match/);
+    assert.match(fleetText(view.render(120)), new RegExp(`▸ ${tier.toUpperCase()}`));
+    view.handleInput("\r");
+    assert.match(fleetText(view.render(120)), /\[default\] unique-match/);
+    assert.deepEqual(saved.at(-1)?.collapsedSections, [tier]);
+    view.handleInput("\u001b");
+    assert.doesNotMatch(fleetText(view.render(120)), /\[default\] unique-match/);
+  }
+});
+
+test("filtered fleet trees collapse and restore their unfiltered expansion", () => {
+  const parent = session("parent", "api");
+  const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker-special" };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {});
+  view.handleInput("\u001b[C");
+  view.handleInput("/");
+  for (const char of "worker-special") view.handleInput(char);
+  view.handleInput("\r");
+  controller.selectSession("child");
+  view.render(120);
+  view.handleInput("\u001b[D");
+  assert.equal(controller.snapshot().selectedId, "parent");
+  assert.doesNotMatch(fleetText(view.render(120)), /worker-special/);
+  view.handleInput("\u001b[1;2C");
+  assert.match(fleetText(view.render(120)), /worker-special/);
+  view.handleInput("\u001b[1;2D");
+  assert.doesNotMatch(fleetText(view.render(120)), /worker-special/);
+  view.handleInput("\u001b");
+  assert.match(fleetText(view.render(120)), /worker-special/);
 });
 
 test("Archived header selection blocks session actions and Enter collapses it", () => {
@@ -1868,29 +1780,6 @@ test("non-row mouse input cancels a pending double-click", () => {
   assert.deepEqual(switched, []);
 });
 
-test("overflow section headers collapse by keyboard and by mouse after selection redraw", () => {
-  for (const method of ["keyboard", "mouse"] as const) {
-    for (const width of [80, 120, 160]) {
-      let now = 1_000;
-      const rows = Array.from({ length: 60 }, (_, index) => ({ ...session(`row-${index}`, `row-${index}`), status: index < 20 ? "error" as const : index < 40 ? "running" as const : "idle" as const }));
-      const controller = new SessionsController({ version: 1, sessions: rows });
-      controller.selectSession("row-50");
-      const saved: SessionsViewState[] = [];
-      const view = new SessionsView(controller, () => {}, { terminalRows: () => 12, now: () => now, saveViewState: (state) => saved.push(state) });
-      const lines = view.render(width);
-      const header = lines.findIndex((line) => /▾ QUIET/.test(stripAnsi(line)));
-      assert.ok(header >= 0);
-      view.handleInput(mousePressAtLine(header));
-      const selected = view.render(width);
-      assert.equal(selected.filter((line) => /▾ QUIET/.test(stripAnsi(line))).length, 1);
-      now += 50;
-      view.handleInput(method === "keyboard" ? "\r" : mousePressAtLine(header));
-      assert.ok(saved.at(-1)?.collapsedSections?.includes("quiet"), `${method} width ${width}`);
-      assert.match(stripAnsi(view.render(width).join("\n")), /▸ QUIET/);
-    }
-  }
-});
-
 test("mouse section headers block stale actions and session rows restore exact workspace targets", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -2049,7 +1938,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌\s+·\s+○ session-12 \[default\]/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌\s+·\s+○ \[default\] session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog is clipped with a resize marker", () => {
@@ -3240,7 +3129,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌\s+·\s+○ api \[default\]/);
+  assert.match(prompt, /▌\s+·\s+○ \[default\] api/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;

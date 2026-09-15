@@ -7,11 +7,11 @@ import piAgentHubExtension from "../src/extension/index.js";
 import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../src/core/worktree-context.js";
 import { heartbeatPath } from "../src/core/paths.js";
+import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
 import { publishThemeCommand } from "../src/core/theme-command.js";
 import { nameCommandPath, publishNameCommand } from "../src/core/name-command.js";
 import { writeJsonAtomic } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
-import { parseForkAttempt, parsePreparationCheckpoint } from "../src/extension/fork-preparation.js";
 
 const EXTENSION_KEY = Symbol.for("pi-agent-hub.extension.loaded");
 
@@ -29,14 +29,14 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
-  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
+  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
 
   await handlers.get("session_shutdown")?.({}, { cwd: "/repo" });
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
   assert.deepEqual(events, [
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
@@ -66,6 +66,7 @@ test("name commands apply once to the exact conversation and ignore stale, expir
       setSessionName: (name: string) => { names.push(name); nativeName = name; },
     } as unknown as Parameters<typeof piAgentHubExtension>[0]);
     await handlers.get("session_start")?.({}, ctx);
+    // A command already present when this extension started must not replay.
     await publishNameCommand("rename-test", "conversation", "old");
     await poll();
     assert.deepEqual(names, []);
@@ -111,91 +112,80 @@ test("name commands apply once to the exact conversation and ignore stale, expir
   }
 });
 
-test("compact fork waits for a matching reset receipt, persists checkpoints, and becomes ready", async () => {
+test("compact fork startup preserves the CLI name, clears metadata, and requests a bounded handoff", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-fork-compact-"));
   const previous = {
-    sessionId: process.env[SESSION_ID_ENV], stateDir: process.env[STATE_ENV], primaryCwd: process.env[PRIMARY_CWD_ENV], forkCompact: process.env[FORK_COMPACT_ENV],
+    sessionId: process.env[SESSION_ID_ENV],
+    stateDir: process.env[STATE_ENV],
+    primaryCwd: process.env[PRIMARY_CWD_ENV],
+    forkCompact: process.env[FORK_COMPACT_ENV],
   };
   process.env[SESSION_ID_ENV] = "fork-compact";
   process.env[STATE_ENV] = root;
   process.env[PRIMARY_CWD_ENV] = "/repos/example-api";
-  process.env[FORK_COMPACT_ENV] = "fork-attempt-0001";
+  process.env[FORK_COMPACT_ENV] = "1";
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
   const names: string[] = [];
-  const compactions: Array<{ customInstructions?: string; onComplete?: (result: unknown) => void; onError?: (error: Error) => void }> = [];
-  const branch: unknown[] = [
-    { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: 1, ticket: { id: "old-001" } } },
-    { type: "custom", customType: "workflow-runtime", data: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeStep: "execute", ticketId: "old-001", updatedAt: 1, activeMode: { id: "focus", short: "FOC", label: "Focus" } } },
-    { type: "custom", customType: "workflow-runtime-reset", data: { version: 1, id: "stale-attempt", status: "ready" } },
-  ];
+  const compactions: unknown[] = [];
   const pi = {
     on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
     registerTool() {},
-    appendEntry(customType: string, data: unknown) { branch.push({ type: "custom", customType, data }); },
     setSessionName(name: string) { names.push(name); },
-    getSessionName() { return names.at(-1) ?? "Fork · source"; },
+    getSessionName() { return names.at(-1) ?? "Fork · previous task"; },
   };
   const ctx = {
-    cwd: root, hasUI: false,
-    compact(options: (typeof compactions)[number]) { compactions.push(options); },
-    sessionManager: { getSessionFile: () => "/sessions/child.jsonl", getSessionId: () => "pi-child", getBranch: () => branch },
+    cwd: root,
+    hasUI: false,
+    compact(options: unknown) { compactions.push(options); },
+    sessionManager: {
+      getBranch: () => [
+        { type: "custom", customType: "pi-agent-hub-context", timestamp: 1, data: { version: 1, updatedAt: 1, ticket: { id: "old-001" } } },
+        { type: "custom", customType: "workflow-runtime", timestamp: 1, data: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeStep: "execute", ticketId: "old-001", updatedAt: 1 } },
+      ],
+    },
   };
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
-    assert.equal(process.env[FORK_COMPACT_ENV], "fork-attempt-0001", "registration must not hide the marker from later extensions");
+    assert.equal(process.env[FORK_COMPACT_ENV], "1", "other extension factories must be able to capture the fork marker");
     await handlers.get("session_start")?.({ reason: "startup" }, ctx);
     assert.equal(process.env[FORK_COMPACT_ENV], undefined);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(compactions.length, 0, "a stale producer receipt must not unlock compaction");
-    let heartbeat = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.forkPreparation?.phase, "preparing");
-    assert.equal(heartbeat.context, undefined, "inherited context must stay hidden before reset confirmation");
-    assert.equal(heartbeat.workflow, undefined, "inherited workflow must stay hidden before reset confirmation");
-    assert.equal(heartbeat.activeMode, undefined, "inherited mode must stay hidden before reset confirmation");
-    branch.push({ type: "custom", customType: "workflow-runtime-reset", data: { version: 1, id: "fork-attempt-0001", status: "ready" } });
-    await waitFor(() => compactions.length === 1);
-    assert.deepEqual(names, [], "preserve the name initialized by --name");
-    assert.equal(pi.getSessionName(), "Fork · source");
-    assert.ok((compactions[0].customInstructions?.length ?? 0) <= 500);
-    heartbeat = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.forkPreparation?.phase, "compacting");
-    assert.equal(heartbeat.forkPreparation?.id, "fork-attempt-0001");
-    assert.equal(heartbeat.context?.ticket, undefined);
-    assert.equal(heartbeat.workflow, undefined);
-
-    await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "running");
-    await handlers.get("session_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "complete");
-    await handlers.get("session_info_changed")?.({}, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "complete");
-    compactions[0].onComplete?.({});
-    heartbeat = await waitForHeartbeat(root, "fork-compact", (item) => item.forkPreparation?.phase === "ready");
-    assert.deepEqual(heartbeat.forkPreparation, { id: "fork-attempt-0001", phase: "ready", launchConfirmed: true, outcome: "compacted" });
-    assert.equal(heartbeat.operation?.phase, "complete", "the preparation finalizer must retain the terminal compaction result");
-    assert.ok(branch.some((entry) => (entry as { customType?: string }).customType === "pi-agent-hub-fork-preparation"));
-
-    const nextCtx = {
-      ...ctx,
-      sessionManager: { getSessionFile: () => "/sessions/new.jsonl", getSessionId: () => "pi-new", getBranch: () => [] },
-    };
-    await handlers.get("session_start")?.({ reason: "new" }, nextCtx);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.deepEqual(names, [], "the consumed startup marker must not reset a later session");
-    assert.equal(compactions.length, 1, "the consumed startup marker must not compact a later session");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(names, [], "startup must not overwrite the name set by --name");
+    assert.equal(compactions.length, 1);
+    const compactOptions = compactions[0] as { customInstructions?: string; onComplete?: () => void | Promise<void>; onError?: (error: Error) => void | Promise<void> };
+    assert.equal(typeof compactOptions.customInstructions, "string");
+    assert.ok((compactOptions.customInstructions?.length ?? 0) <= 500);
+    assert.match(compactOptions.customInstructions ?? "", /branches from the prior conversation/i);
+    assert.match(compactOptions.customInstructions ?? "", /another agent will continue/i);
+    assert.match(compactOptions.customInstructions ?? "", /product decisions/i);
+    assert.match(compactOptions.customInstructions ?? "", /new task/i);
+    await handlers.get("session_before_compact")?.({ reason: "startup", willRetry: false }, ctx);
+    const running = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(running.state, "running");
+    assert.equal(running.piSessionName, "Fork · previous task");
+    assert.deepEqual(running.operation, { kind: "fork-compact", phase: "running", id: running.operation?.id });
+    assert.equal(running.context, undefined);
+    assert.equal(running.workflow, undefined);
+    await compactOptions.onComplete?.();
+    const complete = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    assert.equal(complete.operation?.kind, "fork-compact");
+    assert.equal(complete.operation?.phase, "complete");
+    assert.equal(complete.context, undefined);
+    assert.equal(complete.workflow, undefined);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
-    for (const [key, value] of [[SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], [PRIMARY_CWD_ENV, previous.primaryCwd], [FORK_COMPACT_ENV, previous.forkCompact]] as const) {
+    for (const [key, value] of [
+      [SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], [PRIMARY_CWD_ENV, previous.primaryCwd], [FORK_COMPACT_ENV, previous.forkCompact],
+    ] as const) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   }
 });
 
-test("compaction publishes transient running and restores or preserves continuation state", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+test("compaction publishes transient running and restores or preserves continuation state", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-compaction-"));
   const previousSessionId = process.env[SESSION_ID_ENV];
@@ -208,13 +198,7 @@ test("compaction publishes transient running and restores or preserves continuat
     registerTool() {},
     getSessionName() { return "Compaction"; },
   };
-  const preparation = { id: "prepared-attempt", phase: "ready", outcome: "compacted" };
-  const ctx = { cwd: root, hasUI: false, sessionManager: {
-    getSessionId: () => "pi-compaction",
-    getBranch: () => [{ type: "custom", customType: "pi-agent-hub-fork-preparation", data: {
-      version: 1, managedSessionId: "compaction", piSessionId: "pi-compaction", preparation,
-    } }],
-  } };
+  const ctx = { cwd: root, hasUI: false };
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
@@ -225,22 +209,11 @@ test("compaction publishes transient running and restores or preserves continuat
     const compacting = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(compacting.state, "running");
     assert.equal(compacting.stateSince, started.stateSince);
-    assert.deepEqual(compacting.operation, { kind: "compact", phase: "running", id: compacting.operation?.id });
 
     await handlers.get("session_compact")?.({ reason: "manual", willRetry: false }, ctx);
     const restored = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(restored.state, "waiting");
-    assert.equal(restored.operation?.phase, "complete");
     assert.equal(restored.stateSince, started.stateSince);
-    t.mock.timers.tick(4_999);
-    await handlers.get("session_info_changed")?.({}, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "complete");
-    t.mock.timers.tick(1);
-    await handlers.get("session_info_changed")?.({}, ctx);
-    const expired = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(expired.operation, undefined);
-    assert.equal(expired.stateSince, started.stateSince);
-    assert.deepEqual(expired.forkPreparation, preparation);
 
     await handlers.get("session_before_compact")?.({ reason: "overflow", willRetry: true }, ctx);
     const retrying = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
@@ -248,15 +221,6 @@ test("compaction publishes transient running and restores or preserves continuat
     await handlers.get("session_compact")?.({ reason: "overflow", willRetry: true }, ctx);
     const continuing = JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(continuing.state, "running");
-    t.mock.timers.tick(2_000);
-    await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    t.mock.timers.tick(3_000);
-    await handlers.get("session_info_changed")?.({}, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "running");
-    await handlers.get("session_compact_failed")?.({ errorMessage: "Provider failed", aborted: false, willRetry: false }, ctx);
-    t.mock.timers.tick(5_000);
-    await handlers.get("session_info_changed")?.({}, ctx);
-    assert.equal((JSON.parse(await readFile(heartbeatPath("compaction", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat).operation?.phase, "error");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
@@ -375,90 +339,107 @@ test("newer lifecycle transitions and shutdown reject stale prompt restoration",
   }
 });
 
-test("compact fork accepts only Pi's exact no-work errors", async () => {
+test("an extension error owns lifecycle state over a stale prompt end", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
-  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-no-work-"));
-  const previous = { sessionId: process.env[SESSION_ID_ENV], stateDir: process.env[STATE_ENV], forkCompact: process.env[FORK_COMPACT_ENV] };
-  process.env[SESSION_ID_ENV] = "no-work";
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-prompt-error-"));
+  const previous = {
+    sessionId: process.env[SESSION_ID_ENV],
+    stateDir: process.env[STATE_ENV],
+    subagentJobId: process.env.PI_TMUX_SUBAGENTS_JOB_ID,
+    forkCompact: process.env[FORK_COMPACT_ENV],
+  };
+  process.env[SESSION_ID_ENV] = "prompt-error";
   process.env[STATE_ENV] = root;
-  process.env[FORK_COMPACT_ENV] = "attempt-no-work-01";
+  process.env[FORK_COMPACT_ENV] = "1";
+  delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
-  const branch: unknown[] = [];
   let compactOptions: { onError?: (error: Error) => void } | undefined;
   const pi = {
     on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
-    registerTool() {}, setSessionName() {},
-    appendEntry(customType: string, data: unknown) { branch.push({ type: "custom", customType, data }); },
+    registerTool() {},
+    setSessionName() {},
   };
-  const ctx = {
-    cwd: root, hasUI: false, compact(options: { onError?: (error: Error) => void }) { compactOptions = options; },
-    sessionManager: { getSessionFile: () => "/sessions/no-work.jsonl", getSessionId: () => "pi-no-work", getBranch: () => branch },
-  };
+  const ctx = { cwd: root, hasUI: false, compact(options: { onError?: (error: Error) => void }) { compactOptions = options; } };
+  const readHeartbeat = async () => JSON.parse(await readFile(heartbeatPath("prompt-error", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
     await handlers.get("session_start")?.({}, ctx);
-    await waitFor(() => Boolean(compactOptions));
-    compactOptions?.onError?.(new Error("Nothing to compact (session too small)"));
-    const heartbeat = await waitForHeartbeat(root, "no-work", (item) => item.forkPreparation?.phase === "ready");
-    assert.equal(heartbeat.forkPreparation?.outcome, "not-needed");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await handlers.get("ui_prompt_start")?.({ method: "confirm" }, ctx);
+    await compactOptions?.onError?.(new Error("compact failed"));
+    let error = await readHeartbeat();
+    for (let attempt = 0; error.state !== "error" && attempt < 20; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      error = await readHeartbeat();
+    }
+    assert.equal(error.state, "error");
+    assert.equal(error.operation?.phase, "error");
+    await handlers.get("ui_prompt_end")?.({ method: "confirm" }, ctx);
+    assert.deepEqual(await readHeartbeat(), error);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
-    for (const [key, value] of [[SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], [FORK_COMPACT_ENV, previous.forkCompact]] as const) {
+    for (const [key, value] of [
+      [SESSION_ID_ENV, previous.sessionId], [STATE_ENV, previous.stateDir], ["PI_TMUX_SUBAGENTS_JOB_ID", previous.subagentJobId], [FORK_COMPACT_ENV, previous.forkCompact],
+    ] as const) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   }
 });
 
-test("compaction failure publishes a truthful terminal operation and restores prior activity", async () => {
+test("compaction watchdog restores the prior state when completion is missing", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
-  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-compact-failed-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-watchdog-"));
   const previousSessionId = process.env[SESSION_ID_ENV];
   const previousStateDir = process.env[STATE_ENV];
-  process.env[SESSION_ID_ENV] = "compact-failed";
+  process.env[SESSION_ID_ENV] = "compaction-watchdog";
   process.env[STATE_ENV] = root;
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
-  const pi = { on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); }, registerTool() {} };
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+  };
   const ctx = { cwd: root, hasUI: false };
+  const readCompactionHeartbeat = async (predicate?: (heartbeat: Heartbeat) => boolean): Promise<Heartbeat> => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        const heartbeat = JSON.parse(await readFile(heartbeatPath("compaction-watchdog", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+        if (!predicate || predicate(heartbeat)) return heartbeat;
+      } catch {}
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.fail("timed out waiting for compaction watchdog heartbeat");
+  };
+
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
     await handlers.get("session_start")?.({}, ctx);
-    const origin = JSON.parse(await readFile(heartbeatPath("compact-failed", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+    t.mock.timers.tick(3_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
     await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    await handlers.get("session_compact_failed")?.({ reason: "manual", aborted: false, errorMessage: "Compaction failed: provider unavailable", willRetry: false, fromExtension: false }, ctx);
-    let heartbeat = JSON.parse(await readFile(heartbeatPath("compact-failed", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.state, "waiting");
-    assert.equal(heartbeat.stateSince, origin.stateSince);
-    assert.equal(heartbeat.operation?.phase, "error");
-    assert.equal(heartbeat.operation?.error, "Compaction failed: provider unavailable");
-    await handlers.get("session_info_changed")?.({}, ctx);
-    heartbeat = JSON.parse(await readFile(heartbeatPath("compact-failed", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.operation?.phase, "error", "a general heartbeat must retain the failure diagnostic");
+    let heartbeat = await readCompactionHeartbeat();
+    assert.equal(heartbeat.state, "running");
 
-    await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    await handlers.get("session_compact_failed")?.({ reason: "manual", aborted: true, willRetry: false, fromExtension: false }, ctx);
-    heartbeat = JSON.parse(await readFile(heartbeatPath("compact-failed", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
-    assert.equal(heartbeat.operation?.phase, "cancelled");
+    t.mock.timers.tick(HEARTBEAT_STALE_MS);
+    heartbeat = await readCompactionHeartbeat((item) => item.state === "waiting");
+    assert.equal(heartbeat.state, "waiting");
+
+    await handlers.get("session_before_compact")?.({ reason: "overflow", willRetry: true }, ctx);
+    await handlers.get("session_compact")?.({ reason: "overflow", willRetry: true }, ctx);
+    t.mock.timers.tick(HEARTBEAT_STALE_MS);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    heartbeat = await readCompactionHeartbeat((item) => item.state === "running");
+    assert.equal(heartbeat.state, "running");
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
-    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV]; else process.env[SESSION_ID_ENV] = previousSessionId;
-    if (previousStateDir === undefined) delete process.env[STATE_ENV]; else process.env[STATE_ENV] = previousStateDir;
+    t.mock.timers.reset();
+    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
+    else process.env[SESSION_ID_ENV] = previousSessionId;
+    if (previousStateDir === undefined) delete process.env[STATE_ENV];
+    else process.env[STATE_ENV] = previousStateDir;
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
-  }
-});
-
-test("fork preparation control values use bounded typed identities", () => {
-  assert.equal(parseForkAttempt("abcdefghijklmnop"), "abcdefghijklmnop");
-  assert.equal(parseForkAttempt("abc"), undefined);
-  assert.equal(parseForkAttempt("a".repeat(81)), undefined);
-  assert.equal(parseForkAttempt("invalid attempt id"), undefined);
-
-  const preparation = { id: "abcdefghijklmnop", phase: "preparing" };
-  assert.deepEqual(parsePreparationCheckpoint({ version: 1, managedSessionId: " managed ", piSessionId: " pi-session ", preparation }), {
-    version: 1, managedSessionId: "managed", piSessionId: "pi-session", preparation,
-  });
-  for (const [managedSessionId, piSessionId] of [["", "pi"], ["managed", "   "], ["m".repeat(129), "pi"], ["managed", "p".repeat(129)]]) {
-    assert.equal(parsePreparationCheckpoint({ version: 1, managedSessionId, piSessionId, preparation }), undefined);
   }
 });
 
@@ -933,10 +914,10 @@ test("piAgentHubExtension bridges optional producer mode display into heartbeat"
   assert.deepEqual(heartbeat.workflow, {
     steps: WORKFLOW_STEPS,
     activeIndex: 1,
+    activeMode: FOCUS_MODE,
     ticketId: "workflow-board-001",
     updatedAt: 1_784_772_000_000,
   });
-  assert.deepEqual(heartbeat.activeMode, FOCUS_MODE);
 });
 
 test("piAgentHubExtension drops malformed optional mode without dropping workflow", async () => {
@@ -1099,12 +1080,6 @@ async function heartbeatWithSessionManager(
     else process.env[STATE_ENV] = previousStateDir;
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   }
-}
-
-async function waitFor(predicate: () => boolean, timeoutMs = 1_500): Promise<void> {
-  const started = Date.now();
-  while (!predicate() && Date.now() - started < timeoutMs) await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(predicate(), true, "Timed out waiting for extension callback");
 }
 
 async function waitForHeartbeat(root: string, sessionId: string, predicate: (heartbeat: Heartbeat) => boolean): Promise<Heartbeat> {

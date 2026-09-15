@@ -1,5 +1,4 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { isForkPreparationPending, forkPreparationMessage } from "../core/fork-preparation.js";
 import { orderedSessionRows } from "../core/session-tree.js";
 import { isEnterKey } from "./text-input.js";
 import { createForm, editField, moveFocus, setValue, validateRequired, type FormState } from "./form.js";
@@ -30,10 +29,6 @@ function openForkForm(ctx: FormDialogContext, purpose: "fork" | "forkCompact"): 
   if (!selected) return undefined;
   if (selected.kind === "subagent") {
     ctx.setMessage("subagent rows cannot be forked");
-    return undefined;
-  }
-  if (isForkPreparationPending(selected.forkPreparation) || selected.preparationStatusUnknown || selected.forkPreparation?.phase === "error") {
-    ctx.setMessage(selected.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(selected.forkPreparation) ?? "Fork preparation is not ready.");
     return undefined;
   }
   if (selected.worktreeOwnedByHub === true || selected.worktreePath) {
@@ -69,16 +64,8 @@ export function openMoveGroupDialog(ctx: FormDialogContext): FormDialog | undefi
 export function openRenameSessionForm(ctx: FormDialogContext, returnTmuxSession?: string): FormDialog | undefined {
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
-  if (isForkPreparationPending(selected.forkPreparation) || selected.preparationStatusUnknown || selected.forkPreparation?.phase === "error") {
-    ctx.setMessage(selected.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(selected.forkPreparation) ?? "Fork preparation is not ready.");
-    return undefined;
-  }
   if (selected.kind === "subagent") {
     ctx.setMessage("subagent rows cannot be renamed");
-    return undefined;
-  }
-  if (selected.context?.ticket) {
-    ctx.setMessage("linked ticket owns the session name");
     return undefined;
   }
   if (selected.status === "stopped" || selected.status === "error") {
@@ -156,17 +143,11 @@ function submitForkDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialo
     ctx.setMessage("fork target is no longer available");
     return undefined;
   }
-  if (isForkPreparationPending(target.forkPreparation) || target.preparationStatusUnknown || target.forkPreparation?.phase === "error") {
-    ctx.setMessage(target.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(target.forkPreparation) ?? "Fork preparation is not ready.");
-    return undefined;
-  }
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
   const compact = dialog.purpose === "forkCompact";
-  const action = () => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) });
-  if (compact) ctx.runBackgroundAction(action, "starting fork preparation...");
-  else ctx.runAction(action, "forking session...");
+  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) }), compact ? "forking and compacting session..." : "forking session...");
   return undefined;
 }
 
@@ -187,14 +168,6 @@ function submitRenameSessionDialog(dialog: FormDialog, ctx: FormDialogContext): 
   const target = formTarget(dialog, ctx);
   if (!target || target.kind === "subagent" || target.status === "stopped" || target.status === "error") {
     ctx.setMessage("rename target is no longer available");
-    return undefined;
-  }
-  if (isForkPreparationPending(target.forkPreparation) || target.preparationStatusUnknown || target.forkPreparation?.phase === "error") {
-    ctx.setMessage(target.preparationStatusUnknown ? "Fork preparation status is unavailable." : forkPreparationMessage(target.forkPreparation) ?? "Fork preparation is not ready.");
-    return undefined;
-  }
-  if (target.context?.ticket) {
-    ctx.setMessage("linked ticket owns the session name");
     return undefined;
   }
   const result = validateRequired(dialog.form);
@@ -225,7 +198,7 @@ function submitRenameGroupDialog(dialog: FormDialog, ctx: FormDialogContext): Fo
 }
 
 function formTarget(dialog: FormDialog, ctx: FormDialogContext) {
-  return ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  return ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
 }
 
 function cycleMoveGroup(dialog: FormDialog, delta: 1 | -1, ctx: FormDialogContext): FormDialog {

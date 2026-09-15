@@ -1,5 +1,4 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { forkPreparationMessage, isForkPreparationPending } from "../core/fork-preparation.js";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
@@ -664,20 +663,17 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const afterIndexes = list.targets.flatMap((target, index) => target?.kind === "session" && index > list.selectedEndIndex ? [index] : []);
   const titleLimit = Math.max(0, safeCapacity - selectedLength);
   let best: { before: number; after: number; distance: number; contexts: Set<number> } | undefined;
-  // A selected heading already occupies a row; it must not also appear as context.
-  const contextFor = (index: number) => (list.contextIndexes.get(index) ?? [])
-    .filter((contextIndex) => contextIndex < list.selectedIndex || contextIndex > list.selectedEndIndex);
-  const beforeContexts = new Set(contextFor(list.selectedIndex));
+  const beforeContexts = new Set(list.contextIndexes.get(list.selectedIndex) ?? []);
   for (let before = 0; before <= Math.min(beforeIndexes.length, titleLimit); before += 1) {
     if (before) {
       const titleIndex = beforeIndexes[beforeIndexes.length - before]!;
-      for (const contextIndex of contextFor(titleIndex)) beforeContexts.add(contextIndex);
+      for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) beforeContexts.add(contextIndex);
     }
     const contexts = new Set(beforeContexts);
     for (let after = 0; after <= Math.min(afterIndexes.length, titleLimit - before); after += 1) {
       if (after) {
         const titleIndex = afterIndexes[after - 1]!;
-        for (const contextIndex of contextFor(titleIndex)) contexts.add(contextIndex);
+        for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) contexts.add(contextIndex);
       }
       if (selectedLength + before + after + contexts.size > safeCapacity) continue;
       const firstIndex = before ? beforeIndexes[beforeIndexes.length - before]! : list.selectedIndex;
@@ -693,7 +689,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   }
   if (!best) {
     const availableContext = Math.max(0, safeCapacity - selectedLength);
-    const selectedContext = contextFor(list.selectedIndex).slice(-availableContext);
+    const selectedContext = (list.contextIndexes.get(list.selectedIndex) ?? []).slice(-availableContext);
     const selectedIndex = selectedContext.length;
     return {
       lines: [...selectedContext.map((index) => list.lines[index] ?? ""), ...list.lines.slice(list.selectedIndex, list.selectedEndIndex + 1)],
@@ -744,7 +740,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const keptContinuations = new Set(continuationCandidates.slice(0, remaining).map((candidate) => candidate.index));
   const emittedContexts = new Set<number>();
   const rowsForTitle = (titleIndex: number, includeSelectedSpan = false) => {
-    const rows = contextFor(titleIndex).filter((index) => !emittedContexts.has(index));
+    const rows = (list.contextIndexes.get(titleIndex) ?? []).filter((index) => !emittedContexts.has(index));
     for (const index of rows) emittedContexts.add(index);
     if (includeSelectedSpan) return [...rows, ...Array.from({ length: selectedLength }, (_, offset) => list.selectedIndex + offset)];
     rows.push(titleIndex);
@@ -944,18 +940,11 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     `“${stripAnsi(session.attention.text)}”`,
     width,
   ) : []);
-  const preparationBlocked = session.preparationStatusUnknown || isForkPreparationPending(session.forkPreparation) || session.forkPreparation?.phase === "error";
-  const taskText = preparationBlocked ? "" : workspaceTaskText(workspace);
+  const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
-  const workflow = block("workflow", preparationBlocked ? [] : workspaceWorkflowLine(workflowSession, styles));
-  const operation = operationText(session);
-  const operationGuidance = operation ? operationAdornment(session, styles, Number.POSITIVE_INFINITY) : undefined;
-  const guidanceText = [
-    session.error ? `Error · ${stripAnsi(session.error)}` : undefined,
-    workspace.guidance && workspace.guidance !== operation ? workspace.guidance : undefined,
-    operationGuidance,
-  ].filter(Boolean).join(" · ");
+  const workflow = block("workflow", workspaceWorkflowLine(workflowSession, styles));
+  const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
   const guidance = block("guidance", guidanceText ? wrapWords(guidanceText, width, width) : []);
   const hasBody = [request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
   const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
@@ -986,8 +975,8 @@ function workspaceTaskText(workspace: RenderWorkspace): string {
 function workspaceWorkflowLine(session: RenderSession, styles: LayoutStyles): string[] {
   const workflow = session.workflow;
   const step = workflow?.steps[workflow.activeIndex];
+  if (!workflow || !step) return [];
   const mode = activeWorkflowMode(session);
-  if (!workflow || !step) return mode ? [styles.accent(mode.label?.trim() || mode.short.trim())] : [];
   const label = mode?.label?.trim() || mode?.short.trim() || step.label?.trim() || step.short;
   return [`${styles.accent(label)}${styles.dim(` · step ${workflow.activeIndex + 1} of ${workflow.steps.length}`)}`];
 }
@@ -1087,7 +1076,7 @@ function titleStatusRow(session: RenderSession, width: number, styles: LayoutSty
 }
 
 function activeWorkflowMode(session: RenderSession): WorkflowModeDisplay | undefined {
-  return session.status === "stopped" ? undefined : session.activeMode;
+  return session.status === "stopped" ? undefined : session.workflow?.activeMode;
 }
 
 function activeStepShort(workflow: WorkflowRuntimeSnapshot, mode?: WorkflowModeDisplay): string {
@@ -1107,14 +1096,12 @@ function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
 
 function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, repoMode: boolean, width: number, terminalWidth: number): string {
   if (session.kind === "subagent") return "";
-  const operation = operationAdornment(session, styles, width);
-  if (operation) return operation;
   const mode = activeWorkflowMode(session);
   const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 8;
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
   const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
-  const compact = session.workflow ? railCompact(session.workflow, mode, styles) : mode ? styles.accent(mode.short) : "";
+  const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
   const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
   const quiet = session.cockpitTier === "quiet" ? styles.muted("quiet") : "";
   const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
@@ -1145,33 +1132,6 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     return [join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
   return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
-}
-
-function operationText(session: RenderSession): string | undefined {
-  if (session.preparationStatusUnknown) return "Fork preparation status is unavailable.";
-  if (session.forkPreparation?.phase === "error") {
-    const detail = forkPreparationMessage(session.forkPreparation);
-    return detail && detail !== "Preparation failed" ? `Preparation failed · ${detail}` : "Preparation failed";
-  }
-  if (isForkPreparationPending(session.forkPreparation)) return forkPreparationMessage(session.forkPreparation);
-  switch (session.operation?.phase) {
-    case "running": return "Compacting";
-    case "complete": return "Compaction complete";
-    case "error": return session.operation.error ? `Compaction failed · ${session.operation.error}` : "Compaction failed";
-    case "cancelled": return "Compaction cancelled";
-  }
-}
-
-function operationAdornment(session: RenderSession, styles: LayoutStyles, width: number): string {
-  const text = operationText(session);
-  if (!text) return "";
-  const failed = session.forkPreparation?.phase === "error" || session.operation?.phase === "error";
-  const unavailable = session.preparationStatusUnknown || session.operation?.phase === "cancelled";
-  const glyph = failed ? "!" : "◌";
-  const tone = failed ? styles.error : unavailable ? styles.warning : styles.accent;
-  const compact = tone(glyph);
-  const readable = tone(`${glyph} ${text.replace(/[.]$/, "")}`);
-  return displayWidth(readable) + 9 <= width ? readable : compact;
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {
@@ -1320,25 +1280,25 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const worktree = session.worktreeBranch ? styles.accent("⎇ ") : "";
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
-  const badge = ` ${renderGroupBadge(session.group, badgeBudget, styles)}`;
-  const suffix = `${badge}${repoCount}`;
-  const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(suffix));
+  const badge = `${renderGroupBadge(session.group, badgeBudget, styles)} `;
+  const adornments = `${badge}${repoCount}`;
+  const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(adornments));
   const right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth);
   const rightSpace = right ? displayWidth(right) + 1 : 0;
   const minimumTitle = Math.min(8, Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - 4));
-  const availableSuffix = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - minimumTitle - rightSpace);
-  const fittedBadgeWidth = Math.min(badgeBudget, Math.max(0, availableSuffix - 1));
-  const fittedBadge = fittedBadgeWidth >= 3 ? ` ${renderGroupBadge(session.group, fittedBadgeWidth, styles)}` : "";
-  const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableSuffix ? repoCount : "";
-  const fittedSuffix = `${fittedBadge}${fittedCount}`;
-  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedSuffix) - rightSpace);
+  const availableAdornments = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - minimumTitle - rightSpace);
+  const fittedBadgeWidth = Math.min(badgeBudget, Math.max(0, availableAdornments - 1));
+  const fittedBadge = fittedBadgeWidth >= 3 ? `${renderGroupBadge(session.group, fittedBadgeWidth, styles)} ` : "";
+  const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableAdornments ? repoCount : "";
+  const fittedAdornments = `${fittedBadge}${fittedCount}`;
+  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);
   const title = styles.text(truncate(session.title, titleWidth));
-  const left = `${prefix}${worktree}${title}${fittedSuffix}`;
+  const left = `${prefix}${fittedBadge}${worktree}${title}${fittedCount}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {
-  return `${styles.accent("[")}${styles.text(truncate(group, width - 2))}${styles.accent("]")}`;
+  return `${styles.dim("[")}${styles.text(truncate(group, width - 2))}${styles.dim("]")}`;
 }
 
 export interface FormField {

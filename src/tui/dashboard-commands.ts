@@ -1,6 +1,5 @@
 import type { SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
-import { forkPreparationMessage, isForkPreparationPending } from "../core/fork-preparation.js";
 import { matchesFilter } from "../core/session-tree.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
@@ -39,8 +38,6 @@ export interface DashboardCommandCapabilities {
   deleteSession?: boolean;
   finishWorktree?: boolean;
   forkSession?: boolean;
-  retryForkPreparation?: boolean;
-  cancelForkPreparation?: boolean;
   renameSession?: boolean;
   syncPiName?: boolean;
   sendMessage?: boolean;
@@ -117,8 +114,6 @@ const actionSpecs: ActionSpec[] = [
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
   { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
-  { name: "retry-preparation", label: "Retry preparation…", hint: "restart this child and clear its task assignment again", keys: [], available: retryPreparationAvailability },
-  { name: "cancel-preparation", label: "Cancel preparation and keep session…", hint: "remove the preparation restriction without changing conversation or task state", keys: [], available: cancelPreparationAvailability },
   { name: "move-group", label: "Move group…", hint: "change this session's group", keys: ["g"], available: mainAvailability },
   { name: "rename-group", label: "Rename group…", hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
   { name: "archive", label: "Archive", hint: "move to Archived without stopping Pi", keys: ["A"], available: bucketAvailability("archived") },
@@ -181,13 +176,7 @@ export function selectWorkspaceCommands(
   let guidanceAction: string | undefined;
   let actionNames: string[];
 
-  const preparationReason = preparationBlockReason(session);
-  if (preparationReason) {
-    guidance = preparationReason;
-    actionNames = session.forkPreparation?.phase === "error"
-      ? ["retry-preparation", "cancel-preparation", "open", "info"]
-      : ["info"];
-  } else if (attention) {
+  if (attention) {
     if (attention.kind === "ready") {
       guidance = "Review the completed result.";
       guidanceAction = "open";
@@ -233,9 +222,7 @@ export function selectWorkspaceCommands(
   const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
   const moreCommand = commands.find((command) => command.id === "view:palette");
   if (!evidenceCommand || !moreCommand) throw new Error("workspace commands require evidence and palette descriptors");
-  const guidanceIsActionable = preparationReason
-    ? actions.length > 0
-    : guidanceAction !== undefined && actions[0]?.id === `action:${session.id}:${guidanceAction}`;
+  const guidanceIsActionable = guidanceAction !== undefined && actions[0]?.id === `action:${session.id}:${guidanceAction}`;
   return { ...(guidance && guidanceIsActionable ? { guidance } : {}), actions, evidenceCommand, moreCommand };
 }
 
@@ -298,22 +285,11 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
-  const preparationReason = preparationBlockReason(session);
-  const allowedDuringPreparation = spec.name === "delete" || spec.name === "info" || spec.name === "close-pin"
-    || spec.name === "retry-preparation" || spec.name === "cancel-preparation"
-    || ["move-group", "rename-group", "archive", "backlog", "restore", "reorder-up", "reorder-down", "size-increase", "size-decrease"].includes(spec.name)
-    || (spec.name === "open" && preparationInspectable(session));
-  const availability = input.interactionBlockedReason
-    ? disabled(input.interactionBlockedReason)
-    : preparationReason && !allowedDuringPreparation
-      ? disabled(preparationReason)
-      : spec.available(session, input);
+  const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
   const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length);
-  const label = spec.name === "open" && preparationInspectable(session)
-    ? "Open to inspect"
-    : spec.name === "open" && (session.status === "error" || session.status === "stopped")
+  const label = spec.name === "open" && (session.status === "error" || session.status === "stopped")
     ? "Restart"
     : spec.name === "open" && (isQuestion || input.conversation)
       ? "Open in Pi"
@@ -322,9 +298,7 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
       : spec.name === "pin" ? spec.label
       : spec.name.startsWith("slot-") && currentSlot === Number(spec.name.slice(5)) - 1 ? `Focus slot ${currentSlot + 1}`
       : spec.label;
-  const hint = spec.name === "open" && preparationInspectable(session)
-    ? "open the failed child without restarting it"
-    : spec.name === "open" && isQuestion
+  const hint = spec.name === "open" && isQuestion
     ? "focus the real Pi questionnaire"
     : spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
   return makeCommand({
@@ -344,8 +318,6 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
 function configuredCommand(shortcut: DashboardShortcut, index: number, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
   const availability = input.interactionBlockedReason
     ? disabled(input.interactionBlockedReason)
-    : preparationBlockReason(session)
-      ? disabled(preparationBlockReason(session)!)
     : session.kind === "subagent"
     ? disabled("unavailable for subagents")
     : !isLive(session)
@@ -458,19 +430,16 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     }),
     ...[1, 2, 3, 4].map((slot) => {
       const sessionId = input.pinState?.slots?.[slot - 1];
-      const target = sessionId ? input.sessions.find((session) => session.id === sessionId) : undefined;
-      const preparationReason = target ? preparationBlockReason(target) : undefined;
-      const enabled = Boolean(sessionId && !preparationReason && input.capabilities?.focusSidePaneSlot === true && !input.interactionBlockedReason);
+      const enabled = Boolean(sessionId && input.capabilities?.focusSidePaneSlot === true && !input.interactionBlockedReason);
       return makeCommand({
-        id: `view:focus-slot-${slot}${sessionId ? `:${encodeURIComponent(sessionId)}` : ""}`,
+        id: `view:focus-slot-${slot}`,
         group: "views",
         label: `Focus slot ${slot}`,
         hint: `focus the live session in slot ${slot}`,
         displayKey: `Alt+${slot}`,
         bindings: [{ key: `M-${slot}` }],
-        targetSessionId: sessionId,
         enabled,
-        disabledReason: input.interactionBlockedReason ?? preparationReason ?? (sessionId ? "slot focus transport unavailable" : `slot ${slot} is empty`),
+        disabledReason: input.interactionBlockedReason ?? (sessionId ? "slot focus transport unavailable" : `slot ${slot} is empty`),
         searchText: `M-${slot} Alt+${slot} focus slot ${slot}`,
       });
     }),
@@ -492,36 +461,8 @@ function sessionHint(session: RuntimeSession): string {
 }
 
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  if (preparationInspectable(session)) return input.capabilities?.openSession === true ? enabled() : disabled("session transport unavailable");
   if (!isLive(session)) return input.capabilities?.restart === true ? enabled() : disabled("restart transport unavailable");
   return input.capabilities?.openSession === true ? enabled() : disabled("session transport unavailable");
-}
-
-function retryPreparationAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  if (session.forkPreparation?.phase !== "error" || session.preparationStatusUnknown) return disabled("preparation has not failed");
-  if (!session.sessionFile) return disabled("child conversation is unavailable; delete and recreate it");
-  if (!canRetryForkPreparation(session)) {
-    return disabled(session.statusEvidence?.tmux.state === "unknown" ? "child activity is unknown" : "wait until the child is idle before retrying");
-  }
-  return input.capabilities?.retryForkPreparation === true ? enabled() : disabled("preparation retry unavailable");
-}
-
-export function canRetryForkPreparation(session: RuntimeSession): boolean {
-  if (session.forkPreparation?.phase !== "error" || session.preparationStatusUnknown || !session.sessionFile || session.operation?.phase === "running" || session.statusEvidence?.tmux.state === "unknown") return false;
-  if (session.status === "stopped" || session.statusEvidence?.tmux.state === "missing") return true;
-  return session.statusEvidence?.tmux.state === "present"
-    && session.statusEvidence.heartbeat.freshness === "fresh"
-    && session.statusEvidence.heartbeat.state === "waiting";
-}
-
-function cancelPreparationAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  if (session.forkPreparation?.phase !== "error") return disabled("preparation has not failed");
-  if (!canCancelForkPreparation(session)) return disabled("unavailable for subagents");
-  return input.capabilities?.cancelForkPreparation === true ? enabled() : disabled("preparation cancellation unavailable");
-}
-
-export function canCancelForkPreparation(session: RuntimeSession): boolean {
-  return session.forkPreparation?.phase === "error" && session.kind !== "subagent";
 }
 
 function renameAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
@@ -648,23 +589,6 @@ function liveMainCapability(name: keyof DashboardCommandCapabilities, reason: st
     const main = mainAvailability(session);
     return !main.enabled ? main : !isLive(session) ? disabled("session is not live") : input.capabilities?.[name] === true ? enabled() : disabled(reason);
   };
-}
-
-function preparationInspectable(session: RuntimeSession): boolean {
-  if (session.forkPreparation?.phase !== "error" || session.preparationStatusUnknown) return false;
-  return session.statusEvidence?.tmux.state === "present" || isLive(session);
-}
-
-function preparationBlockReason(session: RuntimeSession): string | undefined {
-  if (session.preparationStatusUnknown) return "Fork preparation status is unavailable.";
-  if (session.forkPreparation?.phase === "error") {
-    const detail = forkPreparationMessage(session.forkPreparation);
-    return detail && detail !== "Preparation failed" ? `Preparation failed · ${detail}` : "Preparation failed";
-  }
-  if (isForkPreparationPending(session.forkPreparation)) {
-    return forkPreparationMessage(session.forkPreparation) ?? "Fork preparation is not ready.";
-  }
-  return undefined;
 }
 
 function isLive(session: RuntimeSession): boolean {

@@ -15,7 +15,6 @@ export function hasUsefulStatusResult(session: RenderSession): boolean {
     || reason === "heartbeat-error"
     || reason === "heartbeat-shutdown"
     || reason === "fallback-active"
-    || reason === "compaction-retained"
     || reason === "fallback-starting"
     || reason === "fallback-waiting"
     || reason === "fallback-idle";
@@ -89,7 +88,6 @@ function runtimeReason(evidence: RuntimeStatusEvidence): string {
     case "tmux-stopped": return "registered session is stopped and tmux is absent";
     case "tmux-missing": return "tmux session is missing";
     case "tmux-unknown": return "tmux observation failed";
-    case "fork-launch-pending": return "fork launch is awaiting process confirmation";
     case "heartbeat-error": return "Pi heartbeat reported an error";
     case "heartbeat-shutdown": return "Pi heartbeat reported shutdown";
     case "heartbeat-active": return `fresh heartbeat reports ${evidence.heartbeat.state === "starting" ? "starting" : "running"}`;
@@ -101,7 +99,6 @@ function runtimeReason(evidence: RuntimeStatusEvidence): string {
     case "fallback-idle": return "heartbeat unavailable; latest result was already read";
     case "heartbeat-unread": return "fresh heartbeat reports an unread result";
     case "heartbeat-read": return "fresh heartbeat result was already read";
-    case "compaction-retained": return "compaction is running; heartbeat gap is temporary";
   }
 }
 

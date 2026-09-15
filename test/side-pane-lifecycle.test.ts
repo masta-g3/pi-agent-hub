@@ -171,25 +171,6 @@ function before(events: readonly string[], first: string, second: string) {
   assert.ok(events.indexOf(first) < events.indexOf(second), `${first} must precede ${second}`);
 }
 
-test("preparing child blocks pin and handoff without blocking another session", async (t) => {
-  const pending = { ...session("api", "waiting"), forkPreparation: { id: "attempt", phase: "compacting" as const } };
-  const { lifecycle, events } = await harness(t, { sessions: [pending, session("docs")] });
-  await assert.rejects(() => lifecycle.pin("api"), /Compacting/);
-  await assert.rejects(() => lifecycle.assign("api", 1), /Compacting/);
-  await assert.rejects(() => lifecycle.handoff(pending.tmuxSession), /Compacting/);
-  assert.equal(events.some((event) => event === "ack:api" || event.startsWith("switch:")), false);
-  assert.equal((await lifecycle.pin("docs")).kind, "pinned");
-});
-
-test("pending pinned child stays unacknowledged and can return to cockpit", async (t) => {
-  const pending = { ...session("api", "waiting"), forkPreparation: { id: "attempt", phase: "compacting" as const } };
-  const { lifecycle, events } = await harness(t, { initial: [{ session: pending.tmuxSession, active: true }], sessions: [pending] });
-  await assert.rejects(() => lifecycle.focus(1), /Compacting/);
-  await assert.rejects(() => lifecycle.focusPinnedSession("api"), /Compacting/);
-  assert.equal(events.includes("ack:api"), false);
-  assert.equal((await lifecycle.returnToCockpit()).kind, "focused");
-});
-
 test("presence adopts named pins and publishes the complete live snapshot", async (t) => {
   const value = await harness(t, { initial: [{ session: "pi-agent-hub-api", active: true, title: "old" }] });
   await waitFor(() => value.lifecycle.snapshot().pins.length === 1);

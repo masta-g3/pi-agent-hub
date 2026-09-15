@@ -1,7 +1,6 @@
 import { loadRegistry } from "../core/registry.js";
 import { applyComputedStatus, computeStatus, isFreshHeartbeat } from "../core/status.js";
-import { isForkPreparationPending, reconcileForkPreparation } from "../core/fork-preparation.js";
-import type { ManagedSession, RuntimeSession, SessionsRegistry } from "../core/types.js";
+import type { ManagedSession, RuntimeSession, SessionsRegistry, WorkflowModeDisplay } from "../core/types.js";
 import { buildRenderModel, type RenderSession } from "../tui/render-model.js";
 import { statusEvidenceFields, type StatusEvidenceField } from "../tui/status-evidence.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
@@ -53,37 +52,24 @@ function formatField(field: StatusEvidenceField): string {
 
 function observedRuntimeSession(session: ManagedSession, observation: SessionObservation | undefined, now: number): RuntimeSession {
   if (!observation) return session;
-  const forkPreparation = reconcileForkPreparation(session, observation.heartbeat, observation.presence, now);
-  const observedSession = forkPreparation === session.forkPreparation ? session : { ...session, forkPreparation };
-  const suppressPreparationMetadata = Boolean(forkPreparation && forkPreparation.phase !== "ready");
-  const statusHeartbeat = suppressPreparationMetadata && observation.heartbeat
-    ? { ...observation.heartbeat, workflow: undefined, activeMode: undefined, context: undefined, piSessionName: undefined }
-    : observation.heartbeat;
   const computed = computeStatus({
-    session: observedSession,
+    session,
     tmux: { exists: observation.presence === "present", error: observation.error },
-    heartbeat: statusHeartbeat,
+    heartbeat: observation.heartbeat,
     now,
   });
-  const applied = applyComputedStatus(observedSession, computed, now, statusHeartbeat);
-  const updated = suppressPreparationMetadata ? { ...applied, workflow: undefined } : applied;
-  const context = suppressPreparationMetadata ? undefined : observation.heartbeat?.context;
-  const activeMode = !suppressPreparationMetadata && observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
-    ? observation.heartbeat.activeMode ?? observation.heartbeat.workflow?.activeMode
+  const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
+  const context = observation.heartbeat?.context;
+  const activeMode: WorkflowModeDisplay | undefined = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
+    ? observation.heartbeat.workflow?.activeMode
     : undefined;
-  const piName = !suppressPreparationMetadata && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.piSessionName?.trim() : undefined;
-  const operation = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.operation : undefined;
-  const matchingPreparation = observation.heartbeat?.forkPreparation?.id === forkPreparation?.id;
-  const preparationStatusUnknown = isForkPreparationPending(forkPreparation)
-    && (observation.presence === "unknown" || Boolean(forkPreparation?.launchConfirmed && (!matchingPreparation || !isFreshHeartbeat(observation.heartbeat, now))));
+  const workflow = activeMode && updated.workflow ? { ...updated.workflow, activeMode } : updated.workflow;
+  const piName = isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.piSessionName?.trim() : undefined;
   return {
     ...updated,
     ...(piName ? { title: piName } : {}),
     ...(context ? { context } : {}),
-    ...(activeMode ? { activeMode } : {}),
-    ...(operation ? { operation } : {}),
-    ...(preparationStatusUnknown ? { preparationStatusUnknown: true } : {}),
-    workflow: updated.workflow,
+    workflow,
     statusEvidence: computed.evidence,
   };
 }

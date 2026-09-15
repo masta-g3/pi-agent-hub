@@ -209,7 +209,7 @@ function repoField(index: number, value: string, suggestions: string[]): Field {
     key: `repo:${index}`,
     label: index === 0 ? "★ primary" : "+ repo",
     value,
-    hint: index === 0 ? cwdHint(suggestions.length) : "extra repo · ctrl-o choose · alt-x remove",
+    hint: index === 0 ? cwdHint(suggestions.length) : "extra repo · ctrl-o choose · ctrl-x remove",
     suggestions,
     cycleIndex: matchSuggestionIndex(value, suggestions),
     section: index === 0 ? "repos" : undefined,

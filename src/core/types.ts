@@ -37,7 +37,6 @@ export interface WorkflowActivityDisplay {
 }
 
 export interface WorkflowRuntimeSnapshot extends WorkflowSnapshot {
-  /** @deprecated Producer mode is carried independently on Heartbeat/RuntimeSession. */
   activeMode?: WorkflowModeDisplay;
   activity?: WorkflowActivityDisplay;
   plan?: SessionPlanSummary;
@@ -84,15 +83,6 @@ export interface ManagedWorktree {
   role: "primary" | "additional";
 }
 
-export interface ForkPreparation {
-  id: string;
-  phase: "preparing" | "compacting" | "ready" | "error";
-  launchConfirmed?: boolean;
-  launchDeadline?: number;
-  outcome?: "compacted" | "not-needed";
-  error?: string;
-}
-
 export interface ManagedSession {
   id: string;
   title: string;
@@ -127,19 +117,16 @@ export interface ManagedSession {
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
   worktrees?: ManagedWorktree[];
-  forkPreparation?: ForkPreparation;
 }
 
 export type RuntimeStatusReason =
   | "tmux-stopped"
   | "tmux-missing"
   | "tmux-unknown"
-  | "fork-launch-pending"
   | "heartbeat-error"
   | "heartbeat-shutdown"
   | "heartbeat-active"
   | "fallback-active"
-  | "compaction-retained"
   | "fallback-starting"
   | "fallback-waiting"
   | "fallback-idle"
@@ -169,12 +156,8 @@ export interface RuntimeStatusEvidence {
 export interface RuntimeSession extends ManagedSession {
   interaction?: { version: 1; instanceId: string };
   context?: PiAgentHubContextV1;
-  /** Fresh, runtime-only producer decoration. */
-  activeMode?: WorkflowModeDisplay;
   workflow?: WorkflowRuntimeSnapshot;
   statusEvidence?: RuntimeStatusEvidence;
-  operation?: HeartbeatOperation;
-  preparationStatusUnknown?: boolean;
 }
 
 export interface SessionsRegistry {
@@ -182,12 +165,11 @@ export interface SessionsRegistry {
   sessions: ManagedSession[];
 }
 
-export type HeartbeatOperation = {
-  kind: "compact";
-  phase: "running" | "complete" | "error" | "cancelled";
+export interface HeartbeatOperation {
+  kind: "fork-compact";
+  phase: "running" | "complete" | "error";
   id: string;
-  error?: string;
-};
+}
 
 export interface Heartbeat {
   interaction?: { version: 1; instanceId: string };
@@ -200,7 +182,6 @@ export interface Heartbeat {
   message?: string;
   updatedAt: number;
   operation?: HeartbeatOperation;
-  forkPreparation?: ForkPreparation;
   kind?: "main" | "subagent";
   parentId?: string;
   agentName?: string;
@@ -209,7 +190,6 @@ export interface Heartbeat {
   activeTheme?: ActiveThemeSnapshot;
   piSessionName?: string;
   context?: PiAgentHubContextV1;
-  activeMode?: WorkflowModeDisplay;
   workflow?: WorkflowRuntimeSnapshot;
 }
 
@@ -223,8 +203,6 @@ export interface StatusInput {
   session: ManagedSession;
   tmux: TmuxState;
   heartbeat?: Heartbeat;
-  /** Controller-only transient cache for a bounded compaction heartbeat gap. */
-  compactionActive?: boolean;
   now: number;
 }
 

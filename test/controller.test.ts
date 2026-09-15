@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
 import { heartbeatPath, multiRepoWorkspacePath } from "../src/core/paths.js";
-import { nameCommandPath } from "../src/core/name-command.js";
 import { updateRegistry } from "../src/core/registry.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -393,31 +392,31 @@ test("refresh projects active workflow mode only from a fresh heartbeat with con
 
     await writeHeartbeat();
     await controller.refresh(now);
-    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, activeMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, activeMode);
     assert.deepEqual(controller.snapshot().registry.sessions[0]?.workflow, workflow);
     const persisted = JSON.parse(await readFile(join(process.env.PI_AGENT_HUB_DIR!, "registry.json"), "utf8"));
     assert.equal(persisted.sessions[0].workflow.activeMode, undefined);
 
     await writeHeartbeat({ state: "error", message: "provider paused" });
     await controller.refresh(now);
-    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, activeMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, activeMode);
 
     await writeHeartbeat({ workflow });
     await controller.refresh(now + 1);
-    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
 
     await writeHeartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1 });
     await controller.refresh(now);
-    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
 
     await writeHeartbeat({ state: "shutdown" });
     await controller.refresh(now);
-    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
 
     for (presence of ["missing", "unknown"] as const) {
       await writeHeartbeat();
       await controller.refresh(now);
-      assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined, presence);
+      assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined, presence);
     }
   });
 });
@@ -453,100 +452,6 @@ test("refresh caches the native Pi name and projects generic context without per
     })}\n`, "utf8");
     await controller.refresh(now);
     assert.equal(controller.snapshot().registry.sessions[0]?.title, "Manual Recovery");
-  });
-});
-
-test("refresh gates preparation before heartbeat and suppresses inherited metadata through failure", async () => {
-  await withTempSessionsDir(async () => {
-    const now = 1_000;
-    const workflow = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1 };
-    const child = session("starting", {
-      id: "child", title: "repo", workflow,
-      forkPreparation: { id: "attempt", phase: "preparing", launchDeadline: now + 100 },
-    });
-    await updateRegistry(() => ({ version: 1, sessions: [child] }));
-    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
-    let presence: TmuxPresence = "missing";
-    const controller = new SessionsController({ version: 1, sessions: [child] }, async () => presence);
-
-    await controller.refresh(now);
-    assert.equal(controller.snapshot().sessions[0]?.status, "starting");
-    assert.equal(controller.snapshot().sessions[0]?.forkPreparation?.phase, "preparing");
-
-    presence = "present";
-    await writeFile(heartbeatPath("child"), `${JSON.stringify({
-      managedSessionId: "child", cwd: child.cwd, state: "waiting", stateSince: now, updatedAt: now,
-      piSessionName: "Inherited name",
-      context: { version: 1, updatedAt: now, ticket: { id: "old", subtitle: "Old task" } },
-      workflow,
-      activeMode: { id: "focus", short: "FOC" },
-      operation: { kind: "compact", phase: "running", id: "compact" },
-      forkPreparation: { id: "attempt", phase: "error", error: "Reset failed" },
-    })}\n`, "utf8");
-    await controller.refresh(now);
-
-    const snapshot = controller.snapshot();
-    assert.equal(snapshot.registry.sessions[0]?.forkPreparation?.phase, "error");
-    assert.equal(snapshot.registry.sessions[0]?.title, "repo");
-    assert.equal(snapshot.registry.sessions[0]?.workflow, undefined);
-    assert.equal(snapshot.sessions[0]?.context, undefined);
-    assert.equal(snapshot.sessions[0]?.activeMode, undefined);
-    assert.deepEqual(snapshot.sessions[0]?.operation, { kind: "compact", phase: "running", id: "compact" });
-  });
-});
-
-test("preparation-only transitions advance row versions without repeated refresh churn", async () => {
-  await withTempSessionsDir(async () => {
-    const now = 100_000;
-    const child = session("waiting", { id: "child", lastActivityAt: 1, forkPreparation: { id: "attempt", phase: "compacting", launchConfirmed: true } });
-    const registry = { version: 1 as const, sessions: [child] };
-    await updateRegistry(() => registry);
-    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
-    await writeFile(heartbeatPath("child"), JSON.stringify({
-      managedSessionId: "child", cwd: child.cwd, state: "waiting", stateSince: 1, updatedAt: now,
-      forkPreparation: { id: "attempt", phase: "ready", outcome: "compacted" },
-    }));
-    const controller = new SessionsController(registry, async () => "present");
-    await controller.refresh(now);
-    const ready = controller.snapshot().registry.sessions[0]!;
-    assert.equal(ready.status, child.status);
-    assert.equal(ready.forkPreparation?.phase, "ready");
-    assert.ok(ready.updatedAt > child.updatedAt);
-    await controller.refresh(now + 1);
-    assert.equal(controller.snapshot().registry.sessions[0]?.updatedAt, ready.updatedAt);
-  });
-});
-
-test("pending preparation cannot be acknowledged or renamed by cached-name recovery", async () => {
-  await withTempSessionsDir(async () => {
-    const file = join(process.env.PI_AGENT_HUB_DIR!, "session.jsonl");
-    await writeFile(file, `${JSON.stringify({ type: "session_info", name: "Inherited name" })}\n`);
-    const child = session("waiting", { id: "child", title: "repo", sessionFile: file, forkPreparation: { id: "attempt", phase: "compacting" } });
-    const registry = { version: 1 as const, sessions: [child] };
-    await updateRegistry(() => registry);
-    const controller = new SessionsController(registry, async () => "present");
-    await controller.acknowledgeSession("child");
-    assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, undefined);
-    assert.deepEqual(await controller.syncPiName("child"), { status: "unavailable" });
-    assert.equal(controller.snapshot().registry.sessions[0]?.title, "repo");
-  });
-});
-
-test("refresh ignores stale attempt completion and marks confirmed unavailable preparation unknown", async () => {
-  await withTempSessionsDir(async () => {
-    const now = 100_000;
-    const child = session("running", { id: "child", forkPreparation: { id: "new", phase: "compacting", launchConfirmed: true } });
-    await updateRegistry(() => ({ version: 1, sessions: [child] }));
-    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
-    await writeFile(heartbeatPath("child"), `${JSON.stringify({
-      managedSessionId: "child", cwd: child.cwd, state: "running", stateSince: 1, updatedAt: now - HEARTBEAT_STALE_MS - 1,
-      forkPreparation: { id: "old", phase: "ready", outcome: "compacted" },
-    })}\n`, "utf8");
-    const controller = new SessionsController({ version: 1, sessions: [child] }, async () => "present");
-    await controller.refresh(now);
-    assert.equal(controller.snapshot().registry.sessions[0]?.forkPreparation?.phase, "compacting");
-    assert.equal(controller.snapshot().sessions[0]?.preparationStatusUnknown, true);
-    assert.equal(controller.snapshot().sessions[0]?.operation, undefined);
   });
 });
 
@@ -620,7 +525,7 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     await writeRuntime("first", firstMode);
     await controller.refresh(now);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "first");
-    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, firstMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, firstMode);
 
     await writeRuntime("second", secondMode);
     duringPresence = async () => {
@@ -631,11 +536,11 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     };
     await controller.refresh(now + 1);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "first");
-    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, firstMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, firstMode);
 
     await controller.refresh(now + 2);
     assert.equal(controller.snapshot().sessions[0]?.context?.ticket?.subtitle, "second");
-    assert.deepEqual(controller.snapshot().sessions[0]?.activeMode, secondMode);
+    assert.deepEqual(controller.snapshot().sessions[0]?.workflow?.activeMode, secondMode);
 
     duringPresence = async () => {
       await updateRegistry((latest) => ({
@@ -645,7 +550,7 @@ test("refresh preserves runtime metadata on same-target conflicts and clears it 
     };
     await controller.refresh(now + 3);
     assert.equal(controller.snapshot().sessions[0]?.context, undefined);
-    assert.equal(controller.snapshot().sessions[0]?.activeMode, undefined);
+    assert.equal(controller.snapshot().sessions[0]?.workflow?.activeMode, undefined);
   });
 });
 
@@ -734,9 +639,7 @@ test("archive pruning removes expired archived rows only when tmux is missing", 
     await updateRegistry(() => registry);
     await mkdir(multiRepoWorkspacePath("archived"), { recursive: true });
     await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
-    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "name-commands"), { recursive: true });
     await writeFile(heartbeatPath("archived"), `${JSON.stringify({ state: "shutdown", updatedAt: 1, stateSince: 1 })}\n`, "utf8");
-    await writeFile(nameCommandPath("archived"), "{}\n", "utf8");
     const controller = new SessionsController(registry);
 
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
@@ -748,7 +651,6 @@ test("archive pruning removes expired archived rows only when tmux is missing", 
     assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.id), ["active", "backlog"]);
     await assertPathMissing(multiRepoWorkspacePath("archived"));
     await assertPathMissing(heartbeatPath("archived"));
-    await assertPathMissing(nameCommandPath("archived"));
   });
 });
 

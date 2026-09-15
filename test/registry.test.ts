@@ -44,16 +44,6 @@ test("registry update/load round trip", async () => {
   assert.deepEqual(await loadRegistry(path), { version: 1, sessions: [session] });
 });
 
-test("registry load cannot silently remove a malformed preparation access gate", async () => {
-  const path = await tempPath("registry.json");
-  const valid = { ...createSessionRecord({ cwd: "/tmp/valid", now: 10 }), forkPreparation: { id: "attempt", phase: "preparing", launchDeadline: 100 } };
-  const invalid = { ...createSessionRecord({ cwd: "/tmp/invalid", now: 10 }), forkPreparation: { id: "x".repeat(81), phase: "ready" } };
-  await writeFile(path, JSON.stringify({ version: 1, sessions: [valid] }), "utf8");
-  assert.deepEqual((await loadRegistry(path)).sessions[0]?.forkPreparation, valid.forkPreparation);
-  await writeFile(path, JSON.stringify({ version: 1, sessions: [valid, invalid] }), "utf8");
-  await assert.rejects(() => loadRegistry(path), /Invalid fork preparation/);
-});
-
 test("unchanged registry updates do not rewrite the file", async () => {
   const path = await tempPath("registry.json");
   const original = '{"version":1,"sessions":[]}\n';

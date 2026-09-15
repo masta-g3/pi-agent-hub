@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SessionsController } from "../src/app/controller.js";
-import type { RuntimeSession } from "../src/core/types.js";
+import type { ManagedSession } from "../src/core/types.js";
 import type { DialogContext, SessionDialog } from "../src/tui/dialog.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm } from "../src/tui/form-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput } from "../src/tui/picker-dialog.js";
 
-function session(id: string, group = "default", values: Partial<RuntimeSession> = {}): RuntimeSession {
-  return { id, title: id, group, cwd: `/tmp/${id}`, tmuxSession: `tmux-${id}`, status: "idle", createdAt: 1, updatedAt: 1, ...values };
+function session(id: string, group = "default"): ManagedSession {
+  return { id, title: id, group, cwd: `/tmp/${id}`, tmuxSession: `tmux-${id}`, status: "idle", createdAt: 1, updatedAt: 1 };
 }
 
 function context(controller: SessionsController, actions: DialogContext["actions"]): DialogContext {
@@ -17,7 +17,7 @@ function context(controller: SessionsController, actions: DialogContext["actions
     controller, actions, theme: undefined, now: () => 0,
     close: () => { dialog = undefined; }, setDialog: (next) => { dialog = next; }, dialog: () => dialog,
     setMessage: (next) => { message = next; }, message: () => message, flashMessage: () => {},
-    runAction: (action) => { action(); }, runBackgroundAction: (action) => { action(); }, attachSession: () => {}, stop: () => {},
+    runAction: (action) => { action(); }, attachSession: () => {}, stop: () => {},
   };
 }
 
@@ -56,17 +56,6 @@ test("fork forms and rename forms keep the session selected when they opened", (
 
   assert.deepEqual(forked, [{ id: first.id, compact: undefined }, { id: first.id, compact: true }]);
   assert.deepEqual(renamed, [first.id]);
-});
-
-test("rename form rejects a linked ticket", () => {
-  const linked = session("linked", "default", {
-    context: { version: 1, updatedAt: 2, ticket: { id: "naming-001", subtitle: "Stable ticket names" } },
-  });
-  const controller = new SessionsController({ version: 1, sessions: [linked] });
-  const ctx = context(controller, { renameSession: () => {} });
-
-  assert.equal(openRenameSessionForm(ctx), undefined);
-  assert.equal(ctx.message(), "linked ticket owns the session name");
 });
 
 test("rename-group form keeps its original group target", () => {

@@ -18,7 +18,6 @@ function context(actions: DialogContext["actions"]): DialogContext {
     message: () => undefined,
     flashMessage: () => {},
     runAction: () => {},
-    runBackgroundAction: () => {},
     attachSession: () => {},
     stop: () => {},
   };

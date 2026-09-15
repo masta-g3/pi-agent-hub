@@ -1,10 +1,9 @@
 import { basename, dirname, parse, resolve, sep } from "node:path";
-import { isForkPreparationPending } from "../core/fork-preparation.js";
 import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowModeDisplay, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
+import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -66,7 +65,6 @@ export interface RenderSession {
   hiddenChildRequestCount?: number;
   plan?: RenderPlanSummary;
   workflow?: WorkflowRuntimeSnapshot;
-  activeMode?: WorkflowModeDisplay;
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
@@ -75,9 +73,6 @@ export interface RenderSession {
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
-  forkPreparation?: RuntimeSession["forkPreparation"];
-  operation?: RuntimeSession["operation"];
-  preparationStatusUnknown?: boolean;
 }
 
 export interface StatusCounts {
@@ -240,7 +235,27 @@ export interface DashboardProjection {
   repoSections: readonly RepoProjectionSection[];
 }
 
+export interface FilterDisclosure {
+  sections: Set<CollapsibleSection>;
+  repos: Set<string>;
+  projectTrees: Set<string>;
+  boardTrees: Set<string>;
+}
+
+function filterDisclosureInput<T extends DashboardProjectionInput>(input: T): T {
+  if (!input.filter?.trim() || !input.filterDisclosure) return input;
+  const folds = input.filterDisclosure;
+  const ids = input.sessions.map((session) => session.id);
+  return { ...input,
+    collapsedSections: folds.sections,
+    collapsedRepos: folds.repos,
+    expandedProjectParentIds: new Set(ids.filter((id) => !folds.projectTrees.has(id))),
+    expandedBoardParentIds: new Set(ids.filter((id) => !folds.boardTrees.has(id))),
+  };
+}
+
 export interface DashboardProjectionInput {
+  filterDisclosure?: FilterDisclosure;
   sessions: RuntimeSession[];
   filter?: string;
   grouping?: "project" | "stage";
@@ -301,13 +316,14 @@ function pathParts(path: string): string[] {
 
 /** Structural dashboard rows shared by rendering and navigation. */
 export function buildDashboardProjection(input: DashboardProjectionInput): DashboardProjection {
+  input = filterDisclosureInput(input);
+  const revealFilterMatches = Boolean(input.filter?.trim()) && !input.filterDisclosure;
   const board = (input.grouping ?? "project") === "stage";
   const filterActive = Boolean(input.filter?.trim());
-  const presentationSessions = input.sessions.map(preparationPresentationSession);
-  const sourceRows = orderedSessionRows(presentationSessions);
+  const sourceRows = orderedSessionRows(input.sessions);
   const sourceTree = createSessionTreeIndex(sourceRows);
   const { tierById: cockpitTierById, ownerById: cockpitOwnerById, placementById: cockpitPlacementById } = cockpitIndex(sourceRows, sourceTree);
-  const allRows = filterActive ? orderedSessionRows(presentationSessions, input.filter) : sourceRows;
+  const allRows = filterActive ? orderedSessionRows(input.sessions, input.filter) : sourceRows;
   const allTree = filterActive ? createSessionTreeIndex(allRows) : sourceTree;
   const sourceActiveRows = sourceRows.filter((session) => effectiveSessionLifecycle(session, sourceRows, sourceTree).section === "active");
   const activeRows = filterActive
@@ -315,7 +331,7 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     : sourceActiveRows;
   const boardTotalCardCount = sourceActiveRows.filter((session) => session.kind !== "subagent").length;
   const boardProjection = projectExpandedBoardRows(
-    projectBoardRows(activeRows, allRows), input.expandedBoardParentIds ?? new Set(), filterActive,
+    projectBoardRows(activeRows, allRows), input.expandedBoardParentIds ?? new Set(), revealFilterMatches,
   );
   let archive = archiveSectionRows(allRows, { expanded: input.archiveExpanded ?? false, filterActive }, allTree);
   const revealed = input.revealedSessionId ? allTree.get(input.revealedSessionId) : undefined;
@@ -334,14 +350,14 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
       rows: allRows.filter((row) => archiveRowIds.has(row.id) || revealedArchiveIds.has(row.id)),
     };
   }
-  const visibleProjectRows = visibleTreeRows(archive.rows, allRows, input.expandedProjectParentIds ?? new Set(), filterActive);
+  const visibleProjectRows = visibleTreeRows(archive.rows, allRows, input.expandedProjectParentIds ?? new Set(), revealFilterMatches);
   const projectRows = orderCockpitRows(visibleProjectRows, cockpitTierById);
   const repoIdentityByOwnerId = repoIdentities(sourceRows, cockpitOwnerById);
   const repoSections = buildRepoSections(sourceRows, projectRows, cockpitTierById, cockpitOwnerById, repoIdentityByOwnerId)
     .filter((section) => !filterActive || section.visibleOwnerIds.length > 0)
     .map((section) => ({
       ...section,
-      collapsed: input.collapsedRepos?.has(section.key) === true && !filterActive
+      collapsed: input.collapsedRepos?.has(section.key) === true && !revealFilterMatches
         && !section.rows.some((row) => revealedIds.has(row.id)),
     }));
   const cockpitNavigation = COCKPIT_TIER_ORDER.map((tier) => {
@@ -355,26 +371,19 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     };
   });
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
-  const statusVisible = filterActive ? projectRows : projectRows.filter((session) => {
+  const statusVisible = revealFilterMatches ? projectRows : projectRows.filter((session) => {
     const tier = cockpitTierById.get(session.id);
     return !tier || tier === "needs-you" || !collapsedSections.has(tier) || revealedIds.has(session.id);
   });
   const repoVisible = repoSections.flatMap((section) => section.collapsed ? [] : section.rows);
   const archivedVisible = projectRows.filter((row) => cockpitTierById.get(row.id) === "archived" && (
-    filterActive || !collapsedSections.has("archived") || revealedIds.has(row.id)
+    revealFilterMatches || !collapsedSections.has("archived") || revealedIds.has(row.id)
   ));
   const repo = !board && (input.fleetGrouping ?? "status") === "repo";
   const visible = board ? boardProjection.rows : repo ? [...repoVisible, ...archivedVisible] : statusVisible;
   return { allRows, allTree, activeRows, boardProjection, boardTotalCardCount, archive,
     archiveDisclosureVisible: archive.showDisclosure && !collapsedSections.has("archived"),
     cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById, repoIdentityByOwnerId, repoSections };
-}
-
-function preparationPresentationSession(session: RuntimeSession): RuntimeSession {
-  const blocked = session.preparationStatusUnknown || isForkPreparationPending(session.forkPreparation) || session.forkPreparation?.phase === "error";
-  if (!blocked) return session;
-  const { context: _context, workflow: _workflow, activeMode: _activeMode, ...visible } = session;
-  return visible;
 }
 
 function buildRepoSections(
@@ -487,6 +496,7 @@ function orderCockpitRows(rows: RuntimeSession[], tiers: ReadonlyMap<string, Coc
 }
 
 export interface BuildRenderModelInput {
+  filterDisclosure?: FilterDisclosure;
   sessions: RuntimeSession[];
   selectedId?: string;
   width: number;
@@ -524,6 +534,8 @@ export interface BuildRenderModelInput {
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
+  input = filterDisclosureInput(input);
+  const revealFilterMatches = Boolean(input.filter?.trim()) && !input.filterDisclosure;
   const grouping = input.grouping ?? "project";
   const fleetGrouping = input.fleetGrouping ?? "status";
   const projection = input.structuralProjection ?? buildDashboardProjection(input);
@@ -543,7 +555,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const visibleIds = new Set(visible.map((session) => session.id));
   const hiddenAttentionCount = (id: string) => [...(attentiveDescendantIds.get(id) ?? [])]
     .filter((descendantId) => !visibleIds.has(descendantId)).length;
-  const treeExpanded = (id: string) => filterActive || (board
+  const treeExpanded = (id: string) => revealFilterMatches || (board
     ? input.expandedBoardParentIds?.has(id) === true
     : input.expandedProjectParentIds?.has(id) === true);
   // Build each source row once. Visible selection is a small overlay: lifecycle
@@ -573,10 +585,10 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     : fleetGrouping === "repo"
       ? repoSectionsForSessions(repoSections, mapped, allMapped, attentiveDescendantIds, visibleIds, input.selectedRepo,
         cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
-          filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), false)
+          revealFilterMatches || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), false)
           .filter((section) => section.cockpitTier === "archived"))
       : cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
-        filterActive || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
+        revealFilterMatches || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
@@ -1005,10 +1017,6 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
       ? { plan: planSummary(session.workflow.plan) }
       : {}),
     workflow: session.workflow,
-    ...(session.activeMode ? { activeMode: session.activeMode } : {}),
-    forkPreparation: session.forkPreparation,
-    operation: session.operation,
-    preparationStatusUnknown: session.preparationStatusUnknown,
     worktreePath: worktree?.path ?? session.worktreePath,
     worktreeBranch: worktree?.branch ?? session.worktreeBranch,
     worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,

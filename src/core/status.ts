@@ -1,5 +1,4 @@
 import { nextUpdatedAt } from "./session-version.js";
-import { isForkPreparationPending } from "./fork-preparation.js";
 export { readHeartbeat } from "./heartbeat.js";
 import type { ManagedSession, SessionStatus, Heartbeat, RuntimeStatusEvidence, RuntimeStatusReason, StatusInput, WorkflowSnapshot } from "./types.js";
 
@@ -17,10 +16,7 @@ export interface StatusDecision extends ComputedStatus {
 }
 
 export function computeStatus(input: StatusInput): StatusDecision {
-  const { session, tmux, now } = input;
-  const heartbeat = isForkPreparationPending(session.forkPreparation) && input.heartbeat?.forkPreparation?.id !== session.forkPreparation?.id
-    ? undefined
-    : input.heartbeat;
+  const { session, tmux, heartbeat, now } = input;
   const decision = (status: SessionStatus, reason: RuntimeStatusReason, error?: string): StatusDecision => ({
     status,
     ...(error ? { error } : {}),
@@ -28,9 +24,6 @@ export function computeStatus(input: StatusInput): StatusDecision {
   });
 
   if (!tmux.exists) {
-    if (isForkPreparationPending(session.forkPreparation) && !session.forkPreparation?.launchConfirmed) {
-      return decision("starting", "fork-launch-pending");
-    }
     if (session.status === "stopped") return decision("stopped", "tmux-stopped");
     return tmux.error
       ? decision("error", "tmux-unknown", tmux.error)
@@ -38,7 +31,6 @@ export function computeStatus(input: StatusInput): StatusDecision {
   }
 
   const fallbackFromTmux = (): StatusDecision => {
-    if (input.compactionActive && session.status !== "stopped") return decision("running", "compaction-retained");
     if (tmux.recentActivityMs !== undefined && tmux.recentActivityMs < TMUX_ACTIVE_MS) {
       return decision("running", "fallback-active");
     }
@@ -55,7 +47,6 @@ export function computeStatus(input: StatusInput): StatusDecision {
 
   const stale = now - heartbeat.updatedAt > HEARTBEAT_STALE_MS;
   if (stale) return fallbackFromTmux();
-  if (heartbeat.operation?.kind === "compact" && heartbeat.operation.phase === "running") return decision("running", "compaction-retained");
   if (heartbeat.state === "running" || heartbeat.state === "starting") return decision("running", "heartbeat-active");
 
   const lastAgentEnd = heartbeat.stateSince;
@@ -110,9 +101,6 @@ function workflowEvidence(sessionWorkflow: WorkflowSnapshot | undefined, heartbe
 export function applyComputedStatus(session: ManagedSession, computed: ComputedStatus, now = Date.now(), heartbeat?: Heartbeat): ManagedSession {
   return updateSession(session, {
     status: computed.status,
-    acknowledgedAt: computed.status === "waiting" && session.acknowledgedAt !== undefined
-      && isFreshHeartbeat(heartbeat, now) && heartbeat.stateSince > session.acknowledgedAt
-      ? undefined : session.acknowledgedAt,
     error: computed.error,
     sessionFile: heartbeat?.piSessionFile ?? session.sessionFile,
     piSessionId: heartbeat?.piSessionId ?? session.piSessionId,

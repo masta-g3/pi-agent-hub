@@ -11,18 +11,15 @@ import { nameCommandPath } from "../src/core/name-command.js";
 import { PRIMARY_CWD_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import {
   addManagedSession,
-  cancelForkPreparation,
   forkManagedSession,
   managedPiCommand,
   restartManagedSessionFresh,
-  restartManagedSession,
-  retryForkPreparation,
   startManagedSession,
   stopManagedSession,
 } from "../src/app/session-lifecycle.js";
-import { SessionsController } from "../src/app/controller.js";
 import { renameManagedSession } from "../src/app/session-commands.js";
 import type { ManagedSession } from "../src/core/types.js";
+import piAgentHubExtension from "../src/extension/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -113,44 +110,55 @@ test("managedPiCommand treats whitespace-only prelude as unset", () => {
   assert.equal(managedPiCommand({ prelude: "   ", piArgs: ["--help"] }), "pi '--help'");
 });
 
-test("renameManagedSession publishes an exact-conversation command without typing into Pi", async () => {
+test("renameManagedSession sets the native name without typing into Pi or mutating the cached title", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-rename-"));
+  const bin = join(root, "bin");
+  const log = join(root, "tmux.log");
+  await mkdir(bin);
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nexit 0\n`, "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
   const oldDir = process.env.PI_AGENT_HUB_DIR;
+  const oldPath = process.env.PATH;
+  const oldSessionId = process.env.PI_AGENT_HUB_SESSION_ID;
   process.env.PI_AGENT_HUB_DIR = join(root, "hub");
-  const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
-  const writeHeartbeat = (name: string) => writeFile(heartbeatPath("api"), JSON.stringify({
-    managedSessionId: "api", piSessionId: "conversation-api", piSessionName: name, cwd: "/tmp/api",
-    state: "waiting", stateSince: 1, updatedAt: Date.now(),
-  }), "utf8");
+  process.env.PI_AGENT_HUB_SESSION_ID = "api";
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  let nativeName = "api";
+  const ctx = { cwd: root, hasUI: false, sessionManager: { getSessionId: () => "conversation-api" } };
   try {
+    const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
     await updateRegistry(() => ({ version: 1, sessions: [managed] }));
-    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
-    await writeHeartbeat("api");
-    const rename = renameManagedSession("api", "Canonical Name");
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      try {
-        const command = JSON.parse(await readFile(nameCommandPath("api"), "utf8")) as { piSessionId: string; name: string };
-        assert.deepEqual([command.piSessionId, command.name], ["conversation-api", "Canonical Name"]);
-        await writeHeartbeat("Canonical Name");
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-    }
-    await rename;
+    await assert.rejects(renameManagedSession("api", "Canonical Name"), /Pi is not responding/);
+    piAgentHubExtension({
+      on: (event: string, handler: (event: unknown, ctx: unknown) => Promise<void>) => { handlers.set(event, handler); },
+      registerTool() {},
+      getSessionName: () => nativeName,
+      setSessionName: (name: string) => { nativeName = name; },
+    } as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    await renameManagedSession("api", "Canonical Name");
+    assert.equal(nativeName, "Canonical Name");
     assert.equal((await loadRegistry()).sessions[0]?.title, "api");
+    await assert.rejects(readFile(log, "utf8"), /ENOENT/);
     await assert.rejects(renameManagedSession("api", "bad\nname"), /one nonblank line/);
   } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
+    if (oldSessionId === undefined) delete process.env.PI_AGENT_HUB_SESSION_ID; else process.env.PI_AGENT_HUB_SESSION_ID = oldSessionId;
+    process.env.PATH = oldPath;
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("renameManagedSession rejects linked tickets before publish and during confirmation", async () => {
+test("renameManagedSession rejects linked tickets before publish and when a ticket links during confirmation", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-ticket-rename-"));
   const oldDir = process.env.PI_AGENT_HUB_DIR;
   process.env.PI_AGENT_HUB_DIR = join(root, "hub");
-  const managed: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "waiting", createdAt: 1, updatedAt: 1 };
+  const managed: ManagedSession = {
+    id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api",
+    status: "waiting", createdAt: 1, updatedAt: 1,
+  };
   const writeHeartbeat = async (linked: boolean) => {
     await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
     await writeFile(heartbeatPath("api"), JSON.stringify({
@@ -162,15 +170,23 @@ test("renameManagedSession rejects linked tickets before publish and during conf
   try {
     await updateRegistry(() => ({ version: 1, sessions: [managed] }));
     await writeHeartbeat(true);
+    await renameManagedSession("api", "api");
     await assert.rejects(renameManagedSession("api", "Manual Name"), /linked ticket owns the session name/);
-    await assert.rejects(readFile(nameCommandPath("api"), "utf8"), /ENOENT/);
+    await assert.rejects(readFile(nameCommandPath("api"), "utf8"), /ENOENT/, "linked rename must reject before publish");
 
     await writeHeartbeat(false);
     const rename = renameManagedSession("api", "Race Name");
+    let published = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      try { await readFile(nameCommandPath("api"), "utf8"); break; }
-      catch { await new Promise((resolve) => setTimeout(resolve, 5)); }
+      try {
+        await readFile(nameCommandPath("api"), "utf8");
+        published = true;
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
     }
+    assert.equal(published, true, "unlinked rename must publish before the race update");
     await writeHeartbeat(true);
     await assert.rejects(rename, /linked ticket owns the session name/);
   } finally {
@@ -255,146 +271,6 @@ test("addManagedSession injects worktree guidance for a single-repo worktree", a
   }
 });
 
-async function withForkFixture(run: (root: string, log: string, history: string) => Promise<void>, tmuxBody = "exit 0") {
-  const root = await mkdtemp(join(tmpdir(), "hub-preparation-action-"));
-  const previous = { dir: process.env.PI_AGENT_HUB_DIR, path: process.env.PATH };
-  const bin = join(root, "bin");
-  const log = join(root, "tmux.log");
-  const history = join(root, "child.jsonl");
-  await mkdir(bin);
-  await writeFile(history, "saved child history\n");
-  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\n${tmuxBody}\n`);
-  await chmod(join(bin, "tmux"), 0o755);
-  process.env.PI_AGENT_HUB_DIR = join(root, "hub");
-  process.env.PATH = `${bin}:${previous.path ?? ""}`;
-  try { await run(root, log, history); }
-  finally {
-    if (previous.dir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = previous.dir;
-    if (previous.path === undefined) delete process.env.PATH; else process.env.PATH = previous.path;
-    await rm(root, { recursive: true, force: true });
-  }
-}
-
-test("pending fork cannot start, restart, rename, or fork through application routes", async () => {
-  await withForkFixture(async (root, log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, forkPreparation: { id: "attempt", phase: "compacting", launchConfirmed: true } })] });
-    for (const action of [() => startManagedSession("source-session"), () => restartManagedSession("source-session"), () => restartManagedSessionFresh("source-session"), () => renameManagedSession("source-session", "changed"), () => forkManagedSession("source-session")]) {
-      await assert.rejects(action, /Compacting/);
-    }
-    assert.doesNotMatch(await readFile(log, "utf8"), /kill-session|new-session|send-keys|load-buffer/);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-  });
-});
-
-test("cancel failed preparation keeps the session and ignores the old heartbeat gate", async () => {
-  await withForkFixture(async (root, log, history) => {
-    const original = session({ cwd: root, sessionFile: history, forkPreparation: { id: "failed-attempt", phase: "error", error: "reset missing" } });
-    await seedRegistry({ version: 1, sessions: [original] });
-    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
-    const context = { version: 1, updatedAt: 10, ticket: { id: "manual-001", subtitle: "Keep current work" } };
-    const heartbeat = JSON.stringify({ managedSessionId: original.id, cwd: root, state: "waiting", stateSince: 1, updatedAt: Date.now(), forkPreparation: original.forkPreparation, context });
-    await writeFile(heartbeatPath(original.id), heartbeat);
-    const controller = new SessionsController(undefined, async () => "present");
-    await controller.refresh();
-    assert.equal(controller.snapshot().sessions[0]?.context, undefined);
-    const before = (await loadRegistry()).sessions[0]!;
-    await cancelForkPreparation(original.id);
-    const after = (await loadRegistry()).sessions[0]!;
-    const { forkPreparation: _preparation, ...kept } = before;
-    assert.deepEqual(after, { ...kept, updatedAt: after.updatedAt });
-    assert.ok(after.updatedAt > before.updatedAt);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-    assert.equal(await readFile(heartbeatPath(original.id), "utf8"), heartbeat);
-    await assert.rejects(readFile(log), { code: "ENOENT" });
-    await controller.refresh();
-    assert.equal(controller.snapshot().sessions[0]?.forkPreparation, undefined);
-    assert.deepEqual(controller.snapshot().sessions[0]?.context, context);
-    await assert.rejects(() => cancelForkPreparation(original.id), /Only failed fork preparation/);
-  });
-});
-
-test("preparation cancellation rejects active attempts and subagents", async () => {
-  await withForkFixture(async (root, _log, history) => {
-    for (const change of [
-      { forkPreparation: { id: "attempt", phase: "preparing" } },
-      { forkPreparation: { id: "attempt", phase: "compacting" } },
-      { forkPreparation: { id: "attempt", phase: "ready", outcome: "compacted" } },
-      { kind: "subagent", forkPreparation: { id: "attempt", phase: "error" } },
-    ] as const) {
-      await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, ...change })] });
-      const before = await loadRegistry();
-      await assert.rejects(() => cancelForkPreparation("source-session"), /Only failed fork preparation/);
-      assert.deepEqual(await loadRegistry(), before);
-    }
-  });
-});
-
-test("failed preparation retries the same saved child with a fresh attempt", async () => {
-  await withForkFixture(async (root, log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history, forkPreparation: { id: "failed-attempt", phase: "error", error: "provider failed" } })] });
-    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
-    await writeFile(heartbeatPath("source-session"), JSON.stringify({ managedSessionId: "source-session", cwd: root, state: "waiting", stateSince: 1, updatedAt: Date.now() }));
-    await retryForkPreparation("source-session");
-    const rows = (await loadRegistry()).sessions;
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.id, "source-session");
-    assert.notEqual(rows[0]?.forkPreparation?.id, "failed-attempt");
-    assert.equal(rows[0]?.forkPreparation?.phase, "preparing");
-    const commands = await readFile(log, "utf8");
-    assert.match(commands, /kill-session/);
-    assert.match(commands, /--session/);
-    assert.doesNotMatch(commands, /--fork/);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-  });
-});
-
-test("normal fork preserves its launched child when status-bar setup fails", async () => {
-  await withForkFixture(async (root, log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
-    await assert.rejects(() => forkManagedSession("source-session"), /status-bar failed/);
-    assert.equal((await loadRegistry()).sessions.length, 2);
-    const commands = await readFile(log, "utf8");
-    assert.match(commands, /new-session/);
-    assert.doesNotMatch(commands, /kill-session/);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-  }, 'if [ "$1" = "set-option" ]; then echo "status-bar failed" >&2; exit 1; fi\nexit 0');
-});
-
-test("fork launch failure removes its unusable child but preserves the source", async () => {
-  await withForkFixture(async (root, _log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
-    await assert.rejects(() => forkManagedSession("source-session", { compact: true }), /spawn failed/);
-    assert.deepEqual((await loadRegistry()).sessions.map((row) => row.id), ["source-session"]);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-  }, 'if [ "$1" = "new-session" ]; then echo "spawn failed" >&2; exit 1; fi\nexit 0');
-});
-
-test("stopping an unconfirmed fork prevents its deferred launch", async () => {
-  await withForkFixture(async (root, log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
-    await assert.rejects(() => forkManagedSession("source-session", {
-      compact: true,
-      onRegistered: (child) => stopManagedSession(child.id),
-    }), /cancelled or replaced/);
-    assert.doesNotMatch(await readFile(log, "utf8"), /new-session/);
-    assert.equal(await readFile(history, "utf8"), "saved child history\n");
-  }, '[ "$1" = "has-session" ] && exit 1\nexit 0');
-});
-
-test("deletion during deferred launch cleans up the exact late child", async () => {
-  await withForkFixture(async (root, log, history) => {
-    await seedRegistry({ version: 1, sessions: [session({ cwd: root, sessionFile: history })] });
-    await assert.rejects(() => forkManagedSession("source-session", {
-      compact: true,
-      async onRegistered(child) {
-        setTimeout(() => { void updateRegistry((registry) => ({ ...registry, sessions: registry.sessions.filter((row) => row.id !== child.id) })); }, 30);
-      },
-    }), /cancelled or replaced/);
-    assert.deepEqual((await loadRegistry()).sessions.map((row) => row.id), ["source-session"]);
-    assert.match(await readFile(log, "utf8"), /kill-session/);
-  }, 'if [ "$1" = "new-session" ]; then sleep 0.2; fi\nexit 0');
-});
-
 function seedRegistry(registry: import("../src/core/types.js").SessionsRegistry, path?: string): Promise<import("../src/core/types.js").SessionsRegistry> {
   return updateRegistry(() => registry, path);
 }
@@ -444,6 +320,13 @@ test("startManagedSession merges prepared workspace outputs into the latest row"
     assert.deepEqual(committed.additionalCwds, ["/tmp/canonical-extra"]);
     const commands = await readFile(log, "utf8");
     assert.match(commands, /new-session/);
+    assert.match(commands, /'--name' 'latest title'/);
+    await updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((item) => ({ ...item, sessionFile: "/tmp/saved.jsonl" })) }));
+    await writeFile(log, "");
+    await startManagedSession("source-session", async (prepared) => prepared);
+    const resumeCommands = await readFile(log, "utf8");
+    assert.match(resumeCommands, /'--session' '\/tmp\/saved.jsonl'/);
+    assert.doesNotMatch(resumeCommands, /--name/);
     assert.match(commands, new RegExp(`${PRIMARY_CWD_ENV}='\/tmp\/canonical'`));
     assert.doesNotMatch(commands, new RegExp(`${PRIMARY_CWD_ENV}='${join(root, "workspace").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
     assert.doesNotMatch(commands, new RegExp(`${PRIMARY_CWD_ENV}='\/tmp\/canonical-extra'`));
@@ -637,7 +520,6 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
   try {
     await seedRegistry({ version: 1, sessions: [session({ cwd: primary, sessionFile: history })] });
     await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
-    let compactionCompleted = false;
     const heartbeatTask = (async () => {
       let child: ManagedSession | undefined;
       while (!child) {
@@ -650,20 +532,18 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
       }), "utf8");
       await writeForkHeartbeat("running");
       await new Promise((resolve) => setTimeout(resolve, 500));
-      compactionCompleted = true;
       await writeForkHeartbeat("complete");
     })();
     const fork = await forkManagedSession("source-session", { compact: true });
-    const returnedBeforeCompletion = !compactionCompleted;
     await heartbeatTask;
-    assert.equal(returnedBeforeCompletion, true, "fork launch must not wait for compaction");
-    assert.ok("forkPreparation" in fork, "the child is gated before its first heartbeat");
     const registry = await loadRegistry();
     assert.equal(registry.sessions.length, 2);
     assert.equal(registry.sessions.find((item) => item.id === "source-session")?.group, "default");
     assert.equal(fork.group, "default");
     const commands = await readFile(log, "utf8");
-    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='[a-f0-9-]{36}'/);
+    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='1'/);
+    assert.equal(fork.title, "Fork · source");
+    assert.match(commands, /'--name' 'Fork · source'/);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;

@@ -1,6 +1,5 @@
 import { readJsonOr } from "./atomic-json.js";
 import { heartbeatPath } from "./paths.js";
-import { parseForkPreparation } from "./fork-preparation.js";
 import { parseSessionContext } from "./session-context.js";
 import type {
   ActiveThemeSnapshot,
@@ -37,11 +36,9 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   if (!nonnegativeFinite(value.stateSince) || !nonnegativeFinite(value.updatedAt)) return undefined;
 
   const context = parseSessionContext(value.context);
-  const runtime = parseWorkflowRuntime(value.workflow);
-  const activeMode = parseWorkflowMode(value.activeMode) ?? runtime.activeMode;
+  const workflow = parseWorkflowSnapshot(value.workflow);
   const activeTheme = parseActiveTheme(value.activeTheme);
   const operation = parseHeartbeatOperation(value.operation);
-  const forkPreparation = parseForkPreparation(value.forkPreparation);
   return {
     managedSessionId,
     ...(isObject(value.interaction) && value.interaction.version === 1 && typeof value.interaction.instanceId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value.interaction.instanceId)
@@ -54,7 +51,6 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...optionalStringField("message", value.message),
     updatedAt: value.updatedAt,
     ...(operation ? { operation } : {}),
-    ...(forkPreparation ? { forkPreparation } : {}),
     ...(value.kind === "main" || value.kind === "subagent" ? { kind: value.kind } : {}),
     ...optionalStringField("parentId", value.parentId),
     ...optionalStringField("agentName", value.agentName),
@@ -63,26 +59,8 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...(activeTheme ? { activeTheme } : {}),
     ...optionalStringField("piSessionName", value.piSessionName),
     ...(context ? { context } : {}),
-    ...(runtime.workflow ? { workflow: runtime.workflow } : {}),
-    ...(activeMode ? { activeMode } : {}),
+    ...(workflow ? { workflow } : {}),
   };
-}
-
-export interface ParsedWorkflowRuntime {
-  workflow?: WorkflowRuntimeSnapshot;
-  activeMode?: WorkflowModeDisplay;
-}
-
-/** Parse producer workflow and mode independently. */
-export function parseWorkflowRuntime(value: unknown): ParsedWorkflowRuntime {
-  if (!isObject(value)) return {};
-  const activeMode = parseWorkflowMode(value.activeMode);
-  const parsedWorkflow = parseWorkflowEntry(value) ?? parseWorkflowSnapshot(value);
-  const workflow = parsedWorkflow ? (() => {
-    const { activeMode: _legacyMode, ...base } = parsedWorkflow;
-    return base;
-  })() : undefined;
-  return { ...(workflow ? { workflow } : {}), ...(activeMode ? { activeMode } : {}) };
 }
 
 export function parseWorkflowEntry(value: unknown): WorkflowRuntimeSnapshot | undefined {
@@ -139,9 +117,9 @@ function parseWorkflowMode(value: unknown): WorkflowModeDisplay | undefined {
   if (!isObject(value) || typeof value.id !== "string" || typeof value.short !== "string") return undefined;
   const id = value.id.trim();
   const short = value.short.trim();
-  if (!id || !short || [...id].length > 80 || [...short].length > 32) return undefined;
-  if (value.label !== undefined && (typeof value.label !== "string" || !value.label.trim() || [...value.label.trim()].length > 120)) return undefined;
-  if (value.detail !== undefined && (typeof value.detail !== "string" || !value.detail.trim() || [...value.detail.trim()].length > 240)) return undefined;
+  if (!id || !short) return undefined;
+  if (value.label !== undefined && (typeof value.label !== "string" || !value.label.trim())) return undefined;
+  if (value.detail !== undefined && (typeof value.detail !== "string" || !value.detail.trim())) return undefined;
   return {
     id,
     short,
@@ -189,17 +167,9 @@ function parseCount(value: unknown): { completed: number; total: number } | unde
 }
 
 function parseHeartbeatOperation(value: unknown): HeartbeatOperation | undefined {
-  if (!isObject(value) || value.kind !== "compact"
-    || (value.phase !== "running" && value.phase !== "complete" && value.phase !== "error" && value.phase !== "cancelled")) return undefined;
+  if (!isObject(value) || value.kind !== "fork-compact" || (value.phase !== "running" && value.phase !== "complete" && value.phase !== "error")) return undefined;
   const id = requiredString(value.id);
-  if (!id || [...id].length > 80) return undefined;
-  const error = typeof value.error === "string" && value.error.trim() && [...value.error.trim()].length <= 500 ? value.error.trim() : undefined;
-  return {
-    kind: "compact",
-    phase: value.phase,
-    id,
-    ...(error ? { error } : {}),
-  };
+  return id && [...id].length <= 80 ? { kind: "fork-compact", phase: value.phase, id } : undefined;
 }
 
 function parseActiveTheme(value: unknown): ActiveThemeSnapshot | undefined {

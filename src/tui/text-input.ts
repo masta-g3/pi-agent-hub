@@ -103,6 +103,8 @@ export interface EditKey {
 }
 
 export function editKey(data: string): EditKey | undefined {
+  const paste = bracketedPaste(data);
+  if (paste !== undefined) return { kind: "edit", apply: (state) => insertText(state, paste) };
   if (matchesKey(data, Key.left)) return { kind: "move", apply: (state) => moveCursor(state, -1) };
   if (matchesKey(data, Key.right)) return { kind: "move", apply: (state) => moveCursor(state, 1) };
   if (matchesKey(data, Key.home) || matchesKey(data, Key.ctrl("a"))) return { kind: "move", apply: moveCursorHome };
@@ -151,4 +153,15 @@ function wordDelete(data: string): boolean {
 
 function isPrintable(data: string): boolean {
   return [...data].length === 1 && data >= " " && data !== "\u007f";
+}
+
+function bracketedPaste(data: string): string | undefined {
+  const start = "\u001b[200~";
+  const end = "\u001b[201~";
+  if (!data.startsWith(start) || !data.endsWith(end)) return undefined;
+  return data
+    .slice(start.length, -end.length)
+    .replace(/\r\n/g, " ")
+    .replace(/[\t-\r\u0085\u2028\u2029]/g, " ")
+    .replace(/[\u0000-\u0008\u000e-\u001f\u007f-\u009f]/g, "");
 }

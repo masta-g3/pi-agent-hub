@@ -20,6 +20,8 @@ const CTRL_W = "\u0017";
 const CTRL_DELETE = "\u001b[3;5~";
 const ALT_DELETE = "\u001b[3;3~";
 const ALT_D = "\u001bd";
+const PASTE_START = "\u001b[200~";
+const PASTE_END = "\u001b[201~";
 
 test("text input renders a clamped cursor with a configurable marker", () => {
   assert.equal(renderTextInput(createTextInput("a🙂c", 2)), "a🙂█c");
@@ -92,4 +94,21 @@ test("editTextInput applies classified editing keys", () => {
   assert.deepEqual(editTextInput(ALT_RIGHT, createTextInput("alpha beta", 0)), { value: "alpha beta", cursor: 6 });
   assert.deepEqual(editTextInput(CTRL_W, createTextInput("alpha beta", 10)), { value: "alpha ", cursor: 6 });
   assert.deepEqual(editTextInput(ALT_D, createTextInput("alpha beta", 0)), { value: "beta", cursor: 0 });
+});
+
+test("editTextInput inserts a bracketed paste at the cursor as single-line text", () => {
+  const paste = `${PASTE_START}one\r\ntwo\nthree\rfour🙂${PASTE_END}`;
+  assert.equal(editKey(paste)?.kind, "edit");
+  assert.deepEqual(editTextInput(paste, createTextInput("ac", 1)), {
+    value: "aone two three four🙂c",
+    cursor: 20,
+  });
+});
+
+test("bracketed paste treats embedded controls as text instead of editing commands", () => {
+  const paste = `${PASTE_START}x${LEFT}y${BACKSPACE}z\tend${PASTE_END}`;
+  assert.deepEqual(editTextInput(paste, createTextInput("tail", 0)), {
+    value: "x[Dyz endtail",
+    cursor: 9,
+  });
 });

@@ -5,7 +5,7 @@ import { readHeartbeat } from "../core/heartbeat.js";
 import { isFreshHeartbeat } from "../core/status.js";
 import { NAME_COMMAND_TIMEOUT_MS, publishNameCommand } from "../core/name-command.js";
 import { loadManagedSessionTheme } from "../tui/theme.js";
-import { assertManagedSessionReady } from "./session-lifecycle.js";
+import { resolveSession } from "./delete-session.js";
 
 export {
   managedPiCommand,
@@ -13,7 +13,8 @@ export {
 export type { ForkInput, SessionInput } from "./session-lifecycle.js";
 
 export async function renameManagedSession(id: string, title: string): Promise<void> {
-  const session = await assertManagedSessionReady(id);
+  const registry = await loadRegistry();
+  const session = resolveSession(registry, id);
   const name = title.trim();
   if (isSubagentSession(session)) throw new Error("subagent rows cannot be renamed");
   if (session.status === "stopped" || session.status === "error") throw new Error("restart the Pi session before renaming");

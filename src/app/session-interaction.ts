@@ -5,7 +5,7 @@ import { requestSessionInteraction, type AnswerInput, type InteractionRequest, t
 export type { AnswerInput, InteractionTarget, PendingQuestion, SessionInteractionState } from "../core/session-interaction.js";
 
 export function interactionTarget(session: RuntimeSession): InteractionTarget | undefined {
-  if (session.kind === "subagent" || !session.piSessionId || !session.interaction || session.status === "stopped" || session.status === "error" || session.forkPreparation && session.forkPreparation.phase !== "ready") return;
+  if (session.kind === "subagent" || !session.piSessionId || !session.interaction || session.status === "stopped" || session.status === "error") return;
   return { managedId: session.id, piSessionId: session.piSessionId, instanceId: session.interaction.instanceId };
 }
 const envelope = (target: InteractionTarget) => ({ ...target, version: 1 as const, id: randomUUID() });

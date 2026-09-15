@@ -34,30 +34,6 @@ function heartbeat(overrides: Partial<Heartbeat> = {}): Heartbeat {
   };
 }
 
-test("a fresh unread wait clears only the prior activity's acknowledgement", () => {
-  const previous = session({ acknowledgedAt: now - 2_000 });
-  for (const [name, hb, expected] of [
-    ["new wait", heartbeat(), undefined],
-    ["same wait", heartbeat({ stateSince: now - 2_000 }), previous.acknowledgedAt],
-    ["older wait", heartbeat({ stateSince: now - 3_000 }), previous.acknowledgedAt],
-    ["stale wait", heartbeat({ updatedAt: now - HEARTBEAT_STALE_MS - 1 }), previous.acknowledgedAt],
-    ["missing heartbeat", undefined, previous.acknowledgedAt],
-    ["running", heartbeat({ state: "running" }), previous.acknowledgedAt],
-  ] as const) {
-    const decision = computeStatus({ session: previous, heartbeat: hb, tmux: { exists: true }, now });
-    const updated = applyComputedStatus(previous, decision, now, hb);
-    assert.equal(updated.acknowledgedAt, expected, name);
-  }
-  const hb = heartbeat();
-  const decision = computeStatus({ session: previous, heartbeat: hb, tmux: { exists: true }, now });
-  const waiting = applyComputedStatus(previous, decision, now, hb);
-  assert.equal(waiting.status, "waiting");
-  assert.equal(applyComputedStatus(waiting, decision, now + 1, hb), waiting);
-  const acknowledged = markAcknowledged(waiting, now + 2);
-  const read = computeStatus({ session: acknowledged, heartbeat: hb, tmux: { exists: true }, now: now + 3 });
-  assert.equal(applyComputedStatus(acknowledged, read, now + 3, hb).acknowledgedAt, now + 2);
-});
-
 test("malformed heartbeat is treated as missing", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-heartbeat-"));
   const previous = process.env.PI_AGENT_HUB_DIR;
@@ -120,19 +96,9 @@ test("periodic heartbeat updates liveness without changing acknowledgement seman
   assert.equal(computeStatus({ session: acknowledged, tmux: { exists: true }, heartbeat: beat, now }).status, "idle");
 });
 
-test("missing tmux maps to error unless session is stopped or launch is not confirmed", () => {
+test("missing tmux maps to error unless session is stopped", () => {
   assert.equal(computeStatus({ session: session(), tmux: { exists: false }, now }).status, "error");
   assert.equal(computeStatus({ session: session({ status: "stopped" }), tmux: { exists: false }, now }).status, "stopped");
-  const pending = computeStatus({
-    session: session({ status: "starting", forkPreparation: { id: "attempt", phase: "preparing" } }),
-    tmux: { exists: false }, now,
-  });
-  assert.equal(pending.status, "starting");
-  assert.equal(pending.evidence.reason, "fork-launch-pending");
-  assert.equal(computeStatus({
-    session: session({ status: "starting", forkPreparation: { id: "attempt", phase: "preparing", launchConfirmed: true } }),
-    tmux: { exists: false }, now,
-  }).status, "error");
 });
 
 test("stale heartbeat falls back to tmux activity", () => {
@@ -190,18 +156,6 @@ test("unchanged computed status keeps the existing row timestamp", () => {
   const updated = applyComputedStatus(existing, { status: "waiting" }, now);
 
   assert.equal(updated, existing);
-});
-
-test("known compaction keeps a heartbeat gap running", () => {
-  const decision = computeStatus({ session: session({ status: "running" }), tmux: { exists: true }, compactionActive: true, now });
-  assert.equal(decision.status, "running");
-  assert.equal(decision.evidence.reason, "compaction-retained");
-});
-
-test("fresh compaction operation keeps the session running", () => {
-  const decision = computeStatus({ session: session({ status: "waiting" }), tmux: { exists: true }, heartbeat: heartbeat({ state: "waiting", operation: { kind: "compact", phase: "running", id: "op-1" } }), now });
-  assert.equal(decision.status, "running");
-  assert.equal(decision.evidence.reason, "compaction-retained");
 });
 
 test("transient compaction running heartbeat does not advance activity recency", () => {
@@ -268,12 +222,6 @@ test("apply computed status retains producer activity and plan while dropping tr
     activity: { id: "review", label: "Reviewing implementation", pass: 2 },
     plan: { tasks: { completed: 2, total: 3 } },
   });
-});
-
-test("a previous attempt shutdown cannot mark a new retry stopped", () => {
-  const retry = { ...session({ status: "starting" }), forkPreparation: { id: "new-attempt", phase: "preparing" as const } };
-  const decision = computeStatus({ session: retry, tmux: { exists: true }, heartbeat: { managedSessionId: retry.id, cwd: retry.cwd, state: "shutdown", stateSince: 1, updatedAt: 2, forkPreparation: { id: "old-attempt", phase: "error" } }, now: 3 });
-  assert.equal(decision.status, "starting");
 });
 
 test("mark acknowledged turns waiting into idle", () => {
