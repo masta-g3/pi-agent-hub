@@ -26,9 +26,10 @@ All disposable sessions, servers, browser fixtures, scripts, logs, and compiler 
 
 ## Retained package and installation
 
-- Portable questionnaire artifact: `juicesharp-rpiv-ask-user-question-2.10.0-hub.1.tgz`.
-- SHA-256: `1c6b48f11cef450dfdda37b6a21cd1ee20333ab924c06e413be2bc882884b905`.
-- Package: `@juicesharp/rpiv-ask-user-question@2.10.0-hub.1`; all 59 installed files matched the artifact. Its manifest includes the external protocol and shared answer builder.
+- Portable questionnaire artifact: `juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz`.
+- SHA-256: `e91e010cf2f12c609c1ea1689a89616fbc126006f2ec50a5d129b4546ec6744c`.
+- User-approved resolution integrated the fork's 2.10.1 release. `npm ci --ignore-scripts`, all 6,665 monorepo tests, coverage and pre-commit checks passed again. Coverage: 94.81% statements, 89.48% branches, 94.78% functions, 96.36% lines. Extracted archive comparison found only the manifest and install examples changed; all runtime files are identical.
+- Installed package remains `@juicesharp/rpiv-ask-user-question@2.10.0-hub.1`; all 59 installed files matched that original artifact (`1c6b48f11cef450dfdda37b6a21cd1ee20333ab924c06e413be2bc882884b905`). Its archive remains in the private rollback directory and Git history. No installation followed conflict resolution.
 - Instructions: question package `docs/hosts.md`, “Distributing the fork.” Prepare a versioned npm prefix and register its package directory in Pi; do not register the `.tgz` as an extension file or load original and fork together.
 - The user approved this Mac's daily installation. Exactly one questionnaire source was changed to `~/.pi/agent/local-packages/rpiv-ask-user-question/2.10.0-hub.1/node_modules/@juicesharp/rpiv-ask-user-question`; other settings and running sessions were preserved. The work machine was not changed.
 - The reviewed Hub runtime was installed from tested staging; all 90 installed modules matched. Its archive SHA-256 is `8453399706203c2dace1dbfeee4ec482d46a17739148127b7fff0d0b7ec3996c`. The focused FEATURES documentation update followed that install; runtime code did not change afterward.
