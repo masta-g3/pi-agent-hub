@@ -53,6 +53,7 @@ Ctrl+Q returns to the dashboard
 | `b` | Show or hide Backlog in the lifecycle filter (presentation only) |
 | `:` | Search actions, sessions, and named lifecycle/status/group filters |
 | `p` | Send a one-line message to the selected live session without opening it |
+| `c` | Show or hide the selected live session's Conversation panel below the fleet |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
 | `i` | Toggle live status and cockpit-placement evidence in the selected session's action workspace |
@@ -78,6 +79,16 @@ Ctrl+Q returns to the dashboard
 | `t` | Preview and configure the stable dashboard theme; `Enter` applies and `Escape` restores |
 | `v` | Toggle Status ↔ Repo fleet grouping; unavailable on the board |
 | `S` | Open the read-only workflow board or return to the chosen fleet grouping |
+
+## Conversation
+
+Press `c` to read the selected live session below the fleet. The muted title stays separate from the conversation. Coloured `YOU` and `PI` heading rules separate turns; speaker labels remain visible when a long message is clipped. `PgUp`/`PgDn` scroll the focused history or question area, and `End` returns to the latest messages while history has focus. Close pinned panes before opening Conversation.
+
+Supported pending questions appear inline under `? ANSWER NEEDED`. Press `Tab` to focus the answer area when the fleet has focus. Number keys select an option or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answer set, without a separate review screen. `←` revisits a previous question when not editing text. `Escape` returns focus to the fleet without cancelling the native question. With fleet focus, normal dashboard keys keep their usual meaning.
+
+Direct answering requires compatible Pi question integration. If unavailable, use **Open in Pi**. Opening or hiding Conversation does not answer or cancel a question. Native Pi and Hub submissions resolve the same request, so only the first valid answer wins. Configured commands remain in `:` and run only when Pi is idle, without queued messages, a blocking prompt, or an editor draft. The existing `p` prompt is unchanged.
+
+Conversation shows completed text and readable question/answer exchanges, not tools, thinking, or streaming fragments. It reads the live session and does not save a second transcript or search conversation content. Stopped sessions require Restart. After updating Hub, quit and reopen the dashboard; reload an idle Pi session with `/reload` or start a fresh session when the session extension also changed.
 
 ## Repo grouping
 
@@ -127,7 +138,7 @@ Runtime symbols describe liveness only. A waiting row does not imply an explicit
 
 The action workspace shows positive decision content in one order: identity, explicit request, real task text, plain workflow position, exceptional guidance, and enabled commands. Missing categories contribute no rows. Duplicate status explanations and internal provenance labels stay out of the default view. `▸` marks the primary catalog action. At 120+ columns the workspace is persistent on the right. Below 120 columns, `i` opens the exact-session full-width workspace without attaching, restarting, or acknowledging; `Escape` returns to the fleet. `Enter` and session-row double-click open, switch, or restart directly at every width. Action clicks use the same exact-target catalog dispatcher as direct keys and `:`. Disabled commands stay discoverable only in the palette.
 
-Press `i` to append `LIVE DETAILS` inside that same workspace. It reports useful tmux, heartbeat, read-state, runtime-placement, and workflow evidence after the normal content while suppressing routine absence text. Synthetic tier, repo and archive-disclosure targets cannot open stale session information. `pi-hub explain <exact-id-or-unique-prefix>` prints the shared semantic evidence after one read-only full-fleet observation; it does not write registry state or provide status history. Raw pane output and Pi conversation content are never rendered or searched.
+Press `i` to append `LIVE DETAILS` inside that same workspace. It reports useful tmux, heartbeat, read-state, runtime-placement, and workflow evidence after the normal content while suppressing routine absence text. Synthetic tier, repo and archive-disclosure targets cannot open stale session information. `pi-hub explain <exact-id-or-unique-prefix>` prints the shared semantic evidence after one read-only full-fleet observation; it does not write registry state or provide status history. This status workspace does not render pane output or Pi conversation content. The separate Conversation panel reads completed messages; neither surface searches conversation content.
 
 Backlog remains an independent organization state. Its rows carry a `backlog` tag and can still enter a higher tier when explicit attention, error, or active work requires it. Group labels appear only in parent title badges, not as lower row tags or project headings. Archived remains flat and globally newest-first. In Status view, `NEEDS YOU` is always expanded; HEALTH, ACTIVE, QUIET, and ARCHIVED each have independent presentation-only collapse state, with counts and navigator entries retained. The complete lifecycle filter and tier-collapse preferences persist in `ui-state.json`; individual subagent disclosure remains ephemeral. Archived shows the newest five parent cascades by default and keeps nested rows in their parent's cascade. Select `… N older archived` and press `Enter` or double-click to expand; use `⌃ show fewer` to collapse. Filtering reveals matching rows without changing tier classification, tree expansion, or saved tier-collapse state. Stage grouping keeps Backlog/Archived summarized in the footer.
 

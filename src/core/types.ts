@@ -167,6 +167,7 @@ export interface RuntimeStatusEvidence {
 }
 
 export interface RuntimeSession extends ManagedSession {
+  interaction?: { version: 1; instanceId: string };
   context?: PiAgentHubContextV1;
   /** Fresh, runtime-only producer decoration. */
   activeMode?: WorkflowModeDisplay;
@@ -189,6 +190,7 @@ export type HeartbeatOperation = {
 };
 
 export interface Heartbeat {
+  interaction?: { version: 1; instanceId: string };
   managedSessionId: string;
   piSessionFile?: string;
   piSessionId?: string;

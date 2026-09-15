@@ -1,3 +1,4 @@
+import { interactionTarget } from "../src/app/session-interaction.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -5,7 +6,7 @@ import { SessionsController } from "../src/app/controller.js";
 import { computeStatus } from "../src/core/status.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
-import type { ManagedSession } from "../src/core/types.js";
+import type { ManagedSession, RuntimeSession } from "../src/core/types.js";
 import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
@@ -29,6 +30,10 @@ function visibleSlice(value: string, start: number, width: number): string {
     column += charWidth;
   }
   return result;
+}
+
+function readySession(id: string, title: string): RuntimeSession {
+  return { ...session(id, title), piSessionId: `pi-${id}`, interaction: { version: 1, instanceId: "instance" } };
 }
 
 function session(id: string, title: string): ManagedSession {
@@ -1015,14 +1020,17 @@ test("shift arrows expand and collapse all board trees", () => {
   assert.doesNotMatch(fleetText(view.render(120)), /api-worker|docs-worker/);
 });
 
-test("Space remains configurable outside board mode but is reserved for board disclosure", () => {
+test("Space remains configurable outside board mode but is reserved for board disclosure", async () => {
   let calls = 0;
-  const parent = { ...session("parent", "api"), workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
+  const parent = { ...{ ...session("parent", "api"), piSessionId: "pi-parent", interaction: { version: 1 as const, instanceId: "instance" } }, workflow: { ...VIEW_WORKFLOW, activeIndex: 1 } };
   const child = { ...session("child", "other"), kind: "subagent" as const, parentId: "parent", agentName: "worker" };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {}, {
+    interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
     dashboardShortcuts: [{ key: " ", send: "ping" }],
     runDashboardShortcut: () => { calls += 1; },
   });
+  await view.refreshInteraction();
 
   view.handleInput(" ");
   assert.equal(calls, 1);
@@ -1299,13 +1307,16 @@ test("plus and minus resize through the catalog only when two pins are available
   assert.deepEqual(deltas, [1, -1]);
 });
 
-test("F and 1 are reserved while o remains available for configured sends", () => {
+test("F and 1 are reserved while o remains available for configured sends", async () => {
   const sent: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api")] });
   const view = new SessionsView(controller, () => {}, {
+    interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
     dashboardShortcuts: ["1", "F", "o"].map((key) => ({ key, send: `send-${key}` })),
     runDashboardShortcut: (_id, shortcut) => { sent.push(shortcut.send); },
   });
+  await view.refreshInteraction();
   for (const key of ["1", "F", "o"]) view.handleInput(key);
   assert.deepEqual(sent, ["send-o"]);
 });
@@ -3158,10 +3169,13 @@ test("rename form validates blank title", () => {
 
 test("custom Ctrl+N dashboard shortcut sends session-name refresh to selected live session", async () => {
   const runs: Array<{ sessionId: string; send: string }> = [];
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), async () => {}, {
+    interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
     dashboardShortcuts: [{ key: "C-n", label: "refresh name", send: "/session-name refresh" }],
     runDashboardShortcut: async (sessionId, shortcut) => { runs.push({ sessionId, send: shortcut.send }); },
   });
+  await view.refreshInteraction();
 
   view.handleInput("\x0e");
   await new Promise((resolve) => setImmediate(resolve));
@@ -4032,13 +4046,16 @@ test("palette shows blocked actions with reasons and does not execute them", () 
   assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
 });
 
-test("palette and direct configured keys execute dashboard shortcuts", () => {
+test("palette and direct configured keys execute dashboard shortcuts", async () => {
   const sent: string[] = [];
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
+    interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
     dashboardShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "z", label: "Verify", send: "/verify" }],
     runDashboardShortcut: (id, shortcut) => { sent.push(`${id}:${shortcut.send}`); },
     terminalRows: () => 30,
   });
+  await view.refreshInteraction();
 
   view.render(100);
   view.handleInput("z");

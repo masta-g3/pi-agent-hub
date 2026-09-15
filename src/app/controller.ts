@@ -30,6 +30,7 @@ export type SyncPiNameResult =
 export class SessionsController {
   private registry: SessionsRegistry;
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
+  private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
   private operationSignals = new Map<string, RuntimeSession["operation"]>();
   private preparationStatusUnknown = new Set<string>();
@@ -130,6 +131,10 @@ export class SessionsController {
         const freshOperation = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat.operation : undefined;
         if (freshOperation) this.operationSignals.set(id, freshOperation);
         else this.operationSignals.delete(id);
+        const interaction = !suppressPreparationMetadata && observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
+          ? observation.heartbeat.interaction : undefined;
+        if (interaction) this.interactions.set(id, interaction);
+        else this.interactions.delete(id);
         const activeMode = !suppressPreparationMetadata && observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now)
           ? observation.heartbeat.activeMode ?? observation.heartbeat.workflow?.activeMode
           : undefined;
@@ -138,6 +143,7 @@ export class SessionsController {
       } else if (!latest || latest.tmuxSession !== observation.tmuxSession) {
         this.sessionContexts.delete(id);
         this.workflowModes.delete(id);
+        this.interactions.delete(id);
         this.compactionSignals.delete(id);
         this.operationSignals.delete(id);
         this.preparationStatusUnknown.delete(id);
@@ -291,6 +297,7 @@ export class SessionsController {
     for (const removedId of ids) {
       this.sessionContexts.delete(removedId);
       this.workflowModes.delete(removedId);
+      this.interactions.delete(removedId);
       this.operationSignals.delete(removedId);
       this.preparationStatusUnknown.delete(removedId);
       this.compactionSignals.delete(removedId);
@@ -331,12 +338,13 @@ export class SessionsController {
     return this.registry.sessions.map((session) => {
       const context = this.sessionContexts.get(session.id);
       const activeMode = this.workflowModes.get(session.id);
+      const interaction = this.interactions.get(session.id);
       const operation = this.operationSignals.get(session.id);
       const preparationStatusUnknown = this.preparationStatusUnknown.has(session.id);
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
-      return context || activeMode || operation || preparationStatusUnknown || statusEvidence
-        ? { ...session, ...(context ? { context } : {}), ...(activeMode ? { activeMode } : {}), ...(operation ? { operation } : {}), ...(preparationStatusUnknown ? { preparationStatusUnknown: true } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
+      return context || interaction || activeMode || operation || preparationStatusUnknown || statusEvidence
+        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), ...(activeMode ? { activeMode } : {}), ...(operation ? { operation } : {}), ...(preparationStatusUnknown ? { preparationStatusUnknown: true } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }

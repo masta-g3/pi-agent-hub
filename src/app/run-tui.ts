@@ -1,3 +1,4 @@
+import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut } from "./session-interaction.js";
 import { spawn } from "node:child_process";
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
@@ -344,7 +345,8 @@ export async function runTui(): Promise<void> {
     const entry = activeAttentionRequest(attentionState, sessionId);
     return entry && Date.now() < entry.expiresAt ? entry.requestId : undefined;
   };
-  const observeAttention = async () => {
+  const afterRefresh = async () => {
+    void view.refreshInteraction();
     const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
     attentionState = observation.state;
     view.setAttentionAnnouncements(observation.active);
@@ -361,7 +363,7 @@ export async function runTui(): Promise<void> {
   };
   const refreshDashboard = async () => {
     await controller.refresh();
-    await observeAttention();
+    await afterRefresh();
   };
   const forkLaunches = new Set<Promise<unknown>>();
   const refreshForks = async () => {
@@ -384,6 +386,7 @@ export async function runTui(): Promise<void> {
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    view?.disposeInteraction();
     stopThemeLoop?.();
     const actionDrain = stopActionLoop?.() ?? Promise.resolve();
     void stopLoop?.stop();
@@ -403,7 +406,7 @@ export async function runTui(): Promise<void> {
       await loop?.stop();
     },
     resume() {
-      if (!stopped) stopLoop = startRefreshLoop(controller, tui, observeAttention);
+      if (!stopped) stopLoop = startRefreshLoop(controller, tui, afterRefresh);
     },
     refresh: refreshDashboard,
     render: () => tui.requestRender(),
@@ -453,6 +456,11 @@ export async function runTui(): Promise<void> {
     }
   };
   view = new SessionsView(controller, stop, {
+    interactionTarget,
+    loadInteractionState: loadSessionInteractionState,
+    loadConversation: loadSessionConversation,
+    submitAnswer: submitSessionAnswer,
+    requestRender: () => tui.requestRender(),
     initialViewState,
     saveViewState(state) { viewStateWriter.save(state); },
     async attachOutsideTmux(tmuxSession) {
@@ -568,8 +576,11 @@ export async function runTui(): Promise<void> {
     },
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
-      const session = await assertManagedSessionReady(sessionId);
-      await sendTextToSession(session.tmuxSession, shortcut.send);
+      const session = controller.snapshot().sessions.find(row => row.id === sessionId);
+      const target = session && interactionTarget(session);
+      if (!target) throw new Error("Restart this session to enable guarded commands");
+      await assertManagedSessionReady(sessionId);
+      await runSessionShortcut(target, shortcut.key, shortcut.send);
     },
     acknowledgeSession(sessionId, requestId) {
       return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
@@ -695,7 +706,7 @@ export async function runTui(): Promise<void> {
   tui.start();
   terminal.write(MOUSE_ENABLE);
   if (process.env.TMUX) void setDashboardMouse({ name: DASHBOARD_SESSION, enabled: true }).catch(() => {});
-  stopLoop = startRefreshLoop(controller, tui, observeAttention);
+  stopLoop = startRefreshLoop(controller, tui, afterRefresh);
 }
 
 export function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => Promise<void> {

@@ -197,6 +197,7 @@ export interface RenderModel {
   grouping: "project" | "stage";
   fleetGrouping: "status" | "repo";
   pinMode: boolean;
+  compactRows?: boolean;
   pinSummary?: RenderPinSummary;
   attentionAnnouncements: readonly AttentionAnnouncement[];
   guidance: {
@@ -519,6 +520,7 @@ export interface BuildRenderModelInput {
   releaseCueEnabled?: boolean;
   releaseCueSelected?: boolean;
   guidanceHidden?: boolean;
+  compactRows?: boolean;
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
@@ -625,6 +627,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     grouping,
     fleetGrouping,
     pinMode,
+    compactRows: input.compactRows || pinMode,
     attentionAnnouncements: input.attentionAnnouncements ?? [],
     guidance: {
       coach,

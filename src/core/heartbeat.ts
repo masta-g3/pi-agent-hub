@@ -44,6 +44,8 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   const forkPreparation = parseForkPreparation(value.forkPreparation);
   return {
     managedSessionId,
+    ...(isObject(value.interaction) && value.interaction.version === 1 && typeof value.interaction.instanceId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value.interaction.instanceId)
+      ? { interaction: { version: 1 as const, instanceId: value.interaction.instanceId } } : {}),
     ...optionalStringField("piSessionFile", value.piSessionFile),
     ...optionalStringField("piSessionId", value.piSessionId),
     cwd,
