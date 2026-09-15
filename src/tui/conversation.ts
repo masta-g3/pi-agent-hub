@@ -151,12 +151,19 @@ export function renderConversationHeading(title: string, width: number, theme?: 
 /** Render the full-width transcript and its catalog actions. */
 export function renderConversationPane(input: {
   width: number; height: number;
-  title: string; transcript: readonly string[]; transcriptHeight: number; status: string;
+  title: string; transcript: readonly string[]; transcriptHeight: number; status: string; workingAt?: number;
   actions: readonly { id: string; label: string }[]; focusedAction: string;
 }, theme?: SessionsTheme): { lines: string[]; actionRows: (string | undefined)[] } {
   const styled = (token: ThemeToken, value: string) => theme ? styleToken(theme, token, value) : value;
+  const transcript = [...input.transcript];
+  if (input.workingAt !== undefined && input.transcriptHeight > 0) {
+    const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+    const frame = frames[Math.floor(input.workingAt / 250) % frames.length];
+    transcript.length = Math.min(transcript.length, input.transcriptHeight - 1);
+    transcript.push(styled("accent", `  ${frame} PI is working…`));
+  }
   const content = [renderConversationHeading(input.title, input.width, theme),
-    ...Array.from({ length: input.transcriptHeight }, (_, index) => input.transcript[index] ?? ""),
+    ...Array.from({ length: input.transcriptHeight }, (_, index) => transcript[index] ?? ""),
     styled(input.status.startsWith("?") ? "warning" : "dim", cleanMarkdown(input.status)),
     ...input.actions.map((command, index) => styled(command.id === input.focusedAction ? "accent" : "text", `${command.id === input.focusedAction ? "▎" : index === 0 ? "▶" : " "} ${cleanMarkdown(command.label)}`)),
     styled("dim", conversationDashboardFooter()),

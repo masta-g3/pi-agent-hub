@@ -23,15 +23,15 @@
 
 ## Distribution and documentation
 
-- Maintained patch: `@juicesharp/rpiv-ask-user-question@2.10.0-hub.1`. The tested archive remains under `agent-work/tickets/cockpit-013/` for transfer to the work machine.
+- Maintained patch: `@juicesharp/rpiv-ask-user-question@2.10.1-hub.1`. The user approved integrating the fork's 2.10.1 release to resolve manifest/lockfile conflicts; no TypeScript changed. The tested archive remains under `agent-work/tickets/cockpit-013/` for transfer to the work machine.
 - Install the archive with npm into a versioned prefix, then register its package directory in Pi. Replace the original source entry; do not register both tools. Instructions live in the question package's `docs/hosts.md`.
-- The user approved installation on this Mac only. The global Hub and one patched questionnaire source were installed; settings outside that source entry and running sessions were preserved. Private rollback copies remain available.
+- The user approved installation on this Mac only. The global Hub and questionnaire `2.10.0-hub.1` were installed; settings outside that source entry and running sessions were preserved. The later `2.10.1-hub.1` metadata update was not installed. Private rollback copies remain available.
 - Updated Hub AGENTS/STRUCTURE contracts. Focused, approved reflection added Conversation controls and corrected outdated restrictions in `docs/FEATURES.md`; docs-critic feedback was resolved.
 
 ## Verification and review
 
 - Hub: **1,025 tests passed**, then `npm run package:check` passed. Clean feature-only staging and installed-module comparisons passed.
-- Question package: **689 tests in 37 files passed**, plus scoped formatting/type checks, repository TypeScript, and lockfile dry-run.
+- Question package: **689 tests in 37 files passed**, plus scoped formatting/type checks, repository TypeScript, and lockfile dry-run. After release-conflict resolution, the full monorepo again passed **6,665 tests in 272 files** with coverage; the new archive differs only in its manifest and install examples.
 - Disposable real Pi 0.85.1/tmux tests verified canonical native completion, concurrent dashboard submissions, session isolation, reload identity, command/draft/question guards, skill expansion, successive inline questions, mouse/keyboard answers, and narrow layouts. The deterministic provider used no network credentials or model requests.
 - Final code-critic recheck: **LGTM**. Removed superseded side-panel/modal/review paths, duplicate identity logic, and test-only production exposure. Fixed sticky confirmation and viewport paging regressions.
 - `agent-work/tickets/cockpit-013/validation.md` retains bounded evidence and package identity. Before/after images use synthetic render fixtures, not user sessions. Temporary scripts, compiler output, servers, and captures were removed.

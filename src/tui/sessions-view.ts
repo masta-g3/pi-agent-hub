@@ -449,6 +449,13 @@ export class SessionsView implements Component {
     this.actions.requestRender?.();
   }
 
+  get conversationWorking(): boolean {
+    if (!this.conversationOpen || this.inlineQuestion || this.interaction.error || this.interaction.state?.pending.length) return false;
+    const selected = this.selectedInteractionSession();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    return selected?.status === "running" && !!target && sameInteractionTarget(target, this.interaction.target);
+  }
+
   private selectedInteractionSession(): RuntimeSession | undefined {
     if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected) return undefined;
     const selected = this.controller.selected();
@@ -564,8 +571,9 @@ export class SessionsView implements Component {
     const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? "Direct answering unavailable · Open in Pi" : this.interaction.state?.shortcutDisabledReason);
     const transcriptHeight = Math.max(0, height - actions.length - 3);
     this.conversationTranscriptEndY = transcriptHeight + 1;
-    const transcript = target ? this.conversationReader.render(width, transcriptHeight, this.theme) : [];
-    const layout = renderConversationPane({ width, height, title, transcript, transcriptHeight,
+    const workingAt = this.conversationWorking ? (this.actions.now?.() ?? Date.now()) : undefined;
+    const transcript = target ? this.conversationReader.render(width, transcriptHeight - (workingAt === undefined ? 0 : 1), this.theme) : [];
+    const layout = renderConversationPane({ width, height, title, transcript, transcriptHeight, workingAt,
       status: this.message ?? this.flash?.text ?? reason ?? (this.conversationReader.newMessages ? "New messages ↓ · End Latest" : `${this.conversationFocus === "fleet" ? "Fleet focused" : "Conversation focused"} · Tab Focus · PgUp/PgDn Read · c Hide`), actions, focusedAction: this.conversationFocus }, this.theme);
     this.conversationActionRows = layout.actionRows;
     return [...fleet, ...layout.lines];
