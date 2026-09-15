@@ -3,7 +3,7 @@ import type { PiAgentHubContextV1, SessionAttention } from "./types.js";
 const TICKET_ID_MAX = 80;
 const SUBTITLE_MAX = 64;
 const DESCRIPTION_MAX = 240;
-const ATTENTION_MAX = 96;
+const ATTENTION_MAX = 150;
 const ATTENTION_REQUEST_ID_MAX = 64;
 
 export function parseSessionContext(value: unknown): PiAgentHubContextV1 | undefined {

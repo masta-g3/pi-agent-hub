@@ -29,6 +29,6 @@ test("generic context rejects malformed versions, fields, and text bounds", () =
     { version: 1, updatedAt: 1, attention: { kind: "waiting", text: "Choose" } },
     { version: 1, updatedAt: 1, attention: { requestId: " ", kind: "ready", text: "Choose" } },
     { version: 1, updatedAt: 1, attention: { requestId: "x".repeat(65), kind: "ready", text: "Choose" } },
-    { version: 1, updatedAt: 1, attention: { kind: "ready", text: "x".repeat(97) } },
+    { version: 1, updatedAt: 1, attention: { kind: "ready", text: "x".repeat(151) } },
   ]) assert.equal(parseSessionContext(value), undefined);
 });
