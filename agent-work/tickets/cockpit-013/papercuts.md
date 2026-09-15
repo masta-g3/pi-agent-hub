@@ -1,5 +1,7 @@
 # Operations friction
 
+- Both pre-push hooks run Git-mutating fixture tests without clearing Git's hook-local environment. `GIT_DIR` leaked into temporary-repo commands, so tests wrote fixture commits/indexes/config into the real feature worktrees. Neither push succeeded. With user approval, backed up Git state, restored verified refs/indexes without touching files, and repaired test-written settings. All 1,442 tracked files matched their reviewed commits. Required checks passed outside the hook environment; skip the unsafe hook only for that verified push. Future hook repair must clear `git rev-parse --local-env-vars` before running tests that use other repositories.
+
 - The default `plan-critic` model (`openai-codex/gpt-5.6-sol`) terminated with a provider usage-limit error without findings. The Anthropic subagent retry also failed because its OAuth refresh token expired. The separate read-only Claude Code connection completed the substantive review and final LGTM. No implementation decision relies on either failed run.
 - The top-level Hub checkout has Pi 0.83.0 in node_modules, while its package metadata and the installed CLI target 0.85.1. API inspection must use the declared version; install the worktree's own dependencies rather than symlinking the stale top-level node_modules.
 - `loadStore()` eagerly evaluates `store.empty()` even when the file exists. An installation script incorrectly used a throwing `empty()` callback to reject a missing settings file; it failed before changing settings. Validate the loaded shape in the mutation instead.

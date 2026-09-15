@@ -4,6 +4,8 @@
 
 - Hub baseline: 967 tests passed. Final reviewed source: **1,025 tests passed**, followed by `npm run package:check`. These also passed in clean baseline-plus-feature installation staging.
 - Question package baseline: 666 tests in 35 files. Patched package: **689 tests in 37 files passed**, with scoped non-writing formatting/type checks, repository TypeScript, and `npm ci --ignore-scripts --dry-run`.
+- Push closeout: Hub **1,025 tests** and the question monorepo's **6,665 tests in 272 files** passed outside Git's hook environment. Monorepo coverage: 94.79% statements, 89.47% branches, 94.75% functions, 96.35% lines.
+- Unsafe hook attempts were blocked before either push. See `papercuts.md` for Git-environment leakage and user-approved recovery. Private `push-recovery/` backups retain the affected refs, indexes, config and bundles. Physical source files were unchanged.
 - Final code-critic recheck: **LGTM**. Focused docs-critic feedback was resolved. Both repository diff checks passed.
 - Regressions cover exact session identity before repaint, refresh during submission, mouse Send committing the selected answer, literal custom-input keys, narrow visible controls, fleet tier clicks, expired confirmation/new-message cues, clipped speaker identity, and complete viewport paging.
 
