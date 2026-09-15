@@ -1,3 +1,5 @@
+import type { InteractionTarget, SessionInteractionState, AnswerInput } from "../core/session-interaction.js";
+import type { ConversationPage } from "../core/conversation.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
@@ -124,6 +126,11 @@ export interface AttentionDeliveryActions {
 
 /** Composition-bound action bag. Groups are optional; members are required when supplied. */
 export interface SessionsViewActions {
+  interactionTarget?: (session: import("../core/types.js").RuntimeSession) => InteractionTarget | undefined;
+  loadInteractionState?: (target: InteractionTarget) => Promise<SessionInteractionState>;
+  loadConversation?: (target: InteractionTarget, options?: { before?: string; branchId?: string; limit?: number }) => Promise<ConversationPage>;
+  submitAnswer?: (target: InteractionTarget, toolCallId: string, answers: AnswerInput[]) => Promise<void>;
+  requestRender?: () => void;
   sessionLifecycle?: Partial<SessionLifecycleActions>;
   sidePane?: Partial<SidePaneActions>;
   skillActions?: Partial<SkillsActions>;

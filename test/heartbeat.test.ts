@@ -223,3 +223,13 @@ test("readHeartbeat surfaces unexpected filesystem errors", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("interaction capability is small and independently validated", () => {
+  const value = { version: 1, instanceId: "instance-1", pending: ["never heartbeat this"] };
+  assert.deepEqual(parseHeartbeat({ ...core, interaction: value }, "api")?.interaction, { version: 1, instanceId: "instance-1" });
+  for (const interaction of [null, {}, { version: 2, instanceId: "x" }, { version: 1, instanceId: "../bad" }, { version: 1, instanceId: "x".repeat(129) }]) {
+    const parsed = parseHeartbeat({ ...core, interaction }, "api");
+    assert.equal(parsed?.state, "waiting");
+    assert.equal(parsed?.interaction, undefined);
+  }
+});

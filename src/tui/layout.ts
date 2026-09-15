@@ -53,7 +53,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const bodyWidth = width - 2;
   if (model.noBoardSessions) {
     const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
-    const body = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
     const layout = emptyLayout(box(width, fitBoxBody(body, model.height), styles));
     for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + i] = announcement.targets[i];
     return layout;
@@ -81,7 +81,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
-  const targetRows = bodyRowsFromHeight(model.height, stripLines);
+  const targetRows = bodyRowsFromHeight(model.height, stripLines, Boolean(model.footer));
   const left = renderSessionList(model, listWidth, styles);
   const workspace = model.showWorkspace && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
@@ -109,8 +109,10 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
     body.push(`${navLine}${leftLine}${workspaceLine}`);
   }
-  body.push(styles.border("─".repeat(bodyWidth)));
-  body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
+  if (model.footer) {
+    body.push(styles.border("─".repeat(bodyWidth)));
+    body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
+  }
   const lines = box(width, body, styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
@@ -234,9 +236,9 @@ function styleFooter(footer: string, styles: LayoutStyles): string {
   ).join(styles.border("│"));
 }
 
-function bodyRowsFromHeight(height: number | undefined, stripLines = 0): number | undefined {
+function bodyRowsFromHeight(height: number | undefined, stripLines = 0, footer = true): number | undefined {
   if (!height || height <= 0) return undefined;
-  return Math.max(1, height - 5 - stripLines);
+  return Math.max(1, height - (footer ? 5 : 3) - stripLines);
 }
 
 function fitBoxBody(lines: string[], height: number | undefined): string[] {
@@ -464,7 +466,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const gutterColumn = model.width >= 100 && !model.pinMode;
     pushLine(renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn }), { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (shape === "full-parent" && !model.pinMode) {
+    if (shape === "full-parent" && !model.compactRows) {
       for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);

@@ -12,8 +12,8 @@ test("parseMouseEvent ignores releases and modified clicks", () => {
 });
 
 test("parseMouseEvent parses wheel direction", () => {
-  assert.deepEqual(parseMouseEvent("\u001b[<64;5;6M"), { kind: "wheel", delta: -1 });
-  assert.deepEqual(parseMouseEvent("\u001b[<65;5;6M"), { kind: "wheel", delta: 1 });
+  assert.deepEqual(parseMouseEvent("\u001b[<64;5;6M"), { kind: "wheel", delta: -1, x: 5, y: 6 });
+  assert.deepEqual(parseMouseEvent("\u001b[<65;5;6M"), { kind: "wheel", delta: 1, x: 5, y: 6 });
 });
 
 test("isMouseSequence recognizes mouse encodings only", () => {

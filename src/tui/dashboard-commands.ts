@@ -1,3 +1,4 @@
+import type { SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { forkPreparationMessage, isForkPreparationPending } from "../core/fork-preparation.js";
 import { matchesFilter } from "../core/session-tree.js";
@@ -54,6 +55,7 @@ export interface DashboardCommandCapabilities {
   resizeSidePane?: boolean;
   acknowledge?: boolean;
   attentionBell?: boolean;
+  answerQuestion?: boolean;
 }
 
 export interface DashboardPinState {
@@ -67,6 +69,8 @@ export interface DashboardPinState {
 export interface DashboardCommandInput {
   sessions: readonly RuntimeSession[];
   selectedId?: string;
+  interactionState?: SessionInteractionState;
+  conversation?: boolean;
   filter?: string;
   grouping?: "project" | "stage";
   fleetGrouping?: "status" | "repo";
@@ -139,6 +143,10 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
   const commands: DashboardCommand[] = [];
   const selected = input.selectedId ? input.sessions.find((session) => session.id === input.selectedId) : undefined;
   if (selected) {
+    if (input.capabilities?.answerQuestion && input.interactionState?.questionProtocol && selected.interaction && isLive(selected) && selected.kind !== "subagent" && input.interactionState.pending.length) commands.push(makeCommand({
+      id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire", targetSessionId: selected.id,
+      enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "answer question questionnaire",
+    }));
     for (const spec of actionSpecs) commands.push(actionCommand(spec, selected, input));
     for (const [index, shortcut] of (input.configuredShortcuts ?? []).entries()) commands.push(configuredCommand(shortcut, index, selected, input));
   } else {
@@ -187,7 +195,7 @@ export function selectWorkspaceCommands(
     } else if (attention.kind === "question") {
       guidance = "Answer in the Pi session.";
       guidanceAction = "open";
-      actionNames = ["open", "mark-read"];
+      actionNames = ["answer", "open", "mark-read"];
     } else {
       guidance = "Resolve the reported blocker.";
       guidanceAction = "send";
@@ -216,12 +224,12 @@ export function selectWorkspaceCommands(
   const actionsByName = new Map(
     commands
       .filter((command) => command.group === "actions" && command.targetSessionId === session.id && command.enabled)
-      .map((command) => [command.id.slice(`action:${session.id}:`.length), command]),
+      .map((command) => [command.id.startsWith(`action:${session.id}:answer:`) ? "answer" : command.id.slice(`action:${session.id}:`.length), command]),
   );
-  const actions = actionNames
-    .map((name) => actionsByName.get(name))
-    .filter((command): command is DashboardCommand => command !== undefined)
-    .slice(0, Math.max(0, maxCount));
+  if (actionsByName.has("answer")) actionNames = ["answer", "open", ...actionNames.filter(name => name !== "answer" && name !== "open")];
+  const selectedActions = actionNames.map((name) => actionsByName.get(name)).filter((command): command is DashboardCommand => command !== undefined);
+  const configured = commands.filter(command => command.enabled && command.targetSessionId === session.id && command.id.startsWith("shortcut:"));
+  const actions = [...selectedActions.slice(0, 1), ...configured, ...selectedActions.slice(1)].slice(0, Math.max(0, maxCount));
   const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
   const moreCommand = commands.find((command) => command.id === "view:palette");
   if (!evidenceCommand || !moreCommand) throw new Error("workspace commands require evidence and palette descriptors");
@@ -262,6 +270,12 @@ export function pinnedDashboardFooter(width: number): string {
   return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(" · ");
 }
 
+export function conversationDashboardFooter(): string {
+  const commands = viewCommands({ sessions: [], conversation: true });
+  return [["view:conversation", "Overview"], ["view:palette", "Actions"], ["view:help", "Help"]]
+    .map(([id, label]) => `${commands.find(command => command.id === id)!.displayKey} ${label}`).join(" · ");
+}
+
 export function dashboardFooter(width: number, options: { coaching?: boolean } = {}): string {
   const global = viewCommands({ sessions: [], capabilities: { theme: true } });
   const open = actionSpecs.find((spec) => spec.name === "open")!;
@@ -296,13 +310,13 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
       : spec.available(session, input);
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
-  const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question";
+  const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length);
   const label = spec.name === "open" && preparationInspectable(session)
     ? "Open to inspect"
     : spec.name === "open" && (session.status === "error" || session.status === "stopped")
     ? "Restart"
-    : spec.name === "open" && isQuestion
-      ? "Answer"
+    : spec.name === "open" && (isQuestion || input.conversation)
+      ? "Open in Pi"
     : spec.name === "pin" && isPinned
       ? `Focus slot ${(currentSlot ?? 0) + 1}`
       : spec.name === "pin" ? spec.label
@@ -338,9 +352,17 @@ function configuredCommand(shortcut: DashboardShortcut, index: number, session: 
       ? disabled("session is not live")
       : input.capabilities?.runConfiguredShortcut !== true
         ? disabled("shortcut transport unavailable")
-        : enabled();
+        : !session.interaction
+          ? disabled("Restart this session to enable guarded commands")
+          : !input.interactionState
+            ? disabled("Checking Pi command readiness")
+            : input.interactionState.pending.length
+              ? disabled("Answer the pending question first")
+            : input.interactionState.shortcutDisabledReason
+              ? disabled(input.interactionState.shortcutDisabledReason)
+              : enabled();
   return makeCommand({
-    id: `shortcut:${session.id}:${index}:${shortcut.key}`,
+    id: `shortcut:${session.id}:${index}:${shortcut.key}${session.interaction ? `:${encodeURIComponent(session.piSessionId ?? "")}:${encodeURIComponent(session.interaction.instanceId)}` : ""}`,
     group: "actions",
     label: shortcut.label ?? shortcut.send,
     hint: `send ${shortcut.send}`,
@@ -397,6 +419,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   const bellOn = input.attentionBellEnabled === true;
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
+    makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
     makeCommand({ id: "view:theme", group: "views", label: "Theme…", hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),

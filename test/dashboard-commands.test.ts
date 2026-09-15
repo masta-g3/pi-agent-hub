@@ -385,7 +385,7 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     actions: string[];
     primaryLabel: string;
   }> = [
-    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Answer" },
+    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
     { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open" },
     { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
     { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open"], primaryLabel: "Details" },
@@ -423,7 +423,7 @@ test("workspace selection reuses exact enabled descriptors and respects the acti
   assert.ok(workspace.actions.every((command) => command.enabled && command.targetSessionId === selected.id));
   assert.equal(workspace.actions.some((command) => command.id === "action:exact:send"), false);
   assert.equal(workspace.guidance, "Answer in the Pi session.");
-  assert.equal(open.label, "Answer");
+  assert.equal(open.label, "Open in Pi");
   assert.equal(open.hint, "focus the real Pi questionnaire");
   assert.deepEqual(
     workspace.actions.map(({ label, displayKey, hint, enabled }) => ({ label, displayKey, hint, enabled })),

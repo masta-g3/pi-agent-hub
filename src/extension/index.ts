@@ -1,4 +1,5 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { startSessionInteraction } from "./session-interaction.js";
 import { join } from "node:path";
 import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
@@ -23,9 +24,12 @@ type PiTheme = {
 type PiContext = {
   cwd: string;
   hasUI?: boolean;
+  isIdle?: () => boolean;
+  hasPendingMessages?: () => boolean;
   compact: (options?: { customInstructions?: string; onComplete?: (result: unknown) => void; onError?: (error: Error) => void }) => void;
   ui?: {
     theme?: PiTheme;
+    getEditorText?: () => string;
     getTheme?: (name: string) => Theme | undefined;
     setTheme?: (theme: string | Theme) => unknown;
   };
@@ -82,6 +86,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   let acceptingNameCommands = false;
   let mcpCleanup: (() => Promise<void>) | undefined;
   let shuttingDown = false;
+  let interaction: Awaited<ReturnType<typeof startSessionInteraction>> | undefined;
   const finalizers = new Set<Promise<void>>();
 
   async function applyThemeCommand(ctx: PiContext): Promise<boolean> {
@@ -125,6 +130,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   async function publishLifecycle(state: Heartbeat["state"], ctx: PiContext, message?: string) {
     lifecycleRevision += 1;
+    interaction?.lifecycleChanged();
     await applyThemeAndHeartbeat(state, ctx, message);
   }
 
@@ -139,6 +145,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     const file = join(process.env[STATE_ENV] ?? sessionsStateDir(), "heartbeats", `${id}.json`);
     const snapshot = {
       managedSessionId: id,
+      ...(state !== "shutdown" && interaction ? { interaction: { version: 1 as const, instanceId: interaction.target.instanceId } } : {}),
       cwd: ctx.cwd,
       piSessionFile: ctx.sessionManager?.getSessionFile?.(),
       piSessionId: ctx.sessionManager?.getSessionId?.(),
@@ -264,6 +271,24 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     const piCtx = ctx as PiContext;
+    await interaction?.close();
+    interaction = undefined;
+    shuttingDown = false;
+    promptSnapshot = undefined;
+    const managedId = process.env[SESSION_ID_ENV];
+    const piSessionId = piCtx.sessionManager?.getSessionId?.();
+    if (managedId && piSessionId && !process.env.PI_TMUX_SUBAGENTS_JOB_ID && process.env[KIND_ENV] !== "subagent"
+      && piCtx.sessionManager?.getBranch && piCtx.isIdle && piCtx.hasPendingMessages && piCtx.ui?.getEditorText && pi.events) {
+      interaction = await startSessionInteraction({
+        managedId, piSessionId, events: pi.events,
+        getPiSessionId: () => piCtx.sessionManager?.getSessionId?.(),
+        getBranch: () => piCtx.sessionManager!.getBranch!() ?? [],
+        isIdle: () => piCtx.isIdle!(), hasPendingMessages: () => piCtx.hasPendingMessages!(),
+        getEditorText: () => piCtx.ui!.getEditorText!(),
+        uiPromptOpen: () => Boolean(promptSnapshot) || Boolean(forkPreparation && forkPreparation.phase !== "ready"),
+        sendUserMessage: (text, options) => pi.sendUserMessage(text, options),
+      });
+    }
     const startupAttemptId = forkAttemptId;
     if (forkMarkerPending) delete process.env[FORK_COMPACT_ENV];
     forkMarkerPending = false;
@@ -301,6 +326,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     if (startupAttemptId) startupCompactionTimer = setTimeout(() => void coordinateForkPreparation(piCtx, startupAttemptId).catch(() => undefined), 0);
     mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
   });
+
+  pi.on("session_tree", () => { interaction?.branchChanged(); });
 
   pi.on("session_info_changed", async (_event, ctx) => {
     await applyNameCommand(ctx as PiContext);
@@ -385,6 +412,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     acceptingNameCommands = false;
     try {
       shuttingDown = true;
+      await interaction?.close();
+      interaction = undefined;
       if (compactionCompleteTimer) clearTimeout(compactionCompleteTimer);
       promptSnapshot = undefined;
       lifecycleRevision += 1;

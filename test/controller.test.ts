@@ -1015,3 +1015,23 @@ test("syncPiName reports unavailable and unnamed sessions without renaming", asy
     assert.deepEqual(controller.snapshot().registry.sessions.map((item) => item.title), ["missing", "unnamed"]);
   });
 });
+
+test("interaction capability stays runtime-only and clears on stale or shutdown observations", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 100_000;
+    const row = session("waiting", { id: "bridge" });
+    await updateRegistry(() => ({ version: 1, sessions: [row] }));
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    const heartbeat = { managedSessionId: row.id, piSessionId: "pi-bridge", cwd: row.cwd, state: "waiting", stateSince: now, updatedAt: now, interaction: { version: 1, instanceId: "instance" } };
+    const controller = new SessionsController({ version: 1, sessions: [row] }, async () => "present");
+    await writeFile(heartbeatPath(row.id), JSON.stringify(heartbeat));
+    await controller.refresh(now);
+    assert.deepEqual(controller.snapshot().sessions[0]?.interaction, heartbeat.interaction);
+    assert.equal("interaction" in controller.snapshot().registry.sessions[0]!, false);
+    await controller.refresh(now + HEARTBEAT_STALE_MS + 1);
+    assert.equal(controller.snapshot().sessions[0]?.interaction, undefined);
+    await writeFile(heartbeatPath(row.id), JSON.stringify({ ...heartbeat, state: "shutdown" }));
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().sessions[0]?.interaction, undefined);
+  });
+});

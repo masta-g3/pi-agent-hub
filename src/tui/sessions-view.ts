@@ -1,3 +1,6 @@
+import { ConversationReader, renderConversationHeading, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
+import { sameInteractionTarget } from "../core/session-interaction.js";
+import { createQuestionDialog, handleQuestionInput, renderQuestionDialog, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
@@ -65,6 +68,18 @@ const MIN_RENDER_WIDTH = 40;
 const DOUBLE_CLICK_MS = 400;
 
 export class SessionsView implements Component {
+  private conversationOpen = false;
+  private conversationGeneration = 0;
+  private interactionStopped = false;
+  private conversationFocus: string = "fleet";
+  private inlineQuestion: QuestionDialog | undefined;
+  private conversationReader = new ConversationReader();
+  private interaction = new SelectedInteractionObserver();
+  private conversationActions: DashboardCommand[] = [];
+  private conversationActionRows: (string | undefined)[] = [];
+  private conversationStartY = 1;
+  private conversationTranscriptEndY = 1;
+  private olderConversationRequested = false;
   private dialog: SessionDialog | undefined;
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
@@ -138,7 +153,8 @@ export class SessionsView implements Component {
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
     if (isMouseSequence(data)) {
       const event = parseMouseEvent(data);
-      if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
+      if (event && this.conversationOpen && !this.dialog && !this.busy && this.handleConversationMouse(event)) return;
+      else if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
       else if (event && !this.dialog && !this.busy) this.handleMouse(event);
       else if (event) this.lastMouseClick = undefined;
       return;
@@ -166,6 +182,8 @@ export class SessionsView implements Component {
       }
       return;
     }
+
+    if (this.conversationOpen && this.handleConversationInput(data)) return;
 
     if (this.workspaceSessionId) {
       if (matchesKey(data, Key.escape)) {
@@ -272,6 +290,7 @@ export class SessionsView implements Component {
   render(width: number): string[] {
     this.clearExpiredFlash();
     this.lastWidth = width;
+    if (this.conversationOpen && this.pinMode()) this.closeConversation();
     const selectedId = this.controller.selected()?.id;
     if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
     if (this.workspaceSessionId && selectedId !== this.workspaceSessionId) this.closeWorkspace();
@@ -280,6 +299,9 @@ export class SessionsView implements Component {
     if (this.workspaceEvidenceSessionId && selectedId !== this.workspaceEvidenceSessionId) this.workspaceEvidenceSessionId = undefined;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
+      this.conversationActionRows = [];
+      this.conversationActions = [];
+      if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
       this.rowTargets = [];
       this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
@@ -313,10 +335,13 @@ export class SessionsView implements Component {
     const filter = (this.dialog?.kind === "prompt" ? (promptFilterValue(this.dialog) ?? snapshot.filter) : snapshot.filter)?.trim() || undefined;
     const structuralProjection = this.dashboardProjection(snapshot);
     const workspaceSelected = selected && structuralProjection.visible.some((session) => session.id === selected.id) ? selected : undefined;
+    const panelHeight = this.conversationOpen ? Math.max(0, Math.min(Math.ceil((height || 24) * 0.65), (height || 24) - 4)) : 0;
+    const fleetHeight = this.conversationOpen ? Math.max(4, (height || 24) - panelHeight) : height;
     const model = buildRenderModel({
       sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
       width,
+      compactRows: this.conversationOpen,
       filter,
       filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter",
       workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo
@@ -324,7 +349,7 @@ export class SessionsView implements Component {
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
       workspaceFullScreen: width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
-      height,
+      height: fleetHeight,
       listScrollTop: this.listScrollTop,
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
@@ -348,8 +373,9 @@ export class SessionsView implements Component {
       dismissedReleaseCueId: this.dismissedReleaseCueId,
       releaseCueEnabled: this.releaseCueEnabled,
       releaseCueSelected: this.releaseCueSelected,
-      guidanceHidden: Boolean(this.dialog),
+      guidanceHidden: Boolean(this.dialog) || this.conversationOpen,
     });
+    if (this.conversationOpen) { model.showWorkspace = false; model.workspace = undefined; model.footer = ""; }
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
     this.navigatorRowTargets = layout.navigatorRowTargets;
@@ -361,7 +387,7 @@ export class SessionsView implements Component {
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
     const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext()) : undefined;
-    let withFooter = footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
+    let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
     this.paletteRowTargets = [];
     this.paletteBounds = undefined;
     if (this.dialog?.kind === "commandPalette") {
@@ -372,12 +398,234 @@ export class SessionsView implements Component {
       this.paletteRowTargets = overlay.rowTargets;
       this.paletteBounds = overlay.bounds;
     }
-    const final = this.message
+    const final = this.conversationOpen ? withFooter : this.message
       ? replaceFooter(withFooter, this.message, this.theme)
       : this.flash
         ? replaceFooter(withFooter, this.flash.text, this.theme)
         : withFooter;
     return limitRows(final, height, width, this.theme);
+  }
+
+  disposeInteraction(): void {
+    this.interactionStopped = true; this.closeConversation(); this.interaction.setTarget(undefined);
+  }
+
+  async refreshInteraction(): Promise<void> {
+    if (this.interactionStopped) return;
+    this.normalizeListSelection();
+    const question = this.inlineQuestion;
+    const selected = this.selectedInteractionSession();
+    const target = question?.target ?? (selected && this.actions.interactionTarget?.(selected));
+    if (!sameInteractionTarget(target, this.interaction.target)) {
+      this.interaction.setTarget(target);
+      this.conversationReader.clear();
+      this.olderConversationRequested = false;
+    }
+    if (!this.actions.loadInteractionState) return;
+    const generation = this.conversationGeneration;
+    await this.interaction.poll(this.actions.now?.() ?? Date.now(), this.actions.loadInteractionState, this.conversationOpen && this.actions.loadConversation ? async bound => {
+      const older = this.olderConversationRequested;
+      this.olderConversationRequested = false;
+      const page = await this.actions.loadConversation!(bound, older ? { before: this.conversationReader.before, branchId: this.conversationReader.branchId } : undefined);
+      const current = this.selectedInteractionSession();
+      if (this.conversationOpen && generation === this.conversationGeneration && sameInteractionTarget(bound, current && this.actions.interactionTarget?.(current))) this.conversationReader.accept(page, older);
+    } : undefined);
+    if (question && this.inlineQuestion === question && !question.submitting) {
+      const current = this.controller.snapshot().sessions.find(session => session.id === question.target.managedId);
+      if (!sameInteractionTarget(question.target, current && this.actions.interactionTarget?.(current)) || (this.interaction.state && !this.interaction.state.pending.some(request => request.toolCallId === question.request.toolCallId))) {
+        this.inlineQuestion = undefined;
+        this.conversationFocus = "content";
+        this.message = "Question answered elsewhere or no longer available";
+      } else if (this.interaction.state) { question.uncertain = false; question.available = true; }
+      else if (this.interaction.error) question.available = false;
+    }
+    if (!this.inlineQuestion && this.conversationOpen) {
+      const pending = this.interaction.state?.pending[0];
+      if (selected && target && pending && this.actions.submitAnswer) {
+        this.inlineQuestion = createQuestionDialog(target, selected.title, pending, selected.context?.attention?.requestId);
+        if (this.conversationFocus !== "fleet" && !this.dialog) this.conversationFocus = "question";
+      }
+    }
+    this.actions.requestRender?.();
+  }
+
+  private selectedInteractionSession(): RuntimeSession | undefined {
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected) return undefined;
+    const selected = this.controller.selected();
+    return selected && this.dashboardProjection(this.controller.snapshot()).visible.some(session => session.id === selected.id) ? selected : undefined;
+  }
+
+  private toggleConversation(): void {
+    if (this.conversationOpen) { this.closeConversation(); return; }
+    if (this.pinMode()) { this.message = "Close pinned panes to use Conversation"; return; }
+    this.conversationOpen = true;
+    this.conversationFocus = "content";
+    this.closeWorkspace();
+    this.interaction.invalidate();
+    void this.refreshInteraction();
+  }
+
+  private closeConversation(): void {
+    this.conversationOpen = false;
+    this.conversationGeneration++;
+    this.conversationReader.clear();
+    this.inlineQuestion = undefined;
+    this.conversationFocus = "fleet";
+    this.conversationActions = [];
+    this.conversationActionRows = [];
+    this.olderConversationRequested = false;
+  }
+
+  private handleConversationInput(data: string): boolean {
+    if (matchesKey(data, Key.escape)) { this.conversationFocus = "fleet"; return true; }
+    if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
+      const cycle = ["fleet", ...(this.inlineQuestion ? ["question"] : []), "content", ...this.conversationActions.map(command => command.id)];
+      this.conversationFocus = cycle[(cycle.indexOf(this.conversationFocus) + (matchesKey(data, Key.shift("tab")) ? -1 : 1) + cycle.length) % cycle.length]!;
+      return true;
+    }
+    if (this.conversationFocus === "fleet") return false;
+    if (this.lastWidth < MIN_RENDER_WIDTH || (this.actions.terminalRows?.() ?? 24) < 12) return data !== "c" && data !== "q";
+    if (data === "c" && this.conversationFocus === "question" && !this.inlineQuestion?.custom) { this.closeConversation(); return true; }
+    if (this.conversationFocus === "question" && this.inlineQuestion) {
+      this.handleQuestion(data);
+      return true;
+    }
+    if (this.conversationFocus !== "content" && isEnterKey(data)) {
+      this.executeDashboardCommand(this.conversationFocus);
+      return true;
+    }
+    if (matchesKey(data, Key.pageUp)) this.scrollConversation(-this.conversationReader.pageSize);
+    else if (matchesKey(data, Key.pageDown)) this.scrollConversation(this.conversationReader.pageSize);
+    else if (matchesKey(data, Key.home)) { this.conversationReader.home(); this.scrollConversation(-1); }
+    else if (matchesKey(data, Key.end)) { this.conversationReader.end(); this.interaction.invalidate(); void this.refreshInteraction(); }
+    else if (matchesKey(data, Key.up)) this.scrollConversation(-1);
+    else if (matchesKey(data, Key.down)) this.scrollConversation(1);
+    else if (isEnterKey(data)) return true;
+    else return false;
+    return true;
+  }
+
+  private scrollConversation(delta: number): void {
+    this.conversationReader.scroll(delta);
+    if (delta < 0 && this.conversationReader.atTop && this.conversationReader.before) {
+      this.olderConversationRequested = true;
+      this.interaction.invalidate();
+      void this.refreshInteraction();
+    }
+  }
+
+  private handleConversationMouse(event: MouseEvent): boolean {
+    if (event.y === undefined || event.y < this.conversationStartY) return false;
+    const localY = event.y - this.conversationStartY;
+    if (this.inlineQuestion && localY >= this.conversationTranscriptEndY) {
+      this.conversationFocus = "question";
+      if (event.kind === "wheel") this.inlineQuestion.scroll = Math.max(0, this.inlineQuestion.scroll + event.delta * 3);
+      else this.handleQuestionMouse({ ...event, y: localY - this.conversationTranscriptEndY + 1 });
+      return true;
+    }
+    if (event.kind === "wheel") { this.conversationFocus = "content"; this.scrollConversation(event.delta * 3); return true; }
+    const command = this.conversationActionRows[localY];
+    this.conversationFocus = "content";
+    if (command) this.executeDashboardCommand(command);
+    return true;
+  }
+
+  private renderConversation(fleet: string[], width: number, height: number): string[] {
+    if (height < 8) {
+      this.conversationActionRows = [];
+      if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
+      return [...fleet, truncateToWidth("Resize to read Conversation", width)];
+    }
+    const selected = this.selectedInteractionSession();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    if (!sameInteractionTarget(target, this.interaction.target)) {
+      this.interaction.setTarget(target); this.conversationReader.clear(); this.inlineQuestion = undefined; this.olderConversationRequested = false;
+      if (this.conversationFocus !== "fleet") void this.refreshInteraction();
+    }
+    this.conversationStartY = fleet.length + 1;
+    this.workspaceRowTargets = [];
+    const commands = this.dashboardCommands();
+    this.conversationActions = selected ? commands.filter(command => command.enabled && (command.id === `action:${selected.id}:open` || command.id.startsWith(`shortcut:${selected.id}:`))) : [];
+    if (this.conversationFocus !== "fleet" && this.conversationFocus !== "content" && this.conversationFocus !== "question" && !this.conversationActions.some(command => command.id === this.conversationFocus)) this.conversationFocus = "content";
+    const title = `CONVERSATION · ${selected ? `${selected.title} [${selected.group}]` : "Select a session"}`;
+    if (this.inlineQuestion) {
+      const transcriptHeight = height >= 12 ? Math.max(3, height - 12) : 0;
+      this.conversationTranscriptEndY = 1 + transcriptHeight + (transcriptHeight ? 1 : 0);
+      const answerHeight = height - this.conversationTranscriptEndY;
+      const transcript = target && transcriptHeight ? this.conversationReader.render(width, transcriptHeight, this.theme, this.inlineQuestion.request.toolCallId) : [];
+      const heading = renderConversationHeading(title, width, this.theme);
+      const separator = this.theme ? styleToken(this.theme, "border", "─".repeat(width)) : "─".repeat(width);
+      const answer = renderQuestionDialog(this.inlineQuestion, width, answerHeight, this.theme, this.conversationFocus === "question");
+      this.conversationActionRows = [];
+      return [...fleet, truncateToWidth(heading, width), ...Array.from({ length: transcriptHeight }, (_, index) => transcript[index] ?? ""), ...(transcriptHeight ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
+    }
+    const actionHeight = Math.min(2, this.conversationActions.length);
+    const actions = this.conversationActions.slice(0, actionHeight);
+    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? "Direct answering unavailable · Open in Pi" : this.interaction.state?.shortcutDisabledReason);
+    const transcriptHeight = Math.max(0, height - actions.length - 3);
+    this.conversationTranscriptEndY = transcriptHeight + 1;
+    const transcript = target ? this.conversationReader.render(width, transcriptHeight, this.theme) : [];
+    const layout = renderConversationPane({ width, height, title, transcript, transcriptHeight,
+      status: this.message ?? this.flash?.text ?? reason ?? (this.conversationReader.newMessages ? "New messages ↓ · End Latest" : `${this.conversationFocus === "fleet" ? "Fleet focused" : "Conversation focused"} · Tab Focus · PgUp/PgDn Read · c Hide`), actions, focusedAction: this.conversationFocus }, this.theme);
+    this.conversationActionRows = layout.actionRows;
+    return [...fleet, ...layout.lines];
+  }
+
+  private openQuestion(): void {
+    const selected = this.selectedInteractionSession();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    const request = this.interaction.state?.pending[0];
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer) { this.message = "Direct answering unavailable; Open in Pi"; return; }
+    if (!this.conversationOpen) this.conversationOpen = true;
+    this.inlineQuestion = createQuestionDialog(target, selected.title, request, selected.context?.attention?.requestId);
+    this.conversationFocus = "question";
+    this.closeWorkspace();
+  }
+
+  private handleQuestion(data: string): void {
+    const dialog = this.inlineQuestion;
+    if (!dialog) return;
+    const result = handleQuestionInput(dialog, data);
+    dialog.rowTargets = [];
+    if (result === "close") this.conversationFocus = "fleet";
+    if (result === "submit") void this.submitQuestion(dialog);
+  }
+
+  private handleQuestionMouse(event: MouseEvent): void {
+    const dialog = this.inlineQuestion;
+    if (!dialog) return;
+    if (event.kind === "wheel") { dialog.scroll = Math.max(0, dialog.scroll + event.delta * 3); return; }
+    if (!dialog.usable || dialog.submitting) return;
+    const target = dialog.rowTargets[event.y - 1];
+    if (target === "back") { this.handleQuestion("\x1b"); return; }
+    if (!dialog.available || dialog.uncertain) return;
+    if (typeof target === "number") this.handleQuestion(target < dialog.request.params.questions[dialog.page]!.options.length ? String(target + 1) : "t");
+    else if (target === "next" || target === "submit") this.handleQuestion("\r");
+
+  }
+
+  private async submitQuestion(dialog: QuestionDialog): Promise<void> {
+    if (dialog.submitting || dialog.uncertain || !dialog.available || !this.actions.submitAnswer) return;
+    const current = this.selectedInteractionSession();
+    if (!sameInteractionTarget(dialog.target, current && this.actions.interactionTarget?.(current))) {
+      this.inlineQuestion = undefined; this.conversationFocus = "content"; this.message = "Question is no longer available"; return;
+    }
+    dialog.submitting = true;
+    try {
+      await this.actions.submitAnswer(dialog.target, dialog.request.toolCallId, dialog.answers);
+      if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.conversationFocus = "content"; }
+      const session = this.controller.snapshot().sessions.find(session => session.id === dialog.target.managedId);
+      if (dialog.attentionRequestId && session?.context?.attention?.requestId === dialog.attentionRequestId && sameInteractionTarget(dialog.target, this.actions.interactionTarget?.(session))) await this.acknowledgeSession(session.id, dialog.attentionRequestId);
+      this.message = undefined;
+      this.flashMessage("Answer accepted");
+    } catch (error) {
+      dialog.error = errorMessage(error);
+      if (/stale|answered elsewhere|no longer|unavailable/i.test(dialog.error)) { if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.conversationFocus = "content"; } this.message = dialog.error; }
+      else if (/not confirmed|timeout|timed out/i.test(dialog.error)) { dialog.uncertain = true; this.interaction.state = undefined; }
+    } finally {
+      dialog.submitting = false; this.interaction.invalidate();
+      void this.refreshInteraction(); this.actions.requestRender?.();
+    }
   }
 
   invalidate(): void {}
@@ -395,6 +643,7 @@ export class SessionsView implements Component {
   }
 
   private toggleInfo(): void {
+    if (this.conversationOpen) this.closeConversation();
     if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) {
       this.flashMessage("select a session to show status evidence");
       return;
@@ -557,6 +806,7 @@ export class SessionsView implements Component {
       syncPiName: true,
       sendMessage: Boolean(this.actions.sendMessage),
       runConfiguredShortcut: Boolean(this.actions.runDashboardShortcut),
+      answerQuestion: Boolean(this.actions.submitAnswer),
       skills: Boolean(this.actions.skills),
       mcp: Boolean(this.actions.mcpServers),
       theme: Boolean(this.actions.themeSettings),
@@ -575,6 +825,8 @@ export class SessionsView implements Component {
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
       configuredShortcuts: this.actions.dashboardShortcuts,
+      conversation: this.conversationOpen,
+      interactionState: sameInteractionTarget(this.interaction.target, selectedVisible && this.actions.interactionTarget?.(selectedVisible)) ? this.interaction.state : undefined,
       capabilities,
       attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
       attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
@@ -691,8 +943,10 @@ export class SessionsView implements Component {
     if (command.id.startsWith("action:") && command.targetSessionId) {
       const prefix = `action:${command.targetSessionId}:`;
       const action = command.id.slice(prefix.length);
+      if (action.startsWith("answer:")) { this.openQuestion(); return; }
       const slot = action.match(/^slot-([1-4])$/)?.[1];
       if (slot) {
+        this.closeConversation();
         this.assignSidePaneSlot(command.targetSessionId, Number(slot) as 1 | 2 | 3 | 4);
         return;
       }
@@ -715,7 +969,7 @@ export class SessionsView implements Component {
         case "finish-worktree": this.startFinishDialog(); return;
         case "skills": this.startPicker("skills"); return;
         case "mcp": this.startPicker("mcp"); return;
-        case "pin": this.pinSidePane(command.targetSessionId); return;
+        case "pin": this.closeConversation(); this.pinSidePane(command.targetSessionId); return;
         case "close-pin": this.closeSidePane(command.targetSessionId); return;
         case "size-increase": this.resizeSidePane(1); return;
         case "size-decrease": this.resizeSidePane(-1); return;
@@ -738,11 +992,12 @@ export class SessionsView implements Component {
       case "project:skills": this.startPicker("skills"); return;
       case "project:mcp": this.startPicker("mcp"); return;
       case "action:new": this.startNewDialog(); return;
+      case "view:conversation": this.toggleConversation(); return;
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
-      case "view:grouping": this.toggleGrouping(); return;
-      case "view:fleet-grouping": this.toggleFleetGrouping(); return;
+      case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
+      case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:help": this.dialog = { kind: "help" }; return;
       case "view:quit": this.stop(); return;

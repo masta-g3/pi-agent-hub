@@ -1016,3 +1016,14 @@
   created_at: '2026-09-12'
   plan_file: agent-work/history/20260913_dashboard-scanability-011_repo_grouping.md
   completed_at: '2026-09-13'
+- id: cockpit-013
+  status: done
+  title: Conversation workspace
+  subtitle: Read messages and answer directly
+  description: Use an optional dashboard conversation view to read clean messages,
+    answer pending questions, and invoke explicit workflow actions without entering
+    Pi.
+  priority: 2
+  created_at: '2026-09-13'
+  plan_file: agent-work/history/20260914_cockpit-013_conversation_workspace.md
+  completed_at: '2026-09-14'

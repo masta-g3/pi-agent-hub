@@ -29,14 +29,14 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
-  assert.deepEqual(events, ["before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
+  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
 
   await handlers.get("session_shutdown")?.({}, { cwd: "/repo" });
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
   assert.deepEqual(events, [
-    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
-    "before_agent_start", "session_start", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
