@@ -2,32 +2,34 @@
 
 Pi-native tmux hub for long-running coding-agent sessions, skills, and MCP.
 
-Use `pi-hub` to keep multiple Pi sessions visible, grouped, restartable, and easy to jump between from one terminal dashboard.
+Use `pi-hub` to see what needs you, keep live sessions side by side, and jump between agents from one terminal dashboard.
 
-New here? See [Features](docs/FEATURES.md) for the dashboard workflow and core capabilities.
+New here? See [Features](docs/FEATURES.md) for the daily workflow and full key map.
 
 ![pi-agent-hub dashboard](assets/pi-agent-hub-dashboard.png)
 
+*Current dashboard renderer with example sessions. Ticket, request, and workflow context comes from optional Pi extensions.*
+
 ## Why pi-agent-hub?
 
-Most agent managers try to become the runtime. `pi-agent-hub` stays small: Pi runs the agents, tmux keeps them alive, and the hub gives you one keyboard-driven dashboard to manage them.
+Pi runs the agents. tmux keeps them alive. Hub gives you one keyboard-driven dashboard without replacing either.
 
 | Feature | Why it matters |
 | --- | --- |
-| Pi-native | Uses Pi sessions, extensions, skills, MCP, and project state directly. |
-| tmux-native | Sessions keep running as normal tmux sessions; you can attach, switch, or recover manually. |
-| One stable dashboard | `pi-hub` always brings you back to the same control center. |
-| Return shortcuts | `Ctrl+Q` returns from a live pane and completes the coached first request round trip; `Alt+Q` remains available to Pi for editing the last message; `Alt+R` opens rename from inside a session. |
-| Project-scoped skills/MCP | Pick skills and MCP servers for the selected session's primary repo. |
-| Multi-repo workspaces | Extra repos are symlinked into a runtime workspace; source repos are not moved or owned. |
-| Hub-owned worktrees | Create isolated branch sessions for one or more repos; finish, forget, or discard them explicitly from the dashboard. |
-| Small surface area | No cloud service, no custom agent runtime, no hidden repo scanning. |
+| Attention-first dashboard | Find explicit requests, runtime errors, active work, and quiet sessions in separate sections. |
+| Repository view | Group sessions by their source repo, including worktrees and multi-repo sessions. |
+| Pinned live sessions | Keep up to four Pi sessions beside the dashboard and focus them by number. |
+| Actions and search | Find sessions, send a message, or run an action without leaving the dashboard. |
+| Conversation | Read completed messages below the fleet and answer supported questions inline. |
+| Optional workflow board | See workflow position, task progress, and nested subagents from compatible Pi extensions. |
+| Project skills and MCP | Choose capabilities for the selected session's primary repo. |
+| Multi-repo workspaces | Give one session access to several repos without moving the source folders. |
+| Hub-owned worktrees | Create isolated branch sessions and explicitly finish, forget, or discard them. |
+| Local and recoverable | No cloud service, custom agent runtime, or hidden repo scanning. Sessions remain normal tmux sessions. |
 
 ## Quick start
 
 Requirements: Pi 0.85.1+, Node.js 22.19+, and tmux 3.1+.
-
-If you use the Rules `workflow-runtime` extension, update its installed copy together with Hub for Fork and compact. Editing a Rules checkout alone does not update that installed extension.
 
 ```bash
 npm install -g pi-agent-hub
@@ -35,106 +37,96 @@ pi-hub doctor
 pi-hub
 ```
 
-Common dashboard keys (see [Features](docs/FEATURES.md#dashboard-keys) for the full map):
+Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agents keep running while you use the dashboard.
 
 | Key | Action |
 | --- | --- |
-| `n` | Create a new Pi session |
-| `Enter` | Open/switch the selected session directly at every width, or restart a stopped/error session |
-| `1`–`4` | Pin the selected live session into that exact free slot; an occupied slot is never replaced |
-| `P` | Pin into the lowest free slot, or focus the selected session's existing slot |
-| `Alt+1`–`Alt+4` | Focus the corresponding occupied slot from the sidebar or a live pane |
+| `n` | Create a Pi session |
+| `Enter` | Open/switch to the selected session, or restart it if stopped |
+| `Ctrl+Q` | Return from a managed session or live pin |
+| `1`–`4` / `P` | Pin into an exact free slot / the first free slot |
+| `Alt+1`–`Alt+4` | Focus an occupied pin |
 | `x` | Close the selected session's pin without stopping Pi |
-| `+` / `-` | Resize the main pin split in ten-point steps |
-| `Ctrl+Q` | Return from a live pane to the sidebar and complete first-run coaching |
-| `/` | Filter sessions |
-| `:` | Search actions, sessions, and named filters |
-| `p` | Send a one-line message to the selected live session without opening it |
-| `?` | Show help and status legend |
-| `i` | Explain the selected session's runtime status and cockpit placement |
-| `v` | Toggle Status ↔ Repo grouping in the fleet |
-| `S` | Open the read-only workflow board or return to the chosen fleet grouping |
-| `q` | Quit the dashboard |
-| `r` | Open restart choices (`r` selected, `n` new conversation, `a` all active sessions) |
-| `R` | Rename the selected session |
-| `d` | Delete or forget the selected session |
-| `f` | Fork the selected session |
-| `Shift+F` | Choose a group and prepare a fork with cleared task state and compacted history while the dashboard stays usable |
-| `a` | Mark the selected waiting session read |
-| `A` / `B` / `U` | Archive and close its pin if shown, move to Backlog, or restore the selected session |
-| `w` | Finish a hub-owned worktree session |
-| `N` | Sync the selected hub title from Pi's `/name` |
-| `↑↓` / `j` / `k` | Move selection |
-| `←` / `→` | Collapse or expand the selected subagent tree; add Shift for all trees |
-| `g` / `G` | Move a session to a group (Ctrl+N/P cycles visible groups) or rename its group |
-| `K` / `J` | Move the selected Active/Backlog session within its group in Status view |
-| `s` / `m` | Pick project skills or MCP servers; `←→` switches Enabled/Available |
-| Click / double-click | Select / open or switch the session directly at every width |
+| `/` / `:` | Filter sessions / search actions, sessions, and filters |
+| `p` | Send a one-line message to the selected live session |
+| `c` | Show or hide the selected live session's Conversation panel |
+| `i` | Show task context, actions, and live status details |
+| `v` / `S` | Switch Status/Repo view / visit the workflow board |
+| `←` / `→` | Collapse / expand a subagent tree; add Shift for all trees |
+| `r` / `R` | Restart choices / rename |
+| `f` / `Shift+F` | Fork / fork and compact |
+| `g` / `G` | Move a session to a group / rename its group |
+| `A` / `B` / `U` | Archive / move to Backlog / restore |
+| `s` / `m` | Pick project skills / MCP servers |
+| `t` | Choose a theme |
+| `?` / `q` | Help / quit the dashboard |
 
-Fork and compact gates only the new child until task reset and compaction finish. `i` shows preparation details. Failed children offer inspection or **Retry preparation** in `:`, which reuses the same child and conversation. After manual recovery, **Cancel preparation and keep session** removes the restriction without another reset, compaction, or restart. Conversation history and shared repository files remain intact. See [Fork and compact](docs/FEATURES.md#fork-and-compact) for access and recovery limits.
+See [Dashboard keys](docs/FEATURES.md#dashboard-keys) for all controls.
 
-New sessions start as `New · repository`; forks start as `Fork · source name`. Duplicate defaults get ` · 2`, ` · 3`, etc. Later task names replace these defaults; linked ticket names take priority. See [Session names](docs/FEATURES.md#session-names).
+The default Status view puts explicit requests in `NEEDS YOU`, runtime errors in `HEALTH`, running work in `ACTIVE`, and other sessions in `QUIET`. `ARCHIVED` is newest-first. Waiting alone does not mean an agent needs an answer. Explicit requests require an extension that reports them.
 
-The default Status view shows complete session trees in attention order: `NEEDS YOU`, `HEALTH`, `ACTIVE`, `QUIET`, then chronological `ARCHIVED`. Only explicit producer attention on a waiting/idle owner enters `NEEDS YOU`; waiting alone does not. A running child can activate its owner tree, but child attention/error never promotes the parent. A hidden child request instead adds `?N child` to its tier and `?N` to its owning row whenever the request row is absent from the visible projection; each count disappears when that request row becomes visible. Runtime status, workflow position, lifecycle, attention, and child activity remain independent. Backlog appears as row metadata; each parent shows its group only in the title badge. HEALTH, ACTIVE, QUIET and ARCHIVED can collapse; NEEDS YOU stays expanded.
+Each parent session shows its `[group]` after the title. Press `v` to browse by repository instead. Worktrees stay with their source repo; multi-repo sessions appear under their primary repo. Groups and Backlog/Archive organize sessions without stopping their agents.
 
-Parent-session titles carry the chosen `[group]` badge once, immediately after the title. Press `v` for alphabetical repo sections with flat session lists, or press it again for Status view. Single-click selects a repo header; `Enter` or double-click folds it. Repo grouping still uses the actual primary source path: worktrees stay with their source repo and multi-repo sessions stay under their primary repo. The selected-session action workspace shows the actual repository. See [Repo grouping](docs/FEATURES.md#repo-grouping) for ordering, counts and disclosure behavior.
+The selected-session workspace shows task context and available actions. It stays beside the list in wide terminals; `i` opens it full-width in smaller terminals and toggles live details. `Enter` and double-click open the selected session directly at every width. Hub does not read or display raw pane output or conversation text in this workspace.
 
-A fresh producer request with a request ID adds one six-second band below the cockpit header and a focus-aware tmux message. Click the band or choose **Locate newest request** from `:` to reveal its exact session without opening or acknowledging it. The optional **Attention bell** toggle also lives in `:` and defaults to Off.
+Press `c` to read completed messages below the fleet. Compatible question extensions also let you answer inline; otherwise, use **Open in Pi**. Conversation does not store a second transcript or search message content. See [Conversation](docs/FEATURES.md#conversation) for controls and [question integration](docs/CONFIG.md#inline-questions) for setup.
 
-On a new empty dashboard, the real cockpit tiers and footer teach one daily loop: create a session, open an explicit request, and return with `Ctrl+Q`. That coaching retires after the first successful request round trip. Existing users see only one low-priority **NEW DAILY LOOP** row below real attention; select it and press `Enter` to dismiss it.
+Use `P` to pin a live session beside the dashboard. Terminals 100–159 columns wide support two slots; wider terminals support four. An occupied slot is never replaced. `Alt+1`–`Alt+4` focuses a pin, `Ctrl+Q` returns, and `+` / `-` adjusts the split. `Alt+Q` stays available to Pi for editing the last message.
 
-The fleet top line names `FLEET`, `WORKFLOW`, or `PINNED FLEET`, then shows owner-tree, pin, `needs you`, and health signals that fit. A full-width workspace starts with the selected session instead of adding another mode header. With a filter active, tree counts use visible/total form. `▸` marks a collapsed owner with child rows; press `→` to expand it to `▾`, and `←` to collapse it again.
+Press `:` to find an action or session. Selecting a session result reveals it without opening or marking it read. Fresh explicit requests also produce a short notification; select **Locate newest request** to find one, or **Attention bell** to enable the optional sound.
 
-The selected-session action workspace shows positive decision content only: identity, an explicit request, real task text, plain workflow position, exceptional guidance, and enabled target-bound actions. Empty categories and duplicate runtime narration disappear. `▸` marks the primary action chosen by the same catalog policy that supplies every workspace command. Raw tmux pane output and Pi conversation content never enter this workspace. The workspace is persistent at 120+ columns and remains available below 120 through `i`. `Enter` and double-click open or switch directly at every width; `Escape` returns from a narrow workspace opened with `i`. Workspace action rows also support a single mouse click.
+New sessions start as `New · repository`; forks start as `Fork · source name`. You can rename an unlinked session with `R` or use `Alt+R` from inside it. With Rules installed, a linked ticket supplies the session name. See [Session names](docs/FEATURES.md#session-names).
 
-Press `i` to append `LIVE DETAILS` in the same workspace: useful tmux, heartbeat, read-state, runtime-placement, and workflow evidence. Routine absence text is suppressed. Missing evidence refreshes through the normal observation path before display. Press `i` again to hide details.
+### Optional Pi integrations
 
-Press `:` to search the same actions exposed by direct keys, jump to sessions through bounded title/group/project/task/ticket/attention/workflow context, or apply named lifecycle, status, and group filters. Unavailable actions remain visible with a reason. Selecting a session only reveals and selects its current row in Hub; it does not attach, restart, or mark it read. `/` remains the fast free-text fleet filter, and `?` remains direct Help.
+Hub works on its own. Pi extensions can add task context, explicit requests, workflow progress, and subagent rows.
 
-The cockpit uses one adaptive hierarchy whose card richness is derived per render, not saved as a view setting. Active parent sessions gain bounded request and ticket continuation lines as space permits; Backlog and Archived parents remain single-line, and subagents use compact micro rows. At 100+ columns, rich project and board trees use a `│`/`└` gutter. The whole visible owner tree receives the selection background, while `▌` still identifies the exact keyboard and action target. At the right edge of Active parent rows, hidden requests survive width pressure longest, followed by active descendants, workflow, and age; Backlog and Archived retain their lifecycle-specific tails. A mouse-only five-tier navigator shows presentation-owner counts and jumps to the first visible owner without entering keyboard session order. It is shown only in Status view and hidden in Repo view, the workflow board, pin mode, narrow layouts, and full-screen workspace.
+- [Rules](https://github.com/masta-g3/rules) supplies skills and a workflow runtime for Plan → Execute → Review → Reflect → Commit. Hub displays its ticket context, requests, and progress. Press `S` for the read-only workflow board.
+- [pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) runs child agents in tmux. Hub shows them under their parent session.
+- Your own Pi extensions can publish the supported context and workflow metadata. Configured dashboard shortcuts can send Pi commands to the selected session.
 
-`S` switches between the chosen fleet grouping and the read-only workflow board, where compatible Active workflow trees stay in producer-defined lanes and all others appear in `OTHER ACTIVE`, nested under their existing group labels. At 100+ columns, board cards add producer activity and an eight-cell `■`/`□` plan bar when valid progress exists; narrow boards keep one-line cards. Top-level parents show `⚙︎N` for starting/running descendants. Subagent trees start collapsed in the fleet and board: `←`/`→` changes the selected tree, Shift applies to all trees, and `Space` remains a board selected-tree toggle. Filters reveal matching child context without changing tier or disclosure state. The selected-session workspace keeps producer workflow facts separate from exceptional Hub guidance.
+These integrations use Pi's extension system, not a separate Hub plugin loader. Hub displays workflow state; it does not run or advance the workflow. See [Optional integrations](docs/CONFIG.md#optional-integrations) for setup, prerequisites, and the metadata contracts.
 
 ## Install
 
-The npm package is `pi-agent-hub`; it exposes both commands, with `pi-hub` as the shorter daily-use command and `pi-agent-hub` kept for compatibility. Most users install the CLI with npm:
+The npm package is `pi-agent-hub`. It exposes `pi-hub` for daily use and `pi-agent-hub` as an alias.
 
 ```bash
 npm install -g pi-agent-hub
 ```
 
-If you also install or update the package through Pi (`pi install npm:pi-agent-hub`), Pi updates its package copy under `~/.pi/agent/npm/node_modules/pi-agent-hub`. If an older global npm `pi-hub` appears earlier on `PATH`, your shell can still run the stale dashboard. Run `pi-hub doctor` after install/update and follow any `cli package` warning.
+If you also install or update through Pi with `pi install npm:pi-agent-hub`, Pi keeps a separate package copy under `~/.pi/agent/npm/node_modules/pi-agent-hub`. An older global npm command earlier on `PATH` can still launch the stale dashboard. Run `pi-hub doctor` after installing or updating and check any `cli package` warning.
 
 POSIX shell fix:
 
 ```bash
 mkdir -p ~/.local/bin
 ln -sf ~/.pi/agent/npm/node_modules/.bin/pi-hub ~/.local/bin/pi-hub
-# ensure ~/.local/bin appears before the global npm bin in PATH
+# Put ~/.local/bin before the global npm bin in PATH.
 ```
 
-Windows PowerShell fix:
+On Windows PowerShell, the Pi package bin directory is:
 
 ```powershell
 $PiBin = "$env:USERPROFILE\.pi\agent\npm\node_modules\.bin"
-# Add $PiBin before the global npm prefix in your user PATH, then reopen the terminal.
+# Put $PiBin before the global npm prefix in your user PATH.
 # Or run: & "$PiBin\pi-hub.cmd" doctor
 ```
 
-For local development, see [Development](docs/DEVELOPMENT.md).
+Hub still requires tmux and a compatible shell environment. For local development, see [Development](docs/DEVELOPMENT.md).
 
 ## Common commands
 
 ```bash
-pi-hub              # create/attach/switch to the dashboard tmux session
-pi-hub tui          # run the TUI directly in the current terminal
+pi-hub              # create, attach, or switch to the dashboard
+pi-hub tui          # run directly in the current terminal
 pi-hub doctor
 pi-hub list
 pi-hub explain <session-id-or-unique-prefix>
 pi-hub add . -g default
 pi-hub add ./api --add-cwd ../web --add-cwd ../shared
 pi-hub delete <session-id>
-pi-hub mcp-pool     # run the pooled MCP socket daemon
+pi-hub mcp-pool      # run the pooled MCP socket daemon
 pi-hub config get
 pi-hub config set session-prelude '<shell snippet>'
 pi-hub config unset session-prelude
@@ -142,13 +134,17 @@ pi-hub config set worktree-default true
 pi-hub config unset worktree-default
 ```
 
-`explain` observes the live fleet once and prints the same runtime and cockpit reasoning as the dashboard. It resolves an exact session ID before a unique prefix, reports bounded candidates for ambiguous prefixes, and never updates `registry.json`.
+`explain` reports the live evidence behind a session's runtime status and dashboard placement without changing registry state.
 
-`add --add-cwd` creates a multi-repo session: `cwd` stays the primary repo, extra paths are symlinked into a per-session workspace, and Pi starts from that workspace. Worktree sessions are created from the TUI new-session form by focusing the Worktree row and pressing `Space`, or with `Ctrl+T`; the branch does not control Pi's native session name. New forms start with worktrees off. Set `worktree-default true` to open them in worktree mode instead; either toggle can still change the mode per session. `delete` stops the tmux session if it is still alive, removes the registry row, removes the heartbeat file, and removes any owned multi-repo workspace. Dashboard archive/backlog/restore never stops tmux or Pi; archiving also closes the session's pin if shown. Archived is a flat newest-first list that shows five parent cascades by default; select the older-items row and press `Enter` or double-click to expand it. Archived cascades become eligible for dashboard cleanup after seven days, but are forgotten only when every tmux session in the cascade is confirmed gone. Pi conversation/session files, source repos, and hub-owned worktree directories are kept by normal delete; use dashboard `w` to merge and remove a clean hub-owned worktree, or `d` then `Shift+D` to discard a clean worktree and branch without merging.
+`add --add-cwd` creates a symlink workspace for multiple repos. Skills and MCP stay attached to the primary repo.
+
+For an isolated branch, enable Worktree with `Ctrl+T` in the new-session form and enter a branch name. Press `w` to finish a clean worktree session, merge its branch into the recorded base branch, and remove its worktrees. Use `d`, then `Shift+D`, to discard clean worktrees and branches without merging. Both require clean worktrees; finish also requires clean base repos.
+
+Normal `delete` stops the session and removes Hub records and its symlink workspace. It keeps Pi conversation files, source repos, and hub-owned worktree directories. Archive and Backlog do not stop Pi; archiving also closes the session's pin. See [Worktree model](docs/FEATURES.md#worktree-model) for the full safety rules.
 
 ## Troubleshooting
 
-For SSH/tmux use, mouse behavior comes from the remote tmux server. Hub enables tmux mouse mode only on the dashboard session while `pi-hub` is running, then unsets that session override on quit so your global tmux preference applies again. It does not force global tmux mouse settings.
+Hub enables tmux mouse mode for the dashboard session while it runs, then restores your global preference on quit. For SSH use, mouse handling comes from the remote tmux server.
 
 For better modified-key handling, enable extended keys globally if your tmux version supports it:
 
@@ -156,14 +152,15 @@ For better modified-key handling, enable extended keys globally if your tmux ver
 set -g extended-keys on
 ```
 
-`Alt+1`–`Alt+4` is the primary fast path Hub reserves for slot focus. `Alt+Arrow` remains an optional spatial alias, but terminal applications such as Ghostty can map `Alt+Left` and `Alt+Right` to word movement before tmux sees modified arrows. Use numeric focus or your tmux prefix plus arrows instead of overriding useful terminal editing keys.
+Use `Alt+1`–`Alt+4` to focus pins. `Alt+Arrow` is an optional spatial alias, but terminals can consume these keys for word movement. Numeric focus or tmux prefix plus arrows avoids that conflict.
 
 ## Documentation
 
-- [Features](docs/FEATURES.md): dashboard workflow, keybindings, groups, status vocabulary, multi-repo workspaces, and worktree behavior.
-- [Configuration](docs/CONFIG.md): runtime state, global config, Skills/MCP selection, themes, and state paths.
-- [Development](docs/DEVELOPMENT.md): local setup, tests, package checks, and smoke testing.
-- [Structure](docs/STRUCTURE.md): project layout and architecture notes for contributors.
+- [Features](docs/FEATURES.md): daily workflow, keys, session organization, pins, and worktrees.
+- [Configuration](docs/CONFIG.md): optional integrations, global config, themes, skills, MCP, and state paths.
+- [Development](docs/DEVELOPMENT.md): local setup, tests, package checks, and release workflow.
+- [Structure](docs/STRUCTURE.md): project layout and architecture for contributors.
+- [Changelog](CHANGELOG.md): release changes.
 
 ## Acknowledgements
 
