@@ -8,21 +8,32 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Added
 
-- Add independent persisted `v` density and `S` project/stage grouping controls. Density toggles compact rows and adaptive all-session junction cards grouped by existing Hub labels.
-- Add producer `plan.phases` metadata support for phase-aware workflow progress.
-- Add explicit `x` then `1`–`4` panel close commands, guarded `Alt+1`–`Alt+4` focus jumps, and `Alt+Q` sidebar return from anywhere in the dashboard tmux session.
+- Add an attention-first Status view, repository grouping with `v`, and a read-only workflow board with `S`.
+- Add selected-session task context and actions, live status evidence with `i`, and `pi-hub explain`.
+- Add a Conversation panel with completed messages, a working indicator, and inline answers through compatible question extensions.
+- Add `:` search for actions, sessions, and filters, plus notifications for fresh explicit requests.
+- Add up to four live session pins with stable slots, `Alt+1`–`Alt+4` focus, and `x` to close the selected session's pin.
+- Add producer-owned workflow progress, completion markers, and optional focus-mode display.
+- Add dashboard theme preview and Pi theme synchronization.
+- Document optional Rules and subagent setup and refresh the dashboard image.
 
 ### Changed
 
-- Start project and board subagent trees collapsed with recursive `▸N`/`▾N` counts; add ephemeral arrow-key controls for one or all trees, filter-only reveal, and a narrower compact preview list.
-- Keep the `⎇` worktree marker visible on main-session rows in every grouping and density.
-- Make side-panel numbers stable screen quadrants with occupancy-derived row/column layouts and non-destructive assignment keys that keep focus in the sidebar; remove `Shift+1`–`Shift+4` panel focus aliases.
-- Mute status glyphs in Backlog and Archived while retaining semantic status colors in Active.
+- Start fleet and board subagent trees collapsed; use arrow keys for one tree and Shift with arrows for all trees.
+- Size session rows to the available space and show each parent's group after its title, alongside worktree and multi-repo indicators.
+- Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
+- Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
+- Open sessions directly with `Enter` at every width; use `i` for the full-width workspace in narrow terminals.
+- Use distinct initial session/fork names and preserve linked ticket titles.
+- Keep the dashboard responsive while compact forks prepare; expose retry and cancellation for failed preparation.
+- Send configured commands through Pi's guarded input pipeline instead of simulated keystrokes.
+- Require Pi 0.85.1 or later.
 - Removed unused public exports `McpTool`, `PiToolDefinition`, `buildPiCommand`, `sessionDir`, `tmuxMissing`, and `mcpCatalogPath`; removed the unused singular worktree-removal wrapper. The SemVer decision for the narrowed package surface remains deferred to publishing.
 
 ### Fixed
 
-- Fix `Alt+1`–`Alt+4` pane lookup so tmux resolves live slot metadata at keypress time and empty slots remain silent no-ops.
+- Resolve pin focus through live pane identity instead of stale slot targets.
+- Keep fresh attention requests visible after earlier requests were acknowledged.
 
 ## 1.2.0 - 2026-05-26
 

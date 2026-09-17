@@ -1,6 +1,76 @@
 # pi-agent-hub Configuration
 
-This page covers runtime state, global config, themes, Skills, and MCP configuration. For dashboard usage, see [Features](FEATURES.md).
+This page covers optional integrations, runtime state, global config, themes, skills, and MCP. For dashboard usage, see [Features](FEATURES.md).
+
+## Optional integrations
+
+Hub manages sessions without Rules or subagent tooling. Install these only for the extra workflow and child-agent features.
+
+### Rules workflow
+
+[Rules](https://github.com/masta-g3/rules) supplies workflow skills and the `workflow-runtime` Pi extension. It reports linked tickets, explicit requests, workflow position, and plan progress. Hub displays those facts in the session list, action workspace, and `S` board. Rules owns workflow execution; Hub does not advance steps.
+
+Rules currently deploys through a repository sync script, not a Hub plugin installer. Before running it, review its [setup instructions](https://github.com/masta-g3/rules#setup) and back up your agent configuration. The script copies global instructions, skills, agents, and extensions into Claude, Cursor, and Pi directories; prunes managed assets, including Codex workflow assets; and updates Pi settings. It targets `~/.pi/agent`, not a custom `PI_CODING_AGENT_DIR`.
+
+The sync script requires Bash 4.3+, `rsync`, and `jq`. The workflow's backlog helpers require [uv](https://docs.astral.sh/uv/). On macOS, the bundled Bash 3.2 is too old; use a newer Bash on `PATH`.
+
+```bash
+git clone https://github.com/masta-g3/rules.git
+cd rules
+bash ./sync-prompts.sh
+```
+
+Start a new Pi session, or run `/reload` in an existing one. In a Hub-managed session, try `/skill:plan-md` with a task. Once the workflow starts, return with `Ctrl+Q` and press `S` to see its lane. For tracked work, initialize the project with `/skill:project-init`, then use the ticket workflow described in Rules.
+
+Ticket and plan display uses project files. Rules' optional automatic naming and turn-end attention also use model calls and need working provider access. `/session-metadata-status` reports their state; `/session-metadata-disable` turns those optional calls off. Installing Rules alone does not make every waiting session an explicit request.
+
+### Tmux subagents
+
+[pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) runs child Pi agents in tmux and reports their parent relationship to Hub.
+
+```bash
+pi install npm:pi-tmux-subagents
+```
+
+Reload or restart the parent Pi session after installation. When a managed parent launches a child, expand its Hub row with `→`. Children keep their own status and task text. Running children keep their loaded code until relaunched.
+
+Rules' sync also adds this package to Pi settings. You do not need a second installation for the same setup.
+
+### Inline questions
+
+Conversation can display completed messages without an extra question package. Answering questionnaires inside Hub requires a producer that supports its external-answer protocol. Rules' attention metadata alone does not provide this.
+
+The verified integration is the `2.10.1-hub.1` fork of `@juicesharp/rpiv-ask-user-question`. It retains the original package name. Do not assume the ordinary npm release supports this protocol or load both copies together.
+
+Download the [verified tarball](https://github.com/masta-g3/pi-agent-hub/raw/afa0fa7549b8e1b2804b0308f6ed8f3187f46fa8/agent-work/tickets/cockpit-013/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz). Its SHA-256 is `e91e010cf2f12c609c1ea1689a89616fbc126006f2ec50a5d129b4546ec6744c`. Review the included `package/docs/hosts.md` before installation. Extensions run with your user's permissions.
+
+Install the verified archive into a new versioned directory, not over a running package:
+
+```bash
+shasum -a 256 /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
+# Continue only if the checksum matches above.
+PATCH_HOME="$HOME/.local/share/pi-hub-questions/2.10.1-hub.1"
+mkdir -p "$PATCH_HOME"
+cp /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz "$PATCH_HOME/"
+cd "$PATCH_HOME"
+npm install --save-exact ./juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
+```
+
+Close running Pi sessions and back up Pi settings. Use `pi list` to find the existing questionnaire source. If present, remove it with `pi remove <original-source>` and remove any explicit extension path that also loads it. Then register the replacement directory:
+
+```bash
+pi install "$PATCH_HOME/node_modules/@juicesharp/rpiv-ask-user-question"
+```
+
+Do not pass the `.tgz` directly to `pi install`; Pi treats local files as extension source. Restart Pi and verify that exactly one `ask_user_question` tool is available. Keep `package.json`, `package-lock.json`, and the archive together. To reproduce this dependency set in a new directory or on another machine, copy all three there and run `npm ci` before registering that package directory with Pi. This local installation does not follow upstream updates. To roll back, close Pi, remove the replacement source, and restore the original source from your saved settings.
+
+Without this integration, use **Open in Pi** to answer. See [Conversation](FEATURES.md#conversation) for dashboard controls.
+
+### Your own integrations
+
+Use Pi extensions to publish the [session context](#generic-session-context) and [workflow metadata](#workflow-heartbeat-bridge) below. Hub reads these supported entries through its heartbeat extension. There is no separate Hub plugin loader or custom-widget API.
+
+For keyboard actions, configure [dashboard shortcuts](#dashboard-shortcuts) that send a one-line Pi command. Skills and MCP remain project-scoped capabilities, not dashboard plugins.
 
 ## Runtime state
 
@@ -23,7 +93,31 @@ This page covers runtime state, global config, themes, Skills, and MCP configura
 
 ### Generic session context
 
-A Pi extension can append a latest-snapshot custom entry with `customType: "pi-agent-hub-context"`. Version 1 accepts a bounded ticket id, optional subtitle and description, and optional explicit `ready`, `question`, or `blocked` attention. Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
+A Pi extension can append a custom entry with `customType: "pi-agent-hub-context"`. Each entry is a complete snapshot. Version 1 requires `version: 1` and a finite `updatedAt` timestamp. Ticket and attention are optional:
+
+```json
+{
+  "type": "custom",
+  "customType": "pi-agent-hub-context",
+  "data": {
+    "version": 1,
+    "updatedAt": 1765060000000,
+    "ticket": {
+      "id": "auth-001",
+      "subtitle": "Validate email before account creation"
+    },
+    "attention": {
+      "kind": "question",
+      "text": "Which sign-in provider should we use?",
+      "requestId": "auth-001-provider-choice"
+    }
+  }
+}
+```
+
+Ticket IDs allow up to 80 characters, subtitles 64, and descriptions 240. Attention requires `kind` of `ready`, `question`, or `blocked` and nonblank `text` of up to 150 characters. Publish a fresh snapshot without `attention` to clear a request.
+
+Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
 
 Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`; Hub caches each nonblank heartbeat name. See [Session names](FEATURES.md#session-names) for initial names and ticket ownership. `R` renames an unlinked live session without submitting its editor contents. `N` reads the saved Pi name from `session_info`; it does not generate a new name.
 
@@ -31,7 +125,7 @@ If generic context and workflow runtime contain different ticket ids, Hub keeps 
 
 ### Workflow heartbeat bridge
 
-Hub's extension can also surface workflow-stage state from the optional `workflow-runtime` extension (from the `rules` package). On every heartbeat tick it reads the Pi session branch via `sessionManager.getBranch()` and takes the latest custom entry of this shape:
+Hub's extension can also display workflow state from a compatible producer, such as Rules' `workflow-runtime` extension. On every heartbeat tick it reads the Pi session branch via `sessionManager.getBranch()` and takes the latest custom entry of this shape:
 
 ```json
 {
@@ -68,9 +162,11 @@ Hub's extension can also surface workflow-stage state from the optional `workflo
 }
 ```
 
-The producer owns step order, ids, short codes, and optional labels. `activeStep`, finite `updatedAt`, and a nonempty `steps` array are required; each step needs a unique nonblank `id` and nonblank `short`, while `label` and `ticketId` are optional. `updatedAt` is the producer's state-change timestamp, so it can advance during one workflow step—for example, when a focus turn completes—independently of heartbeat cadence. Missing or malformed base workflow metadata silently removes the rail and canonical lane placement without affecting process state; an Active session still appears in `OTHER ACTIVE`. The board requires a `workflow-runtime` version from `rules` that publishes `steps` and `updatedAt` for producer-lane placement. Older payloads have no rail and stay in `OTHER ACTIVE`. No fallback step list is mirrored in Hub.
+The producer owns step order, ids, short codes, and optional labels. `activeStep`, finite `updatedAt`, and a nonempty `steps` array are required; each step needs a unique nonblank `id` and nonblank `short`, while `label` and `ticketId` are optional. `updatedAt` is the producer's state-change timestamp, so it can advance during one workflow step—for example, when a focus turn completes—independently of heartbeat cadence. Missing or malformed base workflow metadata silently removes the rail and canonical lane placement without affecting process state; an Active session still appears in `OTHER ACTIVE`. A producer must publish `steps` and `updatedAt` for workflow lanes. Hub has no built-in step list.
 
 `activity` and `plan` are independent optional producer projections. A valid activity (`id`, `label`, optional positive `pass`) takes precedence on the card recap. Without activity, Hub shows bounded deterministic phase/task progress and `nextStep`; it does not inspect step ids to choose either path. Task counts are nonnegative integers up to 10,000. A plan can publish at most 100 phase counts, and their aggregate total must also stay at or below 10,000; Hub omits an invalid phase projection while retaining other valid plan fields. Malformed optional projections are omitted without hiding a valid base rail.
+
+Optional `currentStepComplete: true` marks the current workflow position complete. Earlier positions also show checks; later ones stay pending. These markers show position, not proof that each step ran. Completion does not change runtime status or move the session to another lane.
 
 `activeMode` is an optional producer-owned display modifier. It requires nonblank bounded `id` and `short`; `label` and `detail` are optional and bounded. Mode and workflow are validated independently. A valid mode can appear without a rail, and malformed mode does not discard a valid workflow. Hub does not interpret Rules' private focus execution state. The mode is runtime-only: the controller exposes it only from a fresh, non-shutdown heartbeat with confirmed tmux presence and never writes it to `registry.json`. Stale, missing, shutdown, or stopped sessions retain the base workflow snapshot but lose the transient mode decoration.
 
@@ -134,7 +230,7 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
 
 ## Dashboard shortcuts
 
-`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line text sent to the selected live session through the same tmux paste/Enter path as `p`. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line Pi input for the selected live session. Commands use Pi's input/template pipeline and require an idle session with no queued messages, blocking prompt, or editor draft. There is no tmux-paste fallback; `p` remains a separate send path. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
 
 ```json
 {
