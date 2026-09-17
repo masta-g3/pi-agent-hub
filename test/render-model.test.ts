@@ -1746,6 +1746,23 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   assert.match(groupedText, /Stored session 1 \[beta-project\]/);
 });
 
+test("attention newer than acknowledgement remains visible until read", () => {
+  for (const status of ["waiting", "idle"] as const) {
+    for (const acknowledgedAt of [undefined, 99, 100, 101]) {
+      const row: RuntimeSession = {
+        ...session("question", "default", status),
+        acknowledgedAt,
+        context: { version: 1, updatedAt: 100, attention: { kind: "question", text: "Choose the rollout" } },
+      };
+      const rendered = modelRows(buildRenderModel({ sessions: [row], width: 120 }))[0]!;
+      const unread = acknowledgedAt === undefined || acknowledgedAt < 100;
+      assert.equal(rendered.cockpitTier, unread ? "needs-you" : "quiet");
+      assert.equal(rendered.needsAttention, unread);
+      assert.equal(rendered.attention?.kind, unread ? "question" : undefined);
+    }
+  }
+});
+
 test("generic attention is gated to waiting/idle and stays searchable on its own subagent", () => {
   const attention = (kind: "ready" | "question" | "blocked", text: string) => ({ version: 1 as const, updatedAt: 2, attention: { kind, text } });
   const sessions = [

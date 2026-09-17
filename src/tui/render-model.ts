@@ -981,7 +981,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     statusEvidence: session.statusEvidence,
     displayStatus,
     symbol: symbolFor(displayStatus),
-    needsAttention: attention !== undefined && session.acknowledgedAt === undefined,
+    needsAttention: attention !== undefined,
     selected,
     error: session.error,
     sessionFile: session.sessionFile,
@@ -1037,7 +1037,8 @@ function activityAge(lastActivityAt: number | undefined, now: number | undefined
 
 function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
   if (session.status !== "waiting" && session.status !== "idle") return undefined;
-  if (session.acknowledgedAt !== undefined) return undefined;
+  if (session.acknowledgedAt !== undefined && session.context !== undefined
+    && session.acknowledgedAt >= session.context.updatedAt) return undefined;
   return session.context?.attention;
 }
 
