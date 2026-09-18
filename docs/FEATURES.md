@@ -229,7 +229,7 @@ Press `n` to create a session.
 
 | Key in the form | Action |
 | --- | --- |
-| `Enter` | Activate the selected control; move to the next control from a text field |
+| `Enter` | Create from a text field; activate the selected picker, toggle, or action |
 | `Ctrl+Y` | Create the session from anywhere in the form |
 | `Ctrl+F` | Open named directory favorites |
 | `Ctrl+S` | Save the current directory set as a favorite |

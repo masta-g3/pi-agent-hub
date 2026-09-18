@@ -85,7 +85,7 @@ function handleNewFormInput(dialog: NewSessionDialog, data: string, ctx: NewSess
       case "create": return createSession(dialog, ctx);
     }
     if (form.focus === "worktree") return withForm(dialog, toggleWorktree(form));
-    return moveDialogFocus(dialog, 1);
+    return createSession(dialog, ctx);
   }
   if (dialog.actionFocus) return dialog;
   if (matchesKey(data, Key.ctrl("n"))) return withForm(dialog, cycleCwdSuggestion(form, 1));
@@ -161,7 +161,7 @@ function newFormFields(dialog: NewSessionDialog, width = 88): FormField[] {
 
 function newFormFooter(dialog: NewSessionDialog): string {
   if (dialog.actionFocus) return "enter select · ^Y create · esc cancel";
-  if (isRepoKey(dialog.form.focus)) return "enter next · ^Y create · esc cancel · ctrl-o choose directory";
+  if (isRepoKey(dialog.form.focus)) return "enter create · ^Y create · esc cancel · ctrl-o choose directory";
   if (dialog.form.focus === "worktree") return "enter/space toggle · ^Y create · esc cancel";
-  return "enter next · ^Y create · esc cancel";
+  return "enter create · ^Y create · esc cancel";
 }

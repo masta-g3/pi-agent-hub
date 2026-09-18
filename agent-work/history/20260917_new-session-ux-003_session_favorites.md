@@ -19,8 +19,8 @@ Hub's New session form now supports named, ordered directory favorites and prese
 
 - Bracketed directory and option values identify text inputs; `▾` identifies the favorite picker; actions are separated below fields.
 - Options remain collapsed by default but always summarize Group and worktree/branch state.
-- `Enter` advances from editable fields and activates focused controls. Worktree toggles on Enter/Space.
-- The explicit Create action or `Ctrl+Y` submits. Existing direct keys remain available: `Ctrl+F` favorites, `Ctrl+S` save, `Ctrl+R` add directory, `Ctrl+X` remove additional directory, `Ctrl+O` recent-directory picker, `Ctrl+N/P` suggestions, `Ctrl+G` Group, `Ctrl+T` worktree, and `Ctrl+L` Branch.
+- `Enter` submits from editable fields and activates focused controls. Worktree toggles on Enter/Space.
+- The explicit Create action and `Ctrl+Y` also submit. Existing direct keys remain available: `Ctrl+F` favorites, `Ctrl+S` save, `Ctrl+R` add directory, `Ctrl+X` remove additional directory, `Ctrl+O` recent-directory picker, `Ctrl+N/P` suggestions, `Ctrl+G` Group, `Ctrl+T` worktree, and `Ctrl+L` Branch.
 - Compact forms reserve one fixed help/error line. Focus changes do not shift control rows.
 - Focused controls, errors, picker selection, footers, and Unicode path tails remain visible within narrow and short terminals.
 

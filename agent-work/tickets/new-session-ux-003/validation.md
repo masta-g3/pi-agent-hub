@@ -74,3 +74,7 @@ The user approved distinguishing text inputs, pickers and actions visually and r
 The user reported controls moving when focus inserted a hint below the selected field. Compact forms now reserve one bottom help/error row instead; other form modes are unchanged. A regression failed before the fix. Focus-coordinate and short-height error/footer checks passed with 242 relevant tests. Combined packaging again passed all 985 tests and package check.
 
 Latest installed tarball SHA-256: `64d684719da42ead48cf0f3798df4e2515e2a0ae4e1405a3528070a2dbbb9af3` (supersedes prior test installs). Installed source matches staging. A real installed-TUI check compared eight control-row screen coordinates before/after arrow navigation; all stayed identical. Temporary tests, staging and isolated tmux state were removed.
+
+### Enter-to-create correction
+
+After testing, the user selected Enter-to-create from text fields. Enter still activates focused picker, toggle, and action rows; Worktree continues to toggle rather than submit. `Ctrl+Y` remains an alternate global create key. A dedicated dialog test covers Primary, Group, Branch, and Add-directory behavior. The focused dialog/view suite passed 226 tests.
