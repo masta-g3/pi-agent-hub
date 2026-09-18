@@ -61,6 +61,7 @@ import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveG
 import { handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
+import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites-dialog.js";
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAttentionTrip, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
@@ -173,6 +174,7 @@ export class SessionsView implements Component {
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "theme") this.dialog = handleThemeDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "new" || this.dialog.kind === "repoPicker") this.dialog = handleNewSessionInput(this.dialog, data, this.dialogContext());
+      else if (this.dialog.kind === "sessionFavorites") this.dialog = handleFavoritesInput(this.dialog, data, this.dialogContext());
       return;
     }
 
@@ -324,6 +326,7 @@ export class SessionsView implements Component {
     if (this.dialog?.kind === "picker") return limitRows(renderPickerDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "theme") return limitRows(renderThemeDialog(this.dialog, width, height, this.theme), height, width, this.theme);
     if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
+    if (this.dialog?.kind === "sessionFavorites") return limitRows(renderFavoritesDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "confirm") return limitRows(renderConfirmDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.pendingRestart) return limitRows(renderRestartDialog(width, this.dialogContext()), height, width, this.theme);

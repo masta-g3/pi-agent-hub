@@ -5,6 +5,8 @@ import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, Si
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession } from "../core/types.js";
 import type { NewFormContext, NewFormSubmission } from "./new-form.js";
+import type { SessionFavorites } from "../core/session-favorites.js";
+import type { FavoritesDialog } from "./session-favorites-dialog.js";
 import type { PickerItem } from "./two-column-picker.js";
 import type { SessionsTheme } from "./theme.js";
 import type { PromptDialog } from "./prompt-dialog.js";
@@ -105,6 +107,14 @@ export interface ThemeActions {
   applyDashboardTheme: (setting: string, syncPi: boolean) => void | Promise<void>;
 }
 
+export interface FavoritesActions {
+  load: () => SessionFavorites | Promise<SessionFavorites>;
+  save: (name: string, cwds: string[]) => SessionFavorites | Promise<SessionFavorites>;
+  update: (id: string, cwds: string[]) => SessionFavorites | Promise<SessionFavorites>;
+  rename: (id: string, name: string) => SessionFavorites | Promise<SessionFavorites>;
+  remove: (id: string) => SessionFavorites | Promise<SessionFavorites>;
+}
+
 export interface NavigationActions {
   attachOutsideTmux: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux: (tmuxSession: string) => void | boolean | Promise<void | boolean>;
@@ -174,6 +184,7 @@ export interface SessionsViewActions {
   acknowledge?: () => unknown;
   acknowledgeSession?: (sessionId: string, requestId?: string) => unknown;
   newFormContext?: () => NewFormContext;
+  favorites?: FavoritesActions;
   skills?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
   applySkills?: (items: PickerItem[], target: ProjectPickerTarget) => void | Promise<void>;
   skillPoolDir?: () => string | undefined;
@@ -194,7 +205,7 @@ export interface SessionsViewActions {
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | ThemeDialog;
+export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
 
 export interface DialogContext {
   controller: SessionsController;
@@ -220,7 +231,7 @@ export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationAction
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
 export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
-export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext }>;
+export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions; terminalRows?: () => number }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;
 
 export function isPromise<T = unknown>(value: unknown): value is Promise<T> {

@@ -2355,7 +2355,8 @@ test("new form worktree row toggles with space", () => {
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\t");
+  view.handleInput("\u0007");
+  view.handleInput("\u001b[Z");
 
   assert.match(view.render(120).join("\n"), /▎ worktree\s+\[ \] off/);
 
@@ -2379,7 +2380,7 @@ test("new form worktree toggle submits a branch without a title input", () => {
   assert.doesNotMatch(rendered, /\n│▎?\s+title\s/);
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "feature/api") view.handleInput(char);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", worktree: { branch: "feature/api" } });
 });
@@ -2396,7 +2397,7 @@ test("new form worktree toggle can turn off without title state", () => {
   const rendered = view.render(120).join("\n");
   assert.match(rendered, /worktree\s+\[ \] off/);
   assert.doesNotMatch(rendered, /\n│▎?\s+title\s/);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api" });
 });
 
@@ -2407,11 +2408,10 @@ test("new form printable a and x edit the focused field instead of activating sh
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
-  view.handleInput("\t");
-  view.handleInput("\t");
+  view.handleInput("\u0007");
   view.handleInput("x");
   view.handleInput("a");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   assert.deepEqual(created, { cwd: "/tmp/api", group: "apixa" });
 });
 
@@ -2422,14 +2422,12 @@ test("new form preserves a user-edited group across primary cwd changes", () => 
     newFormContext: () => ({ cwd: "/tmp/api", knownCwds: ["/tmp/api", "/tmp/web"] }),
   });
   view.handleInput("n");
-  view.handleInput("\t");
-  view.handleInput("\t");
+  view.handleInput("\u0007");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "backend") view.handleInput(char);
-  view.handleInput("\u001b[Z");
-  view.handleInput("\u001b[Z");
+  for (let i = 0; i < 4; i += 1) view.handleInput("\u001b[Z");
   view.handleInput("\u000e");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   assert.deepEqual(created, { cwd: "/tmp/web", group: "backend" });
 });
 
@@ -2445,7 +2443,7 @@ test("new form worktree mode supports additional repos", () => {
   view.handleInput("\u0014");
   for (let i = 0; i < "api".length; i += 1) view.handleInput("\u007f");
   for (const char of "feature/api") view.handleInput(char);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"], worktree: { branch: "feature/api" } });
 });
@@ -2458,9 +2456,9 @@ test("new form add repo shortcut submits one additional cwd", () => {
   });
   view.handleInput("n");
   view.handleInput("\u0012");
-  assert.match(view.render(120).join("\n"), /\+ repo/);
+  assert.match(view.render(120).join("\n"), /Additional/);
   for (const char of "/tmp/web") view.handleInput(char);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"] });
 });
@@ -2476,7 +2474,7 @@ test("new form add repo shortcut supports more than two additional cwds", () => 
     view.handleInput("\u0012");
     for (const char of repo) view.handleInput(char);
   }
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web", "/tmp/shared", "/tmp/docs"] });
 });
@@ -2492,7 +2490,7 @@ test("new form remove shortcut removes focused extra repo and omits blank rows",
   for (const char of "/tmp/web") view.handleInput(char);
   view.handleInput("\u0012");
   view.handleInput("\u0018");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"] });
 });
@@ -2505,7 +2503,7 @@ test("new form remove shortcut is a no-op on primary repo", () => {
   });
   view.handleInput("n");
   view.handleInput("\u0018");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api" });
 });
@@ -2535,22 +2533,22 @@ test("new form can default to selected session cwd, group, and all additional re
   assert.match(rendered, /\/repo\/shared/);
   assert.match(rendered, /\/repo\/docs/);
   assert.match(rendered, /backend/);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   assert.deepEqual(created, { cwd: "/repo/api", group: "backend", additionalCwds: ["/repo/web", "/repo/shared", "/repo/docs"] });
 });
 
-test("new form per-field validation focuses first invalid field on enter", () => {
+test("new form per-field validation focuses first invalid field on create", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
     newFormContext: () => ({ cwd: "/tmp/api" }),
   });
   view.handleInput("n");
   for (let i = 0; i < "/tmp/api".length; i += 1) view.handleInput("\u007f");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   const invalid = view.render(120).join("\n");
   assert.match(invalid, /New session/);
-  assert.match(invalid, /primary is required/);
+  assert.match(invalid, /Primary is required/);
   view.handleInput("\u001b");
-  assert.doesNotMatch(view.render(120).join("\n"), /primary is required/);
+  assert.doesNotMatch(view.render(120).join("\n"), /Primary is required/);
 });
 
 test("new form ctrl-n cycles primary cwd suggestions and updates group only", () => {
@@ -2564,7 +2562,7 @@ test("new form ctrl-n cycles primary cwd suggestions and updates group only", ()
   const rendered = view.render(120).join("\n");
   assert.match(rendered, /\/tmp\/web/);
   assert.match(rendered, /web/);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
   assert.deepEqual(created, { cwd: "/tmp/web", group: "web" });
 });
 
@@ -2578,7 +2576,7 @@ test("new form ctrl-n cycles cwd suggestions on extra repo fields", () => {
   view.handleInput("\u0012");
   view.handleInput("\u000e");
   view.handleInput("\u000e");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"] });
 });
@@ -2596,7 +2594,7 @@ test("new form repo picker selects primary cwd and updates group", () => {
   view.handleInput("\r");
   assert.match(view.render(120).join("\n"), /\/tmp\/web-client/);
   assert.match(view.render(120).join("\n"), /web-client/);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/web-client", group: "web-client" });
 });
@@ -2612,7 +2610,7 @@ test("new form repo picker selects extra repo without changing group", () => {
   view.handleInput("\u000f");
   for (const char of "web") view.handleInput(char);
   view.handleInput("\r");
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api", additionalCwds: ["/tmp/web"] });
 });
@@ -2628,7 +2626,7 @@ test("new form repo picker escape preserves form state", () => {
   for (const char of "web") view.handleInput(char);
   view.handleInput("\u001b");
   assert.match(view.render(120).join("\n"), /New session/);
-  view.handleInput("\r");
+  view.handleInput("\u0019");
 
   assert.deepEqual(created, { cwd: "/tmp/api", group: "api" });
 });

@@ -1,4 +1,6 @@
 import { basename } from "node:path";
+import { normalizeGroup } from "../core/registry.js";
+import type { SessionFavorite } from "../core/session-favorites.js";
 import { charLength, editKey } from "./text-input.js";
 import { createForm, editField, moveFocus as moveFormFocus, setFocus as setFormFocus, setValue, type FormField, type FormState } from "./form.js";
 
@@ -121,8 +123,27 @@ export function validateNewForm(state: NewFormState): ValidationResult {
       fields[key] = { ...field, error: undefined, value: trimmed, cursor: Math.min(field.cursor ?? charLength(trimmed), charLength(trimmed)) };
     }
   }
+  if (!fields.group.error) {
+    try {
+      normalizeGroup(fields.group.value);
+    } catch (error) {
+      fields.group = { ...fields.group, error: (error as Error).message };
+      firstInvalid ??= "group";
+    }
+  }
   if (firstInvalid) return { ok: false, state: { ...state, fields, focus: firstInvalid } };
   return { ok: true, state: { ...state, fields } };
+}
+
+export function favoriteCwds(state: NewFormState): string[] {
+  const values = repoKeys(state).map((key) => state.fields[key].value.trim());
+  if (!values[0]) throw new Error("Primary directory is required");
+  return [values[0], ...values.slice(1).filter(Boolean)];
+}
+
+export function applyFavorite(state: NewFormState, favorite: SessionFavorite): NewFormState {
+  const next = rebuildRepoFields(state, [...favorite.cwds], "repo:0");
+  return { ...next, groupTouched: true, fields: { ...next.fields, group: { ...next.fields.group, value: favorite.name, cursor: charLength(favorite.name), error: undefined } } };
 }
 
 export interface NewFormSubmission {
@@ -207,12 +228,11 @@ function buildFields(repoValues: string[], group: string, suggestions: string[],
 function repoField(index: number, value: string, suggestions: string[]): Field {
   return {
     key: `repo:${index}`,
-    label: index === 0 ? "★ primary" : "+ repo",
+    label: index === 0 ? "Primary" : "Additional",
     value,
-    hint: index === 0 ? cwdHint(suggestions.length) : "extra repo · ctrl-o choose · ctrl-x remove",
+    hint: index === 0 ? "Project Skills/MCP use this directory · ctrl-o choose" : "ctrl-o choose · ctrl-x remove",
     suggestions,
     cycleIndex: matchSuggestionIndex(value, suggestions),
-    section: index === 0 ? "repos" : undefined,
     truncate: "start",
   };
 }
@@ -248,9 +268,4 @@ function uniqueWithFirst(first: string, items: string[]): string[] {
 
 function projectBasename(path: string): string {
   return basename(path.trim());
-}
-
-function cwdHint(suggestionCount: number): string {
-  if (suggestionCount > 1) return `default repo · ctrl-o choose · ctrl-n/p cycles ${suggestionCount}`;
-  return "default repo";
 }

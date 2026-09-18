@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
@@ -1311,6 +1311,7 @@ export interface FormField {
   section?: string;
   truncate?: "end" | "start";
   readonly?: boolean;
+  frame?: "input" | "picker";
 }
 
 export interface FormSpec {
@@ -1319,6 +1320,8 @@ export interface FormSpec {
   focus: string;
   footer: string;
   narrowFooter?: string;
+  compact?: boolean;
+  height?: number;
 }
 
 export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme): string[] {
@@ -1327,42 +1330,99 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
   const showHints = inner >= 38;
   const labelWidth = Math.max(...spec.fields.map((field) => displayWidth(field.label)), 5);
   const valueWidth = inner - labelWidth - 4;
-  const body: string[] = [styles.accent(spec.title), styles.border("─".repeat(inner)), ""];
   let previousSection: string | undefined;
-  for (const field of spec.fields) {
+  const fieldBlocks = spec.fields.map((field) => {
+    const lines: string[] = [];
     if (field.section && field.section !== previousSection) {
-      body.push(styles.muted(field.section));
+      lines.push(styles.muted(field.section));
       previousSection = field.section;
     }
     const focused = field.key === spec.focus;
     const caret = focused ? styles.accent("▎") : " ";
     const label = focused ? field.label : styles.muted(field.label);
+    const prefix = field.frame ? "[ " : "";
+    const suffix = field.frame === "picker" ? " ▾ ]" : field.frame ? " ]" : "";
+    const contentWidth = Math.max(0, valueWidth - prefix.length - suffix.length);
     const focusedValue = field.readonly
-      ? truncateValue(field.value, valueWidth, field.truncate)
-      : renderCursorValue(field.value, field.cursor, valueWidth, field.truncate);
-    const rawValue = focused ? styles.accent(focusedValue) : truncateValue(field.value, valueWidth, field.truncate);
-    const value = field.readonly && !focused ? styles.dim(rawValue) : rawValue;
-    body.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
-    const hintText = field.error ? styles.error(field.error) : (showHints && field.hint ? styles.dim(field.hint) : "");
-    if (hintText) body.push(`  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`);
-    body.push("");
-  }
-  body.push(styles.border("─".repeat(inner)));
+      ? truncateValue(field.value, contentWidth, field.truncate)
+      : renderCursorValue(field.value, field.cursor, contentWidth, field.truncate);
+    const rawValue = focused ? styles.accent(focusedValue) : truncateValue(field.value, contentWidth, field.truncate);
+    const content = field.readonly && !focused ? styles.dim(rawValue) : rawValue;
+    const value = `${styles.border(prefix)}${content}${styles.border(suffix)}`;
+    lines.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
+    const hintText = !spec.compact
+      ? field.error ? styles.error(field.error) : (showHints && field.hint ? styles.dim(field.hint) : "")
+      : "";
+    if (hintText) lines.push(`  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`);
+    if (!spec.compact) lines.push("");
+    return lines;
+  });
+  const availableFieldRows = spec.height && spec.height > 0 ? Math.max(1, spec.height - (spec.compact ? 8 : 7)) : undefined;
+  const visibleBlocks = availableFieldRows === undefined
+    ? fieldBlocks
+    : windowFormBlocks(fieldBlocks, Math.max(0, spec.fields.findIndex((field) => field.key === spec.focus)), availableFieldRows);
+  const focusedField = spec.fields.find((field) => field.key === spec.focus);
+  const detail = focusedField?.error
+    ? styles.error(`${focusedField.label}: ${focusedField.error}`)
+    : showHints && focusedField?.hint ? styles.dim(focusedField.hint) : "";
+  const body: string[] = [
+    styles.accent(spec.title),
+    styles.border("─".repeat(inner)),
+    "",
+    ...visibleBlocks.flat(),
+    ...(spec.compact ? [truncate(detail, inner)] : []),
+    styles.border("─".repeat(inner)),
+  ];
   const footer = inner < 32 ? (spec.narrowFooter ?? "enter · esc") : spec.footer;
   body.push(truncate(styles.dim(footer), inner));
   return frame(width, body, styles, { border: "dialog-title" });
 }
 
-function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined): string {
+function windowFormBlocks(blocks: string[][], focusIndex: number, rowLimit: number): string[][] {
+  if (blocks.reduce((total, block) => total + block.length, 0) <= rowLimit) return blocks;
+  let start = focusIndex;
+  let end = focusIndex + 1;
+  let rows = blocks[focusIndex]?.length ?? 0;
+  let before = focusIndex - 1;
+  let after = focusIndex + 1;
+  let preferBefore = true;
+  while (before >= 0 || after < blocks.length) {
+    const candidates: Array<{ index: number; side: "before" | "after" }> = preferBefore
+      ? [{ index: before, side: "before" }, { index: after, side: "after" }]
+      : [{ index: after, side: "after" }, { index: before, side: "before" }];
+    const candidate = candidates.find(({ index }) => index >= 0 && index < blocks.length && rows + blocks[index]!.length <= rowLimit);
+    if (!candidate) break;
+    rows += blocks[candidate.index]!.length;
+    if (candidate.side === "before") {
+      start = candidate.index;
+      before = candidate.index - 1;
+    } else {
+      end = candidate.index + 1;
+      after = candidate.index + 1;
+    }
+    preferBefore = candidate.side !== "before";
+  }
+  return blocks.slice(start, end);
+}
+
+export function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined): string {
   if (width <= 0) return "";
   const chars = [...value];
   const pos = Math.max(0, Math.min(cursor ?? chars.length, chars.length));
   const rendered = renderTextInput(createTextInput(value, pos));
-  if ([...rendered].length <= width) return rendered;
-  if (mode === "start" || pos >= width - 1) {
-    const tailWidth = Math.max(0, width - 1);
-    const tail = `${chars.slice(Math.max(0, pos - tailWidth + 1), pos).join("")}█${chars.slice(pos, pos + Math.max(0, tailWidth - Math.min(pos, tailWidth - 1))).join("")}`;
-    return `…${[...tail].slice(-tailWidth).join("")}`;
+  if (displayWidth(rendered) <= width) return rendered;
+  if (mode === "start" || displayWidth(chars.slice(0, pos).join("")) >= width - 1) {
+    let start = pos;
+    let before = "";
+    while (start > 0 && displayWidth(chars[start - 1]! + before) <= width - 2) {
+      before = chars[--start]! + before;
+    }
+    let result = `${start > 0 ? "…" : ""}${before}█`;
+    for (const char of chars.slice(pos)) {
+      if (displayWidth(result + char) > width) break;
+      result += char;
+    }
+    return result;
   }
   return truncate(rendered, width);
 }
@@ -1373,7 +1433,7 @@ function truncateValue(value: string, width: number, mode: "end" | "start" | und
   if (mode !== "start") return truncate(value, width);
   if (width <= 1) return "";
   const visible = stripAnsi(value);
-  const tail = [...visible].slice(-(width - 1)).join("");
+  const tail = sliceByColumn(visible, displayWidth(visible) - width + 1, width - 1, true);
   return `…${tail}`;
 }
 

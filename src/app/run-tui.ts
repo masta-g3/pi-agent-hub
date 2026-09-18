@@ -19,6 +19,7 @@ import { tmuxChromeFromTheme } from "../core/chrome.js";
 import { sessionSection } from "../core/session-bucket.js";
 import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
+import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renameSessionFavorite, removeSessionFavorite } from "../core/session-favorites.js";
 import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
@@ -562,6 +563,13 @@ export async function runTui(): Promise<void> {
         await setDashboardAttentionBell(enabled);
         attentionBellEnabled = enabled;
       },
+    },
+    favorites: {
+      load: () => loadSessionFavorites(),
+      save: (name, cwds) => saveSessionFavorite(name, cwds),
+      update: (id, cwds) => updateSessionFavorite(id, cwds),
+      rename: (id, name) => renameSessionFavorite(id, name),
+      remove: (id) => removeSessionFavorite(id),
     },
     newFormContext() {
       return buildNewFormContext({

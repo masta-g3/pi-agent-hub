@@ -229,13 +229,23 @@ Press `n` to create a session.
 
 | Key in the form | Action |
 | --- | --- |
-| `Ctrl+R` | Add another repo row |
-| `Ctrl+X` | Remove the focused extra repo row |
+| `Enter` | Activate the selected control; move to the next control from a text field |
+| `Ctrl+Y` | Create the session from anywhere in the form |
+| `Ctrl+F` | Open named directory favorites |
+| `Ctrl+S` | Save the current directory set as a favorite |
+| `Ctrl+R` | Add another directory row |
+| `Ctrl+X` | Remove the focused additional directory |
 | `Ctrl+N` / `Ctrl+P` | Cycle known directory suggestions |
-| `Ctrl+O` | Open the recent-repo picker |
+| `Ctrl+O` | Open the recent-directory picker |
+| `Ctrl+G` | Expand options and focus Group |
 | `Ctrl+T` | Toggle worktree mode |
+| `Ctrl+L` | Expand options, enable worktree mode, and focus Branch |
 
-The recent-repo picker uses known paths, not filesystem scanning. Extra repos become links in a runtime workspace. The primary repo owns skills and MCP configuration.
+Bracketed directory and option values are editable fields, `▾` marks a picker, and actions are listed separately. The focused control changes the fixed help line near the bottom; it does not move the form rows.
+
+A favorite stores a name and an ordered set of directories, with Primary first. Applying one replaces the draft directories and seeds the editable Group from the favorite name. It does not change the worktree choice or branch and never starts a session. In the favorites picker, use `Ctrl+U` to start updating from the current draft, `Ctrl+R` to rename, and `Ctrl+X` to start removal. Update and removal show a confirmation screen; press `Enter` to confirm.
+
+The recent-directory picker uses known paths, not filesystem scanning. Additional directories become links in a runtime workspace. The primary directory owns skills and MCP configuration.
 
 When worktree mode is on, enter a branch name. Hub creates the same branch in every selected repo. The branch does not control the session name. Worktree mode starts off unless `worktree-default` is configured.
 

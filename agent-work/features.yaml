@@ -1016,3 +1016,13 @@
   created_at: '2026-09-13'
   plan_file: agent-work/history/20260914_cockpit-013_conversation_workspace.md
   completed_at: '2026-09-14'
+- id: new-session-ux-003
+  status: done
+  title: Session favorites
+  subtitle: Reuse named sets of directories
+  description: Create sessions from named directory favorites in a compact form with
+    expandable options and direct keyboard shortcuts.
+  priority: 2
+  created_at: '2026-09-17'
+  plan_file: agent-work/history/20260917_new-session-ux-003_session_favorites.md
+  completed_at: '2026-09-17'

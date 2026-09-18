@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { createTextInput, renderTextInput, type TextInputState } from "./text-input.js";
-import { darkTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { createTextInput, type TextInputState } from "./text-input.js";
+import { renderCursorValue } from "./layout.js";
+import { darkTheme, styleToken, type SessionsTheme } from "./theme.js";
 
 export interface RepoPickerItem {
   cwd: string;
@@ -43,16 +45,17 @@ export function selectedRepoCwd(state: RepoPickerState): string | undefined {
   return selected === undefined ? undefined : state.items[selected]?.cwd;
 }
 
-export function renderRepoPicker(state: RepoPickerState, width: number, theme?: SessionsTheme): string[] {
+export function renderRepoPicker(state: RepoPickerState, width: number, theme?: SessionsTheme, height?: number): string[] {
   const styles = createStyles(theme ?? { ...darkTheme, accent: "", border: "", dim: "", muted: "" });
-  const inner = Math.max(40, width - 2);
-  const labelWidth = Math.max(12, Math.floor(inner * 0.34));
-  const detailWidth = Math.max(10, inner - labelWidth - 5);
+  const inner = Math.max(1, width - 2);
+  const labelWidth = Math.max(1, Math.min(Math.max(8, Math.floor(inner * 0.34)), inner - 6));
+  const detailWidth = Math.max(0, inner - labelWidth - 5);
   const indexes = visibleRepoIndexes(state);
-  const rows = visibleWindow(indexes, selectedIndex(state));
+  const rowLimit = height && height > 0 ? Math.max(1, height - 7) : MAX_VISIBLE_ROWS;
+  const rows = visibleWindow(indexes, selectedIndex(state), rowLimit);
   const lines = [
     styles.accent("Recent repos"),
-    `search: ${renderTextInput(state.filter)}`,
+    `search: ${renderCursorValue(state.filter.value, state.filter.cursor, inner - 8, "start")}`,
     "",
   ];
   if (!indexes.length) lines.push(styles.muted("No repos match the current search."));
@@ -86,11 +89,11 @@ function selectedIndex(state: RepoPickerState): number | undefined {
   return indexes.includes(state.selected) ? state.selected : indexes[0];
 }
 
-function visibleWindow(indexes: number[], selected: number | undefined): number[] {
-  if (indexes.length <= MAX_VISIBLE_ROWS) return indexes;
+function visibleWindow(indexes: number[], selected: number | undefined, rowLimit: number): number[] {
+  if (indexes.length <= rowLimit) return indexes;
   const selectedPosition = Math.max(0, selected === undefined ? 0 : indexes.indexOf(selected));
-  const start = Math.max(0, Math.min(selectedPosition - Math.floor(MAX_VISIBLE_ROWS / 2), indexes.length - MAX_VISIBLE_ROWS));
-  return indexes.slice(start, start + MAX_VISIBLE_ROWS);
+  const start = Math.max(0, Math.min(selectedPosition - Math.floor(rowLimit / 2), indexes.length - rowLimit));
+  return indexes.slice(start, start + rowLimit);
 }
 
 function compactPath(path: string): string {
@@ -109,12 +112,10 @@ function createStyles(theme: SessionsTheme) {
 
 function pad(value: string, width: number): string {
   const text = truncate(value, width);
-  const visible = [...stripAnsi(text)].length;
-  return `${text}${" ".repeat(Math.max(0, width - visible))}`;
+  return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 
 function truncate(value: string, width: number): string {
-  if (stripAnsi(value).length <= width) return value;
   if (width <= 1) return "";
-  return `${[...stripAnsi(value)].slice(0, width - 1).join("")}…`;
+  return truncateToWidth(value, width, "…");
 }
