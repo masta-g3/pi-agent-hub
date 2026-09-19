@@ -75,7 +75,7 @@ test("coaching footer keeps the approved daily-loop controls in catalog ownershi
 });
 
 test("pinned footer is derived from catalog-owned action metadata", () => {
-  assert.equal(pinnedDashboardFooter(42), "1–4 Slot · x Close · Ctrl+Q · : · ?");
+  assert.equal(pinnedDashboardFooter(42), "x Close · : Actions · ? Help");
   assert.equal(pinnedDashboardFooter(80), "1–4 Assign · Alt+1–4 Focus · x Close · Ctrl+Q Return · : · ?");
   assert.equal(pinnedDashboardFooter(120), "1–4 Assign · Alt+1–4 Focus · P Next · x Close · Ctrl+Q Return · : Actions · ? Help");
 });

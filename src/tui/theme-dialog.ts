@@ -1,6 +1,6 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import { renderDialog } from "./layout.js";
-import { errorMessage, isPromise, type SessionsViewActions } from "./dialog.js";
+import { NARROW_LAYOUT_MAX_WIDTH, renderDialog, wrapWords } from "./layout.js";
+import { errorMessage, isPromise, type DialogContext, type SessionsViewActions } from "./dialog.js";
 import { parseAutomaticTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 
 export type ThemeDialogSelection = "automatic" | "automaticLight" | "automaticDark" | "sync" | `theme:${string}`;
@@ -15,6 +15,7 @@ export interface ThemeDialog {
   automaticPair: { lightTheme: string; darkTheme: string };
   pending?: boolean;
   error?: string;
+  detailOffset?: number;
 }
 
 export interface ThemeDialogInput {
@@ -24,6 +25,7 @@ export interface ThemeDialogInput {
 }
 
 interface ThemeDialogContext {
+  viewport: DialogContext["viewport"];
   actions: Pick<SessionsViewActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">;
   close(): void;
   setDialog(dialog: ThemeDialog): void;
@@ -55,6 +57,8 @@ export function handleThemeDialogInput(dialog: ThemeDialog, data: string, ctx: T
     ctx.actions.cancelDashboardTheme?.(dialog.originalSetting);
     return undefined;
   }
+  if (matchesKey(data, Key.pageUp)) return moveThemeDetail(dialog, -2, ctx);
+  if (matchesKey(data, Key.pageDown)) return moveThemeDetail(dialog, 2, ctx);
   if (matchesKey(data, Key.enter)) {
     const apply = ctx.actions.applyDashboardTheme;
     if (!apply) return { ...dialog, error: "theme settings unavailable" };
@@ -109,20 +113,39 @@ export function handleThemeDialogInput(dialog: ThemeDialog, data: string, ctx: T
 export function renderThemeDialog(dialog: ThemeDialog, width: number, height: number | undefined, theme?: SessionsTheme): string[] {
   const automatic = parseAutomaticTheme(dialog.setting);
   const rows = selectionRows(dialog).filter((row) => row !== "sync");
-  const maxVisible = Math.max(1, (height ?? Number.POSITIVE_INFINITY) - (dialog.error ? 8 : 7));
+  const innerWidth = Math.max(20, Math.min(Math.max(20, width - 2), 86));
+  const narrow = width <= NARROW_LAYOUT_MAX_WIDTH;
+  const errorLines = dialog.error ? wrapWords(dialog.error, innerWidth, innerWidth) : [];
+  const errorLimit = errorLines.length ? Math.max(1, Math.min(3, height === undefined ? 3 : height - 9)) : 0;
+  const errorOffset = Math.max(0, Math.min(dialog.detailOffset ?? 0, Math.max(0, errorLines.length - errorLimit)));
+  const visibleErrors = errorLines.slice(errorOffset, errorOffset + errorLimit);
+  const footerRows = narrow ? 2 : 1;
+  const maxVisible = Math.max(1, (height ?? Number.POSITIVE_INFINITY) - 6 - footerRows - visibleErrors.length);
   const selectedIndex = dialog.selected === "sync" ? 0 : Math.max(0, rows.indexOf(dialog.selected));
   const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), rows.length - maxVisible));
   const visible = rows.slice(start, start + maxVisible);
   const itemRows = visible.map((row) => renderSelection(row, dialog, automatic, theme));
-  if (start > 0 && itemRows.length) itemRows[0] = theme ? styleToken(theme, "dim", "  …") : "  …";
-  if (start + maxVisible < rows.length && itemRows.length) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "dim", "  …") : "  …";
+  if (start > 0 && itemRows.length && visible[0] !== dialog.selected) itemRows[0] = theme ? styleToken(theme, "dim", "  …") : "  …";
+  if (start + maxVisible < rows.length && itemRows.length && visible[itemRows.length - 1] !== dialog.selected) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "dim", "  …") : "  …";
   const syncLabel = `${dialog.selected === "sync" ? "▎" : " "} Sync to Pi`;
   const syncState = dialog.syncPi ? "[✓] on" : "[ ] off";
-  const innerWidth = Math.max(20, Math.min(Math.max(20, width - 2), 86));
   const sync = `${syncLabel}${" ".repeat(Math.max(1, innerWidth - stripAnsi(syncLabel).length - syncState.length))}${syncState}`;
-  const footer = dialog.pending ? "saving theme..." : width < 54 ? "↑↓ · ←→ · space · enter · esc" : "↑↓ move · ←→ Automatic choice · space sync · enter apply · esc cancel";
-  const error = dialog.error ? (theme ? styleToken(theme, "error", dialog.error) : dialog.error) : undefined;
-  return renderDialog("Theme", [...itemRows, "", selected(theme, dialog.selected === "sync", sync), ...(error ? [error] : []), footer], width, theme);
+  const footers = dialog.pending
+    ? ["Saving theme..."]
+    : narrow
+      ? ["↑↓ Move · ←→ Choice · Space Sync", "Enter Save · Esc Cancel"]
+      : ["↑↓ move · ←→ Automatic choice · space sync · enter apply · esc cancel"];
+  const errors = visibleErrors.map((line) => theme ? styleToken(theme, "error", line) : line);
+  return renderDialog("Theme", [...itemRows, "", selected(theme, dialog.selected === "sync", sync), ...errors, ...footers], width, theme);
+}
+
+function moveThemeDetail(dialog: ThemeDialog, delta: number, ctx: ThemeDialogContext): ThemeDialog {
+  const { width, height } = ctx.viewport;
+  const inner = Math.max(20, Math.min(Math.max(20, width - 2), 86));
+  const lines = dialog.error ? wrapWords(dialog.error, inner, inner) : [];
+  const limit = Math.max(1, Math.min(3, height === undefined ? 3 : height - 9));
+  const maxOffset = Math.max(0, lines.length - limit);
+  return { ...dialog, detailOffset: Math.max(0, Math.min(Math.min(dialog.detailOffset ?? 0, maxOffset) + delta, maxOffset)) };
 }
 
 function renderSelection(row: ThemeDialogSelection, dialog: ThemeDialog, automatic: ReturnType<typeof parseAutomaticTheme>, theme?: SessionsTheme): string {

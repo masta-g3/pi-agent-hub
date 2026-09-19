@@ -4,6 +4,7 @@ import { matchesFilter } from "../core/session-tree.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
+import { NARROW_LAYOUT_MAX_WIDTH } from "./layout.js";
 
 export type DashboardCommandGroup = "actions" | "sessions" | "filters" | "views";
 
@@ -251,6 +252,10 @@ export function pinnedDashboardFooter(width: number): string {
   const palette = view.find((command) => command.id === "view:palette")!;
   const help = view.find((command) => command.id === "view:help")!;
   const item = (key: string, label: string) => `${key} ${label}`;
+  if (width <= NARROW_LAYOUT_MAX_WIDTH) return [
+    ...(width >= 50 ? [item("1–4", "Slot")] : []),
+    item(close.keys[0]!, close.footerLabel!), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label),
+  ].join(" · ");
   if (width < 80) return [item("1–4", "Slot"), item(close.keys[0]!, close.footerLabel!), "Ctrl+Q", palette.displayKey, help.displayKey].join(" · ");
   const controls = [item("1–4", "Assign"), item("Alt+1–4", "Focus"), item(close.keys[0]!, close.footerLabel!), item("Ctrl+Q", "Return")];
   if (width < 100) return [...controls, palette.displayKey, help.displayKey].join(" · ");

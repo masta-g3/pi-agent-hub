@@ -15,11 +15,13 @@ import {
   handleCommandPaletteMouse,
   normalizeCommandPalette,
   renderCommandPalette,
+  type CommandPaletteDetailRegion,
+  type CommandPaletteTargetIdentity,
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { renderSessions, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
+import { NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -58,7 +60,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
-import { handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog } from "./confirm-dialogs.js";
+import { createRestartDialog, handleRestartDialogInput, handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites-dialog.js";
@@ -82,6 +84,9 @@ export class SessionsView implements Component {
   private conversationTranscriptEndY = 1;
   private olderConversationRequested = false;
   private dialog: SessionDialog | undefined;
+  private helpScroll = 0;
+  private helpPageSize = 1;
+  private helpMaxScroll = 0;
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
   private workspaceSessionId: string | undefined;
@@ -89,7 +94,8 @@ export class SessionsView implements Component {
   private lastWidth = 120;
   private grouping: "project" | "stage";
   private fleetGrouping: "status" | "repo";
-  private pendingRestart: { sessionId: string } | undefined;
+  private pendingRestart: RestartDialog | undefined;
+  private confirmationReview: ConfirmationReview | undefined;
   private lastMouseClick: { target: string; at: number } | undefined;
   private busy = false;
   private archiveExpanded = false;
@@ -109,6 +115,7 @@ export class SessionsView implements Component {
   private workspaceStartX: number | undefined;
   private paletteRowTargets: (CommandPaletteRowTarget | undefined)[] = [];
   private paletteBounds: { start: number; end: number } | undefined;
+  private paletteDetailRegion: CommandPaletteDetailRegion | undefined;
   private listWidth = 0;
   private listScrollTop = 0;
   private expandedBoardParentIds = new Set<string>();
@@ -156,6 +163,7 @@ export class SessionsView implements Component {
     if (isMouseSequence(data)) {
       const event = parseMouseEvent(data);
       if (event && this.conversationOpen && !this.dialog && !this.busy && this.handleConversationMouse(event)) return;
+      else if (event && this.dialog?.kind === "help" && event.kind === "wheel") this.helpScroll = Math.max(0, Math.min(this.helpMaxScroll, this.helpScroll + event.delta * 3));
       else if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
       else if (event && !this.dialog && !this.busy) this.handleMouse(event);
       else if (event) this.lastMouseClick = undefined;
@@ -163,14 +171,17 @@ export class SessionsView implements Component {
     }
 
     this.lastMouseClick = undefined;
+    if (this.dialog && this.dialogNeedsRoom() && !matchesKey(data, Key.escape)) return;
     if (this.dialog) {
       if (this.dialog.kind === "help") {
         if (data === "q") this.stop();
         else if (matchesKey(data, Key.escape) || data === "?") this.dialog = undefined;
+        else if (matchesKey(data, Key.down) || matchesKey(data, Key.pageDown)) this.helpScroll = Math.min(this.helpMaxScroll, this.helpScroll + (matchesKey(data, Key.pageDown) ? this.helpPageSize : 1));
+        else if (matchesKey(data, Key.up) || matchesKey(data, Key.pageUp)) this.helpScroll = Math.max(0, this.helpScroll - (matchesKey(data, Key.pageUp) ? this.helpPageSize : 1));
       } else if (this.dialog.kind === "commandPalette") this.handlePaletteInput(data);
       else if (this.dialog.kind === "prompt") this.dialog = handlePromptInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "form") this.dialog = handleFormDialogInput(this.dialog, data, this.dialogContext());
-      else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext());
+      else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext(), this.confirmationReview);
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "theme") this.dialog = handleThemeDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "new" || this.dialog.kind === "repoPicker") this.dialog = handleNewSessionInput(this.dialog, data, this.dialogContext());
@@ -207,9 +218,12 @@ export class SessionsView implements Component {
     }
 
     if (this.pendingRestart) {
-      if (data === "r" || data === "R") this.confirmRestartSelected(false);
-      else if (data === "n" || data === "N") this.confirmRestartSelected(true);
-      else if (data === "a") this.confirmRestartAll();
+      const result = handleRestartDialogInput(this.pendingRestart, data, this.dialogContext(), this.confirmationReview);
+      if (result === "restart") this.confirmRestartSelected(false);
+      else if (result === "new") this.confirmRestartSelected(true);
+      else if (result === "all") this.confirmRestartAll();
+      else if (result === "cancel") this.clearPendingRestart();
+      else this.pendingRestart = result;
       return;
     }
 
@@ -290,6 +304,7 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
+    this.confirmationReview = undefined;
     this.clearExpiredFlash();
     this.lastWidth = width;
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
@@ -301,6 +316,8 @@ export class SessionsView implements Component {
     if (this.workspaceEvidenceSessionId && selectedId !== this.workspaceEvidenceSessionId) this.workspaceEvidenceSessionId = undefined;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
+      this.paletteRowTargets = [];
+      this.paletteDetailRegion = undefined;
       this.conversationActionRows = [];
       this.conversationActions = [];
       if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
@@ -314,22 +331,43 @@ export class SessionsView implements Component {
       this.listWidth = 0;
       return limitRows(narrowNotice(width), height, width, this.theme);
     }
-    if (this.dialog?.kind === "commandPalette" && height && height < 9) {
+    if (this.dialog || this.pendingRestart) {
+      this.rowTargets = [];
+      this.navigatorRowTargets = [];
+      this.workspaceRowTargets = [];
+      this.announcementRowTargets = [];
+    }
+    if (this.dialog && this.dialogNeedsRoom()) {
+      return ["Resize to use this dialog", "Esc Back"].map((line) => truncateVisible(line, width)).slice(0, height);
+    }
+    if (this.dialog?.kind === "commandPalette" && (width <= NARROW_LAYOUT_MAX_WIDTH || (height && height < 9))) {
       const commands = this.dashboardCommands();
-      this.dialog = { ...this.dialog, state: normalizeCommandPalette(this.dialog.state, commands) };
-      const palette = renderCommandPalette(this.dialog.state, commands, width, height, this.theme);
+      const palette = renderCommandPalette(this.dialog.state, commands, width, height ?? commands.length + 6, this.theme, this.paletteTargetIdentities());
+      this.dialog = { ...this.dialog, state: palette.state };
       this.paletteRowTargets = palette.rowTargets;
-      this.paletteBounds = { start: 0, end: Math.max(0, height - 1) };
+      this.paletteDetailRegion = palette.detailRegion;
+      this.paletteBounds = { start: 0, end: palette.lines.length - 1 };
       return palette.lines;
     }
-    if (this.dialog?.kind === "help") return limitRows(renderHelp(width, this.theme, this.dashboardCommands()), height, width, this.theme);
-    if (this.dialog?.kind === "picker") return limitRows(renderPickerDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
+    if (this.dialog?.kind === "help") {
+      const page = renderHelp(width, this.theme, this.dashboardCommands(), height, this.helpScroll);
+      this.helpScroll = page.offset;
+      this.helpPageSize = page.pageSize;
+      this.helpMaxScroll = page.maxOffset;
+      return page.lines;
+    }
+    if (this.dialog?.kind === "picker") return limitRows(renderPickerDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
     if (this.dialog?.kind === "theme") return limitRows(renderThemeDialog(this.dialog, width, height, this.theme), height, width, this.theme);
     if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "sessionFavorites") return limitRows(renderFavoritesDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
-    if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
-    if (this.dialog?.kind === "confirm") return limitRows(renderConfirmDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
-    if (this.pendingRestart) return limitRows(renderRestartDialog(width, this.dialogContext()), height, width, this.theme);
+    if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
+    if (this.dialog?.kind === "confirm" || this.pendingRestart) {
+      const rendered = this.dialog?.kind === "confirm"
+        ? renderConfirmDialog(this.dialog, width, height, this.dialogContext())
+        : renderRestartDialog(this.pendingRestart!, width, height, this.dialogContext());
+      this.confirmationReview = rendered.review;
+      return rendered.lines;
+    }
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
@@ -390,10 +428,11 @@ export class SessionsView implements Component {
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
-    const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext()) : undefined;
+    const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext(), width - 2) : undefined;
     let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
     this.paletteRowTargets = [];
     this.paletteBounds = undefined;
+    this.paletteDetailRegion = undefined;
     if (this.dialog?.kind === "commandPalette") {
       const commands = this.dashboardCommands();
       this.dialog = { ...this.dialog, state: normalizeCommandPalette(this.dialog.state, commands) };
@@ -705,6 +744,7 @@ export class SessionsView implements Component {
 
   private dialogContext(): DialogContext {
     return {
+      viewport: { width: this.lastWidth, height: this.actions.terminalRows?.() ?? process.stdout.rows },
       controller: this.controller,
       actions: this.actions,
       theme: this.theme,
@@ -725,6 +765,7 @@ export class SessionsView implements Component {
   private openDialog(open: (ctx: DialogContext) => SessionDialog | undefined) {
     const dialog = open(this.dialogContext());
     if (!dialog) return;
+    this.confirmationReview = undefined;
     this.clearPendingRestart();
     this.clearFlash();
     this.message = undefined;
@@ -873,6 +914,19 @@ export class SessionsView implements Component {
     });
   }
 
+  private dialogNeedsRoom(): boolean {
+    if (this.lastWidth < MIN_RENDER_WIDTH) return true;
+    const height = this.actions.terminalRows?.() ?? process.stdout.rows;
+    return this.lastWidth <= NARROW_LAYOUT_MAX_WIDTH && Boolean(height && height < 10 && this.dialog
+      && ["form", "new", "repoPicker", "sessionFavorites", "theme"].includes(this.dialog.kind));
+  }
+
+  private paletteTargetIdentities(): ReadonlyMap<string, CommandPaletteTargetIdentity> {
+    return new Map(this.controller.snapshot().registry.sessions.map((session) => [session.id, {
+      title: session.title, group: session.group, repository: session.cwd,
+    }]));
+  }
+
   private openCommandPalette(): void {
     this.clearPendingRestart();
     this.clearFlash();
@@ -884,9 +938,9 @@ export class SessionsView implements Component {
   private handlePaletteInput(data: string): void {
     if (this.dialog?.kind !== "commandPalette") return;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
-    if (height && height < 6 && isEnterKey(data)) return;
+    if ((this.lastWidth < MIN_RENDER_WIDTH || (height && height < 6)) && isEnterKey(data)) return;
     const commands = this.dashboardCommands();
-    const result = handleCommandPaletteInput(this.dialog.state, data, commands);
+    const result = handleCommandPaletteInput(this.dialog.state, data, commands, this.paletteDetailRegion?.pageSize, this.paletteDetailRegion?.maxOffset);
     if (result.kind === "close") {
       this.dialog = undefined;
       return;
@@ -903,7 +957,11 @@ export class SessionsView implements Component {
     const row = event.kind === "press" ? event.y - 1 : undefined;
     if (row !== undefined && this.paletteBounds && row >= this.paletteBounds.start && row <= this.paletteBounds.end && !this.paletteRowTargets[row]) return;
     const commands = this.dashboardCommands();
-    const result = handleCommandPaletteMouse(this.dialog.state, event, this.paletteRowTargets, commands);
+    if (row !== undefined && this.lastWidth > NARROW_LAYOUT_MAX_WIDTH && this.paletteBounds && (row < this.paletteBounds.start || row > this.paletteBounds.end)) {
+      this.dialog = undefined;
+      return;
+    }
+    const result = handleCommandPaletteMouse(this.dialog.state, event, this.paletteRowTargets, commands, this.paletteDetailRegion);
     if (result.kind === "close") {
       this.dialog = undefined;
       return;
@@ -1009,7 +1067,7 @@ export class SessionsView implements Component {
       case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
-      case "view:help": this.dialog = { kind: "help" }; return;
+      case "view:help": this.helpScroll = 0; this.dialog = { kind: "help" }; return;
       case "view:quit": this.stop(); return;
     }
     this.message = "command is not implemented";
@@ -1971,13 +2029,14 @@ export class SessionsView implements Component {
       this.message = "subagent rows cannot be restarted here";
       return;
     }
-    this.pendingRestart = { sessionId: selected.id };
+    this.confirmationReview = undefined;
+    this.pendingRestart = createRestartDialog(selected.id);
     this.message = undefined;
   }
 
   private confirmRestartSelected(newConversation: boolean) {
-    const selected = this.controller.selected();
-    if (!selected || this.pendingRestart?.sessionId !== selected.id) return;
+    const selected = this.controller.snapshot().registry.sessions.find((session) => session.id === this.pendingRestart?.targetId);
+    if (!selected || selected.kind === "subagent") { this.clearPendingRestart(); this.message = "restart target is no longer available"; return; }
     this.pendingRestart = undefined;
     this.message = undefined;
     if (newConversation) {
@@ -2078,7 +2137,7 @@ function overlayCommandPalette(
   const panelHeight = Math.min(preferred, available);
   if (panelHeight < 3) return { lines, rowTargets };
   const innerWidth = Math.max(1, width - 2);
-  const palette = renderCommandPalette(state, commands, innerWidth, panelHeight, theme);
+  const palette = renderCommandPalette(state, commands, innerWidth, panelHeight, theme, undefined, false);
   const start = footerIndex - panelHeight;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
   for (let index = 0; index < panelHeight; index += 1) {
@@ -2108,7 +2167,7 @@ function syncPiNameMessage(result: SyncPiNameResult): string {
   }
 }
 
-function renderHelp(width: number, theme: SessionsTheme | undefined, commands: readonly DashboardCommand[]): string[] {
+function renderHelp(width: number, theme: SessionsTheme | undefined, commands: readonly DashboardCommand[], height: number | undefined, scroll: number): { lines: string[]; offset: number; maxOffset: number; pageSize: number } {
   const heading = (text: string) => theme ? styleToken(theme, "accent", text) : text;
   const commandLines = commands
     .filter((command) => command.group !== "sessions")
@@ -2168,11 +2227,19 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
   ];
   const inner = Math.max(40, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
-  return [
+  const content = width <= NARROW_LAYOUT_MAX_WIDTH
+    ? lines.slice(2).flatMap((line) => line ? wrapWords(stripAnsi(line), inner, inner) : [""])
+    : lines.slice(2);
+  const pageSize = Math.max(1, (height ?? content.length + 4) - 4);
+  const maxOffset = Math.max(0, content.length - pageSize);
+  const offset = Math.max(0, Math.min(scroll, maxOffset));
+  const body = [heading("pi agent hub help"), ...content.slice(offset, offset + pageSize), "↑↓/PgUp/PgDn Scroll · Esc Back"];
+  const rendered = [
     border(`╭${"─".repeat(inner)}╮`),
-    ...lines.map((line) => `${border("│")}${padVisibleLine(line, inner)}${border("│")}`),
+    ...body.map((line) => `${border("│")}${padVisibleLine(line, inner)}${border("│")}`),
     border(`╰${"─".repeat(inner)}╯`),
   ];
+  return { lines: height && height < 5 ? limitRows(["Help: enlarge pane", "Esc Back"], height, width, theme) : rendered, offset, maxOffset, pageSize };
 }
 
 function padVisibleLine(line: string, width: number): string {

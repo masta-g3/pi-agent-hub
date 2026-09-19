@@ -7,6 +7,7 @@ import { createPickerDialog, handlePickerDialogInput, type PickerDialog } from "
 function context(actions: DialogContext["actions"]): DialogContext {
   let dialog: SessionDialog | undefined;
   return {
+    viewport: { width: 100, height: 24 },
     controller: new SessionsController(),
     actions,
     theme: undefined,

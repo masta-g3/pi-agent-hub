@@ -2,7 +2,7 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { orderedSessionRows } from "../core/session-tree.js";
 import { isEnterKey } from "./text-input.js";
 import { createForm, editField, moveFocus, setValue, validateRequired, type FormState } from "./form.js";
-import { renderForm } from "./layout.js";
+import { renderForm, wrapWords } from "./layout.js";
 import type { FormDialogContext } from "./dialog.js";
 
 export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup";
@@ -14,6 +14,7 @@ export interface FormDialog {
   form: FormState<string>;
   groupFrom?: string;
   returnTmuxSession?: string;
+  detailOffset?: number;
 }
 
 export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
@@ -98,6 +99,10 @@ export function openRenameGroupDialog(ctx: FormDialogContext): FormDialog | unde
 }
 
 export function handleFormDialogInput(dialog: FormDialog, data: string, ctx: FormDialogContext): FormDialog | undefined {
+  const field = dialog.form.fields[dialog.form.focus];
+  const detail = field?.error ? `${field.label}: ${field.error}` : field?.hint ?? "";
+  if (matchesKey(data, Key.pageUp)) return { ...dialog, detailOffset: normalizeDetailOffset(dialog.detailOffset, -2, detail, ctx.viewport.width, ctx.viewport.height) };
+  if (matchesKey(data, Key.pageDown)) return { ...dialog, detailOffset: normalizeDetailOffset(dialog.detailOffset, 2, detail, ctx.viewport.width, ctx.viewport.height) };
   if (dialog.purpose === "moveGroup") {
     if (matchesKey(data, Key.ctrl("n"))) return cycleMoveGroup(dialog, 1, ctx);
     if (matchesKey(data, Key.ctrl("p"))) return cycleMoveGroup(dialog, -1, ctx);
@@ -107,15 +112,15 @@ export function handleFormDialogInput(dialog: FormDialog, data: string, ctx: For
     return undefined;
   }
   if (isEnterKey(data)) return submitFormDialog(dialog, ctx);
-  if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) return { ...dialog, form: moveFocus(dialog.form, 1) };
-  if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) return { ...dialog, form: moveFocus(dialog.form, -1) };
+  if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) return { ...dialog, detailOffset: 0, form: moveFocus(dialog.form, 1) };
+  if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) return { ...dialog, detailOffset: 0, form: moveFocus(dialog.form, -1) };
   const edited = editField(dialog.form, data);
   if (!edited) return dialog;
   ctx.setMessage(undefined);
-  return { ...dialog, form: edited };
+  return { ...dialog, detailOffset: 0, form: edited };
 }
 
-export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDialogContext): string[] {
+export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDialogContext, height?: number): string[] {
   const spec = formRenderSpec(dialog, ctx);
   return renderForm({
     title: spec.title,
@@ -123,6 +128,8 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
     focus: dialog.form.focus,
     footer: spec.footer,
     narrowFooter: spec.narrowFooter,
+    height,
+    detailOffset: dialog.detailOffset,
   }, width, ctx.theme);
 }
 
@@ -225,19 +232,34 @@ function moveGroupChoices(ctx: FormDialogContext, currentGroup: string | undefin
 
 function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: string; footer: string; narrowFooter: string } {
   switch (dialog.purpose) {
-    case "fork": return { title: "Fork session", footer: "tab next · ←→ edit · enter fork · esc cancel", narrowFooter: "tab · enter · esc" };
-    case "forkCompact": return { title: "Fork and compact", footer: "tab next · ←→ edit · enter fork and compact · esc cancel", narrowFooter: "tab · enter · esc" };
+    case "fork": return { title: "Fork session", footer: "tab next · ←→ edit · enter fork · esc cancel", narrowFooter: "Enter Fork · Esc Cancel" };
+    case "forkCompact": return { title: "Fork and compact", footer: "tab next · ←→ edit · enter fork and compact · esc cancel", narrowFooter: "Enter Fork+Compact · Esc Cancel" };
     case "moveGroup": {
       const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
       return {
         title: "Move to group",
         footer: choices.length ? "ctrl-n/p cycle · ←→ edit · enter move · esc cancel" : "←→ edit · enter move · esc cancel",
-        narrowFooter: choices.length ? "ctrl-n/p · enter · esc" : "enter · esc",
+        narrowFooter: "Enter Move · Esc Cancel",
       };
     }
-    case "renameSession": return { title: "Rename session", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "enter · esc" };
-    case "renameGroup": return { title: "Rename group", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "enter · esc" };
+    case "renameSession": return { title: "Rename session", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "Enter Rename · Esc Cancel" };
+    case "renameGroup": return { title: "Rename group", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "Enter Rename · Esc Cancel" };
   }
+}
+
+export function normalizeDetailOffset(
+  offset: number | undefined,
+  delta: number,
+  detail: string,
+  width: number,
+  height?: number,
+): number {
+  const inner = Math.max(20, Math.min(Math.max(20, width - 2), 86));
+  const lineCount = wrapWords(detail, inner, inner).length;
+  const contentRows = height === undefined ? Number.POSITIVE_INFINITY : Math.max(1, height - 7);
+  const detailLimit = contentRows >= 3 ? Math.min(lineCount || 1, 3, contentRows - 2) : 0;
+  const maxOffset = Math.max(0, lineCount - detailLimit);
+  return Math.max(0, Math.min(Math.min(offset ?? 0, maxOffset) + delta, maxOffset));
 }
 
 function moveGroupHint(count: number): string {

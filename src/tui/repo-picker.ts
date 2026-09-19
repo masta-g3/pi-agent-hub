@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createTextInput, type TextInputState } from "./text-input.js";
-import { renderCursorValue } from "./layout.js";
+import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, wrapWords } from "./layout.js";
 import { darkTheme, styleToken, type SessionsTheme } from "./theme.js";
 
 export interface RepoPickerItem {
@@ -16,6 +16,7 @@ export interface RepoPickerState {
   items: RepoPickerItem[];
   selected: number;
   filter: TextInputState;
+  detailOffset?: number;
 }
 
 const MAX_VISIBLE_ROWS = 12;
@@ -48,11 +49,20 @@ export function selectedRepoCwd(state: RepoPickerState): string | undefined {
 export function renderRepoPicker(state: RepoPickerState, width: number, theme?: SessionsTheme, height?: number): string[] {
   const styles = createStyles(theme ?? { ...darkTheme, accent: "", border: "", dim: "", muted: "" });
   const inner = Math.max(1, width - 2);
-  const labelWidth = Math.max(1, Math.min(Math.max(8, Math.floor(inner * 0.34)), inner - 6));
+  const narrow = width <= NARROW_LAYOUT_MAX_WIDTH;
+  const labelWidth = narrow ? Math.max(1, inner - 4) : Math.max(1, Math.min(Math.max(8, Math.floor(inner * 0.34)), inner - 6));
   const detailWidth = Math.max(0, inner - labelWidth - 5);
   const indexes = visibleRepoIndexes(state);
-  const rowLimit = height && height > 0 ? Math.max(1, height - 7) : MAX_VISIBLE_ROWS;
-  const rows = visibleWindow(indexes, selectedIndex(state), rowLimit);
+  const selected = selectedIndex(state);
+  const pathLines = narrow && selected !== undefined
+    ? wrapWords(`Path ${state.items[selected]!.detail}`, inner, inner)
+    : [];
+  const pathLimit = pathLines.length
+    ? Math.max(1, Math.min(3, height && height > 0 ? height - 10 : 3))
+    : 0;
+  const pathOffset = Math.max(0, Math.min(state.detailOffset ?? 0, Math.max(0, pathLines.length - pathLimit)));
+  const rowLimit = height && height > 0 ? Math.max(1, height - (narrow ? 8 + pathLimit : 7)) : MAX_VISIBLE_ROWS;
+  const rows = visibleWindow(indexes, selected, rowLimit);
   const lines = [
     styles.accent("Recent repos"),
     `search: ${renderCursorValue(state.filter.value, state.filter.cursor, inner - 8, "start")}`,
@@ -61,13 +71,25 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   if (!indexes.length) lines.push(styles.muted("No repos match the current search."));
   else for (const index of rows) {
     const item = state.items[index]!;
-    const selected = index === selectedIndex(state);
-    const marker = selected ? "▶" : " ";
+    const active = index === selected;
+    const marker = active ? "▶" : " ";
     const favorite = item.favorite ? "★" : " ";
-    const line = `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.dim(truncate(item.detail, detailWidth))}`;
-    lines.push(selected ? styles.accent(line) : line);
+    const line = narrow
+      ? `${marker} ${favorite} ${truncate(item.label, labelWidth)}`
+      : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.dim(truncate(item.detail, detailWidth))}`;
+    lines.push(active ? styles.accent(line) : line);
   }
-  lines.push("", styles.muted("type search · ↑↓ move · enter select · esc cancel"));
+  if (narrow && height && height > 0) {
+    const itemCount = Math.max(1, rows.length);
+    lines.push(...Array.from({ length: Math.max(0, rowLimit - itemCount) }, () => ""));
+  }
+  if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.dim(pathLines[pathOffset + index] ?? "")));
+  lines.push("");
+  if (narrow) lines.push(
+    styles.muted("Type Search · ↑↓ Move · PgUp/PgDn Path"),
+    styles.muted("Enter Select · Esc Cancel"),
+  );
+  else lines.push(styles.muted("type search · ↑↓ move · enter select · esc cancel"));
   return [
     `${styles.border("╭")}${styles.border("─".repeat(inner))}${styles.border("╮")}`,
     ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
@@ -81,6 +103,17 @@ export function visibleRepoIndexes(state: RepoPickerState): number[] {
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => !filter || `${item.label} ${item.cwd}`.toLowerCase().includes(filter))
     .map(({ index }) => index);
+}
+
+export function moveRepoPickerDetail(state: RepoPickerState, delta: number, width: number, height?: number): RepoPickerState {
+  const selected = selectedIndex(state);
+  if (selected === undefined || width > NARROW_LAYOUT_MAX_WIDTH) return { ...state, detailOffset: 0 };
+  const inner = Math.max(1, width - 2);
+  const lines = wrapWords(`Path ${state.items[selected]!.detail}`, inner, inner);
+  const limit = Math.max(1, Math.min(3, height === undefined ? 3 : height - 10));
+  const maxOffset = Math.max(0, lines.length - limit);
+  const detailOffset = Math.max(0, Math.min(Math.min(state.detailOffset ?? 0, maxOffset) + delta, maxOffset));
+  return { ...state, detailOffset };
 }
 
 function selectedIndex(state: RepoPickerState): number | undefined {

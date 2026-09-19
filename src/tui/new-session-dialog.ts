@@ -3,7 +3,8 @@ import type { SessionFavorite } from "../core/session-favorites.js";
 import type { NewSessionDialogContext } from "./dialog.js";
 import { editTextInput, isEnterKey } from "./text-input.js";
 import { renderForm, truncate, type FormField } from "./layout.js";
-import { createRepoPicker, moveRepoPickerSelection, renderRepoPicker, selectedRepoCwd, type RepoPickerState } from "./repo-picker.js";
+import { normalizeDetailOffset } from "./form-dialogs.js";
+import { createRepoPicker, moveRepoPickerDetail, moveRepoPickerSelection, renderRepoPicker, selectedRepoCwd, type RepoPickerState } from "./repo-picker.js";
 import { openFavoritesDialog, type FavoritesDialog } from "./session-favorites-dialog.js";
 import {
   addRepo, createNewForm, cycleCwdSuggestion, editNewForm, isRepoKey,
@@ -19,6 +20,7 @@ export interface NewSessionDialog {
   optionsExpanded?: boolean;
   actionFocus?: NewSessionAction;
   favorite?: SessionFavorite;
+  detailOffset?: number;
 }
 
 export interface RepoPickerDialog {
@@ -36,25 +38,30 @@ export function openNewSessionDialog(ctx: NewSessionDialogContext): NewSessionDi
 }
 
 export function handleNewSessionInput(dialog: NewSessionDialog | RepoPickerDialog, data: string, ctx: NewSessionDialogContext): NewSessionResult {
-  return dialog.kind === "new" ? handleNewFormInput(dialog, data, ctx) : handleRepoPickerInput(dialog, data);
+  return dialog.kind === "new" ? handleNewFormInput(dialog, data, ctx) : handleRepoPickerInput(dialog, data, ctx);
 }
 
 export function renderNewSessionDialog(dialog: NewSessionDialog | RepoPickerDialog, width: number, ctx: NewSessionDialogContext): string[] {
-  const height = ctx.actions.terminalRows?.();
+  const height = ctx.viewport.height;
   if (dialog.kind === "repoPicker") return renderRepoPicker(dialog.picker, width, ctx.theme, height);
   return renderForm({
     title: "New session",
     fields: newFormFields(dialog, width),
     focus: dialog.actionFocus ?? dialog.form.focus,
     footer: newFormFooter(dialog),
-    narrowFooter: "^Y create · esc cancel",
+    narrowFooter: newFormNarrowFooter(dialog),
     compact: true,
     height,
+    detailOffset: dialog.detailOffset,
   }, width, ctx.theme);
 }
 
 function handleNewFormInput(dialog: NewSessionDialog, data: string, ctx: NewSessionDialogContext): NewSessionResult {
   const form = dialog.form;
+  const field = form.fields[form.focus];
+  const detail = field?.error ? `${field.label}: ${field.error}` : field?.hint ?? "";
+  if (matchesKey(data, Key.pageUp)) return { ...dialog, detailOffset: normalizeDetailOffset(dialog.detailOffset, -2, detail, ctx.viewport.width, ctx.viewport.height) };
+  if (matchesKey(data, Key.pageDown)) return { ...dialog, detailOffset: normalizeDetailOffset(dialog.detailOffset, 2, detail, ctx.viewport.width, ctx.viewport.height) };
   if (matchesKey(data, Key.escape)) {
     ctx.setMessage(undefined);
     return undefined;
@@ -102,7 +109,7 @@ function createSession(dialog: NewSessionDialog, ctx: NewSessionDialogContext): 
 }
 
 function withForm(dialog: NewSessionDialog, form: NewFormState): NewSessionDialog {
-  return { ...dialog, form, actionFocus: undefined };
+  return { ...dialog, form, actionFocus: undefined, detailOffset: 0 };
 }
 
 function moveDialogFocus(dialog: NewSessionDialog, delta: number): NewSessionDialog {
@@ -111,7 +118,7 @@ function moveDialogFocus(dialog: NewSessionDialog, delta: number): NewSessionDia
   const key = order[(current + delta + order.length) % order.length]!;
   return key in dialog.form.fields
     ? withForm(dialog, setFocus(dialog.form, key as NewFormState["focus"]))
-    : { ...dialog, actionFocus: key as NewSessionAction };
+    : { ...dialog, actionFocus: key as NewSessionAction, detailOffset: 0 };
 }
 
 function startRepoPicker(dialog: NewSessionDialog): NewSessionDialog | RepoPickerDialog {
@@ -121,10 +128,12 @@ function startRepoPicker(dialog: NewSessionDialog): NewSessionDialog | RepoPicke
   return { kind: "repoPicker", draft: dialog, picker: createRepoPicker(choices), target: dialog.form.focus };
 }
 
-function handleRepoPickerInput(dialog: RepoPickerDialog, data: string): NewSessionDialog | RepoPickerDialog {
+function handleRepoPickerInput(dialog: RepoPickerDialog, data: string, ctx: NewSessionDialogContext): NewSessionDialog | RepoPickerDialog {
   if (matchesKey(data, Key.escape)) return dialog.draft;
-  if (matchesKey(data, Key.down)) return { ...dialog, picker: moveRepoPickerSelection(dialog.picker, 1) };
-  if (matchesKey(data, Key.up)) return { ...dialog, picker: moveRepoPickerSelection(dialog.picker, -1) };
+  if (matchesKey(data, Key.pageUp)) return { ...dialog, picker: moveRepoPickerDetail(dialog.picker, -2, ctx.viewport.width, ctx.viewport.height) };
+  if (matchesKey(data, Key.pageDown)) return { ...dialog, picker: moveRepoPickerDetail(dialog.picker, 2, ctx.viewport.width, ctx.viewport.height) };
+  if (matchesKey(data, Key.down)) return { ...dialog, picker: { ...moveRepoPickerSelection(dialog.picker, 1), detailOffset: 0 } };
+  if (matchesKey(data, Key.up)) return { ...dialog, picker: { ...moveRepoPickerSelection(dialog.picker, -1), detailOffset: 0 } };
   if (isEnterKey(data)) {
     const cwd = selectedRepoCwd(dialog.picker);
     return cwd ? withForm(dialog.draft, setRepoValue(dialog.draft.form, dialog.target, cwd)) : dialog;
@@ -164,4 +173,10 @@ function newFormFooter(dialog: NewSessionDialog): string {
   if (isRepoKey(dialog.form.focus)) return "enter create · ^Y create · esc cancel · ctrl-o choose directory";
   if (dialog.form.focus === "worktree") return "enter/space toggle · ^Y create · esc cancel";
   return "enter create · ^Y create · esc cancel";
+}
+
+function newFormNarrowFooter(dialog: NewSessionDialog): string {
+  if (dialog.actionFocus) return "Enter Select · ^Y Create · Esc Cancel";
+  if (dialog.form.focus === "worktree") return "Enter Toggle · ^Y Create · Esc Cancel";
+  return "Enter Create · ^Y Create · Esc Cancel";
 }

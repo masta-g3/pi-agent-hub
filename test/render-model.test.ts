@@ -267,12 +267,12 @@ test("parent cards show the chosen group once and keep actual repo identity sepa
           return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === parent.id;
         }).map(stripAnsi).join("\n");
         if (grouping === "stage") {
-          assert.match(card, /\[My project\] Task/, `${width} ${grouping}: ${card}`);
+          assert.match(card, width <= 60 ? /\[My pr…\] Task/ : /\[My project\] Task/, `${width} ${grouping}: ${card}`);
         } else {
           assert.match(card, /●(?: ▢1)? Task[\s\S]*\[My project\]/, `${width} ${grouping}: ${card}`);
           assert.doesNotMatch(card.split("\n")[0] ?? "", /\[My project\]|\bEX\b/);
         }
-        assert.equal(card.match(/My project/g)?.length, 1, card);
+        assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length, 1, card);
       }
     }
   }
@@ -300,7 +300,7 @@ test("repo reveal and filtering share header visibility and effective folds", ()
   assert.deepEqual([...collapsedRepos], ["/repos/alpha"]);
 });
 
-test("group badges stay complete and width-safe in status repo board archive and pin rows", () => {
+test("group badges stay bounded and width-safe in status repo board archive and pin rows", () => {
   const first = { ...session("one", "default", "running", "Important title"), cwd: "/very/long/alpha-parent/shared-repository-name" };
   const second = { ...session("two", "default", "idle", "Second title"), cwd: "/very/long/beta-parent/shared-repository-name" };
   const archived = { ...session("old", "default", "stopped", "Old title"), cwd: "/archive/archive-repo", bucket: "archived" as const, bucketChangedAt: 1 };
@@ -319,7 +319,7 @@ test("group badges stay complete and width-safe in status repo board archive and
     assert.ok(cards.every((card) => /\[[^\]]+\]/.test(card)), cards.join("\n"));
   }
   const archivedRow = renderSessions(buildRenderModel({ sessions: [archived], width: 60 })).lines.map(stripAnsi).find((line) => line.includes("Old title")) ?? "";
-  assert.match(archivedRow, /\[default\]/);
+  assert.match(archivedRow, /\[defau…\]/);
   const narrow = renderSessions(buildRenderModel({ sessions: [first, second], width: 60 })).lines.map(stripAnsi);
   const badges = narrow.flatMap((line) => line.match(/\[([^\]]+)\]/)?.[1] ?? []);
   assert.deepEqual(badges, ["default", "default"]);
@@ -1531,7 +1531,7 @@ test("narrow rows retain session titles when oversized group metadata is shorten
 });
 
 
-test("fixed group badges preserve the full group and a readable title", () => {
+test("narrow group badges prioritize a readable title", () => {
   const parent = {
     ...session("parent", "engineering-x", "waiting", "Authoritative title"),
     additionalCwds: ["/repo/two", "/repo/three"],
@@ -1772,7 +1772,7 @@ test("workflowless Active board keeps generic attention and distinct empty state
   const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", width: 60 });
   assert.equal(plain.noBoardSessions, false);
   assert.deepEqual(plain.sections.map((section) => section.key), ["other-active"]);
-  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? ○ \[default\] plain/);
+  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? ○ \[defau…\] plain/);
 
   const sessions = [{ ...session("backlog", "default", "idle"), bucket: "backlog" as const, workflow: WORKFLOW }];
   const empty = buildRenderModel({ sessions, grouping: "stage", width: 60 });

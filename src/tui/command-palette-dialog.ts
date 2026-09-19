@@ -2,14 +2,15 @@ import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { MouseEvent } from "./mouse.js";
 import type { DashboardCommand, DashboardCommandGroup } from "./dashboard-commands.js";
 import { searchDashboardCommands } from "./dashboard-commands.js";
-import { truncate } from "./layout.js";
-import { createTextInput, editTextInput, isEnterKey, renderTextInput, type TextInputState } from "./text-input.js";
+import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, truncate, wrapWords } from "./layout.js";
+import { createTextInput, editTextInput, isEnterKey, type TextInputState } from "./text-input.js";
 import { darkTheme, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
 export interface CommandPaletteState {
   query: TextInputState;
   selected: number;
   selectedCommandId?: string;
+  detailOffset?: number;
 }
 
 export interface CommandPaletteDialog {
@@ -26,10 +27,30 @@ export interface CommandPaletteRowTarget {
   commandId: string;
 }
 
+export interface CommandPaletteTargetIdentity {
+  title: string;
+  group?: string;
+  repository?: string;
+}
+
+export interface CommandPaletteDetailRegion {
+  /** Zero-based line indexes in the returned palette render. */
+  start: number;
+  end: number;
+  pageSize: number;
+  offset: number;
+  maxOffset: number;
+}
+
 export interface CommandPaletteRender {
   lines: string[];
   rowTargets: (CommandPaletteRowTarget | undefined)[];
   matches: DashboardCommand[];
+  /** The complete unwindowed selected detail, useful for outcome tests. */
+  detailLines: string[];
+  detailRegion?: CommandPaletteDetailRegion;
+  /** Normalized state with the detail offset clamped for current geometry. */
+  state: CommandPaletteState;
 }
 
 interface PaletteRow {
@@ -47,7 +68,7 @@ const groupLabels: Record<DashboardCommandGroup, string> = {
 };
 
 export function createCommandPalette(query = ""): CommandPaletteState {
-  return { query: createTextInput(query), selected: 0 };
+  return { query: createTextInput(query), selected: 0, detailOffset: 0 };
 }
 
 export function normalizeCommandPalette(state: CommandPaletteState, commands: readonly DashboardCommand[]): CommandPaletteState {
@@ -67,13 +88,21 @@ export function moveCommandPaletteSelection(state: CommandPaletteState, delta: n
   if (!count) return normalized;
   const selected = (normalized.selected + delta + count) % count;
   const selectedCommandId = searchDashboardCommands(commands, normalized.query.value)[selected]?.id;
-  return { ...normalized, selected, selectedCommandId };
+  return { ...normalized, selected, selectedCommandId, detailOffset: 0 };
 }
 
-export function handleCommandPaletteInput(state: CommandPaletteState, data: string, commands: readonly DashboardCommand[]): CommandPaletteInputResult {
+export function handleCommandPaletteInput(
+  state: CommandPaletteState,
+  data: string,
+  commands: readonly DashboardCommand[],
+  detailPageSize = 3,
+  detailMaxOffset = Number.MAX_SAFE_INTEGER,
+): CommandPaletteInputResult {
   const normalized = normalizeCommandPalette(state, commands);
   const matches = searchDashboardCommands(commands, normalized.query.value);
   if (matchesKey(data, Key.escape)) return { kind: "close" };
+  if (matchesKey(data, Key.pageUp)) return updateDetailOffset(normalized, -detailPageSize, detailMaxOffset, commands);
+  if (matchesKey(data, Key.pageDown)) return updateDetailOffset(normalized, detailPageSize, detailMaxOffset, commands);
   if (matchesKey(data, Key.down) || matchesKey(data, Key.ctrl("n"))) return update(moveCommandPaletteSelection(normalized, 1, commands), commands);
   if (matchesKey(data, Key.up) || matchesKey(data, Key.ctrl("p"))) return update(moveCommandPaletteSelection(normalized, -1, commands), commands);
   if (isEnterKey(data)) {
@@ -82,7 +111,7 @@ export function handleCommandPaletteInput(state: CommandPaletteState, data: stri
   }
   const edited = editTextInput(data, normalized.query);
   if (!edited) return { kind: "update", state: normalized, matches };
-  return update({ query: edited, selected: 0, selectedCommandId: undefined }, commands);
+  return update({ query: edited, selected: 0, selectedCommandId: undefined, detailOffset: 0 }, commands);
 }
 
 export function handleCommandPaletteMouse(
@@ -90,10 +119,17 @@ export function handleCommandPaletteMouse(
   event: MouseEvent,
   rowTargets: readonly (CommandPaletteRowTarget | undefined)[],
   commands: readonly DashboardCommand[],
+  detailRegion?: CommandPaletteDetailRegion,
 ): CommandPaletteInputResult {
-  if (event.kind === "wheel") return update(moveCommandPaletteSelection(state, event.delta, commands), commands);
+  if (event.kind === "wheel") {
+    const row = event.y === undefined ? undefined : event.y - 1;
+    if (row !== undefined && detailRegion && row >= detailRegion.start && row <= detailRegion.end) {
+      return updateDetailOffset(state, event.delta * 3, detailRegion.maxOffset, commands);
+    }
+    return update(moveCommandPaletteSelection(state, event.delta, commands), commands);
+  }
   const target = rowTargets[event.y - 1];
-  return target ? { kind: "execute", commandId: target.commandId } : { kind: "close" };
+  return target ? { kind: "execute", commandId: target.commandId } : update(state, commands);
 }
 
 export function renderCommandPalette(
@@ -102,23 +138,30 @@ export function renderCommandPalette(
   width: number,
   height: number,
   theme: SessionsTheme = darkTheme,
+  targetIdentities?: ReadonlyMap<string, CommandPaletteTargetIdentity>,
+  narrow = width <= NARROW_LAYOUT_MAX_WIDTH,
 ): CommandPaletteRender {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(0, height);
-  const normalized = normalizeCommandPalette(state, commands);
+  let normalized = normalizeCommandPalette(state, commands);
   const matches = searchDashboardCommands(commands, normalized.query.value);
   const lines = Array.from({ length: safeHeight }, () => " ".repeat(safeWidth));
   const rowTargets = lines.map(() => undefined as CommandPaletteRowTarget | undefined);
-  if (!safeHeight) return { lines, rowTargets, matches };
+  const selectedItem = matches.find((item) => item.id === normalized.selectedCommandId);
+  const detailLines = !narrow ? [] : selectedItem
+    ? selectedDetail(selectedItem, safeWidth, targetIdentities, theme)
+    : normalized.selectedCommandId ? [styleToken(theme, "error", "Selection unavailable; choose a command")] : [];
+  const result = (detailRegion?: CommandPaletteDetailRegion): CommandPaletteRender => ({ lines, rowTargets, matches, detailLines, detailRegion, state: normalized });
+  if (!safeHeight) return result();
 
-  const search = normalized.query.value
-    ? renderTextInput(normalized.query)
-    : `${renderTextInput(normalized.query)} ${styleToken(theme, "dim", "Search actions, sessions, filters")}`;
+  const queryWidth = Math.max(1, safeWidth - 2);
+  const query = renderCursorValue(normalized.query.value, normalized.query.cursor, queryWidth, "start");
+  const search = normalized.query.value ? query : `${query} ${styleToken(theme, "dim", "Search actions, sessions, filters")}`;
   const searchLine = pad(truncate(`${styleToken(theme, "accent", ":")} ${search}`, safeWidth), safeWidth);
   if (safeHeight < 6) {
     lines[0] = searchLine;
     if (safeHeight > 1) lines[safeHeight - 1] = pad(truncate(styleToken(theme, "dim", "resize to use command palette"), safeWidth), safeWidth);
-    return { lines, rowTargets, matches };
+    return result();
   }
 
   const compactFrame = safeHeight < 7;
@@ -126,19 +169,36 @@ export function renderCommandPalette(
   if (!compactFrame) lines[0] = styleToken(theme, "border", "─".repeat(safeWidth));
   lines[searchIndex] = searchLine;
   const searchRuleIndex = searchIndex + 1;
-  if (safeHeight <= searchRuleIndex) return { lines, rowTargets, matches };
+  if (safeHeight <= searchRuleIndex) return result();
   lines[searchRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
 
   const helpIndex = safeHeight - 1;
   const contentStart = searchRuleIndex + 1;
   const helpRuleIndex = Math.max(contentStart, helpIndex - 1);
   lines[helpRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
-  lines[helpIndex] = pad(truncate(styleToken(theme, "dim", safeWidth < 60 ? "↑↓/Ctrl+N/P · Enter · Esc" : "↑↓/Ctrl+N/P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
-  const capacity = Math.max(0, helpRuleIndex - contentStart);
-  if (!capacity) return { lines, rowTargets, matches };
+  lines[helpIndex] = pad(truncate(styleToken(theme, "dim", narrow ? "Enter Run · Esc Back · PgUp/PgDn Details" : "↑↓/Ctrl+N/P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
+  const available = Math.max(0, helpRuleIndex - contentStart);
+  if (!available) return result();
+
+  let capacity = available;
+  let detailRegion: CommandPaletteDetailRegion | undefined;
+  if (narrow && matches.length && available >= 5) {
+    const detailPageSize = Math.min(6, Math.max(2, Math.floor((available - 1) / 2)));
+    const detailStart = helpRuleIndex - detailPageSize;
+    const maxOffset = Math.max(0, detailLines.length - detailPageSize);
+    const offset = Math.max(0, Math.min(normalized.detailOffset ?? 0, maxOffset));
+    normalized = { ...normalized, detailOffset: offset };
+    lines[detailStart - 1] = styleToken(theme, "border", "─".repeat(safeWidth));
+    detailLines.slice(offset, offset + detailPageSize).forEach((line, index) => {
+      lines[detailStart + index] = pad(line, safeWidth);
+    });
+    detailRegion = { start: detailStart, end: helpRuleIndex - 1, pageSize: detailPageSize, offset, maxOffset };
+    capacity = Math.max(0, detailStart - 1 - contentStart);
+  }
+  if (!capacity) return result(detailRegion);
   if (!matches.length) {
     lines[contentStart] = pad(styleToken(theme, "muted", "No matching commands"), safeWidth);
-    return { lines, rowTargets, matches };
+    return result(detailRegion);
   }
 
   const rows = paletteRows(matches, capacity);
@@ -159,12 +219,53 @@ export function renderCommandPalette(
     lines[lineIndex] = selected ? styleBgToken(theme, "selectedBg", pad(rendered, safeWidth)) : pad(rendered, safeWidth);
     rowTargets[lineIndex] = { commandId: item.id };
   }
-  return { lines, rowTargets, matches };
+  return result(detailRegion);
 }
 
 function update(state: CommandPaletteState, commands: readonly DashboardCommand[]): CommandPaletteInputResult {
   const normalized = normalizeCommandPalette(state, commands);
   return { kind: "update", state: normalized, matches: searchDashboardCommands(commands, normalized.query.value) };
+}
+
+function updateDetailOffset(
+  state: CommandPaletteState,
+  delta: number,
+  maxOffset: number,
+  commands: readonly DashboardCommand[],
+): CommandPaletteInputResult {
+  const detailOffset = Math.max(0, Math.min((state.detailOffset ?? 0) + delta, maxOffset));
+  return update({ ...state, detailOffset }, commands);
+}
+
+function selectedDetail(
+  item: DashboardCommand,
+  width: number,
+  targetIdentities: ReadonlyMap<string, CommandPaletteTargetIdentity> | undefined,
+  theme: SessionsTheme,
+): string[] {
+  const rows = [
+    ...wrapPlain(item.label, width).map((line) => styleToken(theme, "muted", line)),
+    ...wrapPlain(item.hint, width).map((line) => styleToken(theme, "dim", line)),
+    ...(!item.enabled ? wrapPlain(item.disabledReason ?? "unavailable", width).map((line) => styleToken(theme, "error", line)) : []),
+  ];
+  if (!item.targetSessionId || !targetIdentities) return rows;
+  const identity = targetIdentities.get(item.targetSessionId);
+  if (!identity) return [...rows, styleToken(theme, "error", "Target: unavailable")];
+  rows.push(...detailField("Target", identity.title, width, theme));
+  if (identity.group) rows.push(...detailField("Group", identity.group, width, theme));
+  if (identity.repository) rows.push(...detailField("Repo", identity.repository, width, theme));
+  return rows;
+}
+
+function detailField(label: string, value: string, width: number, theme: SessionsTheme): string[] {
+  const prefix = `${label}: `;
+  const valueWidth = Math.max(1, width - visibleWidth(prefix));
+  const wrapped = wrapPlain(value, valueWidth);
+  return wrapped.map((line, index) => `${index === 0 ? styleToken(theme, "dim", prefix) : " ".repeat(visibleWidth(prefix))}${styleToken(theme, "muted", line)}`);
+}
+
+function wrapPlain(value: string, width: number): string[] {
+  return wrapWords(value, Math.max(1, width), Math.max(1, width));
 }
 
 function paletteRows(matches: readonly DashboardCommand[], capacity: number): PaletteRow[] {

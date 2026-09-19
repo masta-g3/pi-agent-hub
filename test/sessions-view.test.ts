@@ -1895,7 +1895,7 @@ test("sidebar dashboard renders readable primary controls", () => {
   });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-2) ?? "", /1–4 Slot · x Close/);
+  assert.match(rendered.at(-2) ?? "", /x Close · : Actions · \? Help/);
   assert.doesNotMatch(rendered.at(-2) ?? "", /…/);
 });
 
@@ -1940,7 +1940,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   assert.ok(rendered.some((line) => /▌.*·\s+○ session-12/.test(line)), rendered.join("\n"));
 });
 
-test("short help dialog is clipped with a resize marker", () => {
+test("short help dialog scrolls with visible controls", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 12 });
 
@@ -1948,7 +1948,7 @@ test("short help dialog is clipped with a resize marker", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(rendered.length, 12);
-  assert.match(rendered.at(-1) ?? "", /… resize for full help/);
+  assert.match(rendered.at(-2) ?? "", /PgUp\/PgDn Scroll · Esc Back/);
 });
 
 test("enter triggers attach action outside tmux", () => {
@@ -2677,6 +2677,7 @@ test("delete dialog confirms with second d", () => {
   const view = new SessionsView(controller, () => {}, { deleteSession: (id) => { deleted = id; } });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("d");
   assert.equal(deleted, "api");
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
@@ -2717,6 +2718,7 @@ test("delete dialog keeps full delete on d confirmation", () => {
   });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("d");
 
   assert.equal(deleted, "api");
@@ -2784,6 +2786,7 @@ test("delete dialog shift D discards worktree session", () => {
   });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("D");
 
   assert.equal(deleted, undefined);
@@ -2810,6 +2813,7 @@ test("delete dialog w finishes worktree session", () => {
   });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("w");
 
   assert.equal(deleted, undefined);
@@ -2861,6 +2865,7 @@ test("delete dialog ignores repeated confirm while async delete is pending", asy
   const view = new SessionsView(controller, () => {}, { deleteSession: () => { calls += 1; return pending; } });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("d");
   view.handleInput("d");
   assert.equal(calls, 1);
@@ -2875,6 +2880,7 @@ test("delete dialog keeps async errors visible", async () => {
   const view = new SessionsView(controller, () => {}, { deleteSession: async () => { throw new Error("delete failed"); } });
 
   view.handleInput("d");
+  view.render(100);
   view.handleInput("d");
   await new Promise((resolve) => setImmediate(resolve));
   const rendered = view.render(100).join("\n");
@@ -3006,7 +3012,7 @@ test("narrow rename form keeps a long title and cursor visible", () => {
   view.handleInput("R");
   const rendered = view.render(42);
   const plain = rendered.map(stripAnsi);
-  const titleLine = plain.find((line) => line.includes("title")) ?? "";
+  const titleLine = plain[plain.findIndex((line) => line.includes("title")) + 1] ?? "";
 
   assert.match(plain.join("\n"), /Rename session/);
   assert.match(titleLine, /….*█/);
@@ -3144,7 +3150,7 @@ test("p opens footer send prompt and submits message to selected live session", 
 test("themed footer text remains styled when input is truncated", () => {
   const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
   const cases = [
-    { key: "p", expected: "send to api:" },
+    { key: "p", expected: "send api:" },
   ];
 
   for (const { key, expected } of cases) {
@@ -3548,6 +3554,7 @@ test("restart requires confirmation and supports new conversation", () => {
   assert.deepEqual(restarted, []);
 
   view.handleInput("r");
+  view.render(100);
   view.handleInput("r");
   assert.deepEqual(restarted, ["api"]);
 });
@@ -3567,6 +3574,7 @@ test("restart dialog supports restart all", () => {
   const view = new SessionsView(controller, () => {}, { restart: () => {}, restartAll: () => { restartedAll = true; } });
 
   view.handleInput("r");
+  view.render(100);
   view.handleInput("a");
 
   assert.equal(restartedAll, true);

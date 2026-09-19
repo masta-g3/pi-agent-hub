@@ -2,7 +2,7 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { createTextInput, editTextInput, isEnterKey } from "./text-input.js";
 import { errorMessage, isPromise, type PickerDialogContext, type ProjectPickerTarget } from "./dialog.js";
-import { movePickerSelection, renderTwoColumnPicker, switchPickerColumn, togglePickerItem, type PickerItem, type PickerState } from "./two-column-picker.js";
+import { compactPickerCanInteract, movePickerSelection, renderTwoColumnPicker, scrollPickerDetail, switchPickerColumn, togglePickerItem, type PickerItem, type PickerState } from "./two-column-picker.js";
 
 export interface PickerDialog {
   kind: "picker";
@@ -34,32 +34,38 @@ export function createPickerDialog(purpose: "skills" | "mcp", items: PickerItem[
 }
 
 export function handlePickerDialogInput(dialog: PickerDialog, data: string, ctx: PickerDialogContext): PickerDialog | undefined {
+  const viewport = ctx.viewport;
   if (dialog.picker.poolPending) return dialog;
+  if (matchesKey(data, Key.pageUp)) return { ...dialog, picker: scrollPickerDetail(dialog.picker, -1, viewport.width, viewport.height) };
+  if (matchesKey(data, Key.pageDown)) return { ...dialog, picker: scrollPickerDetail(dialog.picker, 1, viewport.width, viewport.height) };
   if (dialog.purpose === "skills" && dialog.picker.poolInput) return handleSkillPoolInput(dialog, data, ctx);
   if (matchesKey(data, Key.escape)) return undefined;
-  if (dialog.purpose === "skills" && matchesKey(data, Key.alt("e"))) return { ...dialog, picker: { ...dialog.picker, poolInput: createTextInput(dialog.picker.poolDir ?? ""), poolError: undefined, poolMessage: undefined } };
+  if (dialog.purpose === "skills" && matchesKey(data, Key.alt("e"))) return { ...dialog, picker: { ...dialog.picker, poolInput: createTextInput(dialog.picker.poolDir ?? ""), poolError: undefined, poolMessage: undefined, detailOffset: 0 } };
   if (matchesKey(data, Key.left) || matchesKey(data, Key.right) || matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) return { ...dialog, picker: switchPickerColumn(dialog.picker) };
   if (matchesKey(data, Key.down)) return { ...dialog, picker: movePickerSelection(dialog.picker, 1) };
   if (matchesKey(data, Key.up)) return { ...dialog, picker: movePickerSelection(dialog.picker, -1) };
-  if (matchesKey(data, Key.space) || data === " ") return { ...dialog, picker: togglePickerItem(dialog.picker) };
-  if (isEnterKey(data)) return applyPickerSelection(dialog, ctx);
+  const canInteract = compactPickerCanInteract(dialog.picker, viewport.width, viewport.height);
+  if (matchesKey(data, Key.space) || data === " ") return canInteract ? { ...dialog, picker: togglePickerItem(dialog.picker) } : dialog;
+  if (isEnterKey(data)) return canInteract ? applyPickerSelection(dialog, ctx) : dialog;
   const edited = editPickerSearch(data, dialog.picker);
   return edited ? { ...dialog, picker: { ...edited, poolError: undefined, poolMessage: undefined } } : dialog;
 }
 
-export function renderPickerDialog(dialog: PickerDialog, width: number, ctx: PickerDialogContext): string[] {
-  return renderTwoColumnPicker(dialog.picker, width, ctx.theme);
+export function renderPickerDialog(dialog: PickerDialog, width: number, ctx: PickerDialogContext, height?: number): string[] {
+  return renderTwoColumnPicker(dialog.picker, width, ctx.theme, height);
 }
 
 function handleSkillPoolInput(dialog: PickerDialog, data: string, ctx: PickerDialogContext): PickerDialog | undefined {
+  const viewport = ctx.viewport;
   if (!dialog.picker.poolInput) return dialog;
-  if (matchesKey(data, Key.escape)) return { ...dialog, picker: { ...dialog.picker, poolInput: undefined, poolError: undefined, poolMessage: undefined } };
+  if (matchesKey(data, Key.escape)) return { ...dialog, picker: { ...dialog.picker, poolInput: undefined, poolError: undefined, poolMessage: undefined, detailOffset: 0 } };
   if (isEnterKey(data)) {
+    if (!compactPickerCanInteract(dialog.picker, viewport.width, viewport.height)) return dialog;
     const dir = dialog.picker.poolInput.value.trim();
-    if (!dir) return { ...dialog, picker: { ...dialog.picker, poolError: "skill pool dir cannot be blank", poolMessage: undefined } };
+    if (!dir) return { ...dialog, picker: { ...dialog.picker, poolError: "skill pool dir cannot be blank", poolMessage: undefined, detailOffset: 0 } };
     const save = ctx.actions.saveSkillPoolDir;
-    if (!save) return { ...dialog, picker: { ...dialog.picker, poolError: "skill pool editing unavailable", poolMessage: undefined } };
-    const pending: PickerDialog = { ...dialog, saveId: dialog.saveId + 1, picker: { ...dialog.picker, poolPending: true, poolMessage: "saving skill pool...", poolError: undefined } };
+    if (!save) return { ...dialog, picker: { ...dialog.picker, poolError: "skill pool editing unavailable", poolMessage: undefined, detailOffset: 0 } };
+    const pending: PickerDialog = { ...dialog, saveId: dialog.saveId + 1, picker: { ...dialog.picker, poolPending: true, poolMessage: "saving skill pool...", poolError: undefined, detailOffset: 0 } };
     try {
       if (!validPickerTarget(dialog.target, ctx)) return pickerTargetErrorDialog(dialog);
       const result = save(dir, dialog.target);
@@ -75,7 +81,7 @@ function handleSkillPoolInput(dialog: PickerDialog, data: string, ctx: PickerDia
     }
   }
   const edited = editTextInput(data, dialog.picker.poolInput);
-  return edited ? { ...dialog, picker: { ...dialog.picker, poolInput: edited, poolError: undefined, poolMessage: undefined } } : dialog;
+  return edited ? { ...dialog, picker: { ...dialog.picker, poolInput: edited, poolError: undefined, poolMessage: undefined, detailOffset: 0 } } : dialog;
 }
 
 function savedSkillPoolDialog(pending: PickerDialog, items: PickerItem[], dir: string, ctx: PickerDialogContext): PickerDialog {
@@ -91,12 +97,13 @@ function savedSkillPoolDialog(pending: PickerDialog, items: PickerItem[], dir: s
       poolPending: false,
       poolMessage: "skill pool saved; press enter to apply selected skills",
       poolError: undefined,
+      detailOffset: 0,
     },
   };
 }
 
 function skillPoolErrorDialog(pending: PickerDialog, error: unknown): PickerDialog {
-  return { ...pending, picker: { ...pending.picker, poolPending: false, poolError: errorMessage(error), poolMessage: undefined } };
+  return { ...pending, picker: { ...pending.picker, poolPending: false, poolError: errorMessage(error), poolMessage: undefined, detailOffset: 0 } };
 }
 
 function applyPickerSelection(dialog: PickerDialog, ctx: PickerDialogContext): undefined {
@@ -129,11 +136,11 @@ function validPickerTarget(target: ProjectPickerTarget, ctx: PickerDialogContext
 }
 
 function pickerTargetErrorDialog(dialog: PickerDialog): PickerDialog {
-  return { ...dialog, picker: { ...dialog.picker, poolError: "picker target is no longer available", poolMessage: undefined } };
+  return { ...dialog, picker: { ...dialog.picker, poolError: "picker target is no longer available", poolMessage: undefined, detailOffset: 0 } };
 }
 
 function editPickerSearch(data: string, picker: PickerState): PickerState | undefined {
   const edited = editTextInput(data, createTextInput(picker.filter ?? "", picker.filterCursor));
   if (!edited) return undefined;
-  return { ...picker, filter: edited.value, filterCursor: edited.cursor, selected: 0 };
+  return { ...picker, filter: edited.value, filterCursor: edited.cursor, selected: 0, detailOffset: 0 };
 }

@@ -75,7 +75,7 @@ test("a selected target ID survives a catalog rebuild so Enter cannot drift", ()
   assert.deepEqual(handleCommandPaletteInput(normalized, "\r", replacement), { kind: "execute", commandId: "a" });
 });
 
-test("rendering is ANSI-width safe at supported widths and hides narrow hints", () => {
+test("rendering is ANSI-width safe and exposes the selected hint at all supported widths", () => {
   for (const width of [40, 60, 100, 160]) {
     const rendered = renderCommandPalette(createCommandPalette(), commands, width, 12, darkTheme);
     assert.equal(rendered.lines.length, 12);
@@ -84,8 +84,7 @@ test("rendering is ANSI-width safe at supported widths and hides narrow hints", 
     assert.match(rendered.lines.join("\n"), /▸/);
     assert.match(rendered.lines.join("\n"), /Rename/);
     assert.match(rendered.lines.join("\n"), /unavailable|session is stopped/);
-    if (width <= 60) assert.doesNotMatch(rendered.lines.join("\n"), /Open hint/);
-    else assert.match(rendered.lines.join("\n"), /Open hint/);
+    assert.match(rendered.lines.join("\n"), /Open hint/);
   }
 });
 

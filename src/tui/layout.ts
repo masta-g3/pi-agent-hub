@@ -6,6 +6,8 @@ import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
+export const NARROW_LAYOUT_MAX_WIDTH = 60;
+
 export type SessionListTarget =
   | { kind: "session"; id: string }
   | { kind: "session-continuation"; id: string }
@@ -72,7 +74,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const listStartX = 2 + navigatorWidth + (navigatorWidth ? 1 : 0);
   const decisionRows = pinnedDecisionRows(model.height);
   const decision = model.pinMode && model.workspace
-    ? renderPinnedDecisionStrip(model.workspace, bodyWidth, decisionRows, model.now, styles)
+    ? renderPinnedDecisionStrip(model.workspace, bodyWidth, decisionRows, model.now, styles, width <= NARROW_LAYOUT_MAX_WIDTH)
     : model.pinMode && syntheticSelection
       ? { lines: Array.from({ length: decisionRows }, () => ""), targets: Array.from({ length: decisionRows }, () => undefined as string | undefined) }
       : { lines: [] as string[], targets: [] as (string | undefined)[] };
@@ -90,7 +92,6 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
   const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines];
   if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
-  body.push(...decision.lines);
   const visibleLinesByOwner = new Map<string, number>();
   for (const meta of windowedLeft.lineMeta) {
     if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
@@ -108,6 +109,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
     body.push(`${navLine}${leftLine}${workspaceLine}`);
   }
+  body.push(...decision.lines);
   if (model.footer) {
     body.push(styles.border("─".repeat(bodyWidth)));
     body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
@@ -118,10 +120,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
   for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + i] = announcement.targets[i];
-  const decisionStart = 2 + announcement.lines.length + (model.pinSummary ? 1 : 0);
+  const listStart = 2 + announcement.lines.length + (model.pinSummary ? 1 : 0);
+  const decisionStart = listStart + rows;
   for (let i = 0; i < decision.targets.length; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
-    const lineIndex = 2 + stripLines + i;
+    const lineIndex = listStart + i;
     rowTargets[lineIndex] = windowedLeft.targets[i];
     navigatorRowTargets[lineIndex] = navigator.targets[i];
     workspaceRowTargets[lineIndex] = workspace.targets[i];
@@ -368,15 +371,17 @@ function renderPinSummary(model: RenderModel, width: number, styles: LayoutStyle
 }
 
 function pinnedDecisionRows(height: number | undefined): number {
-  if (height === undefined || height <= 0 || height >= 10) return 3;
+  if (height === undefined || height <= 0 || height >= 24) return 6;
+  if (height >= 14) return 4;
+  if (height >= 10) return 3;
   if (height >= 9) return 2;
   if (height >= 8) return 1;
   return 0;
 }
 
-function renderPinnedDecisionStrip(workspace: RenderWorkspace, width: number, rows: number, now: number, styles: LayoutStyles): WorkspaceRendered {
+function renderPinnedDecisionStrip(workspace: RenderWorkspace, width: number, rows: number, now: number, styles: LayoutStyles, narrow: boolean): WorkspaceRendered {
   if (rows <= 0) return { lines: [], targets: [] };
-  const rendered = renderActionWorkspace(workspace, width, Math.max(2, rows), now, styles);
+  const rendered = renderActionWorkspace(workspace, width, Math.max(2, rows), now, styles, narrow);
   if (rows > 1) return rendered;
   const primaryId = workspace.actions[0]?.id ?? workspace.moreCommand.id;
   const index = rendered.targets.indexOf(primaryId);
@@ -934,7 +939,7 @@ interface WorkspaceBlock extends WorkspaceRendered {
   key: "identity" | "request" | "task" | "workflow" | "guidance" | "actions" | "evidence";
 }
 
-function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles): WorkspaceRendered {
+function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles, pinned = false): WorkspaceRendered {
   const session = workspace.session;
   const block = (key: WorkspaceBlock["key"], lines: string[], targets: (string | undefined)[] = []): WorkspaceBlock => ({
     key,
@@ -948,9 +953,10 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     session.worktreeBranch ? `⎇ ${session.worktreeBranch}` : undefined,
     session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
   ].filter(Boolean).join(" · ");
+  const titleLines = pinned ? wrapWords(session.title, width, width) : [];
   const identity = block("identity", [
-    titleStatusRow(session, width, styles),
-    ...(meta ? [styles.dim(meta)] : []),
+    ...(pinned ? [titleLines[0] ?? "", ...(titleLines.length > 1 ? [truncate(titleLines.slice(1).join(" "), width)] : [])] : [titleStatusRow(session, width, styles)]),
+    ...(pinned ? [styles.dim(`Repo: ${session.repoLabel}`)] : meta ? [styles.dim(meta)] : []),
     styles.border("─".repeat(width)),
   ]);
 
@@ -971,7 +977,7 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   const blocks = [identity, request, task, workflow, guidance, actions, evidence];
   const rowCount = blocks.reduce((sum, candidate) => sum + candidate.lines.length, 0);
   if (maxRows !== undefined && rowCount > maxRows) {
-    return compactActionWorkspace(workspace, blocks, maxRows, width);
+    return compactActionWorkspace(workspace, blocks, maxRows, width, pinned);
   }
   return {
     lines: blocks.flatMap((candidate) => candidate.lines),
@@ -1041,7 +1047,7 @@ function workspaceEvidenceLines(workspace: RenderWorkspace, width: number, now: 
   ];
 }
 
-function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlock[], maxRows: number, width: number): WorkspaceRendered {
+function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlock[], maxRows: number, width: number, pinned = false): WorkspaceRendered {
   if (maxRows <= 0) return { lines: [], targets: [] };
   const identity = blocks.find((candidate) => candidate.key === "identity")!;
   const actions = blocks.find((candidate) => candidate.key === "actions")!;
@@ -1056,11 +1062,10 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
   const reservePrimary = primary && maxRows >= 2 ? 1 : 0;
   const reserveEvidence = evidenceFacts.length && maxRows >= 3 ? 1 : 0;
   let budget = Math.max(0, maxRows - 1 - reservePrimary - reserveEvidence);
-  const optionalContent = [
-    ...blocks.filter((candidate) => ["request", "task", "workflow", "guidance"].includes(candidate.key))
-      .flatMap((candidate) => candidate.lines.map((line, index) => ({ line, target: candidate.targets[index] }))),
-    ...identity.lines.slice(1, -1).map((line) => ({ line, target: undefined as string | undefined })),
-  ];
+  const identityDetails = identity.lines.slice(1, -1).map((line) => ({ line, target: undefined as string | undefined }));
+  const bodyDetails = blocks.filter((candidate) => ["request", "task", "workflow", "guidance"].includes(candidate.key))
+    .flatMap((candidate) => candidate.lines.map((line, index) => ({ line, target: candidate.targets[index] })));
+  const optionalContent = pinned ? [...identityDetails, ...bodyDetails] : [...bodyDetails, ...identityDetails];
   const content = optionalContent.slice(0, budget);
   budget -= content.length;
   const secondary = actionRows.slice(1, 1 + budget);
@@ -1229,7 +1234,7 @@ function workField(label: string, value: string, width: number, styles: LayoutSt
   return wrapWords(value, firstWidth, nextWidth).map((line, index) => index === 0 ? `${firstPrefix}${marker}${line}` : `${nextPrefix}${line}`);
 }
 
-function wrapWords(value: string, firstWidth: number, nextWidth: number): string[] {
+export function wrapWords(value: string, firstWidth: number, nextWidth: number): string[] {
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const lines: string[] = [];
@@ -1340,11 +1345,15 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available))}`, width);
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
-  const badgeBudget = Math.min(options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
+  const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
   const badge = `${renderGroupBadge(session.group, badgeBudget, styles)} `;
   const adornments = `${badge}${repoCount}`;
   const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(adornments));
-  const right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth);
+  let right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth);
+  if (options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH && session.section === "active" && !activeWorkflowMode(session)
+    && rightWidthBase - displayWidth(right) - 1 < Math.min(18, displayWidth(session.title))) {
+    right = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
+  }
   const rightSpace = right ? displayWidth(right) + 1 : 0;
   const minimumTitle = Math.min(8, Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - 4));
   const availableAdornments = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - minimumTitle - rightSpace);
@@ -1383,14 +1392,15 @@ export interface FormSpec {
   narrowFooter?: string;
   compact?: boolean;
   height?: number;
+  detailOffset?: number;
 }
 
 export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme): string[] {
   const styles = theme ? createStyles(theme) : plainStyles();
   const inner = Math.max(20, Math.min(Math.max(20, width - 2), 86));
+  const narrow = width <= NARROW_LAYOUT_MAX_WIDTH;
   const showHints = inner >= 38;
   const labelWidth = Math.max(...spec.fields.map((field) => displayWidth(field.label)), 5);
-  const valueWidth = inner - labelWidth - 4;
   let previousSection: string | undefined;
   const fieldBlocks = spec.fields.map((field) => {
     const lines: string[] = [];
@@ -1399,6 +1409,8 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
       previousSection = field.section;
     }
     const focused = field.key === spec.focus;
+    const stacked = narrow && (!field.readonly || Boolean(field.frame));
+    const valueWidth = stacked ? Math.max(0, inner - 2) : inner - labelWidth - 4;
     const caret = focused ? styles.accent("▎") : " ";
     const label = focused ? field.label : styles.muted(field.label);
     const prefix = field.frame ? "[ " : "";
@@ -1410,40 +1422,69 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     const rawValue = focused ? styles.accent(focusedValue) : truncateValue(field.value, contentWidth, field.truncate);
     const content = field.readonly && !focused ? styles.dim(rawValue) : rawValue;
     const value = `${styles.border(prefix)}${content}${styles.border(suffix)}`;
-    lines.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
-    const hintText = !spec.compact
+    if (stacked) {
+      lines.push(`${caret} ${truncate(label, Math.max(0, inner - 2))}`);
+      lines.push(`  ${value}`);
+    } else {
+      lines.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
+    }
+    const hintText = !narrow && !spec.compact
       ? field.error ? styles.error(field.error) : (showHints && field.hint ? styles.dim(field.hint) : "")
       : "";
     if (hintText) lines.push(`  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`);
     if (!spec.compact) lines.push("");
     return lines;
   });
-  const availableFieldRows = spec.height && spec.height > 0 ? Math.max(1, spec.height - (spec.compact ? 8 : 7)) : undefined;
+  const focusedField = spec.fields.find((field) => field.key === spec.focus);
+  const detailText = focusedField?.error
+    ? `${focusedField.label}: ${focusedField.error}`
+    : showHints && focusedField?.hint ? focusedField.hint : "";
+  const detailLines = detailText ? wrapWords(detailText, inner, inner) : [];
+  const contentRows = spec.height && spec.height > 0 ? Math.max(1, spec.height - 7) : undefined;
+  const detailLimit = narrow
+    ? contentRows !== undefined
+      ? contentRows >= 3 ? Math.min(detailLines.length ? 3 : 1, contentRows - 2) : 0
+      : Math.max(1, Math.min(3, detailLines.length))
+    : spec.compact ? 1 : 0;
+  const detailOffset = Math.max(0, Math.min(spec.detailOffset ?? 0, Math.max(0, detailLines.length - detailLimit)));
+  const visibleDetail = !narrow && spec.compact
+    ? [truncate(focusedField?.error ? styles.error(detailText) : detailText ? styles.dim(detailText) : "", inner)]
+    : detailLines.slice(detailOffset, detailOffset + detailLimit).map((line) =>
+      focusedField?.error ? styles.error(line) : styles.dim(line));
+  while (visibleDetail.length < detailLimit) visibleDetail.push("");
+  const availableFieldRows = contentRows === undefined ? undefined : Math.max(1, contentRows - visibleDetail.length);
   const visibleBlocks = availableFieldRows === undefined
     ? fieldBlocks
     : windowFormBlocks(fieldBlocks, Math.max(0, spec.fields.findIndex((field) => field.key === spec.focus)), availableFieldRows);
-  const focusedField = spec.fields.find((field) => field.key === spec.focus);
-  const detail = focusedField?.error
-    ? styles.error(`${focusedField.label}: ${focusedField.error}`)
-    : showHints && focusedField?.hint ? styles.dim(focusedField.hint) : "";
+  const visibleFields = visibleBlocks.flat();
+  const fieldPadding = contentRows === undefined
+    ? []
+    : Array.from({ length: Math.max(0, contentRows - visibleFields.length - visibleDetail.length) }, () => "");
   const body: string[] = [
     styles.accent(spec.title),
     styles.border("─".repeat(inner)),
     "",
-    ...visibleBlocks.flat(),
-    ...(spec.compact ? [truncate(detail, inner)] : []),
+    ...visibleFields,
+    ...fieldPadding,
+    ...visibleDetail,
     styles.border("─".repeat(inner)),
   ];
-  const footer = inner < 32 ? (spec.narrowFooter ?? "enter · esc") : spec.footer;
+  const footer = narrow && displayWidth(spec.footer) > inner ? (spec.narrowFooter ?? "Enter Confirm · Esc Cancel") : spec.footer;
   body.push(truncate(styles.dim(footer), inner));
   return frame(width, body, styles, { border: "dialog-title" });
 }
 
 function windowFormBlocks(blocks: string[][], focusIndex: number, rowLimit: number): string[][] {
   if (blocks.reduce((total, block) => total + block.length, 0) <= rowLimit) return blocks;
+  const focusedBlock = blocks[focusIndex] ?? [];
+  if (focusedBlock.length > rowLimit) {
+    const required = [...focusedBlock];
+    while (required.at(-1) === "") required.pop();
+    return rowLimit > 0 ? [required.slice(-rowLimit)] : [];
+  }
   let start = focusIndex;
   let end = focusIndex + 1;
-  let rows = blocks[focusIndex]?.length ?? 0;
+  let rows = focusedBlock.length;
   let before = focusIndex - 1;
   let after = focusIndex + 1;
   let preferBefore = true;

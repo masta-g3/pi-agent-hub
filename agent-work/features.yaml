@@ -1037,3 +1037,13 @@
   created_at: '2026-09-19'
   plan_file: agent-work/history/20260919_fork-compact-003_ticket_reset.md
   completed_at: '2026-09-19'
+- id: split-view-011
+  status: done
+  title: Sidebar readability
+  subtitle: Readable controls beside pinned sessions
+  description: Pinned-session sidebars keep session identity and all dashboard controls
+    usable at narrow widths without changing pane layout.
+  priority: 2
+  created_at: '2026-09-19'
+  plan_file: agent-work/history/20260919_split-view-011_sidebar_readability.md
+  completed_at: '2026-09-19'

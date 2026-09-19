@@ -241,7 +241,7 @@ Press `n` to create a session.
 | `Ctrl+T` | Toggle worktree mode |
 | `Ctrl+L` | Expand options, enable worktree mode, and focus Branch |
 
-Bracketed directory and option values are editable fields, `▾` marks a picker, and actions are listed separately. The focused control changes the fixed help line near the bottom; it does not move the form rows.
+Bracketed directory and option values are editable fields, `▾` marks a picker, and actions are listed separately. The focused control changes the help/error area near the bottom; the footer controls stay fixed.
 
 A favorite stores a name and an ordered set of directories, with Primary first. Applying one replaces the draft directories and seeds the editable Group from the favorite name. It does not change the worktree choice or branch and never starts a session. In the favorites picker, use `Ctrl+U` to start updating from the current draft, `Ctrl+R` to rename, and `Ctrl+X` to start removal. Update and removal show a confirmation screen; press `Enter` to confirm.
 
@@ -280,7 +280,7 @@ Skills and MCP selections belong to the primary repo:
 <project>/.pi/sessions/mcp.json
 ```
 
-Press `s` for the configured skill pools or `m` for the MCP catalog. `←` / `→` switches Enabled/Available columns, `↑` / `↓` moves within a column, and `Space` toggles an item. `Tab` also switches columns. In the skills picker, `Alt+E` edits the pool path.
+Press `s` for the configured skill pools or `m` for the MCP catalog. `←` / `→` switches between Enabled and Available, `↑` / `↓` moves within the selected list, and `Space` toggles an item. `Tab` also switches lists. At 40–60 columns, only the selected list is shown; wider layouts show both columns. In the skills picker, `Alt+E` edits the pool path.
 
 With no selected session, the pickers use the dashboard directory. Multi-repo sessions attach capabilities only to the primary repo. Restart after changing skills or MCP so Pi reloads tools. See [Configuration](CONFIG.md) for pools and catalogs.
 

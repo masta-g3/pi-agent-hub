@@ -11,6 +11,7 @@ function context() {
   let message: string | undefined;
   let latestDialog: ReturnType<typeof createThemeDialog> | undefined;
   return {
+    viewport: { width: 100, height: 24 },
     previews,
     applies,
     cancelled,

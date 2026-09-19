@@ -208,6 +208,7 @@ export interface SessionsViewActions {
 export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
 
 export interface DialogContext {
+  viewport: { width: number; height?: number };
   controller: SessionsController;
   actions: SessionsViewActions;
   theme: SessionsTheme | undefined;
@@ -231,7 +232,7 @@ export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationAction
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
 export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
-export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions; terminalRows?: () => number }>;
+export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;
 
 export function isPromise<T = unknown>(value: unknown): value is Promise<T> {
