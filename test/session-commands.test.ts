@@ -289,6 +289,29 @@ function session(overrides: Partial<ManagedSession> = {}): ManagedSession {
   };
 }
 
+async function waitForCompactLaunch(root: string, log: string): Promise<{ child: ManagedSession; attemptId: string }> {
+  for (let poll = 0; poll < 200; poll += 1) {
+    const child = (await loadRegistry()).sessions.find((item) => item.id !== "source-session");
+    const commands = await readFile(log, "utf8").catch(() => "");
+    const attemptId = commands.match(/PI_AGENT_HUB_FORK_COMPACT='([^']+)'/)?.[1];
+    if (child && attemptId) return { child, attemptId };
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`compact fork did not launch from ${root}`);
+}
+
+async function writeForkHeartbeat(root: string, child: ManagedSession, operation: { phase: "running" | "complete" | "error"; id: string }, message?: string, managedSessionId = child.id): Promise<void> {
+  await writeFile(heartbeatPath(child.id, { PI_AGENT_HUB_DIR: join(root, "hub") }), JSON.stringify({
+    managedSessionId,
+    cwd: child.cwd,
+    state: operation.phase === "running" ? "running" : operation.phase === "error" ? "error" : "waiting",
+    stateSince: 1,
+    updatedAt: Date.now(),
+    operation: { kind: "fork-compact", ...operation },
+    ...(message ? { message } : {}),
+  }), "utf8");
+}
+
 test("startManagedSession merges prepared workspace outputs into the latest row", async () => {
   const oldDir = process.env.PI_AGENT_HUB_DIR;
   const oldPath = process.env.PATH;
@@ -495,6 +518,7 @@ test("forkManagedSession exports the fork record primary cwd without changing co
     assert.match(commands, new RegExp(`${PRIMARY_CWD_ENV}='${primary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
     assert.doesNotMatch(commands, new RegExp(`${PRIMARY_CWD_ENV}='${additional.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
     assert.match(commands, /--fork/);
+    assert.doesNotMatch(commands, /PI_AGENT_HUB_FORK_COMPACT/);
     assert.equal(fork.worktreeOwnedByHub, undefined);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
@@ -502,7 +526,7 @@ test("forkManagedSession exports the fork record primary cwd without changing co
   }
 });
 
-test("forkManagedSession marks compact forks for one-time startup handling", async () => {
+test("forkManagedSession uses one compact attempt token and ignores wrong child and attempt outcomes", async () => {
   const oldDir = process.env.PI_AGENT_HUB_DIR;
   const oldPath = process.env.PATH;
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-fork-compact-"));
@@ -520,33 +544,65 @@ test("forkManagedSession marks compact forks for one-time startup handling", asy
   try {
     await seedRegistry({ version: 1, sessions: [session({ cwd: primary, sessionFile: history })] });
     await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
-    const heartbeatTask = (async () => {
-      let child: ManagedSession | undefined;
-      while (!child) {
-        child = (await loadRegistry()).sessions.find((item) => item.id !== "source-session");
-        if (!child) await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      const writeForkHeartbeat = (operation: "running" | "complete") => writeFile(heartbeatPath(child!.id, { PI_AGENT_HUB_DIR: join(root, "hub") }), JSON.stringify({
-        managedSessionId: child!.id, cwd: primary, state: operation === "running" ? "running" : "waiting", stateSince: 1, updatedAt: Date.now(),
-        operation: { kind: "fork-compact", phase: operation, id: "op-1" },
-      }), "utf8");
-      await writeForkHeartbeat("running");
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await writeForkHeartbeat("complete");
-    })();
-    const fork = await forkManagedSession("source-session", { compact: true });
-    await heartbeatTask;
+    let settled = false;
+    const forkTask = forkManagedSession("source-session", { compact: true }).finally(() => { settled = true; });
+    const { child, attemptId } = await waitForCompactLaunch(root, log);
+    assert.match(attemptId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+    await writeForkHeartbeat(root, child, { phase: "complete", id: attemptId }, undefined, "another-child");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(settled, false, "another child's completion must be ignored");
+    await writeForkHeartbeat(root, child, { phase: "error", id: "wrong-attempt" }, "wrong attempt failed");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(settled, false, "another attempt's error must be ignored");
+    await writeForkHeartbeat(root, child, { phase: "complete", id: "wrong-attempt" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(settled, false, "another attempt's completion must be ignored");
+    await writeForkHeartbeat(root, child, { phase: "complete", id: attemptId });
+
+    const fork = await forkTask;
     const registry = await loadRegistry();
     assert.equal(registry.sessions.length, 2);
     assert.equal(registry.sessions.find((item) => item.id === "source-session")?.group, "default");
     assert.equal(fork.group, "default");
     const commands = await readFile(log, "utf8");
-    assert.match(commands, /PI_AGENT_HUB_FORK_COMPACT='1'/);
+    assert.equal(commands.match(/PI_AGENT_HUB_FORK_COMPACT=/g)?.length, 1);
     assert.equal(fork.title, "Fork · source");
     assert.match(commands, /'--name' 'Fork · source'/);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("forkManagedSession surfaces the matching compact failure and leaves the child inspectable", async () => {
+  const oldDir = process.env.PI_AGENT_HUB_DIR;
+  const oldPath = process.env.PATH;
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-fork-compact-error-"));
+  const bin = join(root, "bin");
+  const log = join(root, "tmux.log");
+  const history = join(root, "saved.jsonl");
+  await mkdir(bin);
+  await writeFile(history, "{}\n", "utf8");
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(log)}\nexit 0\n`, "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
+  process.env.PI_AGENT_HUB_DIR = join(root, "hub");
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  try {
+    await seedRegistry({ version: 1, sessions: [session({ sessionFile: history })] });
+    await mkdir(join(root, "hub", "heartbeats"), { recursive: true });
+    const forkTask = forkManagedSession("source-session", { compact: true });
+    const { child, attemptId } = await waitForCompactLaunch(root, log);
+    await writeForkHeartbeat(root, child, { phase: "error", id: attemptId }, "Rules reset receipt missing; enable or update Rules and retry");
+
+    await assert.rejects(forkTask, /Rules reset receipt missing; enable or update Rules and retry/);
+    assert.equal((await loadRegistry()).sessions.some((item) => item.id === child.id), true);
+    assert.doesNotMatch(await readFile(log, "utf8"), /kill-session/);
+  } finally {
+    if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR; else process.env.PI_AGENT_HUB_DIR = oldDir;
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    await rm(root, { recursive: true, force: true });
   }
 });
 

@@ -108,11 +108,11 @@ Select a repo header and press `Enter`, or double-click it, to fold the section.
 
 ## Fork and compact
 
-`Shift+F` creates a child with the default fork name, clears inherited task state, and compacts its history. The row shows preparation progress while the dashboard remains usable. The child becomes available only after task reset and compaction are confirmed; elapsed time alone never means success.
+`Shift+F` creates a child with the default fork name. Rules must confirm that the child's inherited ticket and workflow are cleared before Hub starts compaction. Hub reports success only after compaction finishes and the child still has no linked task. The source conversation and project files stay unchanged; the child retains compacted discussion context.
 
-If preparation fails, use **Open to inspect**, **Retry preparation**, or **Cancel preparation and keep session** where available in `:`. Retry uses the same saved child and requires it to be stopped or confirmed idle. Cancellation removes only the failed preparation restriction; it does not verify reset or change the conversation. Preparation survives dashboard restart.
+Use matching updated Hub and Rules extensions. If Rules is missing, disabled, or cannot confirm the reset, Hub reports an error and does not start compaction. The child stays available for inspection. Enable or update Rules, then retry Fork and compact from the original session. Compaction errors and timeouts also leave the child available; a timeout does not mean compaction succeeded or stopped.
 
-The source conversation and project files stay unchanged. The child retains compacted discussion context. Normal `f` forks do not use this preparation gate.
+Normal `f` forks retain ticket ownership and do not request this reset.
 
 ## Intent palette
 
@@ -255,11 +255,9 @@ New sessions and fresh-conversation restarts use `New · <repository>`. Forks us
 
 These are initial names. Manual or agent naming can replace an unlinked session's name; resuming a saved conversation preserves it. `R` renames a live session, and `N` syncs from Pi's saved name.
 
-With Rules installed, a linked ticket owns the name. It identifies the task, not the workflow stage. Hub disables Rename while ticket context is present; clearing the workflow rail alone does not unlink the ticket.
+With Rules installed, a linked ticket owns the name. It identifies the task, not the workflow stage. Hub disables Rename while ticket context is present. In Pi, use `/wf-ticket clear` to unlink the ticket while keeping workflow progress, or `/wf-clear` to clear both. Both stop Focus continuation and release name protection without changing the current name or ticket files. Dismissing only the completed workflow indicator keeps the ticket linked.
 
-Normal Hub forks retain the ticket. **Fork and compact** and native Pi forks clear inherited ticket/workflow context, so the child can have its own name without changing the original.
-
-See [Fork and compact](#fork-and-compact) for preparation and recovery controls.
+Normal Hub forks retain the ticket. Native Pi forks clear it in the child. See [Fork and compact](#fork-and-compact) for the verified reset and failure behavior.
 
 ## Groups and session actions
 

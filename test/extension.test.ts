@@ -14,6 +14,12 @@ import { writeJsonAtomic } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
 
 const EXTENSION_KEY = Symbol.for("pi-agent-hub.extension.loaded");
+const FORK_ATTEMPT = "571b5a3d-55fa-4c90-b5cc-fc2f907785d1";
+const resetEntries = () => [
+  { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: Date.now() } },
+  { type: "custom", customType: "workflow-runtime", data: { updatedAt: Date.now(), steps: [{ id: "execute", short: "EX", label: "Execute" }] } },
+  { type: "custom", customType: "workflow-runtime-reset", data: { version: 1, id: FORK_ATTEMPT, status: "ready" } },
+];
 
 test("piAgentHubExtension registers handlers once per active process", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
@@ -112,7 +118,7 @@ test("name commands apply once to the exact conversation and ignore stale, expir
   }
 });
 
-test("compact fork startup preserves the CLI name, clears metadata, and requests a bounded handoff", async () => {
+test("compact fork waits for the producer reset, preserves the CLI name, and requests a bounded handoff", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-fork-compact-"));
   const previous = {
@@ -124,7 +130,7 @@ test("compact fork startup preserves the CLI name, clears metadata, and requests
   process.env[SESSION_ID_ENV] = "fork-compact";
   process.env[STATE_ENV] = root;
   process.env[PRIMARY_CWD_ENV] = "/repos/example-api";
-  process.env[FORK_COMPACT_ENV] = "1";
+  process.env[FORK_COMPACT_ENV] = FORK_ATTEMPT;
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
   const names: string[] = [];
   const compactions: unknown[] = [];
@@ -134,24 +140,28 @@ test("compact fork startup preserves the CLI name, clears metadata, and requests
     setSessionName(name: string) { names.push(name); },
     getSessionName() { return names.at(-1) ?? "Fork · previous task"; },
   };
+  const branch: unknown[] = [
+    { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: 1, ticket: { id: "old-001" } } },
+    { type: "custom", customType: "workflow-runtime", data: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeStep: "execute", ticketId: "old-001", updatedAt: 1 } },
+  ];
   const ctx = {
     cwd: root,
     hasUI: false,
     compact(options: unknown) { compactions.push(options); },
-    sessionManager: {
-      getBranch: () => [
-        { type: "custom", customType: "pi-agent-hub-context", timestamp: 1, data: { version: 1, updatedAt: 1, ticket: { id: "old-001" } } },
-        { type: "custom", customType: "workflow-runtime", timestamp: 1, data: { steps: [{ id: "execute", short: "EX", label: "Execute" }], activeStep: "execute", ticketId: "old-001", updatedAt: 1 } },
-      ],
-    },
+    sessionManager: { getBranch: () => branch, getSessionId: () => "fork-conversation" },
   };
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
-    assert.equal(process.env[FORK_COMPACT_ENV], "1", "other extension factories must be able to capture the fork marker");
+    assert.equal(process.env[FORK_COMPACT_ENV], FORK_ATTEMPT, "other extension factories must be able to capture the fork marker");
     await handlers.get("session_start")?.({ reason: "startup" }, ctx);
     assert.equal(process.env[FORK_COMPACT_ENV], undefined);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => setTimeout(resolve, 60));
+    assert.equal(compactions.length, 0, "Hub must not compact before Rules resets the child");
+    const pending = JSON.parse(await readFile(heartbeatPath("fork-compact"), "utf8")) as Heartbeat;
+    assert.equal(pending.context?.ticket?.id, "old-001", "do not hide the inherited ticket to simulate reset");
+    branch.push(...resetEntries());
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
     assert.deepEqual(names, [], "startup must not overwrite the name set by --name");
     assert.equal(compactions.length, 1);
     const compactOptions = compactions[0] as { customInstructions?: string; onComplete?: () => void | Promise<void>; onError?: (error: Error) => void | Promise<void> };
@@ -165,14 +175,15 @@ test("compact fork startup preserves the CLI name, clears metadata, and requests
     const running = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(running.state, "running");
     assert.equal(running.piSessionName, "Fork · previous task");
-    assert.deepEqual(running.operation, { kind: "fork-compact", phase: "running", id: running.operation?.id });
-    assert.equal(running.context, undefined);
+    assert.deepEqual(running.operation, { kind: "fork-compact", phase: "running", id: FORK_ATTEMPT });
+    assert.equal(running.context?.ticket, undefined);
     assert.equal(running.workflow, undefined);
     await compactOptions.onComplete?.();
     const complete = JSON.parse(await readFile(heartbeatPath("fork-compact", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
     assert.equal(complete.operation?.kind, "fork-compact");
     assert.equal(complete.operation?.phase, "complete");
-    assert.equal(complete.context, undefined);
+    assert.equal(complete.context?.ticket, undefined);
+    assert.equal(complete.operation?.id, FORK_ATTEMPT);
     assert.equal(complete.workflow, undefined);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
@@ -350,7 +361,7 @@ test("an extension error owns lifecycle state over a stale prompt end", async ()
   };
   process.env[SESSION_ID_ENV] = "prompt-error";
   process.env[STATE_ENV] = root;
-  process.env[FORK_COMPACT_ENV] = "1";
+  process.env[FORK_COMPACT_ENV] = FORK_ATTEMPT;
   delete process.env.PI_TMUX_SUBAGENTS_JOB_ID;
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
   let compactOptions: { onError?: (error: Error) => void } | undefined;
@@ -359,7 +370,7 @@ test("an extension error owns lifecycle state over a stale prompt end", async ()
     registerTool() {},
     setSessionName() {},
   };
-  const ctx = { cwd: root, hasUI: false, compact(options: { onError?: (error: Error) => void }) { compactOptions = options; } };
+  const ctx = { cwd: root, hasUI: false, sessionManager: { getBranch: resetEntries }, compact(options: { onError?: (error: Error) => void }) { compactOptions = options; } };
   const readHeartbeat = async () => JSON.parse(await readFile(heartbeatPath("prompt-error", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
 
   try {

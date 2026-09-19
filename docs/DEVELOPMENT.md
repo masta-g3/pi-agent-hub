@@ -35,7 +35,11 @@ npm test
 npm run package:check
 ```
 
-Do not run these concurrently: both rebuild `dist`. If the linked Hub is in use, run `npm run typecheck` without rebuilding it. For tests, compile with `tsc -p tsconfig.json --outDir <temporary-directory>`, link that directory's `node_modules` to the checkout, add a `package.json` containing `{"type":"module"}`, and run its emitted `test/*.test.js` files. Remove the temporary directory afterward. Direct Node TypeScript execution does not resolve this repo's `.js` source imports.
+Do not run these concurrently: both rebuild `dist`. If the linked Hub is in use, run `npm run typecheck` without rebuilding it.
+
+For an isolated full-suite run, use a temporary copy of the approved source, including new feature files and its `package.json` and lockfile. Install matching dependencies there with `npm ci --ignore-scripts`, then run `npm test` from that temporary source root. The existing build creates `dist/cli.js`; CLI tests need that launcher and the real package name/version metadata. This keeps the live checkout's `dist` unchanged. Remove the temporary copy afterward.
+
+Direct Node TypeScript execution does not resolve this repo's `.js` source imports. A temporary `tsc --outDir` build with a type-only `package.json` can run focused tests, but is not sufficient for the full CLI suite.
 
 ## Feature-only installation
 

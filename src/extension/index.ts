@@ -1,5 +1,6 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { startSessionInteraction } from "./session-interaction.js";
+import { forkResetReady } from "./fork-compact.js";
 import { join } from "node:path";
 import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
@@ -54,9 +55,14 @@ const STARTUP_HEARTBEAT_DELAYS_MS = [250, 1_000, 3_000];
 const SETTLED_HEARTBEAT_DELAYS_MS = [1_000, 3_000, 6_000];
 const COMMAND_INTERVAL_MS = 1_000;
 const FORK_COMPACT_INSTRUCTIONS = "This session branches from the prior conversation. Another agent will continue that prior work. Preserve product decisions and unresolved context from the discussion that code and docs cannot show. Stop pursuing the prior task and wait for a new task from the user, which may be related or unrelated.";
-const FORK_COMPACT_OPERATION_ID_LENGTH = 16;
+const FORK_RESET_TIMEOUT_MS = 5_000;
+const FORK_RESET_POLL_MS = 50;
+const FORK_ATTEMPT_PATTERN = /^[A-Za-z0-9_-]{16,80}$/;
 
-export default function piAgentHubExtension(pi: ExtensionAPI) {
+export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
+  startInteraction?: typeof startSessionInteraction;
+  registerMcp?: typeof registerMcpTools;
+} = {}) {
   const globalState = globalThis as PiAgentHubGlobal;
   if (globalState[EXTENSION_KEY]) return;
   globalState[EXTENSION_KEY] = true;
@@ -64,10 +70,11 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   const extensionStartedAt = Date.now();
   let currentState: Heartbeat["state"] = "starting";
   let stateSince = extensionStartedAt;
-  let forkCompactPending = process.env[FORK_COMPACT_ENV] === "1";
-  const forkCompactOperationId = forkCompactPending ? extensionStartedAt.toString(36).slice(-FORK_COMPACT_OPERATION_ID_LENGTH) : undefined;
+  const rawForkAttempt = process.env[FORK_COMPACT_ENV];
+  const forkAttempt = rawForkAttempt && FORK_ATTEMPT_PATTERN.test(rawForkAttempt) ? rawForkAttempt : undefined;
+  let forkCompactPending = rawForkAttempt !== undefined;
   let forkCompactOperation: HeartbeatOperation | undefined;
-  let metadataResetAt: number | undefined;
+  let startupGeneration = 0;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let commandTimer: ReturnType<typeof setInterval> | undefined;
   let startupHeartbeatTimers: ReturnType<typeof setTimeout>[] = [];
@@ -157,8 +164,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
         resultPath: process.env.PI_SUBAGENT_RESULT_PATH,
         activeTheme: activeTheme(ctx),
         piSessionName: normalizedName(pi.getSessionName?.()),
-        context: sessionContextSnapshot(ctx, metadataResetAt),
-        workflow: workflowSnapshot(ctx, metadataResetAt),
+        context: sessionContextSnapshot(ctx),
+        workflow: workflowSnapshot(ctx),
         ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
       } satisfies Heartbeat);
     });
@@ -175,46 +182,95 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     const piCtx = ctx as PiContext;
-    await interaction?.close();
-    interaction = undefined;
-    promptSnapshot = undefined;
+    const generation = ++startupGeneration;
     const managedId = process.env[SESSION_ID_ENV];
     const piSessionId = piCtx.sessionManager?.getSessionId?.();
-    if (managedId && piSessionId && !process.env.PI_TMUX_SUBAGENTS_JOB_ID && process.env[KIND_ENV] !== "subagent"
-      && piCtx.sessionManager?.getBranch && piCtx.isIdle && piCtx.hasPendingMessages && piCtx.ui?.getEditorText && pi.events) {
-      interaction = await startSessionInteraction({
-        managedId, piSessionId, events: pi.events,
-        getPiSessionId: () => piCtx.sessionManager?.getSessionId?.(),
-        getBranch: () => piCtx.sessionManager!.getBranch!() ?? [],
-        isIdle: () => piCtx.isIdle!(), hasPendingMessages: () => piCtx.hasPendingMessages!(),
-        getEditorText: () => piCtx.ui!.getEditorText!(),
-        uiPromptOpen: () => Boolean(promptSnapshot) || Boolean(forkCompactOperation),
-        sendUserMessage: (text, options) => pi.sendUserMessage(text, options),
-      });
+    const active = () => startupGeneration === generation && process.env[SESSION_ID_ENV] === managedId
+      && piCtx.sessionManager?.getSessionId?.() === piSessionId;
+    promptSnapshot = undefined;
+
+    const startInteraction = async () => {
+      await interaction?.close();
+      if (!active()) return;
+      interaction = undefined;
+      if (managedId && piSessionId && !process.env.PI_TMUX_SUBAGENTS_JOB_ID && process.env[KIND_ENV] !== "subagent"
+        && piCtx.sessionManager?.getBranch && piCtx.isIdle && piCtx.hasPendingMessages && piCtx.ui?.getEditorText && pi.events) {
+        const started = await (dependencies.startInteraction ?? startSessionInteraction)({
+          managedId, piSessionId, events: pi.events,
+          getPiSessionId: () => piCtx.sessionManager?.getSessionId?.(),
+          getBranch: () => piCtx.sessionManager!.getBranch!() ?? [],
+          isIdle: () => piCtx.isIdle!(), hasPendingMessages: () => piCtx.hasPendingMessages!(),
+          getEditorText: () => piCtx.ui!.getEditorText!(),
+          uiPromptOpen: () => Boolean(promptSnapshot) || Boolean(forkCompactOperation),
+          sendUserMessage: (text, options) => pi.sendUserMessage(text, options),
+        });
+        if (!active()) await started.close();
+        else interaction = started;
+      }
+    };
+    const startMcp = async () => {
+      const cleanup = await (dependencies.registerMcp ?? registerMcpTools)(pi, piCtx.cwd);
+      if (!active()) await cleanup();
+      else mcpCleanup = cleanup;
+    };
+    const startHeartbeat = async () => {
+      await publishLifecycle("waiting", piCtx);
+      if (!active()) return;
+      heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
+      acceptingNameCommands = true;
+      commandTimer = setInterval(() => {
+        void applyNameCommand(piCtx);
+        void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined);
+      }, COMMAND_INTERVAL_MS);
+      startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
+    };
+
+    if (!forkCompactPending) {
+      await startInteraction();
+      if (!active()) return;
+      await startHeartbeat();
+      if (active()) await startMcp();
+      return;
     }
-    const compactFork = forkCompactPending;
-    if (compactFork) {
-      delete process.env[FORK_COMPACT_ENV];
-      forkCompactPending = false;
-      metadataResetAt = extensionStartedAt;
-      forkCompactOperation = { kind: "fork-compact", phase: "running", id: forkCompactOperationId ?? extensionStartedAt.toString(36) };
-    }
-    await publishLifecycle("waiting", piCtx);
-    heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
-    acceptingNameCommands = true;
-    commandTimer = setInterval(() => {
-      void applyNameCommand(piCtx);
-      void applyThemeCommand(piCtx).then((applied) => applied ? heartbeat(currentState, piCtx) : undefined);
-    }, COMMAND_INTERVAL_MS);
-    startupHeartbeatTimers = STARTUP_HEARTBEAT_DELAYS_MS.map((delay) => setTimeout(() => void applyThemeAndHeartbeat(currentState, piCtx), delay));
-    if (compactFork) {
-      startupCompactionTimer = setTimeout(() => piCtx.compact({
-        customInstructions: FORK_COMPACT_INSTRUCTIONS,
-        onComplete: () => completeForkCompaction(piCtx),
-        onError: (error) => failForkCompaction(piCtx, error),
-      }), 0);
-    }
-    mcpCleanup = await registerMcpTools(pi, piCtx.cwd);
+    delete process.env[FORK_COMPACT_ENV];
+    forkCompactPending = false;
+    if (forkAttempt) forkCompactOperation = { kind: "fork-compact", phase: "running", id: forkAttempt };
+    const fail = async (error: Error) => {
+      if (active()) await failForkCompaction(piCtx, error);
+    };
+    const pending = () => active() && forkCompactOperation?.phase === "running";
+    // Pi awaits startup handlers in order. Neither the reset gate nor service
+    // initialization may hold up the producer's later session_start handler.
+    startupCompactionTimer = setTimeout(() => {
+      startupCompactionTimer = undefined;
+      if (!active()) return;
+      void startHeartbeat().catch(fail);
+      void startInteraction().catch(fail);
+      void startMcp().catch(fail);
+      if (!forkAttempt) {
+        void fail(new Error("Invalid fork reset token. Update Hub and retry from the original session."));
+        return;
+      }
+      const deadline = Date.now() + FORK_RESET_TIMEOUT_MS;
+      const check = () => {
+        startupCompactionTimer = undefined;
+        if (!pending()) return;
+        try {
+          if (forkResetReady(piCtx.sessionManager?.getBranch?.() ?? [], forkAttempt)) {
+            piCtx.compact({
+              customInstructions: FORK_COMPACT_INSTRUCTIONS,
+              onComplete: () => completeForkCompaction(piCtx, pending),
+              onError: fail,
+            });
+          } else if (Date.now() >= deadline) {
+            void fail(new Error("Ticket reset was not confirmed. Enable or update Rules, then retry from the original session."));
+          } else startupCompactionTimer = setTimeout(check, FORK_RESET_POLL_MS);
+        } catch (error) {
+          void fail(error instanceof Error ? error : new Error(String(error)));
+        }
+      };
+      check();
+    }, 0);
   });
 
   pi.on("session_tree", () => { interaction?.branchChanged(); });
@@ -235,9 +291,14 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     }
   };
 
-  const completeForkCompaction = async (ctx: PiContext) => {
+  const completeForkCompaction = async (ctx: PiContext, pending: () => boolean) => {
+    if (!pending()) return;
     await restoreCompaction(ctx);
-    if (!forkCompactOperation) return;
+    if (!pending() || !forkCompactOperation) return;
+    if (!forkResetReady(ctx.sessionManager?.getBranch?.() ?? [], forkCompactOperation.id)) {
+      await failForkCompaction(ctx, new Error("Ticket or workflow changed during compaction. Clear it and retry from the original session."));
+      return;
+    }
     forkCompactOperation = { ...forkCompactOperation, phase: "complete" };
     await heartbeat(currentState, ctx);
     forkCompactOperation = undefined;
@@ -301,6 +362,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
     await heartbeat(snapshot.state, ctx as PiContext, undefined, snapshot.stateSince);
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    startupGeneration += 1;
     acceptingNameCommands = false;
     try {
       await interaction?.close();
@@ -324,34 +386,26 @@ export default function piAgentHubExtension(pi: ExtensionAPI) {
   });
 }
 
-function workflowSnapshot(ctx: PiContext, minimumEntryTime?: number): WorkflowRuntimeSnapshot | undefined {
+function workflowSnapshot(ctx: PiContext): WorkflowRuntimeSnapshot | undefined {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== WORKFLOW_RUNTIME_ENTRY) continue;
-      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       return parseWorkflowEntry(entry.data);
     }
   } catch {}
   return undefined;
 }
 
-function entryUpdatedAt(data: unknown): number {
-  if (typeof data !== "object" || data === null) return 0;
-  const updatedAt = (data as { updatedAt?: unknown }).updatedAt;
-  return typeof updatedAt === "number" && Number.isFinite(updatedAt) ? updatedAt : 0;
-}
-
-function sessionContextSnapshot(ctx: PiContext, minimumEntryTime?: number) {
+function sessionContextSnapshot(ctx: PiContext) {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== SESSION_CONTEXT_ENTRY) continue;
-      if (minimumEntryTime !== undefined && entryUpdatedAt(entry.data) < minimumEntryTime) continue;
       return parseSessionContext(entry.data);
     }
   } catch {}

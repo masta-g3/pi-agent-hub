@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { access, rm, unlink } from "node:fs/promises";
 import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, SUBAGENT_PROMPT_APPEND_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
@@ -194,6 +195,7 @@ async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): 
     return { ...latest, sessions: [...latest.sessions, record] };
   });
   const piArgs = buildPiArgs({ extensionPath: extensionPath(), forkFrom: sourceFile, name: record.title });
+  const compactAttemptId = input.compact ? randomUUID() : undefined;
   await newSession({
     name: record.tmuxSession,
     cwd: effectiveSessionCwd(record),
@@ -202,23 +204,23 @@ async function forkManagedSessionImpl(sourceId: string, input: ForkInput = {}): 
       [SESSION_ID_ENV]: record.id,
       [STATE_ENV]: sessionsStateDir(),
       [PRIMARY_CWD_ENV]: record.cwd,
-      ...(input.compact ? { [FORK_COMPACT_ENV]: "1" } : {}),
+      ...(compactAttemptId ? { [FORK_COMPACT_ENV]: compactAttemptId } : {}),
     },
   });
   await configureManagedSessionStatusBar({ name: record.tmuxSession, title: record.title, cwd: record.cwd, theme: await loadManagedSessionTheme(record) });
-  if (input.compact) await waitForForkCompaction(record.id);
+  if (compactAttemptId) await waitForForkCompaction(record.id, compactAttemptId);
   return record;
 }
 
-async function waitForForkCompaction(sessionId: string): Promise<void> {
+async function waitForForkCompaction(sessionId: string, attemptId: string): Promise<void> {
   const deadline = Date.now() + FORK_COMPACT_TIMEOUT_MS;
   let phase: string | undefined;
   while (Date.now() < deadline) {
     const heartbeat = await readHeartbeat(sessionId);
     const operation = heartbeat?.operation;
-    phase = operation?.phase;
-    if (operation?.kind === "fork-compact") {
-      if (operation.phase === "error") throw new Error(`fork compaction failed for ${sessionId}`);
+    if (operation?.kind === "fork-compact" && operation.id === attemptId) {
+      phase = operation.phase;
+      if (operation.phase === "error") throw new Error(heartbeat?.message ?? `fork compaction failed for ${sessionId}`);
       if (operation.phase === "complete") return;
     }
     await new Promise((resolve) => setTimeout(resolve, FORK_COMPACT_POLL_MS));
