@@ -434,7 +434,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     for (const session of visibleSessions) {
       if (adaptiveRowShape(session) !== "full-parent") continue;
       const hasVisibleChild = visibleSessions.some((candidate) => candidate.kind === "subagent" && candidate.cockpitOwnerId === session.cockpitOwnerId);
-      const hasContinuation = adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width).length > 0;
+      const hasContinuation = !board || adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width).length > 0;
       if (hasVisibleChild || hasContinuation) richOwners.add(session.cockpitOwnerId);
     }
   }
@@ -456,6 +456,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       treeEnd: false,
     } : undefined));
   };
+  let gridWorkflow: WorkflowRuntimeSnapshot | undefined;
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     if (session.selected) selectedIndex = lines.length;
     const shape = adaptiveRowShape(session);
@@ -463,8 +464,14 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       ? !siblings.slice(index + 1).some((candidate) => candidate.kind === "subagent" && candidate.parentId === session.parentId)
       : false;
     const gutterColumn = model.width >= 100 && !model.pinMode;
-    pushLine(renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn }), { kind: "session", id: session.id }, session);
+    const titleFirst = !board && shape === "full-parent";
+    pushLine(renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst }), { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
+    if (titleFirst) {
+      const indent = gutterColumn ? "   " : "  ";
+      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, styles, gridWorkflow, model.fleetGrouping === "repo")}`, { kind: "session-continuation", id: session.id }, session);
+      continuationPriorities.set(lines.length - 1, -1);
+    }
     if (shape === "full-parent" && !model.compactRows) {
       for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
@@ -492,6 +499,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   if (releaseCue && model.sections[0]?.cockpitTier !== "needs-you") pushReleaseCue();
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
+    gridWorkflow = !board ? section.groups.flatMap((group) => group.sessions)
+      .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow : undefined;
     const headingRight = board
       ? styles.dim(`·${section.sessionsTotal}`)
       : section.repoKey
@@ -505,6 +514,11 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
           cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`),
           ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
         ].join(styles.border(" · "));
+    if (gridWorkflow) {
+      const headingWidth = Math.min(20, displayWidth(section.title) + 4);
+      const rightWidth = displayWidth(headingRight) + 2 + displayWidth(workflowGridHeader(gridWorkflow));
+      if (headingWidth + 1 + rightWidth > width) gridWorkflow = undefined;
+    }
     const sectionHeadingIndex = lines.length;
     const headerTarget = section.repoKey
       ? { kind: "repo-header" as const, repoKey: section.repoKey }
@@ -517,7 +531,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
     pushLine(
-      sectionHeader(section.title, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
+      sectionHeader(section.title, gridWorkflow ? `${headingRight}  ${styles.dim(workflowGridHeader(gridWorkflow))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -661,21 +675,27 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
 
   const beforeIndexes = list.targets.flatMap((target, index) => target?.kind === "session" && index < list.selectedIndex ? [index] : []);
   const afterIndexes = list.targets.flatMap((target, index) => target?.kind === "session" && index > list.selectedEndIndex ? [index] : []);
+  // Negative-priority metadata belongs to the title, not the optional card details.
+  const requiredLength = (index: number): number => list.continuationPriorities.get(index + 1) === -1 ? 2 : 1;
   const titleLimit = Math.max(0, safeCapacity - selectedLength);
+  let beforeRows = 0;
   let best: { before: number; after: number; distance: number; contexts: Set<number> } | undefined;
   const beforeContexts = new Set(list.contextIndexes.get(list.selectedIndex) ?? []);
   for (let before = 0; before <= Math.min(beforeIndexes.length, titleLimit); before += 1) {
     if (before) {
       const titleIndex = beforeIndexes[beforeIndexes.length - before]!;
+      beforeRows += requiredLength(titleIndex);
       for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) beforeContexts.add(contextIndex);
     }
     const contexts = new Set(beforeContexts);
+    let afterRows = 0;
     for (let after = 0; after <= Math.min(afterIndexes.length, titleLimit - before); after += 1) {
       if (after) {
         const titleIndex = afterIndexes[after - 1]!;
+        afterRows += requiredLength(titleIndex);
         for (const contextIndex of list.contextIndexes.get(titleIndex) ?? []) contexts.add(contextIndex);
       }
-      if (selectedLength + before + after + contexts.size > safeCapacity) continue;
+      if (selectedLength + beforeRows + afterRows + contexts.size > safeCapacity) continue;
       const firstIndex = before ? beforeIndexes[beforeIndexes.length - before]! : list.selectedIndex;
       const distance = Math.abs(firstIndex - scrollTop);
       const shown = before + after;
@@ -705,7 +725,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const shownAfter = afterIndexes.slice(0, best.after);
   const hiddenBefore = beforeIndexes.length - shownBefore.length;
   const hiddenAfter = afterIndexes.length - shownAfter.length;
-  const coreRows = selectedLength + shownBefore.length + shownAfter.length + best.contexts.size;
+  const coreRows = selectedLength + [...shownBefore, ...shownAfter].reduce((sum, index) => sum + requiredLength(index), 0) + best.contexts.size;
   let remaining = safeCapacity - coreRows;
   let beforeIndicator = false;
   let afterIndicator = false;
@@ -733,7 +753,8 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
     const distance = ownerIndex < list.selectedIndex ? list.selectedIndex - ownerIndex : ownerIndex - list.selectedEndIndex;
     const candidates: { index: number; distance: number; priority: number }[] = [];
     for (let index = ownerIndex + 1; list.continuationPriorities.has(index); index += 1) {
-      candidates.push({ index, distance, priority: list.continuationPriorities.get(index) ?? 99 });
+      const priority = list.continuationPriorities.get(index) ?? 99;
+      if (priority >= 0) candidates.push({ index, distance, priority });
     }
     return candidates;
   }).sort((a, b) => a.distance - b.distance || a.priority - b.priority || a.index - b.index);
@@ -745,14 +766,14 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
     if (includeSelectedSpan) return [...rows, ...Array.from({ length: selectedLength }, (_, offset) => list.selectedIndex + offset)];
     rows.push(titleIndex);
     for (let index = titleIndex + 1; list.continuationPriorities.has(index); index += 1) {
-      if (keptContinuations.has(index)) rows.push(index);
+      if (list.continuationPriorities.get(index) === -1 || keptContinuations.has(index)) rows.push(index);
     }
     return rows;
   };
-  const beforeRows = shownBefore.flatMap((index) => rowsForTitle(index));
+  const beforeSourceRows = shownBefore.flatMap((index) => rowsForTitle(index));
   const selectedRows = rowsForTitle(list.selectedIndex, true);
   const afterRows = shownAfter.flatMap((index) => rowsForTitle(index));
-  const sourceRows = [...beforeRows, ...selectedRows, ...afterRows];
+  const sourceRows = [...beforeSourceRows, ...selectedRows, ...afterRows];
   const lines = [
     ...(beforeIndicator ? [styles.dim(`↑ ${hiddenBefore} more`)] : []),
     ...sourceRows.map((index) => list.lines[index] ?? ""),
@@ -768,7 +789,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
     ...sourceRows.map((index) => list.lineMeta[index]),
     ...(afterIndicator ? [undefined] : []),
   ];
-  const selectedIndex = (beforeIndicator ? 1 : 0) + beforeRows.length + selectedRows.length - selectedLength;
+  const selectedIndex = (beforeIndicator ? 1 : 0) + beforeSourceRows.length + selectedRows.length - selectedLength;
   return {
     lines,
     targets,
@@ -785,6 +806,7 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
 
   const headerIndex = list.selectedIndex;
   const footerIndex = list.selectedEndIndex;
+  const preserveFooter = list.continuationPriorities.get(headerIndex + 1) !== -1;
   if (safeCapacity === 1) {
     return { lines: [list.lines[headerIndex] ?? ""], targets: [list.targets[headerIndex]], lineMeta: [list.lineMeta[headerIndex]], selectedIndex: 0, selectedEndIndex: 0, top: headerIndex };
   }
@@ -796,11 +818,11 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
     ...(afterCount ? [{ side: "after" as const, line: styles.dim(`↓ ${afterCount} more`) }] : []),
   ];
   const detailIndexes = Array.from(
-    { length: Math.max(0, footerIndex - headerIndex - 1) },
+    { length: Math.max(0, footerIndex - headerIndex - (preserveFooter ? 1 : 0)) },
     (_, offset) => headerIndex + offset + 1,
   ).sort((a, b) => (list.continuationPriorities.get(a) ?? 99) - (list.continuationPriorities.get(b) ?? 99) || a - b);
 
-  const available = safeCapacity - 2;
+  const available = safeCapacity - (preserveFooter ? 2 : 1);
   const coreDetailCount = Math.min(2, detailIndexes.length, available);
   const indicatorCount = Math.min(indicators.length, available - coreDetailCount);
   const detailCount = Math.min(detailIndexes.length, available - indicatorCount);
@@ -814,21 +836,21 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
     ...(beforeIndicator ? [beforeIndicator.line] : []),
     list.lines[headerIndex] ?? "",
     ...orderedDetails.map((index) => list.lines[index] ?? ""),
-    list.lines[footerIndex] ?? "",
+    ...(preserveFooter ? [list.lines[footerIndex] ?? ""] : []),
     ...(afterIndicator ? [afterIndicator.line] : []),
   ];
   const targets = [
     ...(beforeIndicator ? [undefined] : []),
     list.targets[headerIndex],
     ...orderedDetails.map((index) => list.targets[index]),
-    list.targets[footerIndex],
+    ...(preserveFooter ? [list.targets[footerIndex]] : []),
     ...(afterIndicator ? [undefined] : []),
   ];
   const lineMeta = [
     ...(beforeIndicator ? [undefined] : []),
     list.lineMeta[headerIndex],
     ...orderedDetails.map((index) => list.lineMeta[index]),
-    list.lineMeta[footerIndex],
+    ...(preserveFooter ? [list.lineMeta[footerIndex]] : []),
     ...(afterIndicator ? [undefined] : []),
   ];
   const selectedIndex = beforeIndicator ? 1 : 0;
@@ -837,7 +859,7 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
     targets,
     lineMeta,
     selectedIndex,
-    selectedEndIndex: selectedIndex + orderedDetails.length + 1,
+    selectedEndIndex: selectedIndex + orderedDetails.length + (preserveFooter ? 1 : 0),
     top: headerIndex,
   };
 }
@@ -886,9 +908,6 @@ function adaptiveCardLines(
   if (summary) {
     const text = session.attention ? `“${summary}”` : summary;
     lines.push({ line: styles.muted(truncate(text, width)), priority: 0 });
-  }
-  if (terminalWidth >= 80 && session.ticketId) {
-    lines.push({ line: styles.dim(truncate(`#${session.ticketId}`, width)), priority: 2 });
   }
   return lines;
 }
@@ -1089,6 +1108,43 @@ function railCompact(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDispla
   return short ? `${styledWorkflowMarker(workflow, workflow.activeIndex, styles)}${styles.accent(short)}` : "";
 }
 
+function workflowGridHeader(workflow: WorkflowRuntimeSnapshot): string {
+  return workflow.steps.map((step) => pad(step.short, Math.max(2, displayWidth(step.short)))).join("  ");
+}
+
+function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, grid: WorkflowRuntimeSnapshot | undefined, repoMode: boolean): string {
+  const workflow = session.workflow;
+  const mode = activeWorkflowMode(session);
+  const compatible = workflow && grid && workflow.steps.length === grid.steps.length
+    && workflow.steps.every((step, index) => step.id === grid.steps[index].id && step.short === grid.steps[index].short);
+  const right = workflow
+    ? compatible
+      ? workflow.steps.map((step, index) => pad(styledWorkflowMarker(workflow, index, styles), Math.max(2, displayWidth(step.short)))).join("  ")
+      : railCompact(workflow, mode, styles)
+    : "";
+  const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
+  const optionalSignals = [
+    session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "",
+    mode && compatible ? styles.accent(mode.short) : "",
+    repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])
+      : session.cockpitTier === "quiet" ? styles.muted("quiet") : "",
+    session.repoCount > 1 ? styles.dim(`⧉ ${session.repoCount}`) : "",
+  ].filter(Boolean);
+  const leftWidth = Math.max(0, width - (right ? displayWidth(right) + 1 : 0));
+  const minimumGroup = Math.min(8, Math.max(0, leftWidth - (hidden ? displayWidth(hidden) + 1 : 0)));
+  let signals = hidden;
+  for (const signal of optionalSignals) {
+    const candidate = signals ? `${signals} ${signal}` : signal;
+    if (minimumGroup + 1 + displayWidth(candidate) <= leftWidth) signals = candidate;
+  }
+  const groupWidth = Math.max(0, leftWidth - (signals ? displayWidth(signals) + 1 : 0));
+  const group = groupWidth >= 3 ? renderGroupBadge(session.group, Math.min(24, groupWidth), styles) : "";
+  let left = truncate([group, signals].filter(Boolean).join(" "), leftWidth);
+  const age = session.displayStatus !== "running" ? session.activityAge : undefined;
+  if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.dim(` · ${age}`);
+  return right ? twoColumn(left, right, width) : left;
+}
+
 function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
   if (!session.pinned) return "";
   return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
@@ -1250,6 +1306,7 @@ interface SessionRowOptions {
   terminalWidth: number;
   childLast: boolean;
   gutterColumn: boolean;
+  titleFirst?: boolean;
 }
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
@@ -1278,6 +1335,10 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     : styles.dim("·");
   const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
   const worktree = session.worktreeBranch ? styles.accent("⎇ ") : "";
+  if (options.titleFirst) {
+    const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
+    return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available))}`, width);
+  }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
   const badge = `${renderGroupBadge(session.group, badgeBudget, styles)} `;

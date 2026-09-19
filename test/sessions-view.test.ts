@@ -780,14 +780,14 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api[^\n]*\n[^\n]*\[default\] \?1/);
   view.handleInput("\u001b[C");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 
   view.handleInput("\u001b[D");
   view.revealSession("child");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api.*\?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 });
 
@@ -1060,8 +1060,8 @@ test("named pin presence updates rendering without registry mutation", () => {
   state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
   const rendered = stripAnsi(view.render(100).join("\n"));
   assert.match(rendered, /PINNED · ▢1 docs · ▣2 api/);
-  assert.match(rendered, /○ ▣2 \[default\] api/);
-  assert.match(rendered, /○ ▢1 \[default\] docs/);
+  assert.match(rendered, /○ ▣2 api[^\n]*\n[^\n]*\[default\]/);
+  assert.match(rendered, /○ ▢1 docs[^\n]*\n[^\n]*\[default\]/);
   assert.strictEqual(controller.snapshot().registry, before);
 });
 
@@ -1232,10 +1232,9 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 }
 
 function rowIndexFor(rendered: string[], title: string): number {
-  const index = rendered.findIndex((line) => {
-    const text = stripAnsi(line);
-    return ["●", "◐", "○", "×", "-"].some((symbol) => text.includes(symbol) && text.includes(`] ${title}`));
-  });
+  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const titleRow = new RegExp(`(?:●|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
+  const index = rendered.findIndex((line) => titleRow.test(stripAnsi(line)));
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
 }
@@ -1338,8 +1337,8 @@ test("card continuation rows select and double-click open the live session", () 
   });
   view.handleInput("v");
   const rendered = view.render(100);
-  const continuationIndex = rendered.findIndex((line) => stripAnsi(line).includes("#docs-001"));
-  assert.notEqual(continuationIndex, -1);
+  const continuationIndex = rowIndexFor(rendered, "docs") + 1;
+  assert.match(stripAnsi(rendered[continuationIndex] ?? ""), /\[default\]/);
 
   view.handleInput(mousePressAtLine(continuationIndex));
   assert.equal(controller.snapshot().selectedId, "docs");
@@ -1469,11 +1468,11 @@ test("all non-attention tiers can collapse and retain counts", () => {
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ACTIVE\s+·1/);
   assert.match(collapsed, /▸ QUIET\s+·1/);
-  assert.doesNotMatch(collapsed, /● \[default\] running|○ \[default\] quiet/);
+  assert.doesNotMatch(collapsed, /● running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
   assert.match(expanded, /▾ ACTIVE/);
-  assert.match(expanded, /● \[default\] running/);
+  assert.match(expanded, /● running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
 
@@ -1495,13 +1494,13 @@ test("filtered tier folds are interactive and do not persist", () => {
     const header = view.render(120).findIndex((line) => stripAnsi(line).includes(tier.toUpperCase()));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
-    assert.doesNotMatch(fleetText(view.render(120)), /\[default\] unique-match/);
+    assert.doesNotMatch(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
     assert.match(fleetText(view.render(120)), new RegExp(`▸ ${tier.toUpperCase()}`));
     view.handleInput("\r");
-    assert.match(fleetText(view.render(120)), /\[default\] unique-match/);
+    assert.match(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
     assert.deepEqual(saved.at(-1)?.collapsedSections, [tier]);
     view.handleInput("\u001b");
-    assert.doesNotMatch(fleetText(view.render(120)), /\[default\] unique-match/);
+    assert.doesNotMatch(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
   }
 });
 
@@ -1883,9 +1882,9 @@ test("short dashboard renders to terminal rows and clicks visible rows", () => {
   const rendered = view.render(100);
 
   assert.equal(rendered.length, 15);
-  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "session-7")));
+  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "session-3")));
 
-  assert.equal(controller.snapshot().selectedId, "s7");
+  assert.equal(controller.snapshot().selectedId, "s3");
 });
 
 test("sidebar dashboard renders readable primary controls", () => {
@@ -1905,12 +1904,12 @@ test("mouse hit map follows scrolled list window", () => {
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 15 });
   for (let i = 0; i < 15; i += 1) view.handleInput("j");
   const rendered = view.render(100);
-  const visibleTarget = stripAnsi(rendered.find((line) => line.includes("session-12")) ?? "");
-  assert.match(visibleTarget, /session-12/);
+  const visibleTarget = stripAnsi(rendered.find((line) => line.includes("session-15")) ?? "");
+  assert.match(visibleTarget, /session-15/);
 
-  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "session-12")));
+  view.handleInput(mousePressAtLine(rowIndexFor(rendered, "session-15")));
 
-  assert.equal(controller.snapshot().selectedId, "s12");
+  assert.equal(controller.snapshot().selectedId, "s15");
 });
 
 test("mouse clicks on list scroll indicators are ignored", () => {
@@ -1938,7 +1937,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌\s+·\s+○ \[default\] session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌.*·\s+○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog is clipped with a resize marker", () => {
@@ -3127,7 +3126,7 @@ test("p opens footer send prompt and submits message to selected live session", 
   assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌\s+·\s+○ \[default\] api/);
+  assert.match(prompt, /▌.*·\s+○ api/);
   assert.match(prompt, /send to api: █/);
   assert.doesNotMatch(prompt, /Send to api/);
   now = 1_100;

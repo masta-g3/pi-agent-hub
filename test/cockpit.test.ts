@@ -65,7 +65,9 @@ test("project cockpit classifies independent state axes without promotion", () =
 test("quiet rows retain a textual quiet cue when width permits", () => {
   const model = buildRenderModel({ sessions: cockpitFleet(), width: 100, now: COCKPIT_NOW, expandedProjectParentIds: new Set(["quiet-parent"]) });
   const layout = renderSessions(model);
-  assert.match(stripAnsi(layout.lines.find((line) => line.includes("MCP integration cleanup")) ?? ""), /quiet/);
+  const titleIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "mcp");
+  assert.ok(titleIndex >= 0);
+  assert.match(stripAnsi(layout.lines[titleIndex + 1] ?? ""), /quiet/);
 });
 
 test("project cockpit collapses each non-attention tier without changing placement", () => {
@@ -246,7 +248,7 @@ test("rendering and navigation expose the same cockpit tree order", () => {
   assert.deepEqual(projection.visible.map((row) => row.id), ["docs", "qa", "dashboard", "worker", "release", "quiet-parent", "mcp", "theme", "archive-new"]);
 
   const layout = renderSessions(buildRenderModel({
-    sessions, selectedId: "docs", width: 60, height: 24, now: COCKPIT_NOW, expandedProjectParentIds,
+    sessions, selectedId: "docs", width: 60, height: 30, now: COCKPIT_NOW, expandedProjectParentIds,
   }));
   assert.deepEqual(layout.rowTargets.flatMap((target) => target?.kind === "session"
     ? [target.id]

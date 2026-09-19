@@ -98,7 +98,7 @@ Conversation shows completed text and question/answer exchanges, not tools, thin
 
 ## Repo grouping
 
-Press `v` for alphabetical repository sections. Each section contains complete parent/child trees ordered by requests, errors, active work, then quiet work. Archived sessions stay separate and newest-first. Each parent keeps its chosen `[group]` badge after its title.
+Press `v` for alphabetical repository sections. Each section contains complete parent/child trees ordered by requests, errors, active work, then quiet work. Archived sessions stay separate and newest-first. Active parents show their chosen `[group]` badge below the title. Backlog and Archived rows keep it before the title.
 
 Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The action workspace shows the actual path.
 
@@ -146,7 +146,7 @@ Status view groups complete session trees into these sections:
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Parent rows show `[group]` after the title, `⎇` for a worktree, and `⧉ N` for multiple repos. `⚙︎N` counts running/starting descendants.
+`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, and workflow markers aligned under shared step labels. `⎇` marks a worktree beside the title. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 
