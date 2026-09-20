@@ -52,14 +52,28 @@ export interface FinishedWorktree {
   branchDeleted: boolean;
 }
 
+export interface WorktreeOperationEvidence {
+  worktree: ManagedWorktree;
+  merged: boolean;
+  removed: boolean;
+  branchDeleted: boolean;
+  failedOperation?: "merge" | "remove" | "branch-delete";
+  issue?: string;
+}
+
 export interface FinishedWorktrees {
   finished: ManagedWorktree[];
+  evidence: WorktreeOperationEvidence[];
 }
 
 export class PartialWorktreeFailure extends Error {
-  constructor(message: string, readonly finished: ManagedWorktree[], readonly remaining: ManagedWorktree[]) {
+  constructor(message: string, readonly finished: ManagedWorktree[], readonly remaining: ManagedWorktree[], readonly evidence: WorktreeOperationEvidence[] = []) {
     super(message);
   }
+}
+
+class WorktreeOperationError extends Error {
+  constructor(message: string, readonly evidence: WorktreeOperationEvidence) { super(message); }
 }
 
 export async function createOwnedWorktree(input: CreateWorktreeInput): Promise<CreatedWorktree> {
@@ -124,12 +138,12 @@ export async function createOwnedWorktrees(input: CreateWorktreesInput): Promise
 
 export async function finishOwnedWorktree(input: FinishWorktreeInput): Promise<FinishedWorktree> {
   const meta = requireWorktreeMetadata(input.session);
-  const finished = await finishOne(meta, input.env);
+  const result = await finishOne(meta, input.env);
   return {
-    branch: finished.branch,
-    baseBranch: finished.baseBranch,
-    worktreePath: finished.path,
-    branchDeleted: await branchMissing(finished.repoRoot, finished.branch),
+    branch: meta.branch,
+    baseBranch: meta.baseBranch,
+    worktreePath: meta.path,
+    branchDeleted: result.branchDeleted,
   };
 }
 
@@ -137,32 +151,42 @@ export async function finishOwnedWorktrees(input: FinishWorktreeInput): Promise<
   await assertWorktreesReady(input.session, input.env);
   const ordered = finishOrder(sessionWorktrees(input.session));
   const finished: ManagedWorktree[] = [];
+  const evidence: WorktreeOperationEvidence[] = [];
   for (const worktree of ordered) {
     try {
-      await finishOne(worktree, input.env);
+      const result = await finishOne(worktree, input.env);
+      evidence.push(result);
       finished.push(worktree);
     } catch (error) {
+      if (error instanceof WorktreeOperationError) evidence.push(error.evidence);
       const remaining = ordered.filter((item) => !finished.includes(item));
-      throw new PartialWorktreeFailure(`Merge failed for ${basename(worktree.repoRoot)}; worktree was kept: ${errorMessage(error)}`, finished, remaining);
+      throw new PartialWorktreeFailure(`Finish failed for ${basename(worktree.repoRoot)}: ${errorMessage(error)}`, finished, remaining, evidence);
     }
   }
-  return { finished };
+  return { finished, evidence };
 }
 
 export async function removeOwnedWorktrees(session: ManagedSession, env: NodeJS.ProcessEnv = process.env): Promise<ManagedWorktree[]> {
+  return (await removeOwnedWorktreesWithEvidence(session, env)).removed;
+}
+
+export async function removeOwnedWorktreesWithEvidence(session: ManagedSession, env: NodeJS.ProcessEnv = process.env): Promise<{ removed: ManagedWorktree[]; evidence: WorktreeOperationEvidence[] }> {
   await assertWorktreesClean(session, env, "Worktree has uncommitted changes; commit or stash before removing");
   const ordered = finishOrder(sessionWorktrees(session));
   const removed: ManagedWorktree[] = [];
+  const evidence: WorktreeOperationEvidence[] = [];
   for (const worktree of ordered) {
     try {
-      await removeOne(worktree, env);
+      const result = await removeOne(worktree, env);
+      evidence.push(result);
       removed.push(worktree);
     } catch (error) {
+      if (error instanceof WorktreeOperationError) evidence.push(error.evidence);
       const remaining = ordered.filter((item) => !removed.includes(item));
-      throw new PartialWorktreeFailure(`Remove failed for ${basename(worktree.repoRoot)}; worktree was kept: ${errorMessage(error)}`, removed, remaining);
+      throw new PartialWorktreeFailure(`Remove failed for ${basename(worktree.repoRoot)}; worktree was kept: ${errorMessage(error)}`, removed, remaining, evidence);
     }
   }
-  return removed;
+  return { removed, evidence };
 }
 
 export async function assertWorktreesReady(session: ManagedSession, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -228,7 +252,8 @@ export function remainingWorktreeSession(session: ManagedSession, removed: Manag
   };
 }
 
-async function finishOne(worktree: ManagedWorktree, env: NodeJS.ProcessEnv = process.env): Promise<ManagedWorktree> {
+async function finishOne(worktree: ManagedWorktree, env: NodeJS.ProcessEnv = process.env): Promise<WorktreeOperationEvidence> {
+  const evidence: WorktreeOperationEvidence = { worktree, merged: false, removed: false, branchDeleted: false };
   assertOwnedWorktreePath(worktree.path, env);
   await assertClean(worktree.path, "Worktree has uncommitted changes; commit or stash before finishing");
   await assertClean(worktree.repoRoot, "Base repo has uncommitted changes; clean it before finishing", { ignorePiState: true });
@@ -236,29 +261,55 @@ async function finishOne(worktree: ManagedWorktree, env: NodeJS.ProcessEnv = pro
   await git(worktree.repoRoot, ["checkout", worktree.baseBranch]);
   try {
     await git(worktree.repoRoot, ["merge", "--no-ff", "--no-edit", worktree.branch]);
+    evidence.merged = true;
   } catch (error) {
     await gitOk(worktree.repoRoot, ["merge", "--abort"]);
     if (originalBranch) await gitOk(worktree.repoRoot, ["checkout", originalBranch]);
-    throw new Error(`Merge failed; worktree was kept: ${errorMessage(error)}`);
+    throw new WorktreeOperationError(`Merge failed; worktree was kept: ${errorMessage(error)}`, { ...evidence, failedOperation: "merge", issue: errorMessage(error) });
   }
   try {
     await git(worktree.repoRoot, ["worktree", "remove", worktree.path]);
     await git(worktree.repoRoot, ["worktree", "prune"]);
-    await gitOk(worktree.repoRoot, ["branch", "-d", worktree.branch]);
+    await assertWorktreeRemoved(worktree);
+    evidence.removed = true;
   } catch (error) {
     if (originalBranch) await gitOk(worktree.repoRoot, ["checkout", originalBranch]);
-    throw error;
+    throw new WorktreeOperationError(errorMessage(error), { ...evidence, failedOperation: "remove", issue: errorMessage(error) });
+  }
+  evidence.branchDeleted = await gitOk(worktree.repoRoot, ["branch", "-d", worktree.branch]);
+  if (!evidence.branchDeleted) {
+    evidence.failedOperation = "branch-delete";
+    evidence.issue = "Branch was retained after worktree cleanup";
   }
   if (originalBranch && originalBranch !== worktree.branch) await gitOk(worktree.repoRoot, ["checkout", originalBranch]);
-  return worktree;
+  return evidence;
 }
 
-async function removeOne(worktree: ManagedWorktree, env: NodeJS.ProcessEnv): Promise<void> {
+async function removeOne(worktree: ManagedWorktree, env: NodeJS.ProcessEnv): Promise<WorktreeOperationEvidence> {
+  const evidence: WorktreeOperationEvidence = { worktree, merged: false, removed: false, branchDeleted: false };
   assertOwnedWorktreePath(worktree.path, env);
   await assertClean(worktree.path, "Worktree has uncommitted changes; commit or stash before removing");
-  await git(worktree.repoRoot, ["worktree", "remove", worktree.path]);
-  await git(worktree.repoRoot, ["worktree", "prune"]);
-  await gitOk(worktree.repoRoot, ["branch", "-D", worktree.branch]);
+  try {
+    await git(worktree.repoRoot, ["worktree", "remove", worktree.path]);
+    await git(worktree.repoRoot, ["worktree", "prune"]);
+    await assertWorktreeRemoved(worktree);
+    evidence.removed = true;
+  } catch (error) {
+    throw new WorktreeOperationError(errorMessage(error), { ...evidence, failedOperation: "remove", issue: errorMessage(error) });
+  }
+  evidence.branchDeleted = await gitOk(worktree.repoRoot, ["branch", "-D", worktree.branch]);
+  if (!evidence.branchDeleted) {
+    evidence.failedOperation = "branch-delete";
+    evidence.issue = "Branch was retained after worktree cleanup";
+  }
+  return evidence;
+}
+
+async function assertWorktreeRemoved(worktree: ManagedWorktree): Promise<void> {
+  if (await pathExists(worktree.path)) throw new Error(`Worktree path still exists after removal: ${worktree.path}`);
+  const listed = await git(worktree.repoRoot, ["worktree", "list", "--porcelain"]);
+  const paths = listed.split(/\r?\n/).filter((line) => line.startsWith("worktree ")).map((line) => resolve(line.slice("worktree ".length)));
+  if (paths.includes(resolve(worktree.path))) throw new Error(`Worktree is still registered after removal: ${worktree.path}`);
 }
 
 async function assertClean(cwd: string, message: string, options: { ignorePiState?: boolean } = {}): Promise<void> {

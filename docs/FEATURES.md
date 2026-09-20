@@ -146,7 +146,7 @@ Status view groups complete session trees into these sections:
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, and workflow markers aligned under shared step labels. `⎇` marks a worktree beside the title. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, and workflow markers aligned under shared step labels. Worktree lifecycle stays in the existing marker position: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 
@@ -322,10 +322,10 @@ Hub tells managed agents which worktree maps to which source repo. Compatible su
 | Action | Result |
 | --- | --- |
 | Normal `d` delete | Stop the session, remove Hub records and workspace; keep worktree files and branches |
-| `w` finish | Merge into recorded base branches, remove worktrees and merged branches, then remove the session |
-| `d`, then `Shift+D` discard | Remove clean worktrees and their branches without merging |
+| `w` finish | Merge into recorded base branches, verify worktree cleanup, then retain a stopped Archived parent |
+| `d`, then `Shift+D` discard | Remove clean worktrees without merging, then retain a stopped Archived parent |
 
-Finish/discard checks Git cleanliness before stopping parent and child sessions. Both require clean worktrees; finish also requires clean base repos. Multi-repo operations process additional repos before the primary repo. Normal delete never removes Pi conversation files or source repos.
+Finish/discard checks Git cleanliness before stopping parent and child sessions. Both require clean worktrees; finish also requires clean base repos. Multi-repo operations process additional repos before the primary repo. Successful closeout removes obsolete child rows, workspaces, and heartbeats, but keeps the parent ID, title, conversation metadata, workflow, source roots, and per-repo merged/discarded evidence. A retained branch is reported separately from directory cleanup. Normal delete remains separate and never removes Pi conversation files or source repos.
 
 ## Non-goals
 

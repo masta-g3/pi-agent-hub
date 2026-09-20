@@ -2,6 +2,7 @@ import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
+import { ageLabel } from "./age.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
@@ -950,13 +951,14 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     session.ticketId ? `#${session.ticketId}` : undefined,
     session.repoLabel,
     session.repoCount > 1 ? `⧉${session.repoCount}` : undefined,
-    session.worktreeBranch ? `⎇ ${session.worktreeBranch}` : undefined,
+    session.worktreeBranch ? `${session.worktreeMarker ?? "⎇"} ${session.worktreeBranch}` : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
     session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
   ].filter(Boolean).join(" · ");
   const titleLines = pinned ? wrapWords(session.title, width, width) : [];
   const identity = block("identity", [
     ...(pinned ? [titleLines[0] ?? "", ...(titleLines.length > 1 ? [truncate(titleLines.slice(1).join(" "), width)] : [])] : [titleStatusRow(session, width, styles)]),
     ...(pinned ? [styles.dim(`Repo: ${session.repoLabel}`)] : meta ? [styles.dim(meta)] : []),
+    ...(session.worktreeLifecycle ? [styles.dim(`Worktree owner: ${session.worktreeLifecycle.producer}`)] : []),
     styles.border("─".repeat(width)),
   ]);
 
@@ -970,7 +972,12 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
   const workflow = block("workflow", workspaceWorkflowLine(workflowSession, styles));
   const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
-  const guidance = block("guidance", guidanceText ? wrapWords(guidanceText, width, width) : []);
+  const lifecycleLines = session.worktreeLifecycle?.repositories?.flatMap((item) => {
+    const state = item.state === "cleaned" ? `cleaned${item.outcome ? ` (${item.outcome})` : ""}` : item.state.replace(/-/gu, " ");
+    const verification = item.verifiedAt ? ` · verified ${ageLabel(Math.max(0, now - item.verifiedAt), "now")} ago` : "";
+    return wrapWords(`${item.role}: ${state} · ${item.branch}${verification} · ${item.worktreePath} → ${item.sourcePath}${item.branchDeleted === false ? " · branch retained" : ""}${item.issue ? ` · ${item.issue}` : ""}`, width, width);
+  }) ?? [];
+  const guidance = block("guidance", [...(guidanceText ? wrapWords(guidanceText, width, width) : []), ...lifecycleLines]);
   const hasBody = [request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
   const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
   const evidence = block("evidence", workspaceEvidenceLines(workspace, width, now, styles));
@@ -1339,7 +1346,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     ? styles.accent(session.boardExpanded ? "▾" : "▸")
     : styles.dim("·");
   const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
-  const worktree = session.worktreeBranch ? styles.accent("⎇ ") : "";
+  const worktree = session.worktreeMarker ? `${worktreeMarkerStyle(session.worktreeMarker, styles)} ` : "";
   if (options.titleFirst) {
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
     return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available))}`, width);
@@ -1365,6 +1372,13 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const title = styles.text(truncate(session.title, titleWidth));
   const left = `${prefix}${fittedBadge}${worktree}${title}${fittedCount}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
+}
+
+function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
+  const token = marker === "⎇" ? "⎇ " : marker;
+  if (marker === "⎇✓") return styles.success(token);
+  if (marker === "⎇…" || marker === "⎇!") return styles.warning(token);
+  return styles.dim(token);
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {

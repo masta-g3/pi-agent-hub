@@ -10,7 +10,7 @@ import { isErrno } from "../core/atomic-json.js";
 import { effectiveSessionCwd, ensureMultiRepoWorkspace, removeMultiRepoWorkspace } from "../core/multi-repo.js";
 import { heartbeatPath, registryPath, sessionsStateDir } from "../core/paths.js";
 import { readHeartbeat } from "../core/heartbeat.js";
-import { assertWorktreesClean, assertWorktreesReady, createOwnedWorktrees, finishOwnedWorktrees, isWorktreeSession, PartialWorktreeFailure, remainingWorktreeSession, removeOwnedWorktrees, sessionWorktrees, type FinishedWorktree } from "../core/worktree.js";
+import { assertWorktreesClean, assertWorktreesReady, createOwnedWorktrees, finishOwnedWorktrees, isWorktreeSession, PartialWorktreeFailure, remainingWorktreeSession, removeOwnedWorktrees, removeOwnedWorktreesWithEvidence, sessionWorktrees, type FinishedWorktree, type WorktreeOperationEvidence } from "../core/worktree.js";
 import { renderWorktreeGuidance } from "../core/worktree-context.js";
 import { recordRepoUsage } from "../core/repo-history.js";
 import { availableSessionTitle, createSessionRecord, loadRegistry, provisionalSessionTitle, updateRegistry, upsertSession } from "../core/registry.js";
@@ -20,7 +20,7 @@ import { nextOrderInGroup } from "../core/session-order.js";
 import { isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { configureManagedSessionStatusBar, killSession, newSession, sessionExists, shellQuote } from "../core/tmux.js";
 import { loadManagedSessionTheme } from "../tui/theme.js";
-import type { ManagedSession, ManagedWorktree } from "../core/types.js";
+import type { ManagedSession, ManagedWorktree, WorktreeLifecycleOutcome, WorktreeLifecycleRepository, WorktreeLifecycleSnapshot } from "../core/types.js";
 
 export interface SessionInput {
   cwd: string;
@@ -165,6 +165,8 @@ async function restartManagedSessionFreshImpl(id: string): Promise<void> {
         status: "starting",
         sessionFile: undefined,
         piSessionId: undefined,
+        ...(session.piSessionId ? { rejectedWorktreePiSessionId: session.piSessionId } : {}),
+        worktreeLifecycle: session.worktreeOwnedByHub === true ? session.worktreeLifecycle : undefined,
         acknowledgedAt: undefined,
         error: undefined,
         activeTheme: undefined,
@@ -388,18 +390,16 @@ async function finishWorktreeSessionImpl(id: string, options: FinishWorktreeSess
   const ids = sessionCascadeIds(registry.sessions, session.id);
   const sessions = registry.sessions.filter((item) => ids.has(item.id));
   for (const item of sessions) if (await sessionExists(item.tmuxSession)) await killSession(item.tmuxSession);
+  let completedEvidence: WorktreeOperationEvidence[] | undefined;
   try {
     const finished = await finishOwnedWorktrees({ session, env });
-    await removeSessions(sessions, path, env);
+    completedEvidence = finished.evidence;
+    await archiveClosedWorktreeSession(session, path, env, "merged", finished.evidence);
     const primary = sessionWorktrees(session)[0]!;
-    return { id: session.id, title: session.title, branch: primary.branch, baseBranch: primary.baseBranch, worktreePath: primary.path, branchDeleted: true, count: finished.finished.length };
+    return { id: session.id, title: session.title, branch: primary.branch, baseBranch: primary.baseBranch, worktreePath: primary.path, branchDeleted: finished.evidence.every((item) => item.branchDeleted), count: finished.finished.length };
   } catch (error) {
-    if (error instanceof PartialWorktreeFailure) {
-      await updateRegistry((latest) => {
-        const current = latest.sessions.find((item) => item.id === session.id);
-        return current ? upsertSession(latest, remainingWorktreeSession(current, error.finished)) : latest;
-      }, path);
-    }
+    if (error instanceof PartialWorktreeFailure) await retainPartialWorktreeEvidence(session, path, "merged", error);
+    else if (completedEvidence) await retainCompletedWorktreeEvidence(session, path, "merged", completedEvidence);
     throw error;
   }
 }
@@ -417,20 +417,141 @@ async function discardWorktreeSessionImpl(id: string, options: FinishWorktreeSes
   const sessions = registry.sessions.filter((item) => ids.has(item.id));
   for (const item of sessions) if (await sessionExists(item.tmuxSession)) await killSession(item.tmuxSession);
   const worktrees = sessionWorktrees(session);
+  let completedEvidence: WorktreeOperationEvidence[] | undefined;
   try {
-    const removed = await removeOwnedWorktrees(session, env);
-    await removeSessions(sessions, path, env);
+    const removed = await removeOwnedWorktreesWithEvidence(session, env);
+    completedEvidence = removed.evidence;
+    await archiveClosedWorktreeSession(session, path, env, "discarded", removed.evidence);
     const primary = worktrees[0]!;
-    return { id: session.id, title: session.title, branch: primary.branch, worktreePath: primary.path, count: removed.length };
+    return { id: session.id, title: session.title, branch: primary.branch, worktreePath: primary.path, count: removed.removed.length };
   } catch (error) {
-    if (error instanceof PartialWorktreeFailure) {
-      await updateRegistry((latest) => {
-        const current = latest.sessions.find((item) => item.id === session.id);
-        return current ? upsertSession(latest, remainingWorktreeSession(current, error.finished)) : latest;
-      }, path);
-    }
+    if (error instanceof PartialWorktreeFailure) await retainPartialWorktreeEvidence(session, path, "discarded", error);
+    else if (completedEvidence) await retainCompletedWorktreeEvidence(session, path, "discarded", completedEvidence);
     throw error;
   }
+}
+
+async function retainCompletedWorktreeEvidence(session: ManagedSession, path: string, outcome: WorktreeLifecycleOutcome, evidence: WorktreeOperationEvidence[]): Promise<void> {
+  await updateRegistry((latest) => {
+    const current = latest.sessions.find((item) => item.id === session.id);
+    if (!current || !sameWorkspaceIdentity(current, session)) return latest;
+    const updatedAt = Date.now();
+    return upsertSession(latest, { ...current, worktreeLifecycle: lifecycleSnapshot(session, lifecycleRepositories(session, outcome, evidence, updatedAt), updatedAt), updatedAt: nextUpdatedAt(current.updatedAt) });
+  }, path);
+}
+
+async function retainPartialWorktreeEvidence(session: ManagedSession, path: string, outcome: WorktreeLifecycleOutcome, error: PartialWorktreeFailure): Promise<void> {
+  await updateRegistry((latest) => {
+    const current = latest.sessions.find((item) => item.id === session.id);
+    if (!current || !sameWorkspaceIdentity(current, session)) return latest;
+    const remaining = remainingWorktreeSession(current, error.finished);
+    const updatedAt = Date.now();
+    return upsertSession(latest, { ...remaining, worktreeLifecycle: lifecycleSnapshot(session, lifecycleRepositories(session, outcome, error.evidence, updatedAt), updatedAt) });
+  }, path);
+}
+
+async function archiveClosedWorktreeSession(
+  original: ManagedSession,
+  path: string,
+  env: NodeJS.ProcessEnv,
+  outcome: WorktreeLifecycleOutcome,
+  evidence: WorktreeOperationEvidence[],
+): Promise<void> {
+  const latest = await loadRegistry(path);
+  const parent = latest.sessions.find((item) => item.id === original.id);
+  if (!parent || !sameWorkspaceIdentity(parent, original)) throw new Error("Session worktree identity changed during closeout; cleanup evidence was retained for recovery");
+  const ids = sessionCascadeIds(latest.sessions, parent.id);
+  const prepared = latest.sessions.filter((item) => ids.has(item.id));
+  for (const item of prepared) if (await sessionExists(item.tmuxSession)) await killSession(item.tmuxSession);
+  for (const item of prepared) if (await sessionExists(item.tmuxSession)) throw new Error(`Session restarted during closeout: ${item.title}`);
+
+  const preparedIdentity = cascadeIdentity(prepared);
+  const preparedStatus = new Map(prepared.map((item) => [item.id, item.status]));
+  await updateRegistry((registry) => {
+    const current = registry.sessions.find((item) => item.id === original.id);
+    if (!current || !sameWorkspaceIdentity(current, original)) throw new Error("Session worktree identity changed during closeout");
+    const currentIds = sessionCascadeIds(registry.sessions, current.id);
+    const cascade = registry.sessions.filter((item) => currentIds.has(item.id));
+    if (cascadeIdentity(cascade) !== preparedIdentity) throw new Error("Session cascade changed during closeout");
+    if (cascade.some((item) => item.status === "starting" && preparedStatus.get(item.id) !== "starting")) throw new Error("Session restarted during closeout");
+    return {
+      ...registry,
+      sessions: registry.sessions.map((item) => currentIds.has(item.id) ? { ...item, status: "stopped" as const, updatedAt: nextUpdatedAt(item.updatedAt) } : item),
+    };
+  }, path);
+
+  for (const item of prepared) if (await sessionExists(item.tmuxSession)) throw new Error(`Session restarted before archival: ${item.title}`);
+
+  const closedAt = Date.now();
+  await updateRegistry((registry) => {
+    const current = registry.sessions.find((item) => item.id === original.id);
+    if (!current || !sameWorkspaceIdentity(current, original)) throw new Error("Session worktree identity changed before archival");
+    const currentIds = sessionCascadeIds(registry.sessions, current.id);
+    const cascade = registry.sessions.filter((item) => currentIds.has(item.id));
+    if (cascade.some((item) => item.status !== "stopped") || cascadeIdentity(cascade) !== preparedIdentity) {
+      throw new Error("Session restarted or cascade changed before archival");
+    }
+    const roots = lifecycleRepositories(original, outcome, evidence, closedAt);
+    const primary = roots.find((item) => item.role === "primary") ?? roots[0]!;
+    const retained: ManagedSession = {
+      ...current,
+      cwd: primary.sourcePath,
+      additionalCwds: roots.filter((item) => item !== primary).map((item) => item.sourcePath),
+      workspaceCwd: undefined,
+      status: "stopped",
+      bucket: "archived",
+      bucketChangedAt: closedAt,
+      worktreePath: undefined,
+      worktreeRepoRoot: undefined,
+      worktreeBranch: undefined,
+      worktreeBaseBranch: undefined,
+      worktreeOwnedByHub: undefined,
+      worktrees: undefined,
+      worktreeLifecycle: lifecycleSnapshot(original, roots, closedAt),
+      updatedAt: nextUpdatedAt(current.updatedAt, closedAt),
+    };
+    return { ...registry, sessions: registry.sessions.filter((item) => !currentIds.has(item.id) || item.id === current.id).map((item) => item.id === current.id ? retained : item) };
+  }, path);
+
+  for (const item of prepared) {
+    await removeMultiRepoWorkspace(item, env);
+    for (const file of [heartbeatPath(item.id, env), nameCommandPath(item.id, env)]) await unlink(file).catch((error: unknown) => { if (!isErrno(error, "ENOENT")) throw error; });
+  }
+}
+
+function cascadeIdentity(sessions: ManagedSession[]): string {
+  return sessions.map((item) => `${item.id}\0${item.tmuxSession}`).sort().join("\n");
+}
+
+function lifecycleRepositories(session: ManagedSession, outcome: WorktreeLifecycleOutcome, evidence: WorktreeOperationEvidence[], updatedAt: number): WorktreeLifecycleRepository[] {
+  const byPath = new Map(evidence.map((item) => [item.worktree.path, item]));
+  const current = sessionWorktrees(session).map((worktree): WorktreeLifecycleRepository => {
+    const item = byPath.get(worktree.path);
+    return {
+      sourcePath: worktree.repoRoot,
+      worktreePath: worktree.path,
+      branch: worktree.branch,
+      role: worktree.role,
+      state: item?.removed ? "cleaned" : item?.failedOperation === "merge" ? "check-needed" : item ? "cleanup-pending" : "active",
+      ...(item?.merged || (item && outcome === "discarded") ? { outcome } : {}),
+      ...(item?.removed ? { verifiedAt: updatedAt } : {}),
+      ...(item ? { branchDeleted: item.branchDeleted } : {}),
+      ...(item?.issue ? { issue: item.issue } : {}),
+    };
+  });
+  const paths = new Set(current.map((item) => item.worktreePath));
+  return [...(session.worktreeLifecycle?.repositories ?? []).filter((item) => !paths.has(item.worktreePath)), ...current];
+}
+
+function lifecycleSnapshot(session: ManagedSession, repositories: WorktreeLifecycleRepository[], updatedAt: number): WorktreeLifecycleSnapshot {
+  return {
+    version: 1,
+    recordId: `hub:${session.id}`,
+    producer: "pi-agent-hub",
+    revision: (session.worktreeLifecycle?.revision ?? 0) + 1,
+    updatedAt,
+    repositories,
+  };
 }
 
 export function managedPiCommand(input: { piArgs: string[]; prelude?: string; shell?: string }): string {
@@ -500,6 +621,6 @@ async function withLifecycleContext<T>(operation: string, target: string, action
 
 function contextualizeLifecycleError(operation: string, target: string, error: unknown): Error {
   const message = `${operation} ${target}: ${errorMessage(error)}`;
-  if (error instanceof PartialWorktreeFailure) return new PartialWorktreeFailure(message, error.finished, error.remaining);
+  if (error instanceof PartialWorktreeFailure) return new PartialWorktreeFailure(message, error.finished, error.remaining, error.evidence);
   return new Error(message, { cause: error });
 }

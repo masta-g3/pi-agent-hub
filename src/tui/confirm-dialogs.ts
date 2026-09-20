@@ -202,10 +202,10 @@ function renderDeleteDialog(dialog: ConfirmDialog, width: number, height: number
   const choices = deleteChoices({ action, busy: Boolean(dialog.busy), subagentCount: subagents.length, targetIsSubagent: target?.kind === "subagent", worktree, canFinishWorktree: worktree && Boolean(ctx.actions.finishWorktree), theme: ctx.theme });
   const body = [
     target ? `target  ${target.title}` : "target  unavailable",
-    worktree ? "Worktree session: choose whether to only forget it or discard the clean worktree." : "Removes this session from pi-agent-hub.",
+    worktree ? "Worktree session: choose whether to only forget it or discard and archive after verified cleanup." : "Removes this session from pi-agent-hub.",
     "Pi conversation files are kept.",
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
-    ...(worktree ? [ctx.actions.finishWorktree ? "d keeps worktree and branch; D deletes the clean worktree and branch; w merges instead." : "d keeps worktree and branch; D deletes the clean worktree and branch."] : []),
+    ...(worktree ? [ctx.actions.finishWorktree ? "d keeps worktree and branch; D discards then archives; w merges then archives." : "d keeps worktree and branch; D discards then archives."] : []),
   ];
   return renderBoundedConfirmation("Delete session", body, [...choices.filter(Boolean), hintLine("Esc cancel · PgUp/PgDn read", ctx.theme)], dialog, width, height, ctx.theme, Boolean(target) && !dialog.busy, dialog.targetId, targetReviewKey(target, subagents));
 }
@@ -220,7 +220,7 @@ function renderFinishDialog(dialog: ConfirmDialog, width: number, height: number
     target ? `target   ${target.title}` : "target   unavailable",
     `branch   ${branch}`,
     `merge    ${branch} → ${base}`,
-    "cleanup  remove hub-owned worktree, prune, delete merged branch",
+    "cleanup  verify removal, report retained branch, archive parent record",
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
   ];
   const controls = [

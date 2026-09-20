@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionsController } from "../src/app/controller.js";
 import { heartbeatPath, multiRepoWorkspacePath } from "../src/core/paths.js";
-import { updateRegistry } from "../src/core/registry.js";
+import { loadRegistry, updateRegistry } from "../src/core/registry.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
 import type { TmuxPresence } from "../src/core/tmux.js";
@@ -452,6 +452,86 @@ test("refresh caches the native Pi name and projects generic context without per
     })}\n`, "utf8");
     await controller.refresh(now);
     assert.equal(controller.snapshot().registry.sessions[0]?.title, "Manual Recovery");
+  });
+});
+
+test("refresh retains only newer matching producer worktree lifecycle and applies resets", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 1_000_000;
+    const registry = { version: 1 as const, sessions: [session("waiting", { id: "api", piSessionId: "pi-1" })] };
+    await updateRegistry(() => registry);
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    const writeLifecycle = async (revision: number, state?: string, cleared = false) => writeFile(heartbeatPath("api"), `${JSON.stringify({
+      managedSessionId: "api", cwd: "/tmp/api", piSessionId: "pi-1", state: "waiting", stateSince: now, updatedAt: now,
+      context: { version: 1, updatedAt: now, worktree: { version: 1, recordId: "task", producer: "other", revision, updatedAt: now,
+        ...(cleared ? { cleared: true } : { repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary", state }] }) } },
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry, async () => "present");
+    await writeLifecycle(2, "awaiting-merge");
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().registry.sessions[0]?.worktreeLifecycle?.repositories?.[0]?.state, "awaiting-merge");
+    await writeLifecycle(1, "active");
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().registry.sessions[0]?.worktreeLifecycle?.revision, 2);
+    await writeLifecycle(3, undefined, true);
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().registry.sessions[0]?.worktreeLifecycle?.cleared, true);
+    await writeLifecycle(2, "active");
+    await controller.refresh(now);
+    assert.equal(controller.snapshot().registry.sessions[0]?.worktreeLifecycle?.cleared, true);
+
+    const restartedController = new SessionsController(await loadRegistry(), async () => "present");
+    await restartedController.refresh(now);
+    assert.equal(restartedController.snapshot().registry.sessions[0]?.worktreeLifecycle?.cleared, true);
+  });
+});
+
+test("refresh keeps rejected outgoing Pi identity rejected across repeated heartbeats", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 1_000_000;
+    const registry = { version: 1 as const, sessions: [session("starting", { id: "api", piSessionId: undefined, rejectedWorktreePiSessionId: "pi-old" })] };
+    await updateRegistry(() => registry);
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    const writeHeartbeat = async (piSessionId: string, revision: number) => writeFile(heartbeatPath("api"), `${JSON.stringify({
+      managedSessionId: "api", cwd: "/tmp/api", piSessionId, state: "waiting", stateSince: now, updatedAt: now,
+      context: { version: 1, updatedAt: now, worktree: { version: 1, recordId: "task", producer: "other", revision, updatedAt: now,
+        repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary", state: "active" }] } },
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry, async () => "present");
+    await writeHeartbeat("pi-old", 1);
+    await controller.refresh(now);
+    await controller.refresh(now);
+    let retained = controller.snapshot().registry.sessions[0]!;
+    assert.equal(retained.piSessionId, undefined);
+    assert.equal(retained.rejectedWorktreePiSessionId, "pi-old");
+    assert.equal(retained.worktreeLifecycle, undefined);
+
+    await writeHeartbeat("pi-new", 2);
+    await controller.refresh(now);
+    retained = controller.snapshot().registry.sessions[0]!;
+    assert.equal(retained.piSessionId, "pi-new");
+    assert.equal(retained.rejectedWorktreePiSessionId, undefined);
+    assert.equal(retained.worktreeLifecycle?.revision, 2);
+  });
+});
+
+test("refresh preserves confirmed Pi identity and rejection guard on a mismatched heartbeat", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 1_000_000;
+    const registry = { version: 1 as const, sessions: [session("waiting", { id: "api", piSessionId: "pi-confirmed", rejectedWorktreePiSessionId: "pi-old" })] };
+    await updateRegistry(() => registry);
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    await writeFile(heartbeatPath("api"), `${JSON.stringify({
+      managedSessionId: "api", cwd: "/tmp/api", piSessionId: "pi-other", state: "waiting", stateSince: now, updatedAt: now,
+      context: { version: 1, updatedAt: now, worktree: { version: 1, recordId: "task", producer: "other", revision: 1, updatedAt: now,
+        repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary", state: "active" }] } },
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry, async () => "present");
+    await controller.refresh(now);
+    const retained = controller.snapshot().registry.sessions[0]!;
+    assert.equal(retained.piSessionId, "pi-confirmed");
+    assert.equal(retained.rejectedWorktreePiSessionId, "pi-old");
+    assert.equal(retained.worktreeLifecycle, undefined);
   });
 });
 

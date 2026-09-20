@@ -145,7 +145,11 @@ test("discardWorktreeSession removes a clean worktree branch without merging", a
   await assert.rejects(readFile(join(repo, "discard.txt"), "utf8"), /ENOENT/);
   await assert.rejects(lstat(created.worktreePath), /ENOENT/);
   assert.equal((await git(repo, ["branch", "--list", "feature/discard"])).trim(), "");
-  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  const retained = (await loadRegistry(registryPath(env))).sessions[0]!;
+  assert.equal(retained.id, session.id);
+  assert.equal(retained.bucket, "archived");
+  assert.equal(retained.worktreeLifecycle?.repositories?.[0]?.outcome, "discarded");
+  assert.equal(retained.worktreeLifecycle?.repositories?.[0]?.state, "cleaned");
 });
 
 test("finishWorktreeSession merges and removes all multi-repo worktrees", async () => {
@@ -169,7 +173,10 @@ test("finishWorktreeSession merges and removes all multi-repo worktrees", async 
   assert.equal(await readFile(join(web, "web.txt"), "utf8"), "web\n");
   await assert.rejects(lstat(created.worktrees[0]!.path), /ENOENT/);
   await assert.rejects(lstat(created.worktrees[1]!.path), /ENOENT/);
-  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  const retained = (await loadRegistry(registryPath(env))).sessions[0]!;
+  assert.equal(retained.id, session.id);
+  assert.equal(retained.bucket, "archived");
+  assert.ok(retained.worktreeLifecycle?.repositories?.every((item) => item.outcome === "merged" && item.state === "cleaned"));
 });
 
 test("discardWorktreeSession removes all multi-repo worktrees without merging", async () => {
@@ -193,14 +200,18 @@ test("discardWorktreeSession removes all multi-repo worktrees without merging", 
   await assert.rejects(readFile(join(web, "web.txt"), "utf8"), /ENOENT/);
   await assert.rejects(lstat(created.worktrees[0]!.path), /ENOENT/);
   await assert.rejects(lstat(created.worktrees[1]!.path), /ENOENT/);
-  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  const retained = (await loadRegistry(registryPath(env))).sessions[0]!;
+  assert.equal(retained.id, session.id);
+  assert.equal(retained.bucket, "archived");
+  assert.ok(retained.worktreeLifecycle?.repositories?.every((item) => item.outcome === "discarded" && item.state === "cleaned"));
 });
 
 test("partial worktree recovery updates the latest surviving registry row", async () => {
   const { root, env } = await tempEnv();
   const api = await createRepo(root, "partial-api");
   const web = await createRepo(root, "partial-web");
-  const created = await createOwnedWorktrees({ cwds: [api, web], sessionId: "partial", branch: "feature/partial", env });
+  const db = await createRepo(root, "partial-db");
+  const created = await createOwnedWorktrees({ cwds: [api, web, db], sessionId: "partial", branch: "feature/partial", env });
   const session = { ...multiWorktreeSession(created), id: "partial", tmuxSession: "pi-agent-hub-partial", title: "captured" };
   const unrelated = createSessionRecord({ cwd: "/tmp/unrelated", now: 1 });
   const path = registryPath(env);
@@ -211,7 +222,7 @@ test("partial worktree recovery updates the latest surviving registry row", asyn
   const realGit = (await execFileAsync("which", ["git"], { encoding: "utf8" })).stdout.trim();
   await mkdir(bin);
   await writeFile(updater, `import { updateRegistry } from ${JSON.stringify(new URL("../src/core/registry.js", import.meta.url).href)};\nconst path = process.argv[2];\nawait updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((item) => item.id === "partial" ? { ...item, title: "latest", status: "running" } : item) }), path);\n`, "utf8");
-  await writeFile(join(bin, "git"), `#!/bin/sh\nif [ "$1" = "worktree" ] && [ "$2" = "remove" ] && [ "$3" = ${JSON.stringify(created.worktrees[0]!.path)} ]; then\n  node ${JSON.stringify(updater)} ${JSON.stringify(path)}\n  exit 1\nfi\nexec ${JSON.stringify(realGit)} "$@"\n`, "utf8");
+  await writeFile(join(bin, "git"), `#!/bin/sh\nif [ "$1" = "worktree" ] && [ "$2" = "remove" ] && [ "$3" = ${JSON.stringify(created.worktrees[2]!.path)} ]; then\n  node ${JSON.stringify(updater)} ${JSON.stringify(path)}\n  exit 1\nfi\nexec ${JSON.stringify(realGit)} "$@"\n`, "utf8");
   await chmod(join(bin, "git"), 0o755);
   const oldPath = process.env.PATH;
   process.env.PATH = `${bin}:${oldPath ?? ""}`;
@@ -225,7 +236,7 @@ test("partial worktree recovery updates the latest surviving registry row", asyn
     assert.ok(caught instanceof PartialWorktreeFailure);
     assert.match(caught.message, /discard worktree session partial: Remove failed/);
     assert.equal(caught.finished.length, 1);
-    assert.equal(caught.remaining.length, 1);
+    assert.equal(caught.remaining.length, 2);
   } finally {
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
@@ -235,9 +246,16 @@ test("partial worktree recovery updates the latest surviving registry row", asyn
   const recovered = latest.sessions.find((item) => item.id === session.id)!;
   assert.equal(recovered.title, "latest");
   assert.equal(recovered.status, "running");
-  assert.equal(recovered.worktrees?.length, 1);
-  assert.equal(recovered.worktrees?.[0]?.role, "primary");
+  assert.equal(recovered.worktrees?.length, 2);
+  assert.deepEqual(recovered.worktreeLifecycle?.repositories?.map((item) => item.state), ["active", "cleaned", "cleanup-pending"]);
   assert.deepEqual(latest.sessions.map((item) => item.id), [session.id, unrelated.id]);
+
+  await discardWorktreeSession(session.id, { env });
+  const archived = (await loadRegistry(path)).sessions.find((item) => item.id === session.id)!;
+  assert.equal(archived.bucket, "archived");
+  assert.deepEqual(new Set([archived.cwd, ...(archived.additionalCwds ?? [])]), new Set([await realpath(api), await realpath(web), await realpath(db)]));
+  assert.equal(archived.worktreeLifecycle?.repositories?.length, 3);
+  assert.ok(archived.worktreeLifecycle?.repositories?.every((item) => item.state === "cleaned" && item.outcome === "discarded"));
 });
 
 test("finishWorktreeSession does not kill tmux when base repo is dirty", async () => {
@@ -265,6 +283,62 @@ test("finishWorktreeSession does not kill tmux when base repo is dirty", async (
   }
 });
 
+test("closeout does not overwrite a concurrent restart with stopped", async () => {
+  const { repo, env } = await tempRepo();
+  const created = await createOwnedWorktree({ cwd: repo, sessionId: "restart-race", branch: "feature/restart-race", env });
+  const session = { ...worktreeSession(created), id: "restart-race", tmuxSession: "pi-agent-hub-restart-race", status: "idle" as const };
+  const path = registryPath(env);
+  await seedRegistry({ version: 1, sessions: [session] }, path);
+
+  const bin = join((await tempEnv()).root, "bin");
+  const updater = join(bin, "restart.mjs");
+  const count = join(bin, "tmux-count");
+  await mkdir(bin);
+  await writeFile(updater, `import { updateRegistry } from ${JSON.stringify(new URL("../src/core/registry.js", import.meta.url).href)};\nawait updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((item) => item.id === "restart-race" ? { ...item, status: "starting", updatedAt: item.updatedAt + 1 } : item) }), ${JSON.stringify(path)});\n`, "utf8");
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\nif [ "$1" = "has-session" ]; then\n  echo x >> ${JSON.stringify(count)}\n  if [ "$(wc -l < ${JSON.stringify(count)})" -eq 3 ]; then node ${JSON.stringify(updater)}; fi\n  exit 1\nfi\nexit 0\n`, "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  try {
+    await assert.rejects(discardWorktreeSession(session.id, { env }), /restarted during closeout/);
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+  const retained = (await loadRegistry(path)).sessions[0]!;
+  assert.equal(retained.status, "starting");
+  assert.equal(retained.worktreeLifecycle?.repositories?.[0]?.state, "cleaned");
+});
+
+test("closeout preserves harmless concurrent title group and version updates", async () => {
+  const { repo, env } = await tempRepo();
+  const created = await createOwnedWorktree({ cwd: repo, sessionId: "metadata-race", branch: "feature/metadata-race", env });
+  const session = { ...worktreeSession(created), id: "metadata-race", tmuxSession: "pi-agent-hub-metadata-race", status: "idle" as const, title: "before", group: "default" };
+  const path = registryPath(env);
+  await seedRegistry({ version: 1, sessions: [session] }, path);
+
+  const bin = join((await tempEnv()).root, "bin");
+  const updater = join(bin, "update-metadata.mjs");
+  const count = join(bin, "tmux-count");
+  await mkdir(bin);
+  await writeFile(updater, `import { updateRegistry } from ${JSON.stringify(new URL("../src/core/registry.js", import.meta.url).href)};\nawait updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((item) => item.id === "metadata-race" ? { ...item, title: "latest", group: "agents", updatedAt: item.updatedAt + 10 } : item) }), ${JSON.stringify(path)});\n`, "utf8");
+  await writeFile(join(bin, "tmux"), `#!/bin/sh\nif [ "$1" = "has-session" ]; then\n  echo x >> ${JSON.stringify(count)}\n  if [ "$(wc -l < ${JSON.stringify(count)})" -eq 3 ]; then node ${JSON.stringify(updater)}; fi\n  exit 1\nfi\nexit 0\n`, "utf8");
+  await chmod(join(bin, "tmux"), 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}:${oldPath ?? ""}`;
+  try {
+    await discardWorktreeSession(session.id, { env });
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
+  const retained = (await loadRegistry(path)).sessions[0]!;
+  assert.equal(retained.status, "stopped");
+  assert.equal(retained.bucket, "archived");
+  assert.equal(retained.title, "latest");
+  assert.equal(retained.group, "agents");
+});
+
 test("finishWorktreeSession removes parent, subagent rows, and heartbeats after merge", async () => {
   const { repo, env } = await tempRepo();
   const created = await createOwnedWorktree({ cwd: repo, sessionId: "app-finish-session", branch: "feature/app", env });
@@ -289,7 +363,12 @@ test("finishWorktreeSession removes parent, subagent rows, and heartbeats after 
 
   assert.equal(finished.id, parent.id);
   assert.equal(await readFile(join(repo, "app.txt"), "utf8"), "app\n");
-  assert.deepEqual(await loadRegistry(registryPath(env)), { version: 1, sessions: [] });
+  const retained = (await loadRegistry(registryPath(env))).sessions;
+  assert.equal(retained.length, 1);
+  assert.equal(retained[0]?.id, parent.id);
+  assert.equal(retained[0]?.bucket, "archived");
+  assert.equal(await realpath(retained[0]!.cwd), await realpath(repo));
+  assert.equal(retained[0]?.worktreeLifecycle?.repositories?.[0]?.outcome, "merged");
   await assert.rejects(readFile(heartbeatPath(parent.id, env), "utf8"), /ENOENT/);
   await assert.rejects(readFile(heartbeatPath(child.id, env), "utf8"), /ENOENT/);
 });

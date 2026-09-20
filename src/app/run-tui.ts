@@ -494,10 +494,7 @@ export async function runTui(): Promise<void> {
       return mutateRegistry(async () => { await deleteManagedSubagentSessions(sessionId); });
     },
     discardWorktree(sessionId) {
-      return mutateRegistry(async () => {
-        const discarded = await discardWorktreeSession(sessionId);
-        controller.removeSession(discarded.id);
-      });
+      return mutateRegistry(async () => { await discardWorktreeSession(sessionId); });
     },
     createSession(input) {
       return mutateRegistry(async () => {
@@ -507,10 +504,7 @@ export async function runTui(): Promise<void> {
       });
     },
     finishWorktree(sessionId) {
-      return mutateRegistry(async () => {
-        const finished = await finishWorktreeSession(sessionId);
-        controller.removeSession(finished.id);
-      });
+      return mutateRegistry(async () => { await finishWorktreeSession(sessionId); });
     },
     forkSession(sourceSessionId, input) {
       return mutateRegistry(async () => { await forkManagedSession(sourceSessionId, input); });
