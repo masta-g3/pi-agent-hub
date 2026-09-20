@@ -1047,3 +1047,14 @@
   created_at: '2026-09-19'
   plan_file: agent-work/history/20260919_split-view-011_sidebar_readability.md
   completed_at: '2026-09-19'
+- id: worktree-setup-005
+  status: done
+  title: Worktree lifecycle
+  subtitle: Track working copies through cleanup
+  description: Keep agent worktrees outside repositories, bind workflow metadata to
+    the correct working copy, and show verified worktree lifecycle states through
+    a producer-neutral Hub contract.
+  priority: 2
+  created_at: '2026-09-19'
+  plan_file: agent-work/history/20260919_worktree-setup-005_worktree_lifecycle.md
+  completed_at: '2026-09-19'

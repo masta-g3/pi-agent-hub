@@ -1464,6 +1464,26 @@ test("repo and session titles keep primary text styling with and without workflo
   assert.ok(plainTitle.includes(styleToken(theme, "text", "plain-repo")));
 });
 
+test("worktree lifecycle markers keep one fixed-width title token and show producer once", () => {
+  const states = [
+    ["active", "⎇"], ["awaiting-merge", "⎇…"], ["cleanup-pending", "⎇!"], ["check-needed", "⎇!"], ["cleaned", "⎇✓"],
+  ] as const;
+  const titleColumns: number[] = [];
+  for (const [state, marker] of states) {
+    const item = {
+      ...session(`s-${state}`, "default", "idle", state),
+      worktreeLifecycle: { version: 1 as const, recordId: "r", producer: "other", revision: 1, updatedAt: 1, repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary" as const, state, ...(state === "cleaned" ? { verifiedAt: 1 } : {}) }] },
+    };
+    const rendered = stripAnsi(renderSessions(workspaceModel({ sessions: [item], selectedId: item.id, width: 120 })).lines.join("\n"));
+    assert.ok(rendered.includes(marker), `${state} should render ${marker}`);
+    const titleLine = rendered.split("\n").find((line) => line.includes(marker) && line.includes(state));
+    assert.ok(titleLine);
+    titleColumns.push(titleLine.indexOf(state));
+    assert.equal(rendered.split("Worktree owner: other").length - 1, 1);
+  }
+  assert.equal(new Set(titleColumns).size, 1);
+});
+
 test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),
@@ -1475,11 +1495,12 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const model = workspaceModel({ sessions: [multi], selectedId: "a", width: 120, filter: "shared", pinSlots: ["a"] });
 
   assert.equal(model.selected?.repoCount, 3);
-  const rendered = renderSessions(model, { ...darkTheme, accent: "#010203" }).lines.join("\n");
+  const theme = { ...darkTheme, accent: "#010203" };
+  const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇ api[\s\S]*\[default\] quiet ⧉ 3/);
+  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] quiet ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
-  assert.match(rendered, /\u001b\[38;2;1;2;3m⎇/);
+  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });

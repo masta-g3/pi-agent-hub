@@ -2217,6 +2217,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "",
     heading("Status legend"),
     "  ● running/starting     ◐ waiting     ○ idle     × error     - stopped",
+    "  ⎇ active worktree     ⎇… awaits merge     ⎇! cleanup/check needed     ⎇✓ cleanup verified",
     "  zero counts are hidden from tier and top summaries",
     "",
     heading("Action workspace"),

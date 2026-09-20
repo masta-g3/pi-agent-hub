@@ -3,5 +3,9 @@ set -eu
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Hooks export local repository paths. Do not leak them into tests that create
+# and operate on independent temporary repositories.
+unset $(git rev-parse --local-env-vars)
+
 echo "pre-push: running full test suite"
 npm test

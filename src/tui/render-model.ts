@@ -3,7 +3,8 @@ import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-buc
 import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot } from "../core/types.js";
+import { effectiveWorktreeLifecycle, worktreeMarker } from "../core/worktree-lifecycle.js";
+import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -70,6 +71,8 @@ export interface RenderSession {
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
   worktreeCount?: number;
+  worktreeLifecycle?: WorktreeLifecycleSnapshot;
+  worktreeMarker?: "⎇" | "⎇…" | "⎇!" | "⎇✓";
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
@@ -1022,6 +1025,8 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,
     worktreeOwnedByHub: session.worktreeOwnedByHub,
     worktreeCount: worktrees.length || undefined,
+    worktreeLifecycle: effectiveWorktreeLifecycle(session),
+    worktreeMarker: worktreeMarker(session),
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),

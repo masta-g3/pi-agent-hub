@@ -11,7 +11,7 @@ import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionC
 import { readPiSessionName } from "../core/pi-session-name.js";
 import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
 import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
-import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay } from "../core/types.js";
+import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
 
 export interface SessionsSnapshot {
@@ -73,7 +73,15 @@ export class SessionsController {
           if (!observation) return [session];
           appliedObservationIds.add(session.id);
           const computed = computeStatus({ session, tmux: { exists: observation.presence === "present", error: observation.error }, heartbeat: observation.heartbeat, now });
-          const updated = applyComputedStatus(session, computed, now, observation.heartbeat);
+          let updated = applyComputedStatus(session, computed, now, observation.heartbeat);
+          const heartbeatPiId = observation.heartbeat?.piSessionId;
+          const rejectedHeartbeat = Boolean(heartbeatPiId && heartbeatPiId === session.rejectedWorktreePiSessionId);
+          const mismatchedHeartbeat = Boolean(heartbeatPiId && session.piSessionId && heartbeatPiId !== session.piSessionId);
+          if (rejectedHeartbeat || mismatchedHeartbeat) {
+            updated = { ...updated, piSessionId: session.piSessionId, rejectedWorktreePiSessionId: session.rejectedWorktreePiSessionId };
+          } else {
+            updated = applyObservedWorktreeLifecycle(updated, session, observation.heartbeat?.context?.worktree, observation.heartbeat, now);
+          }
           observedEvidence.set(session.id, { fingerprint: statusEvidenceFingerprint(updated), evidence: computed.evidence });
           const piName = typeof observation.heartbeat?.piSessionName === "string" ? observation.heartbeat.piSessionName.trim() : "";
           const title = piName && isFreshHeartbeat(observation.heartbeat, now) && session.updatedAt === observation.observedUpdatedAt && piName !== updated.title
@@ -306,6 +314,28 @@ export class SessionsController {
         : session;
     });
   }
+}
+
+function applyObservedWorktreeLifecycle(
+  updated: ManagedSession,
+  before: ManagedSession,
+  snapshot: WorktreeLifecycleSnapshot | undefined,
+  heartbeat: import("../core/types.js").Heartbeat | undefined,
+  now: number,
+): ManagedSession {
+  if (before.worktreeOwnedByHub === true || before.worktreeLifecycle?.producer === "pi-agent-hub" || !snapshot || !isFreshHeartbeat(heartbeat, now)) return updated;
+  const piSessionId = heartbeat?.piSessionId;
+  if (!piSessionId || (before.piSessionId && before.piSessionId !== piSessionId)) return updated;
+  const retained = before.worktreeLifecycle;
+  if (retained && retained.producer === snapshot.producer && retained.recordId === snapshot.recordId && snapshot.revision <= retained.revision) return updated;
+  const clearsRetained = snapshot.cleared && retained?.producer === snapshot.producer && retained.recordId === snapshot.recordId;
+  if (snapshot.cleared && !clearsRetained) return updated;
+  return {
+    ...updated,
+    worktreeLifecycle: snapshot,
+    ...(before.rejectedWorktreePiSessionId && before.rejectedWorktreePiSessionId !== piSessionId ? { rejectedWorktreePiSessionId: undefined } : {}),
+    updatedAt: nextUpdatedAt(updated.updatedAt, now),
+  };
 }
 
 function matchingObservation(

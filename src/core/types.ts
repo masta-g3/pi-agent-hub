@@ -64,6 +64,31 @@ export interface SessionAttention {
   text: string;
 }
 
+export type WorktreeLifecycleState = "active" | "awaiting-merge" | "cleanup-pending" | "check-needed" | "cleaned";
+export type WorktreeLifecycleOutcome = "merged" | "discarded";
+
+export interface WorktreeLifecycleRepository {
+  sourcePath: string;
+  worktreePath: string;
+  branch: string;
+  role: "primary" | "additional";
+  state: WorktreeLifecycleState;
+  outcome?: WorktreeLifecycleOutcome;
+  verifiedAt?: number;
+  issue?: string;
+  branchDeleted?: boolean;
+}
+
+export interface WorktreeLifecycleSnapshot {
+  version: 1;
+  recordId: string;
+  producer: string;
+  revision: number;
+  updatedAt: number;
+  cleared?: true;
+  repositories?: WorktreeLifecycleRepository[];
+}
+
 export interface PiAgentHubContextV1 {
   version: 1;
   updatedAt: number;
@@ -73,6 +98,7 @@ export interface PiAgentHubContextV1 {
     description?: string;
   };
   attention?: SessionAttention;
+  worktree?: WorktreeLifecycleSnapshot;
 }
 
 export interface ManagedWorktree {
@@ -117,6 +143,10 @@ export interface ManagedSession {
   worktreeBaseBranch?: string;
   worktreeOwnedByHub?: boolean;
   worktrees?: ManagedWorktree[];
+  /** Last producer snapshot, or Hub-owned partial/terminal operation evidence. */
+  worktreeLifecycle?: WorktreeLifecycleSnapshot;
+  /** Outgoing Pi identity rejected while restart-new establishes its replacement. */
+  rejectedWorktreePiSessionId?: string;
 }
 
 export type RuntimeStatusReason =

@@ -18,6 +18,45 @@ test("generic context accepts bounded optional fields and ignores unknown fields
   assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1 }), { version: 1, updatedAt: 1 });
 });
 
+test("generic context accepts producer-neutral worktree-only snapshots", () => {
+  const parsed = parseSessionContext({
+    version: 1,
+    updatedAt: 4,
+    worktree: {
+      version: 1,
+      recordId: "task-1",
+      producer: "alternative-producer",
+      revision: 2,
+      updatedAt: 3,
+      repositories: [{ sourcePath: "/src/repo", worktreePath: "/work/repo", branch: "feature/x", role: "primary", state: "awaiting-merge" }],
+    },
+  });
+  assert.equal(parsed?.worktree?.producer, "alternative-producer");
+  assert.equal(parsed?.worktree?.repositories?.[0]?.state, "awaiting-merge");
+});
+
+test("generic context requires absolute source and worktree paths", () => {
+  const lifecycle = {
+    version: 1,
+    recordId: "task-1",
+    producer: "rules",
+    revision: 1,
+    updatedAt: 4,
+    repositories: [{ sourcePath: "/src/repo", worktreePath: "/work/repo", branch: "feature/x", role: "primary", state: "active" }],
+  };
+  assert.equal(parseSessionContext({ version: 1, updatedAt: 4, worktree: { ...lifecycle, repositories: [{ ...lifecycle.repositories[0], sourcePath: "src/repo" }] } })?.worktree, undefined);
+  assert.equal(parseSessionContext({ version: 1, updatedAt: 4, worktree: { ...lifecycle, repositories: [{ ...lifecycle.repositories[0], worktreePath: "work/repo" }] } })?.worktree, undefined);
+  assert.equal(parseSessionContext({ version: 1, updatedAt: 4, worktree: lifecycle })?.worktree?.repositories?.[0]?.worktreePath, "/work/repo");
+});
+
+test("generic context isolates malformed worktree decoration and accepts reset tombstones", () => {
+  const isolated = parseSessionContext({ version: 1, updatedAt: 4, ticket: { id: "T-1" }, worktree: { version: 1, recordId: "bad" } });
+  assert.equal(isolated?.ticket?.id, "T-1");
+  assert.equal(isolated?.worktree, undefined);
+  const reset = parseSessionContext({ version: 1, updatedAt: 5, worktree: { version: 1, recordId: "task-1", producer: "rules", revision: 3, updatedAt: 5, cleared: true } });
+  assert.equal(reset?.worktree?.cleared, true);
+});
+
 test("generic context rejects malformed versions, fields, and text bounds", () => {
   for (const value of [
     undefined,

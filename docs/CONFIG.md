@@ -118,6 +118,10 @@ A Pi extension can append a custom entry with `customType: "pi-agent-hub-context
 
 Ticket IDs allow up to 80 characters, subtitles 64, and descriptions 240. Attention requires `kind` of `ready`, `question`, or `blocked` and nonblank `text` of up to 150 characters. Publish a fresh snapshot without `attention` to clear a request.
 
+The optional producer-neutral `worktree` field is independently validated. It contains `version: 1`, a stable `recordId`, a producer/owner string, monotonic `revision`, `updatedAt`, and one to 16 repository items. Each item supplies `sourcePath`, `worktreePath`, `branch`, `role` (`primary` or `additional`), and state (`active`, `awaiting-merge`, `cleanup-pending`, `check-needed`, or `cleaned`). Terminal items can add `outcome` (`merged` or `discarded`) and `verifiedAt`; a bounded `issue` explains incomplete verification. A tombstone uses the same identity and revision with `cleared: true` and no repository list. Malformed worktree data is omitted without hiding valid ticket or attention data.
+
+Hub retains only this normalized lifecycle snapshot, not the full generic context. It accepts newer revisions only from the matching Pi conversation and rejects the outgoing identity during restart-new. Hub-owned worktree mappings remain authoritative: producer metadata cannot claim ownership or enable Finish/Discard.
+
 Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
 
 Pi's native session name is the canonical title and is sent separately as `heartbeat.piSessionName`; Hub caches each nonblank heartbeat name. See [Session names](FEATURES.md#session-names) for initial names and ticket ownership. `R` renames an unlinked live session without submitting its editor contents. `N` reads the saved Pi name from `session_info`; it does not generate a new name.
