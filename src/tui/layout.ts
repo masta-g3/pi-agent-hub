@@ -1376,7 +1376,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
   const token = marker === "⎇" ? "⎇ " : marker;
-  if (marker === "⎇✓") return styles.success(token);
+  if (marker === "⎇✓") return styles.dim(token);
   if (marker === "⎇…" || marker === "⎇!") return styles.warning(token);
   return styles.dim(token);
 }

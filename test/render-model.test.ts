@@ -1484,6 +1484,18 @@ test("worktree lifecycle markers keep one fixed-width title token and show produ
   assert.equal(new Set(titleColumns).size, 1);
 });
 
+test("verified cleaned worktree markers are muted", () => {
+  const theme = { ...darkTheme, muted: "#010203", success: "#040506" };
+  const item = {
+    ...session("cleaned", "default", "idle", "archived-worktree"),
+    worktreeLifecycle: { version: 1 as const, recordId: "r", producer: "rules", revision: 1, updatedAt: 1, repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary" as const, state: "cleaned" as const, outcome: "merged" as const, verifiedAt: 1 }] },
+  };
+  const rendered = renderSessions(buildRenderModel({ sessions: [item], width: 120 }), theme).lines.join("\n");
+
+  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇✓")));
+  assert.ok(!rendered.includes(styleToken(theme, "success", "⎇✓")));
+});
+
 test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const multi = {
     ...session("a", "default", "idle", "api"),
