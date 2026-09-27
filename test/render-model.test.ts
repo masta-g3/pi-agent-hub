@@ -2081,6 +2081,62 @@ test("tier navigator stays composed for filtered no-match and standalone subagen
   assert.match(text, /No sessions match "no-such-session"/);
 });
 
+test("Execute plan counts stay in fleet metadata without changing row height", () => {
+  const row = { ...session("plan", "hub", "running", "Plan progress"), workflow: { ...WORKFLOW, plan: { tasks: { completed: 7, total: 12 } } } };
+  for (const width of [60, 100, 120, 160]) {
+    const layout = renderSessions(buildRenderModel({ sessions: [row], selectedId: row.id, width }));
+    const baseline = renderSessions(buildRenderModel({ sessions: [{ ...row, workflow: WORKFLOW }], selectedId: row.id, width }));
+    const metadata = layout.rowTargets.findIndex((target) => target?.kind === "session-continuation" && target.id === row.id);
+    assert.match(stripAnsi(layout.lines[metadata]), /7\/12 tasks/);
+    assert.equal(layout.lines.length, baseline.lines.length);
+    assert.deepEqual(layout.rowTargets, baseline.rowTargets);
+    assert.doesNotMatch(stripAnsi(layout.lines.join("\n")), /■|□/);
+  }
+  for (const activeIndex of [0, 2, 3, 4]) {
+    const output = renderSessions(buildRenderModel({ sessions: [{ ...row, workflow: { ...row.workflow, activeIndex } }], width: 160 })).lines.join("\n");
+    assert.doesNotMatch(stripAnsi(output), /7\/12 tasks/);
+  }
+});
+
+test("Execute workspace shows producer phase, task count and next unchecked text", () => {
+  const row = { ...session("plan", "hub", "running", "Plan progress"), workflow: { ...FOCUSED_WORKFLOW, plan: {
+    phase: { index: 2, count: 4, title: "Search results" }, tasks: { completed: 7, total: 12 }, nextStep: "Validate keyboard selection and confirm that the selected session keeps its identity",
+  } } };
+  for (const width of [40, 60, 100, 120, 160]) {
+    const layout = renderSessions(workspaceModel({ sessions: [row], selectedId: row.id, width, height: 45 }));
+    const text = stripAnsi(layout.lines.join("\n"));
+    assert.match(text, /Phase 2\/4 · Search results/);
+    assert.match(text, /■■■■■□□□ 7\/12 tasks/);
+    assert.match(text, /Next unchecked:/);
+    assert.match(text, /Validate keyboard/);
+    assert.doesNotMatch(text, /Currently working/);
+    for (const line of layout.lines) assert.equal(visibleWidth(line), width);
+    for (const [index, target] of layout.workspaceRowTargets.entries()) {
+      if (target) assert.doesNotMatch(stripAnsi(layout.lines[index]), /Phase 2\/4|7\/12 tasks|Next unchecked/);
+    }
+  }
+  for (const workflow of [WORKFLOW, { ...row.workflow, activeIndex: 2 }, { ...WORKFLOW, plan: { tasks: { completed: 0, total: 0 } } }]) {
+    const text = stripAnsi(renderSessions(workspaceModel({ sessions: [{ ...row, workflow }], selectedId: row.id, width: 60 })).lines.join("\n"));
+    assert.doesNotMatch(text, /Phase 2\/4|■|□|Next unchecked|0\/0/);
+  }
+  const compact = renderSessions(workspaceModel({ sessions: [row], selectedId: row.id, width: 60, height: 10 }));
+  assert.match(stripAnsi(compact.lines.join("\n")), /Plan progress/);
+  assert.ok(compact.workspaceRowTargets.some((target) => target?.includes("open")));
+});
+
+test("board places producer phase above the existing task bar and hides both below 100 columns", () => {
+  const row = { ...session("plan", "hub", "running", "Plan progress"), workflow: { ...WORKFLOW, plan: {
+    phase: { index: 2, count: 4, title: "Search results" }, tasks: { completed: 7, total: 12 },
+  } } };
+  const layout = renderSessions(buildRenderModel({ sessions: [row], selectedId: row.id, grouping: "stage", width: 100 }));
+  const lines = layout.lines.map(stripAnsi);
+  const phase = lines.findIndex((line) => line.includes("Phase 2/4 · Search results"));
+  assert.ok(phase >= 0);
+  assert.match(lines[phase + 1], /■■■■■□□□ 7\/12 tasks/);
+  const narrow = renderSessions(buildRenderModel({ sessions: [row], grouping: "stage", width: 60 }));
+  assert.doesNotMatch(stripAnsi(narrow.lines.join("\n")), /Phase 2\/4|■|□/);
+});
+
 test("workflow board uses activity plus an eight-cell square progress bar", () => {
   const row = {
     ...session("release", "release", "running", "Release checks"),

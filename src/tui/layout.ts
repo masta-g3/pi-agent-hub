@@ -901,7 +901,9 @@ function adaptiveCardLines(
     if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
     const activity = session.workflow?.activity;
     const activityText = activity ? `${activity.label}${activity.pass && activity.pass > 1 ? ` (pass ${activity.pass})` : ""}` : "";
-    const progress = boardProgressBar(session.plan, styles);
+    const phase = planPhaseLabel(session.plan);
+    if (phase) lines.push({ line: styles.muted(truncate(phase, width)), priority: 0 });
+    const progress = planProgressBar(session.plan, styles);
     const recap = activityText && progress
       ? `${styles.accent(truncate(activityText, Math.max(0, width - displayWidth(progress) - 3)))}${styles.border(" · ")}${progress}`
       : activityText ? styles.accent(truncate(activityText, width)) : truncate(progress, width);
@@ -918,7 +920,15 @@ function adaptiveCardLines(
   return lines;
 }
 
-function boardProgressBar(plan: RenderSession["plan"], styles: LayoutStyles): string {
+function executePlan(session: RenderSession): RenderSession["plan"] {
+  return session.workflow?.steps[session.workflow.activeIndex]?.id === "execute" ? session.plan : undefined;
+}
+
+function planPhaseLabel(plan: RenderSession["plan"]): string {
+  return plan?.phase ? `Phase ${plan.phase.index}/${plan.phase.count} · ${plan.phase.title}` : "";
+}
+
+function planTaskCount(plan: RenderSession["plan"]): { completed: number; total: number } | undefined {
   const phases = plan?.phases;
   const total = phases?.length
     ? phases.reduce((sum, phase) => sum + phase.total, 0)
@@ -926,9 +936,27 @@ function boardProgressBar(plan: RenderSession["plan"], styles: LayoutStyles): st
   const completed = phases?.length
     ? phases.reduce((sum, phase) => sum + phase.completed, 0)
     : plan?.tasks?.completed ?? 0;
-  if (!total || total < 0 || completed < 0) return "";
+  return total > 0 && completed >= 0 ? { completed, total } : undefined;
+}
+
+function planProgressBar(plan: RenderSession["plan"], styles: LayoutStyles): string {
+  const count = planTaskCount(plan);
+  if (!count) return "";
+  const { completed, total } = count;
   const filled = Math.max(0, Math.min(8, Math.round((completed / total) * 8)));
-  return `${styles.accent("■".repeat(filled))}${styles.dim("□".repeat(8 - filled))} ${completed}/${total}`;
+  return `${styles.accent("■".repeat(filled))}${styles.dim("□".repeat(8 - filled))} ${completed}/${total} tasks`;
+}
+
+function workspacePlanLines(session: RenderSession, width: number, styles: LayoutStyles): string[] {
+  const plan = executePlan(session);
+  if (!plan) return [];
+  const phase = planPhaseLabel(plan);
+  const progress = planProgressBar(plan, styles);
+  return [
+    ...(phase ? wrapWords(phase, width, width).map(styles.muted) : []),
+    ...(progress ? [progress] : []),
+    ...(plan.nextStep ? [styles.dim("Next unchecked:"), ...wrapWords(plan.nextStep, width, width)] : []),
+  ];
 }
 
 interface WorkspaceRendered {
@@ -970,7 +998,10 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
-  const workflow = block("workflow", workspaceWorkflowLine(workflowSession, styles));
+  const workflow = block("workflow", [
+    ...workspaceWorkflowLine(workflowSession, styles),
+    ...workspacePlanLines(session, width, styles),
+  ]);
   const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
   const lifecycleLines = session.worktreeLifecycle?.repositories?.flatMap((item) => {
     const state = item.state === "cleaned" ? `cleaned${item.outcome ? ` (${item.outcome})` : ""}` : item.state.replace(/-/gu, " ");
@@ -1135,9 +1166,11 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
       : railCompact(workflow, mode, styles)
     : "";
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
+  const taskCount = planTaskCount(executePlan(session));
   const optionalSignals = [
     session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "",
     mode && compatible ? styles.accent(mode.short) : "",
+    taskCount ? styles.muted(`${taskCount.completed}/${taskCount.total} tasks`) : "",
     repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])
       : session.cockpitTier === "quiet" ? styles.muted("quiet") : "",
     session.repoCount > 1 ? styles.dim(`⧉ ${session.repoCount}`) : "",

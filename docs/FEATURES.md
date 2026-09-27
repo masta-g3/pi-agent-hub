@@ -146,11 +146,11 @@ Status view groups complete session trees into these sections:
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, and workflow markers aligned under shared step labels. Worktree lifecycle stays in the existing marker position: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. Worktree lifecycle stays in the existing marker position: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 
-Select a session to see its identity, explicit request, task text, workflow position, and available actions. Missing information takes no space. The `▸` marker identifies the primary action.
+Select a session to see its identity, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
 
 At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Escape` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
 
@@ -174,7 +174,7 @@ Rules supplies Plan → Execute → Review → Reflect → Commit. Other produce
 
 Step checks show position, not an execution audit. Earlier positions are checked; the current position is active until the producer reports it complete. Later positions remain pending. A stopped session can retain its last workflow position.
 
-At wider sizes, board cards show activity and plan progress when available. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
+At wider sizes, board cards show activity and plan progress when available, with the reported phase above the task bar. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
 
 Subagent trees start collapsed in both fleet and board. Use `←` / `→` for one tree, Shift with those arrows for all trees, or `Space` on the board. Filtering reveals matching child context without changing saved section preferences. Each visible child remains independently selectable.
 
