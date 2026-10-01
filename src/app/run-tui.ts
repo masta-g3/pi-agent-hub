@@ -1,6 +1,6 @@
 import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut } from "./session-interaction.js";
 import { spawn } from "node:child_process";
-import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
 import { uiStatePath } from "../core/paths.js";
 import { loadRegistry } from "../core/registry.js";
@@ -333,7 +333,7 @@ export async function runTui(): Promise<void> {
   };
   syncDashboardChrome(theme);
   const terminal = new ProcessTerminal();
-  const tui = new TUI(terminal, false);
+  const tui = new TuiMainScreen(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
   let attentionBellEnabled = await effectiveDashboardAttentionBell();
   const worktreeDefault = await effectiveWorktreeDefault();
