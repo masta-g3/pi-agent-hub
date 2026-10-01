@@ -71,8 +71,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `f` | Fork the selected session through the group-selection form |
 | `Shift+F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
 | `a` | Mark the selected waiting session read |
-| `A` / `B` / `U` | Archive / move to Backlog / restore or reopen to Active |
-| `C` | Close the selected parent, or reopen it if closed |
+| `A` / `B` / `U` | Archive (Done, Abandoned, or archive only) / move to Backlog / restore or reopen to Active |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the Hub title from Pi's saved name |
 | `g` / `G` | Move a session to a group / rename its group |
@@ -274,9 +273,9 @@ Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line te
 
 ### Session closure
 
-Press `C` on an open parent to choose `d` **Done** or `a` **Abandoned**; `Esc` cancels. Close archives the session and closes its pin without stopping Pi or running children. It does not complete the workflow, edit the ticket, or delete conversations or worktrees. Archive alone records no closure outcome, and workflow completion never closes a session.
+Press `A` on an open parent to choose `d` **Done**, `x` **Abandoned**, or `a` **Archive only**; `Esc` cancels. Every choice archives the session and closes its pin without stopping Pi or running children. It does not complete the workflow, edit the ticket, or delete conversations or worktrees. Archive only records no outcome, and workflow completion never closes a session. On an open archived parent, `A` can still record Done or Abandoned; Archive only changes nothing.
 
-Press `C` or `U` on a closed parent to clear its outcome and return it to Active. `B` is unavailable until you reopen. Closure survives dashboard restart and refresh. Opening or resuming the conversation keeps it closed; choosing a new conversation in Restart choices clears the old outcome but keeps its bucket. Close and Reopen are also available in the command palette and selected-session workspace.
+Press `U` on a closed parent to clear its outcome and return it to Active. `A` and `B` are unavailable until you reopen, so changing an outcome means Reopen, then Archive again. Closure survives dashboard restart and refresh. Opening or resuming the conversation keeps it closed; choosing a new conversation in Restart choices clears the old outcome but keeps its bucket. Archive and Reopen are also available in the command palette and selected-session workspace.
 
 Archived rows keep their runtime icon on the left. The right-side meaning is separate:
 

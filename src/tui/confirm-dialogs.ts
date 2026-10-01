@@ -35,9 +35,9 @@ export interface ConfirmDialog extends BoundedConfirmation {
   busy: false | "session" | "subagents" | "worktree" | "finish";
 }
 
-/** Binds the chooser to the parent row and Pi conversation captured when C was pressed. */
-export interface CloseDialog {
-  kind: "close";
+/** Binds the chooser to the parent row and Pi conversation captured when A was pressed. */
+export interface ArchiveDialog {
+  kind: "archive";
   targetId: string;
   piSessionId?: string;
 }
@@ -56,54 +56,62 @@ export function createRestartDialog(targetId: string): RestartDialog {
   return { targetId, ...confirmationState() };
 }
 
-export function openCloseDialog(ctx: ConfirmDialogContext, targetId: string): CloseDialog | undefined {
+export function openArchiveDialog(ctx: ConfirmDialogContext, targetId: string): ArchiveDialog | undefined {
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === targetId);
-  if (!closeTargetAvailable(target, undefined)) {
-    ctx.setMessage("target changed; close cancelled");
+  if (!archiveTargetAvailable(target, undefined)) {
+    ctx.setMessage("target changed; archive cancelled");
     return undefined;
   }
-  return { kind: "close", targetId, ...(target!.piSessionId ? { piSessionId: target!.piSessionId } : {}) };
+  return { kind: "archive", targetId, ...(target!.piSessionId ? { piSessionId: target!.piSessionId } : {}) };
 }
 
-export function handleCloseInput(dialog: CloseDialog, data: string, ctx: ConfirmDialogContext): CloseDialog | undefined {
+/** Consumes every key while open so chooser letters never reach Delete, Mark read, or close-pin. */
+export function handleArchiveInput(dialog: ArchiveDialog, data: string, ctx: ConfirmDialogContext): ArchiveDialog | undefined {
   if (matchesKey(data, Key.escape)) { ctx.setMessage(undefined); return undefined; }
-  const closure: SessionClosure | undefined = data === "d" ? "done" : data === "a" ? "abandoned" : undefined;
-  if (!closure) return dialog;
+  if (data !== "d" && data !== "x" && data !== "a") return dialog;
+  const closure: SessionClosure | undefined = data === "d" ? "done" : data === "x" ? "abandoned" : undefined;
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
-  if (!closeTargetAvailable(target, dialog.piSessionId)) {
-    ctx.setMessage("target changed; close cancelled");
+  if (!archiveTargetAvailable(target, dialog.piSessionId)) {
+    ctx.setMessage("target changed; archive cancelled");
+    return undefined;
+  }
+  if (!closure && target!.bucket === "archived") {
+    ctx.setMessage("session is already Archived");
     return undefined;
   }
   const expected = { piSessionId: dialog.piSessionId };
-  const outcome = closure === "done" ? "Done" : "Abandoned";
+  const done = closure === "done" ? "Archived · Done" : closure === "abandoned" ? "Archived · Abandoned" : "Archived";
   ctx.runAction(
-    () => ctx.actions.closeSession ? ctx.actions.closeSession(target!.id, closure, expected) : ctx.controller.closeSession(target!.id, closure, expected),
-    "closing session...",
-    () => ctx.flashMessage(`Closed · ${outcome} → ${target!.title}`),
+    () => ctx.actions.archiveSession
+      ? ctx.actions.archiveSession(target!.id, closure, expected)
+      : closure ? ctx.controller.closeSession(target!.id, closure, expected) : ctx.controller.moveSessionToBucket(target!.id, "archived", undefined, expected),
+    "archiving session...",
+    () => ctx.flashMessage(`${done} → ${target!.title}`),
   );
   return undefined;
 }
 
-export function renderCloseDialog(dialog: CloseDialog, width: number, ctx: ConfirmDialogContext): string[] {
+export function renderArchiveDialog(dialog: ArchiveDialog, width: number, ctx: ConfirmDialogContext): string[] {
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
-  const choice = (key: string, label: string, detail: string, token: "success" | "muted") => {
-    const text = `${key}  ${label.padEnd(11)}${detail}`;
+  const choice = (key: string, label: string, detail: string, token: "success" | "muted" | "text") => {
+    const text = `${key}  ${label.padEnd(14)}${detail}`;
     return ctx.theme ? styleToken(ctx.theme, token, text) : text;
   };
   const innerWidth = Math.max(20, Math.min(width - 2, 86));
-  return renderDialog("Close session", [
+  return renderDialog("Archive session", [
     target ? target.title : "target unavailable",
     "",
     choice("d", "Done", "Finished what I needed", "success"),
-    choice("a", "Abandoned", "Decided not to continue", "muted"),
+    choice("x", "Abandoned", "Decided not to continue", "muted"),
+    choice("a", "Archive only", target?.bucket === "archived" ? "Already archived" : "No outcome recorded", "text"),
     "",
     ...wrapTextWithAnsi("Moves to Archived. Keeps workflow and conversation.", innerWidth),
-    ...wrapTextWithAnsi("Does not stop Pi or running children.", innerWidth),
+    ...wrapTextWithAnsi("Does not stop Pi or running children. U reopens.", innerWidth),
     hintLine("Esc Cancel", ctx.theme),
   ], width, ctx.theme);
 }
 
-function closeTargetAvailable(target: ManagedSession | undefined, piSessionId: string | undefined): boolean {
+function archiveTargetAvailable(target: ManagedSession | undefined, piSessionId: string | undefined): boolean {
   return Boolean(target && target.kind !== "subagent" && target.closure === undefined
     && (piSessionId === undefined || target.piSessionId === piSessionId));
 }

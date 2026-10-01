@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
 import { uiStatePath } from "../core/paths.js";
+import { loadRegistry } from "../core/registry.js";
 import { SessionsController } from "./controller.js";
 import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
@@ -281,20 +282,21 @@ export function createRegistryMutator(deps: RegistryMutatorDeps): (action: () =>
   };
 }
 
-/** Close shares Archive's pin cleanup; it never stops tmux, Pi, or child sessions. */
-export async function closeDashboardSession(
-  controller: Pick<SessionsController, "snapshot" | "closeSession">,
+/** Every Archive choice shares one guarded pin cleanup; it never stops tmux, Pi, or child sessions. */
+export async function archiveDashboardSession(
+  controller: Pick<SessionsController, "closeSession" | "moveSessionToBucket">,
   detach: (tmuxSession: string) => Promise<unknown>,
   sessionId: string,
-  closure: SessionClosure,
+  closure: SessionClosure | undefined,
   expected: { piSessionId?: string },
 ): Promise<void> {
-  const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
-  // Validate before detaching so a stale target keeps its pin; the controller rechecks latest state.
+  const session = (await loadRegistry()).sessions.find((item) => item.id === sessionId);
+  // Validate latest saved identity before detaching; the controller rechecks before mutation.
   if (!session || session.kind === "subagent" || session.closure !== undefined
-    || (expected.piSessionId !== undefined && session.piSessionId !== expected.piSessionId)) throw new Error("target changed; close cancelled");
+    || (expected.piSessionId !== undefined && session.piSessionId !== expected.piSessionId)) throw new Error("target changed; archive cancelled");
   await detach(session.tmuxSession);
-  await controller.closeSession(sessionId, closure, expected);
+  if (closure) await controller.closeSession(sessionId, closure, expected);
+  else await controller.moveSessionToBucket(sessionId, "archived", undefined, expected);
 }
 
 export async function runTui(): Promise<void> {
@@ -528,15 +530,8 @@ export async function runTui(): Promise<void> {
     changeGroup(sessionId, group) {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));
     },
-    archiveSession(sessionId) {
-      return mutateRegistry(async () => {
-        const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
-        if (session) await sidePanes!.detach(session.tmuxSession);
-        await controller.moveSessionToBucket(sessionId, "archived");
-      });
-    },
-    closeSession(sessionId, closure, expected) {
-      return mutateRegistry(() => closeDashboardSession(controller, (tmuxSession) => sidePanes!.detach(tmuxSession), sessionId, closure, expected));
+    archiveSession(sessionId, closure, expected) {
+      return mutateRegistry(() => archiveDashboardSession(controller, (tmuxSession) => sidePanes!.detach(tmuxSession), sessionId, closure, expected));
     },
     backlogSession(sessionId) {
       return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "backlog"));

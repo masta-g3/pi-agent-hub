@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, closeDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
 import type { TmuxClient } from "../src/core/tmux.js";
@@ -459,30 +459,47 @@ test("buildNewFormContext dedupes selected registry and history paths by rank", 
   assert.deepEqual(context.knownCwds, ["/repo/api", "/dashboard", "/repo/web", "/repo/docs", "/repo/cli"]);
 });
 
-test("dashboard close detaches only the exact pin and archives while preserving parent and child status", async () => {
+test("dashboard archive detaches only the exact pin for every choice and preserves parent and child status", async () => {
   const oldDir = process.env.PI_AGENT_HUB_DIR;
-  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-close-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-archive-"));
   process.env.PI_AGENT_HUB_DIR = root;
   try {
     const base = { cwd: "/tmp/p", group: "default", createdAt: 1, updatedAt: 1 };
     const parent: ManagedSession = { ...base, id: "parent", title: "parent", tmuxSession: "pi-agent-hub-parent", status: "running", piSessionId: "pi-1" };
     const child: ManagedSession = { ...base, id: "child", title: "child", tmuxSession: "pi-agent-hub-child", status: "running", kind: "subagent", parentId: "parent" };
-    await updateRegistry(() => ({ version: 1, sessions: [parent, child] }));
-    const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+    const plain: ManagedSession = { ...base, id: "plain", title: "plain", tmuxSession: "pi-agent-hub-plain", status: "idle", piSessionId: "pi-2" };
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child, plain] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent, child, plain] });
     const detached: string[] = [];
     const detach = async (tmuxSession: string) => { detached.push(tmuxSession); return true; };
 
-    await assert.rejects(() => closeDashboardSession(controller, detach, "parent", "done", { piSessionId: "pi-old" }), /target changed/);
-    await assert.rejects(() => closeDashboardSession(controller, detach, "child", "done", {}), /target changed/);
+    for (const closure of ["done", undefined] as const) {
+      await assert.rejects(() => archiveDashboardSession(controller, detach, "parent", closure, { piSessionId: "pi-old" }), /target changed/);
+      await assert.rejects(() => archiveDashboardSession(controller, detach, "child", closure, {}), /target changed/);
+      await assert.rejects(() => archiveDashboardSession(controller, detach, "missing", closure, {}), /target changed/);
+    }
     assert.deepEqual(detached, []);
 
-    await closeDashboardSession(controller, detach, "parent", "abandoned", { piSessionId: "pi-1" });
+    await updateRegistry((latest) => ({
+      ...latest,
+      sessions: latest.sessions.map((item) => item.id === "parent" ? { ...item, piSessionId: "pi-replaced" } : item),
+    }));
+    assert.equal(controller.snapshot().registry.sessions[0]!.piSessionId, "pi-1");
+    for (const closure of ["done", "abandoned", undefined] as const) {
+      await assert.rejects(() => archiveDashboardSession(controller, detach, "parent", closure, { piSessionId: "pi-1" }), /target changed/);
+    }
+    assert.deepEqual(detached, [], "a replacement hidden from the dashboard must keep its pin");
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child, plain] }));
 
-    assert.deepEqual(detached, ["pi-agent-hub-parent"]);
+    await archiveDashboardSession(controller, detach, "parent", "abandoned", { piSessionId: "pi-1" });
+    await archiveDashboardSession(controller, detach, "plain", undefined, { piSessionId: "pi-2" });
+
+    assert.deepEqual(detached, ["pi-agent-hub-parent", "pi-agent-hub-plain"]);
     const sessions = (await loadRegistry()).sessions;
     assert.deepEqual(sessions.map((item) => [item.id, item.status, item.bucket, item.closure]), [
       ["parent", "running", "archived", "abandoned"],
       ["child", "running", "archived", undefined],
+      ["plain", "idle", "archived", undefined],
     ]);
   } finally {
     if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR;

@@ -466,6 +466,7 @@ test("archive backlog and restore shortcuts call lifecycle actions", () => {
   });
 
   view.handleInput("A");
+  view.handleInput("a");
   view.handleInput("B");
   assert.deepEqual(events, ["archive:api", "backlog:api"]);
 
@@ -1402,8 +1403,7 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▸ C\s+Close session…/);
-  assert.match(workspace, /  A\s+Archive/);
+  assert.match(workspace, /▸ A\s+Archive…/);
   assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
 });
 
@@ -1600,7 +1600,6 @@ test("every session-dependent route is inert while archive disclosure is selecte
       archiveSession: () => { events.push("archive"); },
       backlogSession: () => { events.push("backlog"); },
       restoreSession: () => { events.push("restore"); },
-      closeSession: () => { events.push("close"); },
       pinSidePane: () => { events.push("pin"); return { kind: "pinned", session: "pi-agent-hub-archive", slot: 1 }; },
       closeSidePane: () => { events.push("close-pin"); return { kind: "closed" }; },
       resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 50 }; },
@@ -4005,85 +4004,148 @@ test("colon is inert below the minimum dashboard width", () => {
   assert.doesNotMatch(stripAnsi(view.render(39).join("\n")), /Search actions, sessions, filters/);
 });
 
-test("C opens a target-bound close chooser where d and a choose outcomes and Esc changes nothing", () => {
+test("A opens a target-bound Archive chooser where d, x and a archive without falling through and Esc changes nothing", () => {
   const events: string[] = [];
-  const api = { ...session("api", "Project API"), status: "running" as const, piSessionId: "pi-api" };
+  const api = { ...session("api", "Project API"), status: "waiting" as const, piSessionId: "pi-api" };
   const controller = new SessionsController({ version: 1, sessions: [api] });
   const view = new SessionsView(controller, () => {}, {
-    closeSession: (id, closure, expected) => { events.push(`close:${id}:${closure}:${expected.piSessionId}`); },
+    archiveSession: (id, closure, expected) => { events.push(`archive:${id}:${closure ?? "only"}:${expected.piSessionId}`); },
     deleteSession: (id) => { events.push(`delete:${id}`); },
     acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    closeSidePane: (id) => { events.push(`close-pin:${id}`); return { kind: "closed" }; },
     restoreSession: (id) => { events.push(`restore:${id}`); },
   });
 
-  view.handleInput("C");
+  view.handleInput("A");
   const chooser = stripAnsi(view.render(100).join("\n"));
-  assert.match(chooser, /Close session/);
+  assert.match(chooser, /Archive session/);
   assert.match(chooser, /Project API/);
-  assert.match(chooser, /d\s+Done\s+Finished what I needed/);
-  assert.match(chooser, /a\s+Abandoned\s+Decided not to continue/);
+  assert.match(chooser, /d\s+Done/);
+  assert.match(chooser, /x\s+Abandoned/);
+  assert.match(chooser, /a\s+Archive only/);
   assert.match(chooser, /Does not stop Pi or running children/);
-  view.handleInput("x");
+  view.handleInput("z");
   view.handleInput("\x1b");
   assert.deepEqual(events, []);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Finished what I needed/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Archive only/);
 
-  view.handleInput("C");
-  view.handleInput("d");
-  assert.deepEqual(events, ["close:api:done:pi-api"]);
-  view.handleInput("C");
-  view.handleInput("a");
-  assert.deepEqual(events, ["close:api:done:pi-api", "close:api:abandoned:pi-api"]);
+  for (const key of ["d", "x", "a"]) {
+    view.handleInput("A");
+    view.handleInput(key);
+    assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Archive only/, key);
+  }
+  assert.deepEqual(events, ["archive:api:done:pi-api", "archive:api:abandoned:pi-api", "archive:api:only:pi-api"]);
 });
 
-test("a stale close chooser refuses replaced or vanished targets instead of falling through", () => {
+test("C is not a session command while c still toggles Conversation", () => {
   const events: string[] = [];
-  const api = { ...session("api", "api"), status: "waiting" as const, piSessionId: "pi-old" };
-  const web = { ...session("web", "web"), status: "waiting" as const, piSessionId: "pi-web" };
-  const controller = new SessionsController({ version: 1, sessions: [api, web] });
-  const view = new SessionsView(controller, () => {}, {
-    closeSession: (id, closure) => { events.push(`close:${id}:${closure}`); },
-    deleteSession: (id) => { events.push(`delete:${id}`); },
-    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [{ ...session("api", "api"), status: "running" as const }] }), () => {}, {
+    archiveSession: () => { events.push("archive"); },
+    restoreSession: () => { events.push("restore"); },
   });
-  const registry = controller.snapshot().registry;
 
   view.handleInput("C");
-  registry.sessions[0]!.piSessionId = "pi-new";
-  view.handleInput("d");
+  const rendered = stripAnsi(view.render(100).join("\n"));
   assert.deepEqual(events, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /target changed/);
-
-  view.handleInput("C");
-  registry.sessions.splice(0, 1);
-  view.handleInput("a");
-  assert.deepEqual(events, []);
-  assert.match(stripAnsi(view.render(100).join("\n")), /target changed/);
-  assert.equal(controller.snapshot().registry.sessions[0]?.closure, undefined);
+  assert.doesNotMatch(rendered, /Archive session|Close session/);
 });
 
-test("closed parents reopen through C or U, cannot move to Backlog, and children cannot close", () => {
+test("palette and workspace Archive rows open the same target-bound chooser", () => {
+  const events: string[] = [];
+  const api = { ...session("api", "api"), status: "idle" as const, piSessionId: "pi-api" };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [api] }), () => {}, {
+    archiveSession: (id, closure, expected) => { events.push(`archive:${id}:${closure ?? "only"}:${expected.piSessionId}`); },
+    terminalRows: () => 30,
+  });
+
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "archive") view.handleInput(char);
+  view.handleInput("\r");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Archive only/);
+  view.handleInput("x");
+
+  const wide = view.render(120);
+  const archiveRow = wide.findIndex((line) => /A\s+Archive…/.test(stripAnsi(line)));
+  assert.notEqual(archiveRow, -1);
+  assert.doesNotMatch(stripAnsi(wide.join("\n")), /Close session/);
+  view.handleInput(mousePressAtLine(archiveRow, 110));
+  assert.match(stripAnsi(view.render(120).join("\n")), /Archive only/);
+  view.handleInput("d");
+
+  assert.deepEqual(events, ["archive:api:abandoned:pi-api", "archive:api:done:pi-api"]);
+});
+
+test("a stale Archive chooser refuses replaced or vanished targets for every choice", () => {
+  for (const key of ["d", "x", "a"]) {
+    const events: string[] = [];
+    const api = { ...session("api", "api"), status: "waiting" as const, piSessionId: "pi-old" };
+    const web = { ...session("web", "web"), status: "waiting" as const, piSessionId: "pi-web" };
+    const controller = new SessionsController({ version: 1, sessions: [api, web] });
+    const view = new SessionsView(controller, () => {}, {
+      archiveSession: (id, closure) => { events.push(`archive:${id}:${closure ?? "only"}`); },
+      deleteSession: (id) => { events.push(`delete:${id}`); },
+      acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    });
+    const registry = controller.snapshot().registry;
+
+    view.handleInput("A");
+    registry.sessions[0]!.piSessionId = "pi-new";
+    view.handleInput(key);
+    assert.deepEqual(events, [], key);
+    assert.match(stripAnsi(view.render(100).join("\n")), /target changed/, key);
+
+    view.handleInput("A");
+    registry.sessions.splice(0, 1);
+    view.handleInput(key);
+    assert.deepEqual(events, [], key);
+    assert.match(stripAnsi(view.render(100).join("\n")), /target changed/, key);
+  }
+});
+
+test("archived open parents record an outcome through A while Archive only stays a no-op", () => {
+  const events: string[] = [];
+  const archived = { ...session("old", "old"), bucket: "archived" as const, bucketChangedAt: 10, piSessionId: "pi-old" };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [archived] }), () => {}, {
+    archiveSession: (id, closure, expected) => { events.push(`archive:${id}:${closure ?? "only"}:${expected.piSessionId}`); },
+  });
+
+  view.handleInput("A");
+  view.handleInput("a");
+  assert.deepEqual(events, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /already Archived/);
+  view.handleInput("A");
+  view.handleInput("d");
+  assert.deepEqual(events, ["archive:old:done:pi-old"]);
+});
+
+test("closed parents reopen only through U, block A and B, and children cannot archive", () => {
   const events: string[] = [];
   const closed = { ...session("done", "done"), status: "stopped" as const, closure: "done" as const, bucket: "archived" as const, bucketChangedAt: 10 };
   const parent = { ...session("parent", "parent"), status: "running" as const };
   const child = { ...session("child", "child"), status: "running" as const, kind: "subagent" as const, parentId: "parent", agentName: "scout" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child, closed] });
   const view = new SessionsView(controller, () => {}, {
-    closeSession: (id) => { events.push(`close:${id}`); },
+    archiveSession: (id) => { events.push(`archive:${id}`); },
     restoreSession: (id) => { events.push(`restore:${id}`); },
     backlogSession: (id) => { events.push(`backlog:${id}`); },
   });
 
   view.handleInput("\x1b[C");
   assert.equal(controller.selectSession("child"), true);
-  view.handleInput("C");
+  view.handleInput("A");
   assert.deepEqual(events, []);
   assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
 
   assert.equal(controller.selectSession("done"), true);
-  view.handleInput("B");
-  assert.match(stripAnsi(view.render(100).join("\n")), /Reopen it first/);
+  for (const key of ["A", "B"]) {
+    view.handleInput(key);
+    const rendered = stripAnsi(view.render(100).join("\n"));
+    assert.match(rendered, /Reopen it first/, key);
+    assert.doesNotMatch(rendered, /Archive only/, key);
+  }
   view.handleInput("C");
+  assert.deepEqual(events, []);
   view.handleInput("U");
-  assert.deepEqual(events, ["restore:done", "restore:done"]);
+  assert.deepEqual(events, ["restore:done"]);
 });

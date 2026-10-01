@@ -60,7 +60,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
-import { createRestartDialog, handleCloseInput, handleRestartDialogInput, handleConfirmInput, openCloseDialog, openDeleteDialog, openFinishDialog, renderCloseDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
+import { createRestartDialog, handleArchiveInput, handleRestartDialogInput, handleConfirmInput, openArchiveDialog, openDeleteDialog, openFinishDialog, renderArchiveDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites-dialog.js";
@@ -182,7 +182,7 @@ export class SessionsView implements Component {
       else if (this.dialog.kind === "prompt") this.dialog = handlePromptInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "form") this.dialog = handleFormDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext(), this.confirmationReview);
-      else if (this.dialog.kind === "close") this.dialog = handleCloseInput(this.dialog, data, this.dialogContext());
+      else if (this.dialog.kind === "archive") this.dialog = handleArchiveInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "theme") this.dialog = handleThemeDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "new" || this.dialog.kind === "repoPicker") this.dialog = handleNewSessionInput(this.dialog, data, this.dialogContext());
@@ -362,7 +362,7 @@ export class SessionsView implements Component {
     if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "sessionFavorites") return limitRows(renderFavoritesDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
-    if (this.dialog?.kind === "close") return limitRows(renderCloseDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
+    if (this.dialog?.kind === "archive") return limitRows(renderArchiveDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "confirm" || this.pendingRestart) {
       const rendered = this.dialog?.kind === "confirm"
         ? renderConfirmDialog(this.dialog, width, height, this.dialogContext())
@@ -1032,10 +1032,9 @@ export class SessionsView implements Component {
         case "fork-compact": this.startForkDialog(true); return;
         case "move-group": this.startGroupDialog(); return;
         case "rename-group": this.startRenameGroupDialog(); return;
-        case "archive": this.moveSelectedToBucket("archived"); return;
-        case "backlog": this.moveSelectedToBucket("backlog"); return;
-        case "restore": case "reopen": this.restoreSelectedBucket(); return;
-        case "close": this.openDialog((ctx) => openCloseDialog(ctx, command.targetSessionId!)); return;
+        case "archive": this.openDialog((ctx) => openArchiveDialog(ctx, command.targetSessionId!)); return;
+        case "backlog": this.backlogSelected(); return;
+        case "restore": this.restoreSelectedBucket(); return;
         case "delete": this.startDeleteDialog(); return;
         case "finish-worktree": this.startFinishDialog(); return;
         case "skills": this.startPicker("skills"); return;
@@ -1964,7 +1963,7 @@ export class SessionsView implements Component {
     );
   }
 
-  private moveSelectedToBucket(bucket: "backlog" | "archived") {
+  private backlogSelected() {
     const selected = this.controller.selected();
     if (!selected) return;
     if (selected.kind === "subagent") {
@@ -1973,8 +1972,7 @@ export class SessionsView implements Component {
     }
     this.clearPendingRestart();
     this.clearFlash();
-    const action = bucket === "archived" ? this.actions.archiveSession : this.actions.backlogSession;
-    this.runAction(() => action ? action(selected.id) : this.controller.moveSessionToBucket(selected.id, bucket), bucket === "archived" ? "archiving session..." : "moving to backlog...");
+    this.runAction(() => this.actions.backlogSession ? this.actions.backlogSession(selected.id) : this.controller.moveSessionToBucket(selected.id, "backlog"), "moving to backlog...");
   }
 
   private restoreSelectedBucket() {
