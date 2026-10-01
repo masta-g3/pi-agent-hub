@@ -56,7 +56,8 @@ Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agent
 | `r` / `R` | Restart choices / rename |
 | `f` / `Shift+F` | Fork / fork and compact |
 | `g` / `G` | Move a session to a group / rename its group |
-| `A` / `B` / `U` | Archive / move to Backlog / restore |
+| `A` / `B` / `U` | Archive / move to Backlog / restore or reopen |
+| `C` | Close as Done or Abandoned; reopen a closed session |
 | `s` / `m` | Pick project skills / MCP servers |
 | `t` | Choose a theme |
 | `?` / `q` | Help / quit the dashboard |
@@ -66,6 +67,8 @@ See [Dashboard keys](docs/FEATURES.md#dashboard-keys) for all controls.
 The default Status view puts explicit requests in `NEEDS YOU`, runtime errors in `HEALTH`, running work in `ACTIVE`, and other sessions in `QUIET`. `ARCHIVED` is newest-first. Waiting alone does not mean an agent needs an answer. Explicit requests require an extension that reports them.
 
 Each parent session shows its `[group]` after the title. Press `v` to browse by repository instead. Worktrees stay with their source repo; multi-repo sessions appear under their primary repo. Groups and Backlog/Archive organize sessions without stopping their agents.
+
+`C` opens Close: `d` marks Done, `a` marks Abandoned, and `Esc` cancels. Close archives without stopping Pi or completing its workflow. `C` or `U` reopens a closed session; `B` requires reopening first. See [Session closure](docs/FEATURES.md#session-closure) for archived icons and conversation behavior.
 
 The selected-session workspace shows task context and available actions. It stays beside the list in wide terminals; `i` opens it full-width in smaller terminals and toggles live details. `Enter` and double-click open the selected session directly at every width. Hub does not read or display raw pane output or conversation text in this workspace.
 

@@ -1,10 +1,10 @@
 import { basename, dirname, parse, resolve, sep } from "node:path";
-import { ARCHIVE_PRUNE_AFTER_MS, type SessionSection } from "../core/session-bucket.js";
+import { ARCHIVE_PRUNE_AFTER_MS, sessionClosure, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import { effectiveWorktreeLifecycle, worktreeMarker } from "../core/worktree-lifecycle.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
+import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionClosure, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -35,6 +35,7 @@ export interface RenderSession {
   repoLabel: string;
   group: string;
   section: SessionSection;
+  closure?: SessionClosure;
   bucketChangedAt?: number;
   archivedAge?: string;
   archiveRetentionIn?: string;
@@ -974,6 +975,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
   const lifecycle = effectiveSessionLifecycle(session, sessions, tree);
   const attention = visibleAttention(session);
   const archiveTiming = archiveTimingFor(lifecycle.section, lifecycle.bucketChangedAt, now);
+  const closure = sessionClosure(session);
   return {
     id: session.id,
     cockpitTier,
@@ -988,6 +990,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     repoLabel: repoIdentity.label,
     group: session.group,
     section: lifecycle.section,
+    ...(closure ? { closure } : {}),
     bucketChangedAt: lifecycle.bucketChangedAt,
     ...archiveTiming,
     lastActivityAt: session.lastActivityAt,

@@ -30,7 +30,7 @@ import { renameManagedSession, syncManagedSessionStatusBars } from "./session-co
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
-import type { ManagedSession } from "../core/types.js";
+import type { ManagedSession, SessionClosure } from "../core/types.js";
 import type { CollapsibleSection, ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
 import { normalizeCockpitOnboarding } from "../tui/cockpit-onboarding.js";
 import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
@@ -281,6 +281,22 @@ export function createRegistryMutator(deps: RegistryMutatorDeps): (action: () =>
   };
 }
 
+/** Close shares Archive's pin cleanup; it never stops tmux, Pi, or child sessions. */
+export async function closeDashboardSession(
+  controller: Pick<SessionsController, "snapshot" | "closeSession">,
+  detach: (tmuxSession: string) => Promise<unknown>,
+  sessionId: string,
+  closure: SessionClosure,
+  expected: { piSessionId?: string },
+): Promise<void> {
+  const session = controller.snapshot().registry.sessions.find((item) => item.id === sessionId);
+  // Validate before detaching so a stale target keeps its pin; the controller rechecks latest state.
+  if (!session || session.kind === "subagent" || session.closure !== undefined
+    || (expected.piSessionId !== undefined && session.piSessionId !== expected.piSessionId)) throw new Error("target changed; close cancelled");
+  await detach(session.tmuxSession);
+  await controller.closeSession(sessionId, closure, expected);
+}
+
 export async function runTui(): Promise<void> {
   const cwd = process.cwd();
   await cleanupRetiredSessionMetadata();
@@ -518,6 +534,9 @@ export async function runTui(): Promise<void> {
         if (session) await sidePanes!.detach(session.tmuxSession);
         await controller.moveSessionToBucket(sessionId, "archived");
       });
+    },
+    closeSession(sessionId, closure, expected) {
+      return mutateRegistry(() => closeDashboardSession(controller, (tmuxSession) => sidePanes!.detach(tmuxSession), sessionId, closure, expected));
     },
     backlogSession(sessionId) {
       return mutateRegistry(() => controller.moveSessionToBucket(sessionId, "backlog"));

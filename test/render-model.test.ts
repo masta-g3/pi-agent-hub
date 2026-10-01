@@ -722,14 +722,117 @@ test("sessions without workflow render no rail", () => {
   assert.doesNotMatch(text, /PL─EX/);
 });
 
-test("archive age takes priority over the workflow rail", () => {
+test("archived open rows pair the base step with its positional marker instead of the workflow rail", () => {
   const day = 24 * 60 * 60 * 1000;
-  const archived = { ...session("a", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 100, lastActivityAt: 100 + day, workflow: WORKFLOW };
+  const archived = { ...session("a", "default", "stopped"), bucket: "archived" as const, bucketChangedAt: 100, lastActivityAt: 100 + day, workflow: { ...WORKFLOW, activeMode: { id: "fix", short: "FX" } } };
   const model = buildRenderModel({ sessions: [archived, session("b", "default", "running")], selectedId: "a", width: 110, now: 100 + 2 * day });
   const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("[default] a"));
-  assert.match(row ?? "", /\[default\] a\s+2d/);
-  assert.doesNotMatch(row ?? "", /\[exp|EX/);
+  assert.match(row ?? "", /\[default\] a\s+EX ◉ · 2d/);
+  assert.doesNotMatch(row ?? "", /\[exp|PL|FX|─/);
   assert.equal(model.selected?.archiveRetentionIn, "5d");
+});
+
+const ARCHIVE_DAY = 24 * 60 * 60 * 1000;
+const ARCHIVE_NOW = 10 * ARCHIVE_DAY;
+
+function archivedRow(id: string, title: string, values: Partial<RuntimeSession>, age = ARCHIVE_DAY): RuntimeSession {
+  return { ...session(id, "default", "stopped", title), bucket: "archived", bucketChangedAt: ARCHIVE_NOW - age, ...values };
+}
+
+function rowText(lines: string[], title: string): string {
+  return lines.map(stripAnsi).find((line) => line.includes(title)) ?? "";
+}
+
+test("archived tails show one meaning: closure outcome, else compact producer step position", () => {
+  const sessions: RuntimeSession[] = [
+    archivedRow("plan", "Improve planning", { status: "idle", workflow: { ...WORKFLOW, activeIndex: 1 } }, 2 * 60 * 60 * 1000),
+    archivedRow("paths", "Date-based paths", { workflow: { ...WORKFLOW, activeIndex: 4, currentStepComplete: true } }, 60 * 60 * 1000),
+    archivedRow("publish", "Investigate publishing", {}, 3 * 60 * 60 * 1000),
+    archivedRow("templates", "Note templates", { status: "running", closure: "done", workflow: { ...WORKFLOW, activeIndex: 4, currentStepComplete: true } }, 0),
+    archivedRow("alt", "Alternative planning approach", { status: "error", closure: "abandoned", workflow: WORKFLOW }, 3 * ARCHIVE_DAY),
+    archivedRow("custom", "Custom producer", { workflow: { steps: [{ id: "draft", short: "DRAFT" }, { id: "ship", short: "SHIP" }], activeIndex: 0, updatedAt: 1 } }),
+  ];
+  const lines = renderSessions(buildRenderModel({ sessions, selectedId: "plan", width: 120, now: ARCHIVE_NOW, archiveExpanded: true }), darkTheme).lines;
+  assert.match(rowText(lines, "Improve planning"), /○ .*Improve planning\s+EX ◉ · 2h/);
+  assert.match(rowText(lines, "Date-based paths"), /- .*Date-based paths\s+CM ✓ · 1h/);
+  assert.match(rowText(lines, "Investigate publishing"), /Investigate publishing\s+3h/);
+  assert.doesNotMatch(rowText(lines, "Investigate publishing"), /[✓◉⊘]/);
+  assert.match(rowText(lines, "Note templates"), /● .*Note templates\s+✓ · now/);
+  assert.doesNotMatch(rowText(lines, "Note templates"), /CM/);
+  assert.match(rowText(lines, "Alternative planning approach"), /× .*Alternative planning approach\s+⊘ · 3d/);
+  assert.doesNotMatch(rowText(lines, "Alternative planning approach"), /EX/);
+  assert.match(rowText(lines, "Custom producer"), /Custom producer\s+DRAFT ◉ · 1d/);
+  const repoLines = renderSessions(buildRenderModel({ sessions, selectedId: "plan", width: 120, now: ARCHIVE_NOW, archiveExpanded: true, fleetGrouping: "repo" })).lines;
+  assert.match(rowText(repoLines, "Improve planning"), /Improve planning\s+EX ◉ · 2h/);
+  assert.match(rowText(repoLines, "Note templates"), /Note templates\s+✓ · now/);
+  const styled = lines.find((line) => line.includes("Note templates")) ?? "";
+  assert.ok(styled.includes(styleToken(darkTheme, "success", "✓")));
+  assert.ok((lines.find((line) => line.includes("Alternative planning")) ?? "").includes(styleToken(darkTheme, "muted", "⊘")));
+});
+
+test("archived meaning is identified by lifecycle even without an archive timestamp", () => {
+  const closed = { ...session("closed", "default", "stopped", "Closed without age"), bucket: "archived" as const, closure: "done" as const };
+  const open = { ...session("open", "default", "stopped", "Open without age"), bucket: "archived" as const, workflow: WORKFLOW };
+  const lines = renderSessions(buildRenderModel({ sessions: [closed, open], selectedId: "closed", width: 100, now: ARCHIVE_NOW })).lines;
+  assert.match(rowText(lines, "Closed without age"), /Closed without age\s+✓\s*│?$/);
+  assert.match(rowText(lines, "Open without age"), /Open without age\s+EX ◉\s*│?$/);
+});
+
+test("archived meaning fits atomically, drops age first, and keeps hidden child requests", () => {
+  const long = "title with wide 漢字 and enough words to need truncation";
+  const complete = archivedRow("complete", `Alpha ${long}`, { workflow: { steps: [{ id: "build", short: "BUILD" }, { id: "commit", short: "COMMITTING" }], activeIndex: 1, currentStepComplete: true, updatedAt: 1 } });
+  const closed = archivedRow("closed", `Omega ${long}`, { closure: "abandoned" }, 2 * ARCHIVE_DAY);
+  const child: RuntimeSession = { ...session("child", "default", "waiting", "child"), kind: "subagent", parentId: "closed", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", requestId: "r1", text: "Need input" } } };
+  let sawMeaningWithoutAge = false;
+  for (let width = 40; width <= 160; width += 1) {
+    const lines = renderSessions(buildRenderModel({ sessions: [complete, closed, child], selectedId: "complete", width, now: ARCHIVE_NOW })).lines;
+    for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
+    const completeRow = rowText(lines, "Alpha").replace(/│$/, "");
+    assert.ok(completeRow, `${width}: missing row`);
+    if (completeRow.includes("✓")) assert.match(completeRow, /COMMITTING ✓/, `${width}: lone workflow tick`);
+    if (/ 1d\s*$/.test(completeRow)) assert.match(completeRow, /COMMITTING ✓ · 1d/, `${width}: age kept over meaning`);
+    if (completeRow.includes("COMMITTING ✓") && !completeRow.includes("1d")) sawMeaningWithoutAge = true;
+    const closedRow = rowText(lines, "Omega").replace(/│$/, "");
+    assert.ok(closedRow, `${width}: missing closed row`);
+    assert.match(closedRow, /\?1/, `${width}: hidden request dropped`);
+    if (/ 2d\s*$/.test(closedRow)) assert.match(closedRow, /⊘ · 2d/, `${width}: age kept over closure`);
+  }
+  assert.ok(sawMeaningWithoutAge);
+});
+
+test("closed workspace explains closure, last workflow, runtime and live children with one primary Reopen", () => {
+  const closed = archivedRow("closed", "Closed work", { status: "running", closure: "done", workflow: { ...WORKFLOW, activeIndex: 4, currentStepComplete: true } });
+  const child: RuntimeSession = { ...session("child", "default", "running", "child"), kind: "subagent", parentId: "closed", bucket: "archived" };
+  for (const width of [100, 120, 160]) {
+    const text = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width, height: 30, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
+    assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
+    assert.match(text, /● running/, `${width}`);
+    assert.match(text, /Commit · step 5 of 5/, `${width}`);
+    assert.match(text, /▸ C\s+Reopen/, `${width}`);
+    assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
+  }
+  const abandoned = archivedRow("gone", "Gone work", { closure: "abandoned" });
+  const abandonedText = renderSessions(workspaceModel({ sessions: [abandoned], selectedId: "gone", width: 120, height: 30, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
+  assert.match(abandonedText, /⊘ Closed · Abandoned/);
+  assert.match(abandonedText, /- stopped/);
+  assert.doesNotMatch(abandonedText, /Restart to continue/);
+  for (const height of [8, 10, 12]) {
+    const short = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width: 100, height, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
+    assert.match(short, /✓ Closed · Done/, `height ${height}`);
+    assert.match(short, /▸ C\s+Reopen/, `height ${height}`);
+  }
+});
+
+test("closed parents stay archived and out of workflow lanes while open grids are unchanged", () => {
+  const active = { ...session("active", "default", "running", "Active work"), workflow: WORKFLOW };
+  const closed = archivedRow("closed", "Closed work", { status: "running", closure: "done", workflow: WORKFLOW });
+  const model = buildRenderModel({ sessions: [active, closed], selectedId: "active", width: 120, now: ARCHIVE_NOW });
+  assert.equal(modelRows(model).find((row) => row.id === "closed")?.cockpitTier, "archived");
+  assert.equal(modelRows(model).find((row) => row.id === "closed")?.closure, "done");
+  const board = buildRenderModel({ sessions: [active, closed], selectedId: "active", width: 120, now: ARCHIVE_NOW, grouping: "stage" });
+  assert.deepEqual(modelRows(board).map((row) => row.id), ["active"]);
+  const text = renderSessions(model).lines.map(stripAnsi).join("\n");
+  assert.match(text, /PL\s+EX\s+RV\s+RF\s+CM/);
 });
 
 test("archive labels remain width-safe at sidebar widths and show retention eligibility", () => {
@@ -1919,7 +2022,7 @@ test("workspace height pruning preserves primary action and requested evidence t
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
     for (const [index, target] of layout.workspaceRowTargets.entries()) {
-      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|Actions/);
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Close session|Archive|[Dd]etails|Actions/);
     }
   }
 });

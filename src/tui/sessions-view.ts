@@ -60,7 +60,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
 import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
-import { createRestartDialog, handleRestartDialogInput, handleConfirmInput, openDeleteDialog, openFinishDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
+import { createRestartDialog, handleCloseInput, handleRestartDialogInput, handleConfirmInput, openCloseDialog, openDeleteDialog, openFinishDialog, renderCloseDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites-dialog.js";
@@ -182,6 +182,7 @@ export class SessionsView implements Component {
       else if (this.dialog.kind === "prompt") this.dialog = handlePromptInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "form") this.dialog = handleFormDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext(), this.confirmationReview);
+      else if (this.dialog.kind === "close") this.dialog = handleCloseInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "theme") this.dialog = handleThemeDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "new" || this.dialog.kind === "repoPicker") this.dialog = handleNewSessionInput(this.dialog, data, this.dialogContext());
@@ -361,6 +362,7 @@ export class SessionsView implements Component {
     if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "sessionFavorites") return limitRows(renderFavoritesDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
+    if (this.dialog?.kind === "close") return limitRows(renderCloseDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
     if (this.dialog?.kind === "confirm" || this.pendingRestart) {
       const rendered = this.dialog?.kind === "confirm"
         ? renderConfirmDialog(this.dialog, width, height, this.dialogContext())
@@ -1032,7 +1034,8 @@ export class SessionsView implements Component {
         case "rename-group": this.startRenameGroupDialog(); return;
         case "archive": this.moveSelectedToBucket("archived"); return;
         case "backlog": this.moveSelectedToBucket("backlog"); return;
-        case "restore": this.restoreSelectedBucket(); return;
+        case "restore": case "reopen": this.restoreSelectedBucket(); return;
+        case "close": this.openDialog((ctx) => openCloseDialog(ctx, command.targetSessionId!)); return;
         case "delete": this.startDeleteDialog(); return;
         case "finish-worktree": this.startFinishDialog(); return;
         case "skills": this.startPicker("skills"); return;
@@ -1981,7 +1984,7 @@ export class SessionsView implements Component {
       this.message = "subagent rows follow their parent section";
       return;
     }
-    if (!selected.bucket) {
+    if (!selected.bucket && !selected.closure) {
       this.message = "session already active";
       return;
     }

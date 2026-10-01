@@ -1058,3 +1058,13 @@
   created_at: '2026-09-19'
   plan_file: agent-work/history/20260919_worktree-setup-005_worktree_lifecycle.md
   completed_at: '2026-09-19'
+- id: session-closure-001
+  status: done
+  title: Session closure
+  subtitle: Close sessions independently of workflows
+  description: Close or reopen Hub sessions explicitly and distinguish closure outcomes
+    from workflow progress on archived rows.
+  priority: 2
+  created_at: '2026-10-01'
+  plan_file: agent-work/history/20261001_session-closure-001_session_closure.md
+  completed_at: '2026-10-01'

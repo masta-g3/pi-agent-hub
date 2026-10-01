@@ -170,6 +170,7 @@ async function restartManagedSessionFreshImpl(id: string): Promise<void> {
         acknowledgedAt: undefined,
         error: undefined,
         activeTheme: undefined,
+        closure: undefined,
         updatedAt: nextUpdatedAt(item.updatedAt),
       } : item),
     };

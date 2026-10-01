@@ -1,6 +1,7 @@
 import type { SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
+import { sessionClosure } from "../core/session-bucket.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
 import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
@@ -120,6 +121,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "archive", label: "Archive", hint: "move to Archived without stopping Pi", keys: ["A"], available: bucketAvailability("archived") },
   { name: "backlog", label: "Backlog", hint: "move to Backlog without stopping Pi", keys: ["B"], available: bucketAvailability("backlog") },
   { name: "restore", label: "Restore active", hint: "return this session to Active", keys: ["U"], available: restoreAvailability },
+  { name: "close", label: "Close session…", hint: "mark finished as Done or Abandoned and archive without stopping Pi", keys: ["C"], available: mainAvailability },
   { name: "delete", label: "Delete…", hint: "remove the Hub session record", keys: ["d"], available: capability("deleteSession", "delete unavailable") },
   { name: "finish-worktree", label: "Finish worktree…", hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },
   { name: "skills", label: "Skills…", hint: "edit project skills", keys: ["s"], available: mainCapability("skills", "Skills catalog unavailable") },
@@ -173,6 +175,7 @@ export function selectWorkspaceCommands(
   maxCount: number,
 ): WorkspaceCommandSelection {
   const attention = session.status === "waiting" || session.status === "idle" ? session.context?.attention : undefined;
+  const closed = sessionClosure(session) !== undefined;
   let guidance: string | undefined;
   let guidanceAction: string | undefined;
   let actionNames: string[];
@@ -194,21 +197,23 @@ export function selectWorkspaceCommands(
   } else if (session.status === "error") {
     guidance = "Check Details before restarting.";
     guidanceAction = "info";
-    actionNames = ["info", "open"];
+    actionNames = ["info", "open", "close"];
+  } else if (closed) {
+    actionNames = ["reopen", "open", "delete"];
   } else if (session.status === "stopped") {
     guidance = "Restart to continue.";
     guidanceAction = "open";
-    actionNames = ["open", "restore"];
+    actionNames = ["open", "restore", "close"];
   } else if (session.kind === "subagent") {
     actionNames = ["open", "info"];
   } else if (session.bucket === "archived") {
-    actionNames = ["open", "restore", "delete"];
+    actionNames = ["open", "close", "restore", "delete"];
   } else if (session.bucket === "backlog") {
-    actionNames = ["open", "restore", "archive"];
+    actionNames = ["open", "restore", "close", "archive"];
   } else if (session.status === "idle" || session.status === "waiting") {
-    actionNames = ["open", "send", "archive"];
+    actionNames = ["open", "send", "close", "archive"];
   } else {
-    actionNames = ["open", "pin"];
+    actionNames = ["open", "pin", "close"];
   }
 
   const actionsByName = new Map(
@@ -218,6 +223,9 @@ export function selectWorkspaceCommands(
   );
   if (actionsByName.has("answer")) actionNames = ["answer", "open", ...actionNames.filter(name => name !== "answer" && name !== "open")];
   const selectedActions = actionNames.map((name) => actionsByName.get(name)).filter((command): command is DashboardCommand => command !== undefined);
+  const reopen = actionsByName.get("reopen");
+  // Live requests and errors keep their primary action; Reopen stays reachable just behind it.
+  if (closed && reopen && !selectedActions.includes(reopen)) selectedActions.splice(1, 0, reopen);
   const configured = commands.filter(command => command.enabled && command.targetSessionId === session.id && command.id.startsWith("shortcut:"));
   const actions = [...selectedActions.slice(0, 1), ...configured, ...selectedActions.slice(1)].slice(0, Math.max(0, maxCount));
   const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
@@ -291,6 +299,9 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
   const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
+  const closed = sessionClosure(session) !== undefined;
+  // C is one catalog entry whose target action flips; competing C bindings would shadow each other.
+  const name = spec.name === "close" && closed ? "reopen" : spec.name;
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
   const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length);
@@ -298,6 +309,8 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
     ? "Restart"
     : spec.name === "open" && (isQuestion || input.conversation)
       ? "Open in Pi"
+    : (name === "reopen" || name === "restore") && closed
+      ? "Reopen"
     : spec.name === "pin" && isPinned
       ? `Focus slot ${(currentSlot ?? 0) + 1}`
       : spec.name === "pin" ? spec.label
@@ -305,9 +318,11 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
       : spec.label;
   const hint = spec.name === "open" && isQuestion
     ? "focus the real Pi questionnaire"
-    : spec.name === "pin" && isPinned ? "focus this session's live pinned pane" : spec.hint;
+    : spec.name === "pin" && isPinned ? "focus this session's live pinned pane"
+    : (name === "reopen" || name === "restore") && closed ? "clear the closure and return to Active without restarting Pi"
+    : spec.hint;
   return makeCommand({
-    id: `action:${session.id}:${spec.name}`,
+    id: `action:${session.id}:${name}`,
     group: "actions",
     label,
     hint,
@@ -489,14 +504,15 @@ function bucketAvailability(bucket: "backlog" | "archived"): ActionSpec["availab
   return (session) => {
     const main = mainAvailability(session);
     if (!main.enabled) return main;
-    return session.bucket === bucket ? disabled(`session is already ${bucket === "archived" ? "Archived" : "in Backlog"}`) : enabled();
+    if (session.bucket === bucket) return disabled(`session is already ${bucket === "archived" ? "Archived" : "in Backlog"}`);
+    return sessionClosure(session) ? disabled("session is closed; Reopen it first") : enabled();
   };
 }
 
 function restoreAvailability(session: RuntimeSession): Availability {
   const main = mainAvailability(session);
   if (!main.enabled) return main;
-  return session.bucket ? enabled() : disabled("session already active");
+  return session.bucket || sessionClosure(session) ? enabled() : disabled("session already active");
 }
 
 function markReadAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {

@@ -965,7 +965,7 @@ interface WorkspaceRendered {
 }
 
 interface WorkspaceBlock extends WorkspaceRendered {
-  key: "identity" | "request" | "task" | "workflow" | "guidance" | "actions" | "evidence";
+  key: "identity" | "closure" | "request" | "task" | "workflow" | "guidance" | "actions" | "evidence";
 }
 
 function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles, pinned = false): WorkspaceRendered {
@@ -990,6 +990,7 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     styles.border("─".repeat(width)),
   ]);
 
+  const closure = block("closure", workspaceClosureLine(session, styles));
   const request = block("request", session.attention ? prefixedWorkspaceText(
     attentionGlyph(session.attention.kind, styles),
     `“${stripAnsi(session.attention.text)}”`,
@@ -1009,10 +1010,10 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     return wrapWords(`${item.role}: ${state} · ${item.branch}${verification} · ${item.worktreePath} → ${item.sourcePath}${item.branchDeleted === false ? " · branch retained" : ""}${item.issue ? ` · ${item.issue}` : ""}`, width, width);
   }) ?? [];
   const guidance = block("guidance", [...(guidanceText ? wrapWords(guidanceText, width, width) : []), ...lifecycleLines]);
-  const hasBody = [request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
+  const hasBody = [closure, request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
   const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
   const evidence = block("evidence", workspaceEvidenceLines(workspace, width, now, styles));
-  const blocks = [identity, request, task, workflow, guidance, actions, evidence];
+  const blocks = [identity, closure, request, task, workflow, guidance, actions, evidence];
   const rowCount = blocks.reduce((sum, candidate) => sum + candidate.lines.length, 0);
   if (maxRows !== undefined && rowCount > maxRows) {
     return compactActionWorkspace(workspace, blocks, maxRows, width, pinned);
@@ -1091,6 +1092,8 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
   const actions = blocks.find((candidate) => candidate.key === "actions")!;
   const evidence = blocks.find((candidate) => candidate.key === "evidence")!;
   const title = { line: identity.lines[0] ?? "", target: undefined as string | undefined };
+  const closure = blocks.find((candidate) => candidate.key === "closure")!.lines.slice(0, maxRows >= 3 ? 1 : 0)
+    .map((line) => ({ line, target: undefined as string | undefined }));
   const actionRows = actions.lines.flatMap((line, index) => {
     const target = actions.targets[index];
     return target ? [{ line, target }] : [];
@@ -1099,7 +1102,7 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
   const evidenceFacts = evidence.lines.slice(2);
   const reservePrimary = primary && maxRows >= 2 ? 1 : 0;
   const reserveEvidence = evidenceFacts.length && maxRows >= 3 ? 1 : 0;
-  let budget = Math.max(0, maxRows - 1 - reservePrimary - reserveEvidence);
+  let budget = Math.max(0, maxRows - 1 - closure.length - reservePrimary - reserveEvidence);
   const identityDetails = identity.lines.slice(1, -1).map((line) => ({ line, target: undefined as string | undefined }));
   const bodyDetails = blocks.filter((candidate) => ["request", "task", "workflow", "guidance"].includes(candidate.key))
     .flatMap((candidate) => candidate.lines.map((line, index) => ({ line, target: candidate.targets[index] })));
@@ -1107,10 +1110,11 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
   const content = optionalContent.slice(0, budget);
   budget -= content.length;
   const secondary = actionRows.slice(1, 1 + budget);
-  const evidenceBudget = Math.max(0, maxRows - 1 - reservePrimary - content.length - secondary.length);
+  const evidenceBudget = Math.max(0, maxRows - 1 - closure.length - reservePrimary - content.length - secondary.length);
   const evidenceLines = evidenceFacts.slice(0, evidenceBudget);
   const rows = [
     title,
+    ...closure,
     ...content,
     ...(reservePrimary && primary ? [primary] : []),
     ...secondary,
@@ -1219,9 +1223,11 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   ].map(join);
 
   if (board) return hierarchy(full ? [full] : []).find(fits) ?? "";
-  if (session.archivedAge) {
-    const archived = styles.dim(session.archivedAge);
-    return [join([hidden, archived]), hidden, archived].find(fits) ?? "";
+  if (session.section === "archived") {
+    // The meaning is atomic: drop age first, then omit it whole rather than leave an ambiguous lone marker.
+    const meaning = archivedMeaning(session, styles);
+    const age = session.archivedAge ? styles.dim(session.archivedAge) : "";
+    return [join([hidden, meaning, age]), join([hidden, meaning]), join([hidden, age]), hidden, age].find(fits) ?? "";
   }
   if (repoMode) {
     const label = cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]);
@@ -1233,6 +1239,22 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     return [join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
   return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
+}
+
+function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
+  if (session.closure === "done") return styles.success("✓");
+  if (session.closure === "abandoned") return styles.muted("⊘");
+  const workflow = session.workflow;
+  const step = workflow?.steps[workflow.activeIndex];
+  return workflow && step ? `${styles.muted(step.short)} ${styledWorkflowMarker(workflow, workflow.activeIndex, styles)}` : "";
+}
+
+function workspaceClosureLine(session: RenderSession, styles: LayoutStyles): string[] {
+  if (!session.closure) return [];
+  const outcome = session.closure === "done" ? styles.success("✓ Closed · Done") : styles.muted("⊘ Closed · Abandoned");
+  // Closing never stops children, so keep live descendants visible beside the outcome.
+  const children = session.runningSubagentCount ? `${styles.dim(" · ")}${styles.success(`⚙︎${session.runningSubagentCount}`)} running` : "";
+  return [`${outcome}${children}`];
 }
 
 function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {

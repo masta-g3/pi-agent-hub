@@ -1017,3 +1017,103 @@ test("interaction capability stays runtime-only and clears on stale or shutdown 
     assert.equal(controller.snapshot().sessions[0]?.interaction, undefined);
   });
 });
+
+test("closing a parent records the outcome, archives the cascade and preserves runtime, workflow and identity", async () => {
+  await withTempSessionsDir(async () => {
+    const workflow = { steps: [{ id: "plan", short: "PL" }, { id: "commit", short: "CM" }], activeIndex: 1, currentStepComplete: true, ticketId: "T-1", updatedAt: 5 };
+    const parent = session("running", { id: "parent", title: "parent", piSessionId: "pi-1", workflow, acknowledgedAt: 3, worktreePath: "/tmp/wt" });
+    const child = session("running", { id: "child", title: "child", kind: "subagent", parentId: "parent", agentName: "scout" });
+    const other = session("idle", { id: "other", title: "other" });
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child, other] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent, child, other] });
+
+    await controller.closeSession("parent", "done", { piSessionId: "pi-1" }, 100);
+
+    const persisted = (await loadRegistry()).sessions;
+    const closed = persisted.find((item) => item.id === "parent")!;
+    const closedChild = persisted.find((item) => item.id === "child")!;
+    assert.equal(closed.closure, "done");
+    assert.equal(closed.bucket, "archived");
+    assert.equal(closed.bucketChangedAt, 100);
+    assert.ok(closed.updatedAt > parent.updatedAt);
+    assert.deepEqual({ ...closed, closure: undefined, bucket: undefined, bucketChangedAt: undefined, updatedAt: parent.updatedAt }, { ...parent, closure: undefined, bucket: undefined, bucketChangedAt: undefined });
+    assert.equal(closedChild.bucket, "archived");
+    assert.equal(closedChild.closure, undefined);
+    assert.equal(closedChild.status, "running");
+    assert.deepEqual(persisted.find((item) => item.id === "other"), other);
+  });
+});
+
+test("closing an already archived open row records the closure time and repeated closes are no-ops", async () => {
+  await withTempSessionsDir(async () => {
+    const parent = session("stopped", { id: "parent", title: "parent", bucket: "archived", bucketChangedAt: 10 });
+    await updateRegistry(() => ({ version: 1, sessions: [parent] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent] });
+
+    await controller.closeSession("parent", "abandoned", {}, 500);
+    const first = (await loadRegistry()).sessions[0]!;
+    assert.equal(first.closure, "abandoned");
+    assert.equal(first.bucketChangedAt, 500);
+
+    await controller.closeSession("parent", "abandoned", {}, 900);
+    assert.deepEqual((await loadRegistry()).sessions[0], first);
+    await assert.rejects(() => controller.closeSession("parent", "done", {}, 900), /reopen/i);
+    assert.deepEqual((await loadRegistry()).sessions[0], first);
+  });
+});
+
+test("closing rejects missing, subagent and replaced Pi conversation targets without touching other rows", async () => {
+  await withTempSessionsDir(async () => {
+    const parent = session("idle", { id: "parent", title: "parent", piSessionId: "pi-new" });
+    const child = session("running", { id: "child", title: "child", kind: "subagent", parentId: "parent" });
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+
+    await assert.rejects(() => controller.closeSession("parent", "done", { piSessionId: "pi-old" }, 100), /changed/);
+    await assert.rejects(() => controller.closeSession("child", "done", {}, 100), /subagent/);
+    await assert.rejects(() => controller.closeSession("missing", "done", {}, 100), /no longer/);
+    assert.deepEqual((await loadRegistry()).sessions, [parent, child]);
+  });
+});
+
+test("reopening clears closure into Active while legacy archives stay outcome-free and Backlog is blocked while closed", async () => {
+  await withTempSessionsDir(async () => {
+    const closed = session("idle", { id: "closed", title: "closed", closure: "done", bucket: "archived", bucketChangedAt: 10 });
+    const child = session("running", { id: "child", title: "child", kind: "subagent", parentId: "closed", bucket: "archived", bucketChangedAt: 10 });
+    const legacy = session("stopped", { id: "legacy", title: "legacy", bucket: "archived", bucketChangedAt: 5 });
+    await updateRegistry(() => ({ version: 1, sessions: [closed, child, legacy] }));
+    const controller = new SessionsController({ version: 1, sessions: [closed, child, legacy] });
+
+    await controller.moveSessionToBucket("closed", "backlog", 50);
+    await controller.moveSessionToBucket("closed", "archived", 50);
+    assert.deepEqual((await loadRegistry()).sessions, [closed, child, legacy]);
+
+    await controller.restoreSessionBucket("closed", 60);
+    const reopened = (await loadRegistry()).sessions;
+    assert.equal(reopened[0]!.closure, undefined);
+    assert.equal(reopened[0]!.bucket, undefined);
+    assert.equal(reopened[0]!.status, "idle");
+    assert.equal(reopened[1]!.bucket, undefined);
+    assert.equal(reopened[1]!.status, "running");
+    assert.deepEqual(reopened[2], legacy);
+    assert.equal("closure" in reopened[2]!, false);
+  });
+});
+
+test("heartbeat refresh preserves registry-owned closure", async () => {
+  await withTempSessionsDir(async () => {
+    const closed = session("idle", { id: "closed", title: "closed", closure: "abandoned", bucket: "archived", bucketChangedAt: Date.now() });
+    await updateRegistry(() => ({ version: 1, sessions: [closed] }));
+    const controller = new SessionsController({ version: 1, sessions: [closed] }, async () => "present");
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    const now = Date.now();
+    await writeFile(heartbeatPath("closed"), JSON.stringify({ managedSessionId: "closed", cwd: "/tmp/closed", state: "running", stateSince: now, updatedAt: now }), "utf8");
+
+    await controller.refresh(now);
+
+    const refreshed = (await loadRegistry()).sessions[0]!;
+    assert.equal(refreshed.status, "running");
+    assert.equal(refreshed.closure, "abandoned");
+    assert.equal(refreshed.bucket, "archived");
+  });
+});

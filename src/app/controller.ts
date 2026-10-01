@@ -5,13 +5,13 @@ import { heartbeatPath } from "../core/paths.js";
 import { nameCommandPath } from "../core/name-command.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, updateRegistry } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
-import { ARCHIVE_PRUNE_AFTER_MS, moveToBucket, restoreBucket, sessionSection } from "../core/session-bucket.js";
+import { ARCHIVE_PRUNE_AFTER_MS, closeBucket, moveToBucket, restoreBucket, sessionClosure, sessionSection } from "../core/session-bucket.js";
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
 import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
 import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
-import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, WorkflowModeDisplay, WorktreeLifecycleSnapshot } from "../core/types.js";
+import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, SessionClosure, WorkflowModeDisplay, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
 
 export interface SessionsSnapshot {
@@ -215,11 +215,34 @@ export class SessionsController {
     const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
     await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
-      if (!current || isSubagentSession(current)) return latest;
+      if (!current || isSubagentSession(current) || sessionClosure(current)) return latest;
       const ids = sessionCascadeIds(latest.sessions, id);
       return { ...latest, sessions: latest.sessions.map((session) => ids.has(session.id) ? moveToBucket(session, bucket, now) : session) };
     });
     if (wasSelected && bucket === "archived") this.selectedId = selectionAboveArchivedRow(this.visibleSessions(), oldIndex) ?? this.selectedId;
+  }
+
+  /** Closes the exact parent conversation; `expected.piSessionId` guards against restart-new replacement. */
+  async closeSession(id: string, closure: SessionClosure, expected: { piSessionId?: string } = {}, now = Date.now()): Promise<void> {
+    const wasSelected = this.selectedId === id;
+    const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
+    let failure: string | undefined;
+    await this.mutateRegistry((latest) => {
+      const current = latest.sessions.find((session) => session.id === id);
+      failure = !current ? "session is no longer available"
+        : isSubagentSession(current) ? "subagent rows follow their parent"
+        : expected.piSessionId !== undefined && current.piSessionId !== expected.piSessionId ? "session conversation changed; close cancelled"
+        : current.closure !== undefined && current.closure !== closure ? "session is already closed; reopen it before changing the outcome"
+        : undefined;
+      if (failure || current!.closure !== undefined) return latest;
+      const ids = sessionCascadeIds(latest.sessions, id);
+      return {
+        ...latest,
+        sessions: latest.sessions.map((session) => session.id === id ? closeBucket(session, closure, now) : ids.has(session.id) ? moveToBucket(session, "archived", now) : session),
+      };
+    });
+    if (failure) throw new Error(failure);
+    if (wasSelected) this.selectedId = selectionAboveArchivedRow(this.visibleSessions(), oldIndex) ?? this.selectedId;
   }
 
   async restoreSessionBucket(id: string, now = Date.now()): Promise<void> {

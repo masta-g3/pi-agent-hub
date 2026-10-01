@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, closeDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
 import type { TmuxClient } from "../src/core/tmux.js";
 import type { ManagedSession } from "../src/core/types.js";
+import { SessionsController } from "../src/app/controller.js";
+import { loadRegistry, updateRegistry } from "../src/core/registry.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -452,4 +457,36 @@ test("buildNewFormContext dedupes selected registry and history paths by rank", 
   });
 
   assert.deepEqual(context.knownCwds, ["/repo/api", "/dashboard", "/repo/web", "/repo/docs", "/repo/cli"]);
+});
+
+test("dashboard close detaches only the exact pin and archives while preserving parent and child status", async () => {
+  const oldDir = process.env.PI_AGENT_HUB_DIR;
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-close-"));
+  process.env.PI_AGENT_HUB_DIR = root;
+  try {
+    const base = { cwd: "/tmp/p", group: "default", createdAt: 1, updatedAt: 1 };
+    const parent: ManagedSession = { ...base, id: "parent", title: "parent", tmuxSession: "pi-agent-hub-parent", status: "running", piSessionId: "pi-1" };
+    const child: ManagedSession = { ...base, id: "child", title: "child", tmuxSession: "pi-agent-hub-child", status: "running", kind: "subagent", parentId: "parent" };
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+    const detached: string[] = [];
+    const detach = async (tmuxSession: string) => { detached.push(tmuxSession); return true; };
+
+    await assert.rejects(() => closeDashboardSession(controller, detach, "parent", "done", { piSessionId: "pi-old" }), /target changed/);
+    await assert.rejects(() => closeDashboardSession(controller, detach, "child", "done", {}), /target changed/);
+    assert.deepEqual(detached, []);
+
+    await closeDashboardSession(controller, detach, "parent", "abandoned", { piSessionId: "pi-1" });
+
+    assert.deepEqual(detached, ["pi-agent-hub-parent"]);
+    const sessions = (await loadRegistry()).sessions;
+    assert.deepEqual(sessions.map((item) => [item.id, item.status, item.bucket, item.closure]), [
+      ["parent", "running", "archived", "abandoned"],
+      ["child", "running", "archived", undefined],
+    ]);
+  } finally {
+    if (oldDir === undefined) delete process.env.PI_AGENT_HUB_DIR;
+    else process.env.PI_AGENT_HUB_DIR = oldDir;
+    await rm(root, { recursive: true, force: true });
+  }
 });
