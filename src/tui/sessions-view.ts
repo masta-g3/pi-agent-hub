@@ -165,7 +165,7 @@ export class SessionsView implements Component {
       if (event && this.conversationOpen && !this.dialog && !this.busy && this.handleConversationMouse(event)) return;
       else if (event && this.dialog?.kind === "help" && event.kind === "wheel") this.helpScroll = Math.max(0, Math.min(this.helpMaxScroll, this.helpScroll + event.delta * 3));
       else if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
-      else if (event && !this.dialog && !this.busy) this.handleMouse(event);
+      else if (event && !this.dialog && !this.busy) this.handleFleetMouse(event);
       else if (event) this.lastMouseClick = undefined;
       return;
     }
@@ -1315,7 +1315,7 @@ export class SessionsView implements Component {
     this.flashMessage("first attention round-trip complete");
   }
 
-  private handleMouse(event: MouseEvent) {
+  private handleFleetMouse(event: MouseEvent) {
     if (this.pendingRestart) {
       this.lastMouseClick = undefined;
       if (event.kind === "press") this.clearPendingRestart();

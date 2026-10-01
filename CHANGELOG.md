@@ -27,7 +27,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Use distinct initial session/fork names and preserve linked ticket titles.
 - Keep the dashboard responsive while compact forks prepare; expose retry and cancellation for failed preparation.
 - Send configured commands through Pi's guarded input pipeline instead of simulated keystrokes.
-- Require Pi 0.85.1 or later.
+- Require Pi 0.99.x (0.99.2 minimum); the dashboard uses pi-tui `TuiMainScreen`.
 - Removed unused public exports `McpTool`, `PiToolDefinition`, `buildPiCommand`, `sessionDir`, `tmuxMissing`, and `mcpCatalogPath`; removed the unused singular worktree-removal wrapper. The SemVer decision for the narrowed package surface remains deferred to publishing.
 
 ### Fixed

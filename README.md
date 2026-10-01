@@ -29,7 +29,7 @@ Pi runs the agents. tmux keeps them alive. Hub gives you one keyboard-driven das
 
 ## Quick start
 
-Requirements: Pi 0.85.1+, Node.js 22.19+, and tmux 3.1+.
+Requirements: Pi 0.99.x (0.99.2 minimum), Node.js 22.19+, and tmux 3.1+.
 
 ```bash
 npm install -g pi-agent-hub
