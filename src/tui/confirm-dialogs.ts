@@ -1,7 +1,7 @@
 import { Key, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
-import type { ManagedSession } from "../core/types.js";
+import type { ManagedSession, SessionClosure } from "../core/types.js";
 import { errorMessage, isPromise, type ConfirmDialogContext } from "./dialog.js";
 import { renderDialog } from "./layout.js";
 import { styleToken, type SessionsTheme } from "./theme.js";
@@ -35,6 +35,13 @@ export interface ConfirmDialog extends BoundedConfirmation {
   busy: false | "session" | "subagents" | "worktree" | "finish";
 }
 
+/** Binds the chooser to the parent row and Pi conversation captured when C was pressed. */
+export interface CloseDialog {
+  kind: "close";
+  targetId: string;
+  piSessionId?: string;
+}
+
 export interface RestartDialog extends BoundedConfirmation {
   targetId: string;
 }
@@ -47,6 +54,58 @@ function confirmationState(): BoundedConfirmation {
 
 export function createRestartDialog(targetId: string): RestartDialog {
   return { targetId, ...confirmationState() };
+}
+
+export function openCloseDialog(ctx: ConfirmDialogContext, targetId: string): CloseDialog | undefined {
+  const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === targetId);
+  if (!closeTargetAvailable(target, undefined)) {
+    ctx.setMessage("target changed; close cancelled");
+    return undefined;
+  }
+  return { kind: "close", targetId, ...(target!.piSessionId ? { piSessionId: target!.piSessionId } : {}) };
+}
+
+export function handleCloseInput(dialog: CloseDialog, data: string, ctx: ConfirmDialogContext): CloseDialog | undefined {
+  if (matchesKey(data, Key.escape)) { ctx.setMessage(undefined); return undefined; }
+  const closure: SessionClosure | undefined = data === "d" ? "done" : data === "a" ? "abandoned" : undefined;
+  if (!closure) return dialog;
+  const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
+  if (!closeTargetAvailable(target, dialog.piSessionId)) {
+    ctx.setMessage("target changed; close cancelled");
+    return undefined;
+  }
+  const expected = { piSessionId: dialog.piSessionId };
+  const outcome = closure === "done" ? "Done" : "Abandoned";
+  ctx.runAction(
+    () => ctx.actions.closeSession ? ctx.actions.closeSession(target!.id, closure, expected) : ctx.controller.closeSession(target!.id, closure, expected),
+    "closing session...",
+    () => ctx.flashMessage(`Closed · ${outcome} → ${target!.title}`),
+  );
+  return undefined;
+}
+
+export function renderCloseDialog(dialog: CloseDialog, width: number, ctx: ConfirmDialogContext): string[] {
+  const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
+  const choice = (key: string, label: string, detail: string, token: "success" | "muted") => {
+    const text = `${key}  ${label.padEnd(11)}${detail}`;
+    return ctx.theme ? styleToken(ctx.theme, token, text) : text;
+  };
+  const innerWidth = Math.max(20, Math.min(width - 2, 86));
+  return renderDialog("Close session", [
+    target ? target.title : "target unavailable",
+    "",
+    choice("d", "Done", "Finished what I needed", "success"),
+    choice("a", "Abandoned", "Decided not to continue", "muted"),
+    "",
+    ...wrapTextWithAnsi("Moves to Archived. Keeps workflow and conversation.", innerWidth),
+    ...wrapTextWithAnsi("Does not stop Pi or running children.", innerWidth),
+    hintLine("Esc Cancel", ctx.theme),
+  ], width, ctx.theme);
+}
+
+function closeTargetAvailable(target: ManagedSession | undefined, piSessionId: string | undefined): boolean {
+  return Boolean(target && target.kind !== "subagent" && target.closure === undefined
+    && (piSessionId === undefined || target.piSessionId === piSessionId));
 }
 
 export function openDeleteDialog(ctx: ConfirmDialogContext): ConfirmDialog | undefined {

@@ -71,7 +71,8 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `f` | Fork the selected session through the group-selection form |
 | `Shift+F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
 | `a` | Mark the selected waiting session read |
-| `A` / `B` / `U` | Archive / move to Backlog / restore to Active |
+| `A` / `B` / `U` | Archive / move to Backlog / restore or reopen to Active |
+| `C` | Close the selected parent, or reopen it if closed |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the Hub title from Pi's saved name |
 | `g` / `G` | Move a session to a group / rename its group |
@@ -150,7 +151,7 @@ A waiting session alone does not enter `NEEDS YOU`. A running child can put its 
 
 ### Action workspace
 
-Select a session to see its identity, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
+Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
 
 At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Escape` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
 
@@ -270,6 +271,24 @@ Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; 
 Archived shows five recent parent trees by default. Select the older-items row and press `Enter` to show more. After seven days, dashboard cleanup can forget an archived tree only when every parent/child tmux session is confirmed gone. It removes Hub records and owned symlink workspaces, not Pi conversations or worktrees.
 
 Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line text such as `/session-name refresh` to a selected live session without opening it. They are Pi commands, not shell macros. Configured commands require an idle session with no queued messages, blocking prompt, or editor draft. They use Pi's input pipeline; `p` remains a separate one-line send.
+
+### Session closure
+
+Press `C` on an open parent to choose `d` **Done** or `a` **Abandoned**; `Esc` cancels. Close archives the session and closes its pin without stopping Pi or running children. It does not complete the workflow, edit the ticket, or delete conversations or worktrees. Archive alone records no closure outcome, and workflow completion never closes a session.
+
+Press `C` or `U` on a closed parent to clear its outcome and return it to Active. `B` is unavailable until you reopen. Closure survives dashboard restart and refresh. Opening or resuming the conversation keeps it closed; choosing a new conversation in Restart choices clears the old outcome but keeps its bucket. Close and Reopen are also available in the command palette and selected-session workspace.
+
+Archived rows keep their runtime icon on the left. The right-side meaning is separate:
+
+| Right-side marker | Meaning |
+| --- | --- |
+| `EX ◉` | Open session, currently at Execute |
+| `CM ✓` | Open session, Commit complete |
+| `✓` | Explicitly closed as Done |
+| `⊘` | Explicitly closed as Abandoned |
+| None | No explicit closure and no workflow reported |
+
+Step names come from the workflow producer. Closed rows show only the outcome marker; the workspace retains the last workflow position, runtime status, and running-child count. A narrow row drops age before the marker and omits a workflow label and marker together if they cannot fit. Existing archives have no guessed outcome.
 
 ## Project-scoped Skills and MCP
 

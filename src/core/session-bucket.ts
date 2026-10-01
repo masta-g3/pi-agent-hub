@@ -1,5 +1,5 @@
 import { nextUpdatedAt } from "./session-version.js";
-import type { ManagedSession } from "./types.js";
+import type { ManagedSession, SessionClosure } from "./types.js";
 
 export type SessionSection = "active" | "backlog" | "archived";
 
@@ -23,7 +23,18 @@ export function moveToBucket<T extends ManagedSession>(session: T, bucket: "back
 }
 
 export function restoreBucket<T extends ManagedSession>(session: T, now = Date.now()): T {
-  if (session.bucket === undefined) return session;
-  const { bucket: _bucket, bucketChangedAt: _bucketChangedAt, ...rest } = session;
+  if (session.bucket === undefined && session.closure === undefined) return session;
+  const { bucket: _bucket, bucketChangedAt: _bucketChangedAt, closure: _closure, ...rest } = session;
   return { ...rest, updatedAt: nextUpdatedAt(session.updatedAt, now) } as T;
+}
+
+export function sessionClosure(session: Pick<ManagedSession, "closure" | "kind">): SessionClosure | undefined {
+  if (session.kind === "subagent") return undefined;
+  return session.closure === "done" || session.closure === "abandoned" ? session.closure : undefined;
+}
+
+/** Close records the outcome and a new archive transition, even for rows already archived. */
+export function closeBucket<T extends ManagedSession>(session: T, closure: SessionClosure, now = Date.now()): T {
+  if (session.closure !== undefined) return session;
+  return { ...session, closure, bucket: "archived", bucketChangedAt: now, updatedAt: nextUpdatedAt(session.updatedAt, now) };
 }

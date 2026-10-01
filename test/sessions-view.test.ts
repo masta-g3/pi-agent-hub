@@ -1402,7 +1402,8 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▸ A\s+Archive/);
+  assert.match(workspace, /▸ C\s+Close session…/);
+  assert.match(workspace, /  A\s+Archive/);
   assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
 });
 
@@ -1585,7 +1586,7 @@ test("every session-dependent route is inert while archive disclosure is selecte
     bucket: "archived" as const,
     bucketChangedAt: 700 - index,
   }));
-  const keys = ["x", "+", "-", "P", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "d", "r", "R", "p", "J"];
+  const keys = ["x", "+", "-", "P", "N", "f", "g", "G", "s", "m", "w", "a", "A", "B", "U", "C", "d", "r", "R", "p", "J"];
 
   for (const key of keys) {
     const events: string[] = [];
@@ -1599,6 +1600,7 @@ test("every session-dependent route is inert while archive disclosure is selecte
       archiveSession: () => { events.push("archive"); },
       backlogSession: () => { events.push("backlog"); },
       restoreSession: () => { events.push("restore"); },
+      closeSession: () => { events.push("close"); },
       pinSidePane: () => { events.push("pin"); return { kind: "pinned", session: "pi-agent-hub-archive", slot: 1 }; },
       closeSidePane: () => { events.push("close-pin"); return { kind: "closed" }; },
       resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 50 }; },
@@ -4001,4 +4003,87 @@ test("colon is inert below the minimum dashboard width", () => {
   view.render(39);
   view.handleInput(":");
   assert.doesNotMatch(stripAnsi(view.render(39).join("\n")), /Search actions, sessions, filters/);
+});
+
+test("C opens a target-bound close chooser where d and a choose outcomes and Esc changes nothing", () => {
+  const events: string[] = [];
+  const api = { ...session("api", "Project API"), status: "running" as const, piSessionId: "pi-api" };
+  const controller = new SessionsController({ version: 1, sessions: [api] });
+  const view = new SessionsView(controller, () => {}, {
+    closeSession: (id, closure, expected) => { events.push(`close:${id}:${closure}:${expected.piSessionId}`); },
+    deleteSession: (id) => { events.push(`delete:${id}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    restoreSession: (id) => { events.push(`restore:${id}`); },
+  });
+
+  view.handleInput("C");
+  const chooser = stripAnsi(view.render(100).join("\n"));
+  assert.match(chooser, /Close session/);
+  assert.match(chooser, /Project API/);
+  assert.match(chooser, /d\s+Done\s+Finished what I needed/);
+  assert.match(chooser, /a\s+Abandoned\s+Decided not to continue/);
+  assert.match(chooser, /Does not stop Pi or running children/);
+  view.handleInput("x");
+  view.handleInput("\x1b");
+  assert.deepEqual(events, []);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Finished what I needed/);
+
+  view.handleInput("C");
+  view.handleInput("d");
+  assert.deepEqual(events, ["close:api:done:pi-api"]);
+  view.handleInput("C");
+  view.handleInput("a");
+  assert.deepEqual(events, ["close:api:done:pi-api", "close:api:abandoned:pi-api"]);
+});
+
+test("a stale close chooser refuses replaced or vanished targets instead of falling through", () => {
+  const events: string[] = [];
+  const api = { ...session("api", "api"), status: "waiting" as const, piSessionId: "pi-old" };
+  const web = { ...session("web", "web"), status: "waiting" as const, piSessionId: "pi-web" };
+  const controller = new SessionsController({ version: 1, sessions: [api, web] });
+  const view = new SessionsView(controller, () => {}, {
+    closeSession: (id, closure) => { events.push(`close:${id}:${closure}`); },
+    deleteSession: (id) => { events.push(`delete:${id}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+  });
+  const registry = controller.snapshot().registry;
+
+  view.handleInput("C");
+  registry.sessions[0]!.piSessionId = "pi-new";
+  view.handleInput("d");
+  assert.deepEqual(events, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /target changed/);
+
+  view.handleInput("C");
+  registry.sessions.splice(0, 1);
+  view.handleInput("a");
+  assert.deepEqual(events, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /target changed/);
+  assert.equal(controller.snapshot().registry.sessions[0]?.closure, undefined);
+});
+
+test("closed parents reopen through C or U, cannot move to Backlog, and children cannot close", () => {
+  const events: string[] = [];
+  const closed = { ...session("done", "done"), status: "stopped" as const, closure: "done" as const, bucket: "archived" as const, bucketChangedAt: 10 };
+  const parent = { ...session("parent", "parent"), status: "running" as const };
+  const child = { ...session("child", "child"), status: "running" as const, kind: "subagent" as const, parentId: "parent", agentName: "scout" };
+  const controller = new SessionsController({ version: 1, sessions: [parent, child, closed] });
+  const view = new SessionsView(controller, () => {}, {
+    closeSession: (id) => { events.push(`close:${id}`); },
+    restoreSession: (id) => { events.push(`restore:${id}`); },
+    backlogSession: (id) => { events.push(`backlog:${id}`); },
+  });
+
+  view.handleInput("\x1b[C");
+  assert.equal(controller.selectSession("child"), true);
+  view.handleInput("C");
+  assert.deepEqual(events, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /unavailable for subagents/);
+
+  assert.equal(controller.selectSession("done"), true);
+  view.handleInput("B");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Reopen it first/);
+  view.handleInput("C");
+  view.handleInput("U");
+  assert.deepEqual(events, ["restore:done", "restore:done"]);
 });

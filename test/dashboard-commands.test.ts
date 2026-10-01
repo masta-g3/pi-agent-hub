@@ -273,13 +273,17 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
     { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open" },
     { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
-    { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open"], primaryLabel: "Details" },
-    { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore"], primaryLabel: "Restart" },
+    { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open", "close"], primaryLabel: "Details" },
+    { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore", "close"], primaryLabel: "Restart" },
     { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open" },
-    { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "restore", "delete"], primaryLabel: "Open" },
-    { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open" },
-    { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open" },
-    { name: "active", values: { status: "running" }, actions: ["open", "pin"], primaryLabel: "Open" },
+    { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "close", "restore"], primaryLabel: "Open" },
+    { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "close"], primaryLabel: "Open" },
+    { name: "idle", values: { status: "idle" }, actions: ["open", "send", "close"], primaryLabel: "Open" },
+    { name: "active", values: { status: "running" }, actions: ["open", "pin", "close"], primaryLabel: "Open" },
+    { name: "closed-stopped", values: { status: "stopped", closure: "done", bucket: "archived" }, actions: ["reopen", "open", "delete"], primaryLabel: "Reopen" },
+    { name: "closed-running", values: { status: "running", closure: "abandoned", bucket: "archived" }, actions: ["reopen", "open", "delete"], primaryLabel: "Reopen" },
+    { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "reopen", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "closed-error", values: { status: "error", closure: "done", bucket: "archived" }, guidance: "Check Details before restarting.", actions: ["info", "reopen", "open"], primaryLabel: "Details" },
   ];
 
   for (const item of cases) {
@@ -333,7 +337,7 @@ test("workspace selection ignores attention outside waiting and idle states", ()
   const selected = session("running-attention", { status: "running", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Old question" } } });
   const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
   assert.deepEqual(selectWorkspaceCommands(selected, commands, 3).actions.map((command) => command.id), [
-    "action:running-attention:open", "action:running-attention:pin",
+    "action:running-attention:open", "action:running-attention:pin", "action:running-attention:close",
   ]);
 });
 
@@ -344,4 +348,44 @@ test("named filters include lifecycle, status, and sorted current groups", () =>
     "filter:status:starting", "filter:status:running", "filter:status:waiting", "filter:status:idle", "filter:status:error", "filter:status:stopped",
     "filter:group:alpha", "filter:group:Zulu",
   ]);
+});
+
+test("one C-bound command closes open parents and reopens closed parents through exact targets", () => {
+  const open = session("open", { status: "running" });
+  const closed = session("closed", { status: "stopped", closure: "done", bucket: "archived" });
+  const child = session("child", { kind: "subagent", parentId: "open" });
+  const build = (selected: RuntimeSession) => buildDashboardCommands({ sessions: [open, closed, child], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
+
+  const openCommands = build(open);
+  assert.equal(openCommands.filter((command) => command.bindings.some((binding) => binding.key === "C")).length, 1);
+  assert.equal(commandForKey(openCommands, "C")?.id, "action:open:close");
+  assert.equal(commandForKey(openCommands, "C")?.label, "Close session…");
+  assert.equal(commandForKey(openCommands, "C")?.enabled, true);
+  assert.equal(commandForKey(openCommands, "c")?.id, "view:conversation");
+  assert.equal(commandForKey(openCommands, "U")?.label, "Restore active");
+  assert.equal(commandForKey(openCommands, "U")?.enabled, false);
+
+  const closedCommands = build(closed);
+  assert.equal(closedCommands.filter((command) => command.bindings.some((binding) => binding.key === "C")).length, 1);
+  assert.equal(commandForKey(closedCommands, "C")?.id, "action:closed:reopen");
+  assert.equal(commandForKey(closedCommands, "C")?.label, "Reopen");
+  assert.equal(commandForKey(closedCommands, "C")?.enabled, true);
+  assert.equal(commandForKey(closedCommands, "U")?.id, "action:closed:restore");
+  assert.equal(commandForKey(closedCommands, "U")?.label, "Reopen");
+  assert.equal(commandForKey(closedCommands, "U")?.enabled, true);
+  assert.equal(commandForKey(closedCommands, "B")?.enabled, false);
+  assert.match(commandForKey(closedCommands, "B")?.disabledReason ?? "", /Reopen/);
+  assert.equal(commandForKey(closedCommands, "A")?.enabled, false);
+  assert.equal(commandForKey(closedCommands, "d")?.id, "action:closed:delete");
+  assert.equal(commandForKey(closedCommands, "a")?.id, "action:closed:mark-read");
+  const workspace = selectWorkspaceCommands(closed, closedCommands, 3);
+  assert.equal(workspace.actions.filter((command) => command.label === "Reopen").length, 1);
+
+  const childCommands = build(child);
+  assert.equal(commandForKey(childCommands, "C")?.id, "action:child:close");
+  assert.equal(commandForKey(childCommands, "C")?.enabled, false);
+  assert.match(commandForKey(childCommands, "C")?.disabledReason ?? "", /subagent/);
+
+  const searched = searchDashboardCommands(openCommands, "close session");
+  assert.ok(searched.some((command) => command.id === "action:open:close"));
 });

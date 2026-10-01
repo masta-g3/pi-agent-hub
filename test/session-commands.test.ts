@@ -13,6 +13,7 @@ import {
   addManagedSession,
   forkManagedSession,
   managedPiCommand,
+  restartManagedSession,
   restartManagedSessionFresh,
   startManagedSession,
   stopManagedSession,
@@ -438,10 +439,16 @@ test("restartManagedSessionFresh clears saved Pi state and starts a new tmux ses
         acknowledgedAt: 123,
         error: "previous error",
         activeTheme: { name: "custom", tokens: { accent: "#ff00ff" } },
+        closure: "done",
+        bucket: "archived",
+        bucketChangedAt: 7,
       })],
     });
     await mkdir(join(root, "heartbeats"));
     await writeFile(heartbeatPath("source-session"), "{}", "utf8");
+
+    await restartManagedSession("source-session");
+    assert.equal((await loadRegistry()).sessions[0]!.closure, "done");
 
     await restartManagedSessionFresh("source-session");
 
@@ -454,6 +461,9 @@ test("restartManagedSessionFresh clears saved Pi state and starts a new tmux ses
     assert.equal(restarted.acknowledgedAt, undefined);
     assert.equal(restarted.error, undefined);
     assert.equal(restarted.activeTheme, undefined);
+    assert.equal(restarted.closure, undefined);
+    assert.equal(restarted.bucket, "archived");
+    assert.equal(restarted.bucketChangedAt, 7);
     await assert.rejects(() => readFile(heartbeatPath("source-session"), "utf8"), /ENOENT/);
     const commands = await readFile(log, "utf8");
     assert.match(commands, /kill-session -t pi-agent-hub-source/);

@@ -1,5 +1,6 @@
 export type SessionStatus = "starting" | "running" | "waiting" | "idle" | "error" | "stopped";
 export type SessionBucket = "backlog" | "archived";
+export type SessionClosure = "done" | "abandoned";
 
 export type ActiveThemeToken = "accent" | "success" | "warning" | "error" | "muted" | "dim" | "text" | "border" | "statusLineBg" | "selectedBg";
 
@@ -125,6 +126,8 @@ export interface ManagedSession {
   order?: number;
   bucket?: SessionBucket;
   bucketChangedAt?: number;
+  /** Explicit user decision that this parent is finished; independent of runtime and workflow. */
+  closure?: SessionClosure;
   createdAt: number;
   updatedAt: number;
   error?: string;
