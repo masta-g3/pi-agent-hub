@@ -1076,6 +1076,32 @@ test("closing rejects missing, subagent and replaced Pi conversation targets wit
   });
 });
 
+test("guarded archive-only rechecks the latest parent and conversation and records no outcome", async () => {
+  await withTempSessionsDir(async () => {
+    const parent = session("running", { id: "parent", title: "parent", piSessionId: "pi-new" });
+    const child = session("running", { id: "child", title: "child", kind: "subagent", parentId: "parent" });
+    const closed = session("idle", { id: "closed", title: "closed", closure: "done", bucket: "archived", bucketChangedAt: 10 });
+    await updateRegistry(() => ({ version: 1, sessions: [parent, child, closed] }));
+    // The local snapshot still shows the old conversation; only latest registry state can catch the replacement.
+    const controller = new SessionsController({ version: 1, sessions: [{ ...parent, piSessionId: "pi-old" }, child, closed] });
+
+    await assert.rejects(() => controller.moveSessionToBucket("parent", "archived", 100, { piSessionId: "pi-old" }), /changed/);
+    await assert.rejects(() => controller.moveSessionToBucket("missing", "archived", 100, {}), /no longer/);
+    await assert.rejects(() => controller.moveSessionToBucket("child", "archived", 100, {}), /subagent/);
+    await assert.rejects(() => controller.moveSessionToBucket("closed", "archived", 100, {}), /Reopen/);
+    assert.deepEqual((await loadRegistry()).sessions, [parent, child, closed]);
+
+    await controller.moveSessionToBucket("parent", "archived", 100, { piSessionId: "pi-new" });
+    const persisted = (await loadRegistry()).sessions;
+    assert.deepEqual(persisted.map((item) => [item.id, item.status, item.bucket, item.closure]), [
+      ["parent", "running", "archived", undefined],
+      ["child", "running", "archived", undefined],
+      ["closed", "idle", "archived", "done"],
+    ]);
+    assert.equal("closure" in persisted[0]!, false);
+  });
+});
+
 test("reopening clears closure into Active while legacy archives stay outcome-free and Backlog is blocked while closed", async () => {
   await withTempSessionsDir(async () => {
     const closed = session("idle", { id: "closed", title: "closed", closure: "done", bucket: "archived", bucketChangedAt: 10 });

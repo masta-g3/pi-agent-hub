@@ -11,7 +11,7 @@ import type { PickerItem } from "./two-column-picker.js";
 import type { SessionsTheme } from "./theme.js";
 import type { PromptDialog } from "./prompt-dialog.js";
 import type { FormDialog } from "./form-dialogs.js";
-import type { CloseDialog, ConfirmDialog } from "./confirm-dialogs.js";
+import type { ArchiveDialog, ConfirmDialog } from "./confirm-dialogs.js";
 import type { PickerDialog } from "./picker-dialog.js";
 import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js";
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
@@ -48,10 +48,10 @@ export interface SessionLifecycleActions {
   createSession: (input: NewFormSubmission) => unknown;
   forkSession: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup: (sessionId: string, group: string) => unknown;
-  archiveSession: (sessionId: string) => unknown;
+  /** Without a closure, archive records no outcome; `expected` binds the chooser's parent conversation. */
+  archiveSession: (sessionId: string, closure: SessionClosure | undefined, expected: { piSessionId?: string }) => unknown;
   backlogSession: (sessionId: string) => unknown;
   restoreSession: (sessionId: string) => unknown;
-  closeSession: (sessionId: string, closure: SessionClosure, expected: { piSessionId?: string }) => unknown;
   renameSession: (sessionId: string, title: string) => unknown;
   syncPiName: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup: (from: string, to: string) => unknown;
@@ -174,10 +174,9 @@ export interface SessionsViewActions {
   createSession?: (input: NewFormSubmission) => unknown;
   forkSession?: (sourceSessionId: string, input: ForkDialogInput) => unknown;
   changeGroup?: (sessionId: string, group: string) => unknown;
-  archiveSession?: (sessionId: string) => unknown;
+  archiveSession?: (sessionId: string, closure: SessionClosure | undefined, expected: { piSessionId?: string }) => unknown;
   backlogSession?: (sessionId: string) => unknown;
   restoreSession?: (sessionId: string) => unknown;
-  closeSession?: (sessionId: string, closure: SessionClosure, expected: { piSessionId?: string }) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
   syncPiName?: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup?: (from: string, to: string) => unknown;
@@ -207,7 +206,7 @@ export interface SessionsViewActions {
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | CloseDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
+export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
 
 export interface DialogContext {
   viewport: { width: number; height?: number };
@@ -232,7 +231,7 @@ export type DialogContextFor<Actions extends object> = Omit<DialogContext, "acti
 
 export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage">>>;
 export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
-export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll" | "closeSession">>>;
+export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll" | "archiveSession">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
 export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;

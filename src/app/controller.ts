@@ -208,17 +208,21 @@ export class SessionsController {
     });
   }
 
-  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now()): Promise<void> {
+  /** `expected` opts into the Archive chooser guard: a missing, replaced or closed latest parent rejects instead of no-op. */
+  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now(), expected?: { piSessionId?: string }): Promise<void> {
     const selected = this.registry.sessions.find((session) => session.id === id);
-    if (!selected || isSubagentSession(selected)) return;
+    if (!expected && (!selected || isSubagentSession(selected))) return;
     const wasSelected = this.selectedId === id;
     const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
+    let failure: string | undefined;
     await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
-      if (!current || isSubagentSession(current) || sessionClosure(current)) return latest;
+      failure = expected ? parentTargetFailure(current, expected, "archive") ?? (sessionClosure(current!) ? "session is closed; Reopen it first" : undefined) : undefined;
+      if (failure || !current || isSubagentSession(current) || sessionClosure(current)) return latest;
       const ids = sessionCascadeIds(latest.sessions, id);
       return { ...latest, sessions: latest.sessions.map((session) => ids.has(session.id) ? moveToBucket(session, bucket, now) : session) };
     });
+    if (failure) throw new Error(failure);
     if (wasSelected && bucket === "archived") this.selectedId = selectionAboveArchivedRow(this.visibleSessions(), oldIndex) ?? this.selectedId;
   }
 
@@ -229,11 +233,8 @@ export class SessionsController {
     let failure: string | undefined;
     await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
-      failure = !current ? "session is no longer available"
-        : isSubagentSession(current) ? "subagent rows follow their parent"
-        : expected.piSessionId !== undefined && current.piSessionId !== expected.piSessionId ? "session conversation changed; close cancelled"
-        : current.closure !== undefined && current.closure !== closure ? "session is already closed; reopen it before changing the outcome"
-        : undefined;
+      failure = parentTargetFailure(current, expected, "close")
+        ?? (current!.closure !== undefined && current!.closure !== closure ? "session is already closed; reopen it before changing the outcome" : undefined);
       if (failure || current!.closure !== undefined) return latest;
       const ids = sessionCascadeIds(latest.sessions, id);
       return {
@@ -415,4 +416,11 @@ async function removeDashboardState(session: ManagedSession): Promise<void> {
       if (!isErrno(error, "ENOENT")) throw error;
     });
   }
+}
+
+function parentTargetFailure(current: ManagedSession | undefined, expected: { piSessionId?: string }, action: string): string | undefined {
+  return !current ? "session is no longer available"
+    : isSubagentSession(current) ? "subagent rows follow their parent"
+    : expected.piSessionId !== undefined && current.piSessionId !== expected.piSessionId ? `session conversation changed; ${action} cancelled`
+    : undefined;
 }

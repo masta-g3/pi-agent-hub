@@ -808,7 +808,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
     assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
     assert.match(text, /● running/, `${width}`);
     assert.match(text, /Commit · step 5 of 5/, `${width}`);
-    assert.match(text, /▸ C\s+Reopen/, `${width}`);
+    assert.match(text, /▸ U\s+Reopen/, `${width}`);
     assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
   }
   const abandoned = archivedRow("gone", "Gone work", { closure: "abandoned" });
@@ -819,7 +819,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
   for (const height of [8, 10, 12]) {
     const short = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width: 100, height, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(short, /✓ Closed · Done/, `height ${height}`);
-    assert.match(short, /▸ C\s+Reopen/, `height ${height}`);
+    assert.match(short, /▸ U\s+Reopen/, `height ${height}`);
   }
 });
 
@@ -2022,7 +2022,7 @@ test("workspace height pruning preserves primary action and requested evidence t
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
     for (const [index, target] of layout.workspaceRowTargets.entries()) {
-      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Close session|Archive|[Dd]etails|Actions/);
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|Actions/);
     }
   }
 });
