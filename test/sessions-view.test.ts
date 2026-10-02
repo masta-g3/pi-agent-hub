@@ -13,7 +13,8 @@ function fleetText(lines: string[]): string {
   const board = stripAnsi(lines[1] ?? "").startsWith("│WORKFLOW");
   const start = board ? 1 : 19;
   const width = board ? 83 : 65;
-  return lines.map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
+  return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
+    .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
 
 function visibleSlice(value: string, start: number, width: number): string {
@@ -217,7 +218,7 @@ test("restored lifecycle filter reaches the controller before rendering", () => 
     initialViewState: { grouping: "project", filter: { text: "active", lifecycle: ["active"] } },
   });
   assert.equal(controller.snapshot().filter, "lifecycle:active active");
-  assert.match(stripAnsi(view.render(80).join("\n")), /filter: lifecycle:active active/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /FILTERED\s+lifecycle:active active/);
 });
 
 test("filter mode filters live and escape clears", () => {
@@ -235,6 +236,27 @@ test("filter mode filters live and escape clears", () => {
   assert.equal(controller.snapshot().filter, undefined);
 });
 
+test("filter cancellation restores the pre-edit filter without persisting previews", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", filter: { text: "api", lifecycle: ["active", "backlog", "archived"] } },
+    saveViewState: state => saved.push(state),
+  });
+  view.handleInput("/");
+  view.handleInput("X");
+  assert.equal(controller.snapshot().filter, "apiX");
+  assert.equal(saved.length, 0);
+  view.handleInput("\u001b");
+  assert.equal(controller.snapshot().filter, "api");
+  assert.equal(saved.at(-1)?.filter?.text, "api");
+  view.handleInput("/");
+  for (let i = 0; i < 3; i++) view.handleInput("\u007f");
+  view.handleInput("\r");
+  assert.equal(controller.snapshot().filter, undefined);
+  assert.equal(saved.at(-1)?.filter, undefined);
+});
+
 test("filter input supports cursor movement", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   let now = 100;
@@ -247,13 +269,13 @@ test("filter input supports cursor movement", () => {
 
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /\u001b\[5m█\u001b\[25m/);
-  assert.match(stripAnsi(rendered), /filter: apX█i/);
+  assert.match(stripAnsi(rendered), /FILTERING\s+apX█i/);
   now = 1_100;
   assert.match(view.render(100).join("\n"), /\u001b\[5m▌\u001b\[25m/);
   assert.equal(controller.snapshot().filter, "apXi");
 });
 
-test("committed filter moves to top summary and escape clears", () => {
+test("committed filter stays above results and escape clears", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
   const view = new SessionsView(controller, () => {});
   view.handleInput("/");
@@ -261,11 +283,56 @@ test("committed filter moves to top summary and escape clears", () => {
   view.handleInput("o");
   view.handleInput("\r");
   const rendered = view.render(100).join("\n");
-  assert.match(rendered, /FLEET\s+1\/2 trees · filter: do/);
+  assert.match(stripAnsi(rendered), /FLEET\s+1\/2 trees/);
+  assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ edit.*Esc clear/);
+  assert.doesNotMatch(stripAnsi(rendered), /filter:/);
   assert.match(rendered, /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
   view.handleInput("\u001b");
   assert.equal(controller.snapshot().filter, undefined);
+});
+
+test("filter editor is visible with an empty draft and slash leaves narrow workspace", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { now: () => 0 });
+  view.render(60);
+  view.handleInput("i");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FLEET/);
+  view.handleInput("/");
+  const lines = view.render(60).map(stripAnsi);
+  assert.match(lines[2]!, /FILTERING.*█.*Enter apply.*Esc cancel/);
+  assert.match(lines.join("\n"), /FLEET/);
+  view.handleInput("\r");
+  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FILTERING|FILTERED/);
+});
+
+test("slash closes narrow evidence state without clearing wide evidence", () => {
+  const base = session("api", "api");
+  const current = { ...base, statusEvidence: computeStatus({ session: base, tmux: { exists: true }, now: 100_000 }).evidence };
+  for (const width of [60, 120]) {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [current] }), () => {});
+    view.render(width);
+    view.handleInput("i");
+    assert.match(stripAnsi(view.render(width).join("\n")), /LIVE DETAILS/);
+    view.handleInput("/");
+    view.handleInput("\r");
+    const text = stripAnsi(view.render(120).join("\n"));
+    if (width === 60) assert.doesNotMatch(text, /LIVE DETAILS/);
+    else assert.match(text, /LIVE DETAILS/);
+  }
+});
+
+test("restored filter on an empty dashboard shows only valid clear recovery", () => {
+  const controller = new SessionsController();
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", filter: { text: "api", lifecycle: ["active", "backlog", "archived"] } },
+  });
+  const text = stripAnsi(view.render(80).join("\n"));
+  assert.match(text, /FILTERED\s+api.*0 hidden.*Esc clear/);
+  assert.doesNotMatch(text, /\/ edit/);
+  view.handleInput("\u001b");
+  assert.equal(controller.snapshot().filter, undefined);
+  assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /FILTERED/);
 });
 
 test("q stops the TUI", () => {
@@ -1306,6 +1373,26 @@ test("tier navigator reaches an orphan subagent presentation owner", () => {
   view.handleInput(mousePressAtLine(activeNav, 3));
 
   assert.equal(controller.selected()?.id, "orphan");
+});
+
+test("filter bar is inert and filtered mouse rows still select exact sessions", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "auth api"), session("docs", "auth docs")] });
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, { attachOutsideTmux: target => { opened.push(target); } });
+  view.handleInput("/");
+  for (const char of "auth") view.handleInput(char);
+  view.handleInput("\r");
+  const lines = view.render(120);
+  const selected = controller.snapshot().selectedId;
+  view.handleInput(mousePressAtLine(lines.findIndex(line => stripAnsi(line).includes("FILTERED"))));
+  assert.equal(controller.snapshot().selectedId, selected);
+  assert.deepEqual(opened, []);
+  view.handleInput(mousePressAtLine(rowIndexFor(lines, "auth docs")));
+  assert.equal(controller.snapshot().selectedId, "docs");
+  assert.deepEqual(opened, []);
+  view.handleInput("\u001b");
+  assert.equal(controller.snapshot().filter, undefined);
+  assert.equal(controller.snapshot().selectedId, "docs");
 });
 
 test("single mouse click selects without opening", () => {

@@ -48,16 +48,21 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     listWidth: 0,
     listScrollTop: 0,
   });
-  if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
-    return emptyLayout(box(width, fitBoxBody(emptyLines(width, styles), model.height), styles));
-  }
-
   const bodyWidth = width - 2;
+  const filterBar = renderFilterBar(model, bodyWidth, styles);
+  const filterLines = filterBar ? [filterBar] : [];
+  if (filterBar && model.height === 3 && !(model.showWorkspace && model.workspace?.fullScreen)) {
+    return emptyLayout(box(width, [filterBar], styles));
+  }
+  if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
+    const body = filterBar ? [renderTopSummary(model, bodyWidth, styles), filterBar, ...emptyLines(width, styles)] : emptyLines(width, styles);
+    return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
+  }
   if (model.noBoardSessions) {
     const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
-    const body = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
     const layout = emptyLayout(box(width, fitBoxBody(body, model.height), styles));
-    for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + i] = announcement.targets[i];
+    for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
     return layout;
   }
   if (model.showWorkspace && model.workspace?.fullScreen) {
@@ -79,11 +84,14 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     : model.pinMode && syntheticSelection
       ? { lines: Array.from({ length: decisionRows }, () => ""), targets: Array.from({ length: decisionRows }, () => undefined as string | undefined) }
       : { lines: [] as string[], targets: [] as (string | undefined)[] };
-  const baseStripLines = (model.pinSummary ? 1 : 0) + decision.lines.length;
+  const minimumRows = 4 + filterLines.length + decision.lines.length;
+  const footerVisible = Boolean(model.footer) && (!filterBar || !model.height || model.height >= minimumRows + 2);
+  const pinSummaryVisible = Boolean(model.pinSummary) && (!filterBar || !model.height || model.height >= minimumRows + (footerVisible ? 2 : 0) + 1);
+  const baseStripLines = filterLines.length + (pinSummaryVisible ? 1 : 0) + decision.lines.length;
   const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
-  const targetRows = bodyRowsFromHeight(model.height, stripLines, Boolean(model.footer));
+  const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible);
   const left = renderSessionList(model, listWidth, styles);
   const workspace = model.showWorkspace && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
@@ -91,8 +99,8 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const rows = targetRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
   const navigator = renderTierNavigator(model, navigatorWidth, rows, styles);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
-  const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...announcement.lines];
-  if (model.pinSummary) body.push(renderPinSummary(model, bodyWidth, styles));
+  const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines];
+  if (pinSummaryVisible) body.push(renderPinSummary(model, bodyWidth, styles));
   const visibleLinesByOwner = new Map<string, number>();
   for (const meta of windowedLeft.lineMeta) {
     if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
@@ -111,21 +119,22 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     body.push(`${navLine}${leftLine}${workspaceLine}`);
   }
   body.push(...decision.lines);
-  if (model.footer) {
+  if (footerVisible) {
     body.push(styles.border("─".repeat(bodyWidth)));
     body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
   }
-  const lines = box(width, body, styles);
+  const lines = box(width, fitBoxBody(body, model.height), styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
-  for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + i] = announcement.targets[i];
-  const listStart = 2 + announcement.lines.length + (model.pinSummary ? 1 : 0);
+  for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
+  const listStart = 2 + filterLines.length + announcement.lines.length + (pinSummaryVisible ? 1 : 0);
   const decisionStart = listStart + rows;
-  for (let i = 0; i < decision.targets.length; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
+  for (let i = 0; i < decision.targets.length && decisionStart + i < lines.length - 1; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
     const lineIndex = listStart + i;
+    if (lineIndex >= lines.length - 1) break;
     rowTargets[lineIndex] = windowedLeft.targets[i];
     navigatorRowTargets[lineIndex] = navigator.targets[i];
     workspaceRowTargets[lineIndex] = workspace.targets[i];
@@ -308,6 +317,29 @@ function noBoardLines(width: number, model: RenderModel, styles: LayoutStyles): 
   ].map((line) => truncate(line, inner));
 }
 
+function renderFilterBar(model: RenderModel, width: number, styles: LayoutStyles): string | undefined {
+  const editor = model.filterEditing;
+  if (!editor && model.filter === undefined) return undefined;
+  const board = model.grouping === "stage";
+  const total = board ? model.boardTotalCardCount : model.summary.ownerTotal;
+  const matching = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
+  const hidden = total - matching;
+  const label = `▍ ${editor ? "FILTERING" : "FILTERED"} `;
+  const tone = model.noMatches ? styles.warning : styles.accent;
+  const hiddenLabel = `${hidden} hidden`;
+  const hints = editor
+    ? ["Enter apply · Esc cancel", "Enter · Esc cancel", "Esc cancel"]
+    : model.empty
+      ? [`${hiddenLabel} · Esc clear`, "Esc clear"]
+      : [`${hiddenLabel} · / edit · Esc clear`, `${hiddenLabel} · Esc clear`, "Esc clear"];
+  const hint = hints.find((candidate) => displayWidth(label) + displayWidth(candidate) + 6 <= width) ?? hints[hints.length - 1]!;
+  const fieldWidth = Math.max(1, width - displayWidth(label) - displayWidth(hint) - 2);
+  const query = editor
+    ? styles.selected(renderCursorValue(editor.value, editor.cursor, fieldWidth, "start", inputCursor(model.now)))
+    : truncate(model.filter ?? "", fieldWidth);
+  return twoColumn(`${tone(label)}${query}`, styles.muted(hint), width);
+}
+
 function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
   const board = model.grouping === "stage";
   const parentRows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))
@@ -330,14 +362,12 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     ...(pinCount ? [styles.muted(`${pinCount} pinned`)] : []),
     ...(needsYou ? [styles.warning(`${needsYou} needs you`)] : []),
     ...(health ? [styles.error(`${health} health`)] : []),
-    ...(model.filter !== undefined ? [styles.dim(`filter: ${model.filter}`)] : []),
   ];
   const required = ordered[0] ?? "";
   const needs = needsYou ? ordered.find((part) => stripAnsi(part) === `${needsYou} needs you`) : undefined;
   const candidates = [
     ordered,
-    ordered.filter((part) => !stripAnsi(part).startsWith("filter: ")),
-    ordered.filter((part) => !stripAnsi(part).startsWith("filter: ") && !stripAnsi(part).endsWith(" health")),
+    ordered.filter((part) => !stripAnsi(part).endsWith(" health")),
     [required, ...(needs ? [needs] : [])],
     [required],
   ].map((parts) => parts.join(styles.border(" · ")));
@@ -420,7 +450,7 @@ interface SessionListContent {
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles): SessionListContent {
   if (model.noMatches) {
-    const lines = noMatchListLines(width, model.filter ?? "", styles);
+    const lines = noMatchListLines(width, model, styles);
     return {
       lines,
       targets: lines.map(() => undefined),
@@ -627,8 +657,9 @@ function replaceVisibleColumn(value: string, column: number, replacement: string
   return value;
 }
 
-function noMatchListLines(width: number, filter: string, styles: LayoutStyles): string[] {
-  return [styles.warning(`No sessions match ${JSON.stringify(filter)}.`), "", `${styles.warning("▶")} Use the footer controls below.`, ""]
+function noMatchListLines(width: number, model: RenderModel, styles: LayoutStyles): string[] {
+  const controls = model.filterEditing ? "Enter apply · Esc cancel" : "/ edit · Esc clear";
+  return [styles.warning("No sessions match."), "", `${styles.warning("▶")} ${controls}`, ""]
     .map((line) => truncate(line, width));
 }
 
@@ -1576,11 +1607,16 @@ function windowFormBlocks(blocks: string[][], focusIndex: number, rowLimit: numb
   return blocks.slice(start, end);
 }
 
-export function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined): string {
+export function inputCursor(now: number): string {
+  const marker = Math.floor(now / 1_000) % 2 === 0 ? "█" : "▌";
+  return `\u001b[5m${marker}\u001b[25m`;
+}
+
+export function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined, marker = "█"): string {
   if (width <= 0) return "";
   const chars = [...value];
   const pos = Math.max(0, Math.min(cursor ?? chars.length, chars.length));
-  const rendered = renderTextInput(createTextInput(value, pos));
+  const rendered = renderTextInput(createTextInput(value, pos), marker);
   if (displayWidth(rendered) <= width) return rendered;
   if (mode === "start" || displayWidth(chars.slice(0, pos).join("")) >= width - 1) {
     let start = pos;
@@ -1588,7 +1624,7 @@ export function renderCursorValue(value: string, cursor: number | undefined, wid
     while (start > 0 && displayWidth(chars[start - 1]! + before) <= width - 2) {
       before = chars[--start]! + before;
     }
-    let result = `${start > 0 ? "…" : ""}${before}█`;
+    let result = `${start > 0 ? "…" : ""}${before}${marker}`;
     for (const char of chars.slice(pos)) {
       if (displayWidth(result + char) > width) break;
       result += char;

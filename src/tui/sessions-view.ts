@@ -57,7 +57,7 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
     handlers.failure(error);
   }
 }
-import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, promptFooter } from "./prompt-dialog.js";
+import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, sendPromptFooter } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
 import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
 import { createRestartDialog, handleArchiveInput, handleRestartDialogInput, handleConfirmInput, openArchiveDialog, openDeleteDialog, openFinishDialog, renderArchiveDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
@@ -387,7 +387,7 @@ export class SessionsView implements Component {
       compactRows: this.conversationOpen,
       filter,
       filterDisclosure: this.filterDisclosure,
-      filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter",
+      filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter" ? this.dialog.draft : undefined,
       workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo
         ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
         : undefined,
@@ -430,7 +430,7 @@ export class SessionsView implements Component {
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
-    const footer = this.dialog?.kind === "prompt" ? promptFooter(this.dialog, this.dialogContext(), width - 2) : undefined;
+    const footer = this.dialog?.kind === "prompt" && this.dialog.purpose === "send" ? sendPromptFooter(this.dialog, this.dialogContext(), width - 2) : undefined;
     let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
     this.paletteRowTargets = [];
     this.paletteBounds = undefined;
@@ -775,6 +775,8 @@ export class SessionsView implements Component {
   }
 
   private startFilter() {
+    if (this.controller.snapshot().registry.sessions.length === 0) return;
+    if (this.workspaceSessionId) this.closeWorkspace();
     this.revealedSessionId = undefined;
     this.openDialog(openFilterPrompt);
   }

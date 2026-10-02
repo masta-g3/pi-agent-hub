@@ -8,6 +8,7 @@ import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionClos
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
+import type { TextInputState } from "./text-input.js";
 import { dashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
 import { COCKPIT_RELEASE_CUE, coachingActive, releaseCueVisible, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
@@ -193,6 +194,7 @@ export interface RenderModel {
   workspace?: RenderWorkspace;
   footer: string;
   filter?: string;
+  filterEditing?: TextInputState;
   grouping: "project" | "stage";
   fleetGrouping: "status" | "repo";
   pinMode: boolean;
@@ -507,7 +509,7 @@ export interface BuildRenderModelInput {
   height?: number;
   listScrollTop?: number;
   filter?: string;
-  filterEditing?: boolean;
+  filterEditing?: TextInputState;
   workspaceCommands?: WorkspaceCommandSelection;
   workspaceEvidenceVisible?: boolean;
   workspaceFullScreen?: boolean;
@@ -640,6 +642,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(workspace ? { workspace } : {}),
     footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, { coaching: coach }),
     filter: input.filter,
+    filterEditing: input.filterEditing,
     grouping,
     fleetGrouping,
     pinMode,

@@ -1,6 +1,6 @@
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import { createTextInput, editTextInput, isEnterKey, renderTextInput, type TextInputState } from "./text-input.js";
-import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, truncate } from "./layout.js";
+import { inputCursor, NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, truncate } from "./layout.js";
 import { styleToken, type SessionsTheme } from "./theme.js";
 import type { PromptDialogContext } from "./dialog.js";
 
@@ -10,13 +10,14 @@ export interface PromptDialog {
   draft: TextInputState;
   error?: string;
   targetId?: string;
+  originalFilter?: string;
 }
 
 export function openFilterPrompt(ctx: PromptDialogContext): PromptDialog | undefined {
   if (ctx.controller.snapshot().registry.sessions.length === 0) return undefined;
-  const draft = createTextInput(ctx.controller.snapshot().filter ?? "");
-  ctx.controller.setFilter(draft.value);
-  return { kind: "prompt", purpose: "filter", draft };
+  const originalFilter = ctx.controller.snapshot().filter;
+  const draft = createTextInput(originalFilter ?? "");
+  return { kind: "prompt", purpose: "filter", draft, originalFilter };
 }
 
 export function openSendPrompt(ctx: PromptDialogContext): PromptDialog | undefined {
@@ -48,17 +49,13 @@ export function promptFilterValue(dialog: PromptDialog | undefined): string | un
   return dialog?.purpose === "filter" ? dialog.draft.value : undefined;
 }
 
-export function promptFooter(dialog: PromptDialog, ctx: PromptDialogContext, availableWidth?: number): string {
-  const now = ctx.now();
-  switch (dialog.purpose) {
-    case "filter": return filterFooter(dialog.draft, now, ctx.theme, availableWidth);
-    case "send": return sendFooter(dialog.draft, sendTargetTitle(dialog, ctx), dialog.error, now, ctx.theme, availableWidth);
-  }
+export function sendPromptFooter(dialog: PromptDialog, ctx: PromptDialogContext, availableWidth?: number): string {
+  return sendFooter(dialog.draft, sendTargetTitle(dialog, ctx), dialog.error, ctx.now(), ctx.theme, availableWidth);
 }
 
 function handleFilterInput(dialog: PromptDialog, data: string, ctx: PromptDialogContext): PromptDialog | undefined {
   if (matchesKey(data, Key.escape)) {
-    setFilter(ctx, undefined);
+    setFilter(ctx, dialog.originalFilter);
     return undefined;
   }
   if (isEnterKey(data)) {
@@ -103,28 +100,16 @@ function sendTargetTitle(dialog: PromptDialog, ctx: PromptDialogContext): string
   return ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId)?.title ?? "session";
 }
 
-function filterFooter(input: TextInputState, now: number, theme?: SessionsTheme, availableWidth?: number): string {
-  const text = availableWidth !== undefined && availableWidth <= NARROW_LAYOUT_MAX_WIDTH
-    ? compactPrompt("filter: ", input, " • esc • enter", availableWidth)
-    : `filter: ${renderTextInput(input, footerCursor(now))}  • ←→ edit • esc clear • enter done`;
-  return theme ? styleToken(theme, "dim", text) : text;
-}
-
 function sendFooter(input: TextInputState, target: string, error: string | undefined, now: number, theme?: SessionsTheme, availableWidth?: number): string {
   const text = availableWidth !== undefined && availableWidth <= NARROW_LAYOUT_MAX_WIDTH
     ? compactPrompt(`send ${truncate(target, Math.max(4, Math.floor(availableWidth / 4)))}: `, input, error ? ` • ${truncate(error, Math.max(6, Math.floor(availableWidth / 3)))}` : " • esc • enter", availableWidth)
     : error
-      ? `send to ${target}: ${renderTextInput(input, footerCursor(now))}  • ${error}`
-      : `send to ${target}: ${renderTextInput(input, footerCursor(now))}  • ←→ edit • esc cancel • enter send`;
+      ? `send to ${target}: ${renderTextInput(input, inputCursor(now))}  • ${error}`
+      : `send to ${target}: ${renderTextInput(input, inputCursor(now))}  • ←→ edit • esc cancel • enter send`;
   return theme ? styleToken(theme, error ? "error" : "dim", text) : text;
 }
 
 function compactPrompt(prefix: string, input: TextInputState, suffix: string, width: number): string {
   const inputWidth = Math.max(4, width - visibleWidth(prefix) - visibleWidth(suffix));
   return truncate(`${prefix}${renderCursorValue(input.value, input.cursor, inputWidth, "start")}${suffix}`, width);
-}
-
-function footerCursor(now: number): string {
-  const marker = Math.floor(now / 1_000) % 2 === 0 ? "█" : "▌";
-  return `\u001b[5m${marker}\u001b[25m`;
 }

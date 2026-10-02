@@ -118,9 +118,15 @@ Normal `f` forks retain ticket ownership and do not request this reset.
 
 Press `:` to search built-in actions, configured shortcuts, current sessions, and named filters. Session search includes names, repos, groups, tasks, tickets, requests, and workflow context. It never searches raw pane output or Pi conversation content.
 
-Selecting a session result reveals and selects it in Hub. It does not open, restart, or mark it read. Press `Enter` afterward to open it. Disabled actions stay visible with a reason.
+Selecting a session result reveals and selects it in Hub. It does not open, restart, or mark it read. Press `Enter` afterward to open it. Disabled actions stay visible with a reason. `Escape` closes the palette without clearing the dashboard filter.
 
-Use `/` for a quick text filter. Named filters share the same filter state. For example, `lifecycle:archived,backlog release` finds matching text in either lifecycle bucket. Lowercase `b` changes Backlog visibility; uppercase `B` moves the session to Backlog. Hub saves the text and lifecycle filter. `Escape` closes the palette without clearing that filter.
+## Session filters
+
+Use `/` for a live text filter. The `FILTERING` bar above results shows input focus. `Enter` applies the draft and returns to navigation; an empty draft clears the filter. `Escape` cancels editing and restores the filter that was active before the edit.
+
+Applied filters show a `FILTERED` bar, including filters restored on launch. When space allows, `N hidden` counts owner trees excluded by the filter, not folded or offscreen rows; the workflow board counts only Active trees. Use `/` to edit or `Escape` to clear from the normal dashboard. With no registered sessions, a restored filter offers only `Escape` to clear.
+
+Named filters share the same filter state. For example, `lifecycle:archived,backlog release` finds matching text in either lifecycle bucket. Lowercase `b` changes Backlog visibility; uppercase `B` moves the session to Backlog. Hub saves the text and lifecycle filter.
 
 ## Status vocabulary
 

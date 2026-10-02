@@ -1068,3 +1068,13 @@
   created_at: '2026-10-01'
   plan_file: agent-work/history/20261001_session-closure-001_session_closure.md
   completed_at: '2026-10-01'
+- id: dashboard-visibility-002
+  status: done
+  title: Filter bar
+  subtitle: Make hidden sessions clearly visible
+  description: Dashboard shows a prominent filter bar during editing and while applied,
+    with hidden-tree counts and explicit cancel and clear controls.
+  priority: 2
+  created_at: '2026-10-01'
+  plan_file: agent-work/history/20261002_dashboard-visibility-002_filter_bar.md
+  completed_at: '2026-10-02'
