@@ -275,7 +275,7 @@ Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; 
 
 Archived shows five recent parent trees by default. Select the older-items row and press `Enter` to show more. After seven days, dashboard cleanup can forget an archived tree only when every parent/child tmux session is confirmed gone. It removes Hub records and owned symlink workspaces, not Pi conversations or worktrees.
 
-Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line text such as `/session-name refresh` to a selected live session without opening it. They are Pi commands, not shell macros. Configured commands require an idle session with no queued messages, blocking prompt, or editor draft. They use Pi's input pipeline; `p` remains a separate one-line send.
+Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line text such as `/session-name-refresh` to a selected live session without opening it. They are Pi commands, not shell macros. Configured commands require an idle session with no queued messages, blocking prompt, or editor draft. They use Pi's input pipeline; `p` remains a separate one-line send.
 
 ### Session closure
 

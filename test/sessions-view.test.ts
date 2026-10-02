@@ -3147,12 +3147,12 @@ test("rename form validates blank title", () => {
   assert.match(view.render(100).join("\n"), /title is required/);
 });
 
-test("custom Ctrl+N dashboard shortcut sends session-name refresh to selected live session", async () => {
+test("custom Ctrl+N dashboard shortcut sends session-name-refresh to selected live session", async () => {
   const runs: Array<{ sessionId: string; send: string }> = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), async () => {}, {
     interactionTarget,
     loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
-    dashboardShortcuts: [{ key: "C-n", label: "refresh name", send: "/session-name refresh" }],
+    dashboardShortcuts: [{ key: "C-n", label: "refresh name", send: "/session-name-refresh" }],
     runDashboardShortcut: async (sessionId, shortcut) => { runs.push({ sessionId, send: shortcut.send }); },
   });
   await view.refreshInteraction();
@@ -3160,7 +3160,7 @@ test("custom Ctrl+N dashboard shortcut sends session-name refresh to selected li
   view.handleInput("\x0e");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(runs, [{ sessionId: "api", send: "/session-name refresh" }]);
+  assert.deepEqual(runs, [{ sessionId: "api", send: "/session-name-refresh" }]);
   assert.match(stripAnsi(view.render(100).join("\n")), /refresh name → api/);
 });
 
@@ -3175,7 +3175,7 @@ test("custom dashboard shortcut blocks subagent stopped and error rows", () => {
   for (let i = 0; i < blockedSessions.length; i += 1) {
     let called = false;
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [blockedSessions[i]!] }), () => {}, {
-      dashboardShortcuts: [{ key: "C-n", send: "/session-name refresh" }],
+      dashboardShortcuts: [{ key: "C-n", send: "/session-name-refresh" }],
       runDashboardShortcut: () => { called = true; },
     });
     view.handleInput("\x0e");
@@ -3187,7 +3187,7 @@ test("custom dashboard shortcut blocks subagent stopped and error rows", () => {
 test("custom dashboard shortcuts only run in normal mode", () => {
   let called = false;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    dashboardShortcuts: [{ key: "C-n", send: "/session-name refresh" }],
+    dashboardShortcuts: [{ key: "C-n", send: "/session-name-refresh" }],
     runDashboardShortcut: () => { called = true; },
   });
 
@@ -3199,7 +3199,7 @@ test("custom dashboard shortcuts only run in normal mode", () => {
 
 test("custom dashboard shortcut reports unavailable without a transport action", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    dashboardShortcuts: [{ key: "C-n", send: "/session-name refresh" }],
+    dashboardShortcuts: [{ key: "C-n", send: "/session-name-refresh" }],
   });
 
   view.handleInput("\x0e");

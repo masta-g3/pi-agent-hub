@@ -206,7 +206,7 @@ Optional global config lives at `config.json` under the global state directory:
       {
         "key": "C-n",
         "label": "refresh name",
-        "send": "/session-name refresh"
+        "send": "/session-name-refresh"
       }
     ]
   }
@@ -245,7 +245,7 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
       {
         "key": "C-n",
         "label": "refresh name",
-        "send": "/session-name refresh"
+        "send": "/session-name-refresh"
       }
     ]
   }
@@ -254,7 +254,7 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
 
 Supported key spelling includes plain single characters, `C-x`/`ctrl+x`, and `M-x`/`alt+x`. Built-in dashboard and tmux focus/return keys are reserved, including `1`–`4` exact slot assignment, `M-1`–`M-4` (`Alt+1`–`Alt+4`) slot focus, `P` next-free/focus, `x` selected-pin close, `+`/`-` resize, `M-q` (`Alt+Q`, reserved for Pi message editing), `C-q` return, the intent palette `:`, theme settings `t`, and fleet grouping `v`; conflicting entries are rejected rather than shadowing Hub behavior. `Ctrl+N` is intentionally configurable in normal dashboard mode, but forms and the command palette keep precedence for their own cycling/navigation behavior. `F` and `o` are available for explicit configured sends. Move any configured `v` send to a free key before starting the dashboard; `v` is reserved for fleet grouping. Shifted digit characters such as `!` are also available. `send` must be one nonblank line; this is not a shell-command or macro facility.
 
-Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name refresh` is producer-provided and can be configured as an ordinary one-line text send.
+Legacy `syncPiNameAfterMs` values remain readable but schedule no delayed copy. Native Pi name changes trigger an immediate heartbeat. `/session-name-refresh` is producer-provided and can be configured as an ordinary one-line text send.
 
 ## New-session worktree default
 
