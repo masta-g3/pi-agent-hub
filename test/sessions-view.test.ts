@@ -409,6 +409,23 @@ test("t opens theme settings from an empty dashboard and Escape restores preview
   assert.doesNotMatch(view.render(80).join("\n"), /Sync to Pi/);
 });
 
+test("Escape cancels a pending theme load without quitting or opening a late dialog", async () => {
+  let resolve!: (value: { names: string[]; setting: string; syncPi: boolean }) => void;
+  let stopped = false;
+  const view = new SessionsView(new SessionsController(), () => { stopped = true; }, {
+    themeSettings: () => new Promise((complete) => { resolve = complete; }),
+  });
+
+  view.handleInput("t");
+  assert.match(stripAnsi(view.render(80).join("\n")), /loading themes/);
+  view.handleInput("\u001b");
+  assert.equal(stopped, false);
+  assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /loading themes/);
+  resolve({ names: ["dark", "light"], setting: "dark", syncPi: true });
+  await new Promise((complete) => setImmediate(complete));
+  assert.doesNotMatch(stripAnsi(view.render(80).join("\n")), /Sync to Pi/);
+});
+
 test("theme settings stay bounded by short terminal height", () => {
   const view = new SessionsView(new SessionsController(), () => {}, {
     terminalRows: () => 5,

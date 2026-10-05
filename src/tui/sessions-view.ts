@@ -122,6 +122,7 @@ export class SessionsView implements Component {
   private expandedProjectParentIds = new Set<string>();
   private revealedSessionId: string | undefined;
   private themeLoadRequest = 0;
+  private themeLoading = false;
   private projection?: DashboardProjection;
   private projectionRegistry?: object;
   private projectionKey = "";
@@ -191,7 +192,12 @@ export class SessionsView implements Component {
     }
 
     if (this.busy) {
-      if (data === "q") {
+      if (this.themeLoading && matchesKey(data, Key.escape)) {
+        this.themeLoadRequest += 1;
+        this.themeLoading = false;
+        this.busy = false;
+        this.message = undefined;
+      } else if (data === "q") {
         this.themeLoadRequest += 1;
         this.stop();
       }
@@ -1420,15 +1426,18 @@ export class SessionsView implements Component {
     if (isPromise(result)) {
       const request = ++this.themeLoadRequest;
       this.busy = true;
-      this.message = "loading themes...";
+      this.themeLoading = true;
+      this.message = "loading themes... · Esc cancel";
       void result.then((input) => {
         if (request !== this.themeLoadRequest) return;
         this.busy = false;
+        this.themeLoading = false;
         this.message = undefined;
         this.dialog = createThemeDialog(input);
       }).catch((error: unknown) => {
         if (request !== this.themeLoadRequest) return;
         this.busy = false;
+        this.themeLoading = false;
         this.message = errorMessage(error);
       });
       return;
