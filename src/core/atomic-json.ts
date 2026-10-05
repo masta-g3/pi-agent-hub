@@ -13,14 +13,14 @@ export function isErrno(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-export async function readJson<T>(path: string): Promise<T> {
-  const text = await readFile(path, "utf8");
+export async function readJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const text = await readFile(path, { encoding: "utf8", signal });
   return JSON.parse(text) as T;
 }
 
-export async function readJsonOr<T>(path: string, fallback: T): Promise<T> {
+export async function readJsonOr<T>(path: string, fallback: T, signal?: AbortSignal): Promise<T> {
   try {
-    return await readJson<T>(path);
+    return await readJson<T>(path, signal);
   } catch (error) {
     if (isErrno(error, "ENOENT")) return fallback;
     throw error;

@@ -17,9 +17,9 @@ const HEARTBEAT_STATES: Heartbeat["state"][] = ["starting", "running", "waiting"
 const THEME_TOKENS: ActiveThemeToken[] = ["accent", "success", "warning", "error", "muted", "dim", "text", "border", "statusLineBg", "selectedBg"];
 const PLAN_TASK_MAX = 10_000;
 
-export async function readHeartbeat(sessionId: string, env: NodeJS.ProcessEnv = process.env): Promise<Heartbeat | undefined> {
+export async function readHeartbeat(sessionId: string, env: NodeJS.ProcessEnv = process.env, signal?: AbortSignal): Promise<Heartbeat | undefined> {
   try {
-    const value = await readJsonOr<unknown>(heartbeatPath(sessionId, env), undefined);
+    const value = await readJsonOr<unknown>(heartbeatPath(sessionId, env), undefined, signal);
     return parseHeartbeat(value, sessionId);
   } catch (error) {
     if (error instanceof SyntaxError) return undefined;
