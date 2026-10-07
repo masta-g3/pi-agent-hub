@@ -21,6 +21,7 @@ export interface SessionsConfig {
     theme?: string;
     shortcuts?: DashboardShortcut[];
     attentionBell?: boolean;
+    attentionNotify?: boolean;
   };
 }
 
@@ -77,6 +78,10 @@ export async function effectiveDashboardShortcuts(env: NodeJS.ProcessEnv = proce
 
 export async function effectiveDashboardAttentionBell(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   return (await loadSessionsConfig(env)).dashboard?.attentionBell ?? false;
+}
+
+export async function effectiveDashboardAttentionNotify(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  return (await loadSessionsConfig(env)).dashboard?.attentionNotify ?? false;
 }
 
 export async function setSkillPoolDirs(poolDirs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -155,6 +160,7 @@ function validateConfig(config: SessionsConfig): void {
   if (config.dashboard?.themeSync !== undefined && typeof config.dashboard.themeSync !== "boolean") throw new Error("Invalid dashboard.themeSync in pi-agent-hub config");
   if (config.dashboard?.theme !== undefined && typeof config.dashboard.theme !== "string") throw new Error("Invalid dashboard.theme in pi-agent-hub config");
   if (config.dashboard?.attentionBell !== undefined && typeof config.dashboard.attentionBell !== "boolean") throw new Error("Invalid dashboard.attentionBell in pi-agent-hub config");
+  if (config.dashboard?.attentionNotify !== undefined && typeof config.dashboard.attentionNotify !== "boolean") throw new Error("Invalid dashboard.attentionNotify in pi-agent-hub config");
   validateDashboardShortcuts(config.dashboard?.shortcuts);
 }
 

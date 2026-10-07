@@ -436,7 +436,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         if (session) await deps.configureManagedSession(session, true);
         if (stopped) return false;
         await removeSidebarReturnBinding({ stateDir: deps.sidebarBindingStateDir, onlyOwnerPid: process.pid }, exec);
-        await switchClientWithReturn({ targetSession: tmuxSession, stateDir: deps.switchBindingStateDir, renameKey: "M-r",
+        await switchClientWithReturn({ targetSession: tmuxSession, stateDir: deps.switchBindingStateDir, renameKey: "M-r", nextRequestKey: "M-w",
           returnSession: { name: deps.dashboardSession, cwd: deps.dashboardCwd, command: deps.dashboardCommand, env: deps.dashboardEnv() } }, exec);
         return true;
       }));

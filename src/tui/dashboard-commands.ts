@@ -78,6 +78,7 @@ export interface DashboardCommandInput {
   pinState?: DashboardPinState;
   attentionRequests?: readonly { sessionId: string; requestId: string }[];
   attentionBellEnabled?: boolean;
+  visibleRequestCount?: number;
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
 }
@@ -432,6 +433,17 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       bindings: [{ key: "b" }],
       enabled: true,
       searchText: "b backlog lifecycle filter visibility show hide",
+    }),
+    makeCommand({
+      id: "view:next-request",
+      group: "views",
+      label: "Next request",
+      hint: "select the next visible session that needs you",
+      displayKey: "]",
+      bindings: [{ key: "]" }],
+      enabled: (input.visibleRequestCount ?? 0) > 0,
+      disabledReason: (input.visibleRequestCount ?? 0) > 0 ? undefined : "no visible requests",
+      searchText: "] next request needs you attention waiting jump",
     }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),
     makeCommand({ id: "view:quit", group: "views", label: "Quit", hint: "close the dashboard", displayKey: "q", bindings: [{ key: "q" }], enabled: true, searchText: "q quit close dashboard" }),

@@ -7,9 +7,9 @@ export interface DashboardShortcut {
 }
 
 const RESERVED_DASHBOARD_KEYS = new Set([
-  "c", "P", "1", "2", "3", "4", "x", "+", "-", "n", "f", "g", "G", "e", "R", "r", "d", "w", "s", "m", "t", "p", "a", "A", "B", "b", "U", "i", "N", "K", "J", "v", "?", ":", "q", "/",
+  "c", "P", "1", "2", "3", "4", "x", "+", "-", "n", "f", "g", "G", "e", "R", "r", "d", "w", "s", "m", "t", "p", "a", "A", "B", "b", "U", "i", "N", "K", "J", "v", "?", ":", "q", "/", "]",
   "Enter", "Esc", "Up", "Down", "j", "k", "Shift+Up", "Shift+Down",
-  "M-q", "M-1", "M-2", "M-3", "M-4", "M-n", "M-e", "C-q", "M-r", "C-m", "C-j", "C-[",
+  "M-q", "M-1", "M-2", "M-3", "M-4", "M-n", "M-e", "C-q", "M-r", "M-w", "C-m", "C-j", "C-[",
 ]);
 
 export function normalizeDashboardShortcutKey(key: string): string {

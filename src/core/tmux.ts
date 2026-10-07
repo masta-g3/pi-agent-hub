@@ -279,7 +279,9 @@ export async function configureManagedSessionStatusBar(options: {
   visible?: boolean;
 }, exec: TmuxExec = realTmuxExec): Promise<void> {
   const chrome = tmuxChromeFromTheme(options.theme);
-  const statusRight = `#[fg=${chrome.hintColor}]ctrl+q return · alt+r rename#[default] │ 📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  // tmux condition branches use commas, so the attention branch must not contain any.
+  const attention = `#{?@${ATTENTION_COUNT_OPTION},#[fg=${chrome.attentionColor}]⚑ #{@${ATTENTION_COUNT_OPTION}} need you#[fg=${chrome.hintColor}] · alt+w next#[default] │ ,}`;
+  const statusRight = `#[fg=${chrome.hintColor}]ctrl+q return · alt+r rename#[default] │ ${attention}📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
   await exec.exec("tmux", statusBarArgs({
     name: options.name,
     chrome,
@@ -291,6 +293,14 @@ export async function configureManagedSessionStatusBar(options: {
       ["status-left-length", "120"],
     ],
   }));
+}
+
+const ATTENTION_COUNT_OPTION = "pi_hub_needs";
+
+export async function setSessionAttentionCount(name: string, count: number, exec: TmuxExec = realTmuxExec): Promise<void> {
+  await exec.exec("tmux", count > 0
+    ? ["set-option", "-t", name, `@${ATTENTION_COUNT_OPTION}`, String(count)]
+    : ["set-option", "-u", "-t", name, `@${ATTENTION_COUNT_OPTION}`]);
 }
 
 export async function setSessionStatusBarVisible(options: {
@@ -334,6 +344,7 @@ export interface SwitchClientOptions {
   managedPrefix?: string;
   stateDir?: string;
   renameKey?: string;
+  nextRequestKey?: string;
   actionPath?: string;
   returnSession?: {
     name: string;
@@ -410,6 +421,11 @@ export async function switchClientWithReturn(
     await writeFile(renameRestorePath, previousRenameBinding, "utf8");
     keyBindings.push({ key: options.renameKey, restorePath: renameRestorePath });
   }
+  if (options.nextRequestKey) {
+    const nextRequestRestorePath = join(stateDir, "next-request.previous.tmux");
+    await writeFile(nextRequestRestorePath, await currentKeyBinding(options.nextRequestKey, exec), "utf8");
+    keyBindings.push({ key: options.nextRequestKey, restorePath: nextRequestRestorePath });
+  }
 
   const active: ActiveReturnBinding = {
     ownerPid: process.pid,
@@ -448,6 +464,20 @@ export async function switchClientWithReturn(
           path: actionPath,
           json: JSON.stringify({ action: "rename", tmuxSession: options.targetSession }),
         },
+      })]);
+    }
+    if (options.nextRequestKey) {
+      await exec.exec("tmux", ["bind-key", "-n", options.nextRequestKey, "run-shell", returnBindingScript({
+        controlSession,
+        activePath,
+        managedPrefix,
+        keyBindings,
+        returnSession: options.returnSession,
+        action: {
+          path: actionPath,
+          json: JSON.stringify({ action: "next-request", tmuxSession: options.targetSession }),
+        },
+        passthroughKey: options.nextRequestKey,
       })]);
     }
     try {
@@ -672,6 +702,7 @@ function returnBindingScript(input: {
     path: string;
     json: string;
   };
+  passthroughKey?: string;
 }): string {
   const prefixPattern = shellCasePrefix(input.managedPrefix);
   const restorePaths = input.keyBindings.map((binding) => binding.restorePath);
@@ -686,7 +717,8 @@ function returnBindingScript(input: {
     ? `tmux has-session -t ${shellQuote(input.controlSession)} 2>/dev/null || tmux new-session -d -s ${shellQuote(input.controlSession)} -c ${shellQuote(input.returnSession.cwd)} ${shellQuote(returnCommand)} 2>/dev/null || true; `
     : "";
   return `S=$(tmux display-message -p '#{session_name}'); case "$S" in ${prefixPattern}*) `
-    + `${ensureReturnSession}if tmux switch-client -t ${shellQuote(input.controlSession)} 2>/dev/null; then ${action}${restore}; fi;; esac`;
+    + `${ensureReturnSession}if tmux switch-client -t ${shellQuote(input.controlSession)} 2>/dev/null; then ${action}${restore}; fi;;`
+    + `${input.passthroughKey ? ` *) tmux send-keys ${shellQuote(input.passthroughKey)};;` : ""} esac`;
 }
 
 function commandWithEnv(command: string, env: Record<string, string> | undefined): string {

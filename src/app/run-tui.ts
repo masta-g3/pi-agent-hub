@@ -1,5 +1,7 @@
 import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut } from "./session-interaction.js";
 import { spawn } from "node:child_process";
+import { appendFile } from "node:fs/promises";
+import { plainTerminalText } from "../core/terminal-text.js";
 import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
 import { uiStatePath } from "../core/paths.js";
@@ -13,7 +15,7 @@ import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTh
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardAttentionBell, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
@@ -21,7 +23,7 @@ import { sessionSection } from "../core/session-bucket.js";
 import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renameSessionFavorite, removeSessionFavorite } from "../core/session-favorites.js";
-import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, type TmuxClient } from "../core/tmux.js";
+import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
@@ -31,7 +33,8 @@ import { renameManagedSession, syncManagedSessionStatusBars } from "./session-co
 import { discardWorktreeSession, finishWorktreeSession } from "./worktree-session.js";
 import { cleanupRetiredSessionMetadata } from "./state-migration.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
-import type { ManagedSession, SessionClosure } from "../core/types.js";
+import type { ManagedSession, RuntimeSession, SessionClosure } from "../core/types.js";
+import { otherRequestCounts } from "../tui/render-model.js";
 import type { CollapsibleSection, ProjectPickerTarget, SessionsViewState } from "../tui/dialog.js";
 import { normalizeCockpitOnboarding } from "../tui/cockpit-onboarding.js";
 import { activeAttentionRequest, createAttentionDeliveryState, observeAttentionDelivery, routeAttentionDeliveries, type AttentionDeliveryEntry } from "./attention-delivery.js";
@@ -44,6 +47,8 @@ export interface AttentionDeliveryEffects {
   listClients(): Promise<TmuxClient[]>;
   display(client: string, message: string): Promise<void>;
   ring(): void;
+  /** Present only when desktop notifications are enabled. */
+  notify?(tty: string, message: string): Promise<void>;
 }
 
 export async function dashboardOwnsTmuxSession(
@@ -63,6 +68,11 @@ export function attentionExternalMessage(entries: readonly AttentionDeliveryEntr
   return [kind, identity, newest.text, entries.length > 1 ? `+${entries.length - 1} more` : undefined].filter(Boolean).join(" · ");
 }
 
+/** OSC 9 desktop notification, shown by terminals such as Ghostty, iTerm2, WezTerm and kitty. */
+export function terminalNotification(message: string): string {
+  return `\x1b]9;${plainTerminalText(message)}\x07`;
+}
+
 export async function deliverAttentionBatch(entries: readonly AttentionDeliveryEntry[], effects: AttentionDeliveryEffects): Promise<void> {
   if (!entries.length) return;
   let clients: TmuxClient[];
@@ -75,6 +85,12 @@ export async function deliverAttentionBatch(entries: readonly AttentionDeliveryE
   const results = await Promise.allSettled(routed.deliveries.map((delivery) =>
     effects.display(delivery.client.name, attentionExternalMessage(delivery.entries))));
   const delivered = results.some((result) => result.status === "fulfilled");
+  const notify = effects.notify;
+  if (notify) {
+    await Promise.allSettled(routed.deliveries.flatMap((delivery, index) => results[index]?.status === "fulfilled"
+      ? [notify(delivery.client.tty, attentionExternalMessage(delivery.entries))]
+      : []));
+  }
   if (effects.bellEnabled && routed.bellEligible && delivered) {
     try {
       effects.ring();
@@ -82,6 +98,38 @@ export async function deliverAttentionBatch(entries: readonly AttentionDeliveryE
       // The optional terminal bell must not affect request delivery or refresh health.
     }
   }
+}
+
+// Restarted tmux sessions lose their user options, so cached counts are periodically re-asserted.
+const ATTENTION_COUNT_RESYNC_MS = 15_000;
+
+export async function syncAttentionCounts(
+  state: { counts: Map<string, number>; resetAt: number },
+  sessions: RuntimeSession[],
+  set: (tmuxSession: string, count: number) => Promise<void>,
+  now = Date.now(),
+): Promise<void> {
+  if (now - state.resetAt >= ATTENTION_COUNT_RESYNC_MS) {
+    state.counts.clear();
+    state.resetAt = now;
+  }
+  const counts = otherRequestCounts(sessions);
+  for (const name of state.counts.keys()) if (!counts.has(name)) state.counts.delete(name);
+  await Promise.allSettled([...counts]
+    .filter(([name, count]) => state.counts.get(name) !== count)
+    .map(async ([name, count]) => {
+      await set(name, count);
+      state.counts.set(name, count);
+    }));
+}
+
+export async function clearAttentionCounts(
+  state: { counts: Map<string, number> },
+  set: (tmuxSession: string, count: number) => Promise<void>,
+): Promise<void> {
+  const shown = [...state.counts].filter(([, count]) => count > 0).map(([name]) => name);
+  state.counts.clear();
+  await Promise.allSettled(shown.map((name) => set(name, 0)));
 }
 
 export function buildNewFormContext(input: { cwd: string; sessions: ManagedSession[]; selected?: ManagedSession; historyCwds?: string[]; worktreeDefault?: boolean }): NewFormContext {
@@ -176,10 +224,11 @@ export function createViewStateWriter(write: (state: SessionsViewState) => Promi
   };
 }
 
-type DashboardActionView = Pick<SessionsView, "openRenameForTmuxSession" | "completeFullScreenReturn">;
+type DashboardActionView = Pick<SessionsView, "openRenameForTmuxSession" | "completeFullScreenReturn" | "openNextRequest">;
 
 export function applyDashboardAction(view: DashboardActionView, action: DashboardAction): void {
   if (action.action === "rename") view.openRenameForTmuxSession(action.tmuxSession);
+  else if (action.action === "next-request") view.openNextRequest(action.tmuxSession);
   else view.completeFullScreenReturn(action.key);
 }
 
@@ -336,6 +385,7 @@ export async function runTui(): Promise<void> {
   const tui = new TuiMainScreen(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
   let attentionBellEnabled = await effectiveDashboardAttentionBell();
+  const attentionNotifyEnabled = await effectiveDashboardAttentionNotify();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
   let skillPool = await listSkillPool();
@@ -364,12 +414,21 @@ export async function runTui(): Promise<void> {
     const entry = activeAttentionRequest(attentionState, sessionId);
     return entry && Date.now() < entry.expiresAt ? entry.requestId : undefined;
   };
+  const attentionCounts = { counts: new Map<string, number>(), resetAt: Date.now() };
+  let attentionCountSync = Promise.resolve();
   const afterRefresh = async () => {
     void view.refreshInteraction();
     const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
     attentionState = observation.state;
     view.setAttentionAnnouncements(observation.active);
-    if (!observation.fresh.length || !ownsDashboardTmux) return;
+    if (!ownsDashboardTmux) return;
+    // Registry mutations also refresh outside the loops; serialize writes so shutdown can drain them before clearing.
+    if (!stopped) {
+      const sessions = controller.snapshot().sessions;
+      attentionCountSync = attentionCountSync.then(() => syncAttentionCounts(attentionCounts, sessions, (name, count) => setSessionAttentionCount(name, count, realTmuxExec)));
+    }
+    await attentionCountSync;
+    if (!observation.fresh.length) return;
     await deliverAttentionBatch(observation.fresh, {
       dashboardSession: DASHBOARD_SESSION,
       dashboardPaneId: process.env.TMUX_PANE,
@@ -378,6 +437,8 @@ export async function runTui(): Promise<void> {
       listClients: () => listTmuxClients(realTmuxExec),
       display: (client, message) => displayClientMessage(client, message, realTmuxExec),
       ring: () => terminal.write("\x07"),
+      // Writing to the client tty reaches the outer terminal even when the dashboard pane is hidden.
+      ...(attentionNotifyEnabled ? { notify: (tty: string, message: string) => appendFile(tty, terminalNotification(message)) } : {}),
     });
   };
   const refreshDashboard = async () => {
@@ -390,12 +451,15 @@ export async function runTui(): Promise<void> {
     view?.disposeInteraction();
     stopThemeLoop?.();
     const actionDrain = stopActionLoop?.() ?? Promise.resolve();
-    void stopLoop?.stop();
+    const refreshDrain = stopLoop?.stop() ?? Promise.resolve();
+    const countDrain = ownsDashboardTmux
+      ? Promise.all([refreshDrain, actionDrain]).then(() => attentionCountSync).then(() => clearAttentionCounts(attentionCounts, (name, count) => setSessionAttentionCount(name, count, realTmuxExec)))
+      : Promise.resolve();
     const finish = () => {
       terminal.write(MOUSE_DISABLE);
       tui.stop();
     };
-    void Promise.all([sidePanes?.stop() ?? Promise.resolve(), actionDrain])
+    void Promise.all([sidePanes?.stop() ?? Promise.resolve(), actionDrain, countDrain])
       .finally(() => viewStateWriter.drain())
       .then(() => process.env.TMUX ? setDashboardMouse({ name: DASHBOARD_SESSION, enabled: false }).catch(() => {}) : undefined)
       .finally(finish);
@@ -681,7 +745,7 @@ export async function runTui(): Promise<void> {
     },
   });
   stopActionLoop = startDashboardActionLoop(async () => {
-    if (view.conversationWorking) tui.requestRender();
+    if (view.conversationWorking || view.hasVisibleRunningRows) tui.requestRender();
     const action = await consumeDashboardAction();
     if (!action) return;
     await processDashboardAction(view, action, refreshDashboard);

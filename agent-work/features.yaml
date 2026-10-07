@@ -1078,3 +1078,23 @@
   created_at: '2026-10-01'
   plan_file: agent-work/history/20261002_dashboard-visibility-002_filter_bar.md
   completed_at: '2026-10-02'
+- id: dashboard-polish-001
+  status: done
+  title: Attention flow polish
+  subtitle: Surface requests everywhere and jump faster
+  description: Show other sessions' requests inside managed sessions, jump to waiting
+    sessions with Alt+W and ], animate running rows with run time, and add opt-in
+    desktop notifications.
+  priority: 2
+  created_at: '2026-10-06'
+  plan_file: agent-work/history/20261006_dashboard-polish-001_attention_flow_polish.md
+  completed_at: '2026-10-06'
+- id: ctrl-q-dashboard-002
+  status: pending
+  title: Return key passthrough
+  subtitle: Forward Ctrl+Q and Alt+R outside sessions
+  description: Temporary Ctrl+Q and Alt+R return bindings forward their key in non-Hub
+    tmux sessions, except the dashboard, instead of swallowing it.
+  priority: 3
+  created_at: '2026-10-06'
+  discovered_from: dashboard-polish-001

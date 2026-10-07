@@ -392,6 +392,21 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
     cockpitNavigation, visible, filterActive, board, cockpitTierById, cockpitOwnerById, cockpitPlacementById, repoIdentityByOwnerId, repoSections };
 }
 
+/** NEEDS YOU owners in unfiltered Status order. */
+export function needsYouOwners(sessions: RuntimeSession[]): RuntimeSession[] {
+  const projection = buildDashboardProjection({ sessions });
+  return projection.visible.filter((row) =>
+    projection.cockpitTierById.get(row.id) === "needs-you" && projection.cockpitOwnerById.get(row.id) === row.id);
+}
+
+/** Per parent whose tmux session is confirmed present, the number of NEEDS YOU owners other than itself. */
+export function otherRequestCounts(sessions: RuntimeSession[]): Map<string, number> {
+  const owners = new Set(needsYouOwners(sessions).map((row) => row.id));
+  return new Map(sessions
+    .filter((row) => row.kind !== "subagent" && row.statusEvidence?.tmux.state === "present")
+    .map((row) => [row.tmuxSession, owners.size - (owners.has(row.id) ? 1 : 0)]));
+}
+
 function buildRepoSections(
   sourceRows: RuntimeSession[],
   projectRows: RuntimeSession[],
@@ -1001,7 +1016,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     status: session.status,
     statusEvidence: session.statusEvidence,
     displayStatus,
-    symbol: symbolFor(displayStatus),
+    symbol: symbolFor(displayStatus, now),
     needsAttention: attention !== undefined,
     selected,
     error: session.error,
@@ -1054,7 +1069,7 @@ function activityAge(lastActivityAt: number | undefined, now: number | undefined
   return ageLabel(Math.max(0, now - lastActivityAt), "now");
 }
 
-function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
+export function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
   if (session.status !== "waiting" && session.status !== "idle") return undefined;
   if (session.acknowledgedAt !== undefined && session.context !== undefined
     && session.acknowledgedAt >= session.context.updatedAt) return undefined;
@@ -1088,9 +1103,13 @@ function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"]
   return status;
 }
 
-function symbolFor(status: RenderSession["displayStatus"]): string {
+export const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+export const SPINNER_FRAME_MS = 250;
+
+/** Running rows animate only when the render has a clock. */
+function symbolFor(status: RenderSession["displayStatus"], now: number | undefined): string {
   switch (status) {
-    case "running": return "●";
+    case "running": return now === undefined ? "●" : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
     case "waiting": return "◐";
     case "idle": return "○";
     case "error": return "×";

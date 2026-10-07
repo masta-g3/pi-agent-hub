@@ -3,6 +3,7 @@ import { Markdown, truncateToWidth, visibleWidth, type MarkdownTheme } from "@ea
 import { conversationText as cleanMarkdown, type ConversationItem, type ConversationPage } from "../core/conversation.js";
 import { sameInteractionTarget, type InteractionTarget, type SessionInteractionState } from "../core/session-interaction.js";
 import { styleToken, type SessionsTheme, type ThemeToken } from "./theme.js";
+import { SPINNER_FRAMES, SPINNER_FRAME_MS } from "./render-model.js";
 
 export { conversationText as cleanMarkdown } from "../core/conversation.js";
 
@@ -157,8 +158,7 @@ export function renderConversationPane(input: {
   const styled = (token: ThemeToken, value: string) => theme ? styleToken(theme, token, value) : value;
   const transcript = [...input.transcript];
   if (input.workingAt !== undefined && input.transcriptHeight > 0) {
-    const frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
-    const frame = frames[Math.floor(input.workingAt / 250) % frames.length];
+    const frame = SPINNER_FRAMES[Math.floor(input.workingAt / SPINNER_FRAME_MS) % SPINNER_FRAMES.length];
     transcript.length = Math.min(transcript.length, input.transcriptHeight - 1);
     transcript.push(styled("accent", `  ${frame} PI is working…`));
   }

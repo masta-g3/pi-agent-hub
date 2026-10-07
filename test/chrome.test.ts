@@ -9,6 +9,7 @@ test("tmuxChromeFromTheme returns dark fallback without a theme", () => {
 test("tmuxChromeFromTheme derives tmux hex colors from theme tokens", () => {
   assert.deepEqual(tmuxChromeFromTheme({ accent: "7aa2f7", border: "#547da7", dim: "#767676" }), {
     hintColor: "#767676",
+    attentionColor: "#e0af68",
     statusStyle: "bg=#547da7,fg=#7aa2f7",
     windowStatusStyle: "fg=#7aa2f7,bg=#547da7",
     windowStatusCurrentStyle: "fg=#7aa2f7,bg=#547da7",
@@ -33,6 +34,7 @@ test("tmuxChromeFromTheme prefers muted over dim for hint text", () => {
 test("tmuxChromeFromTheme converts numeric tokens to tmux colour indexes", () => {
   assert.deepEqual(tmuxChromeFromTheme({ accent: 33, border: 240, dim: 244 }), {
     hintColor: "colour244",
+    attentionColor: "#e0af68",
     statusStyle: "bg=colour240,fg=colour33",
     windowStatusStyle: "fg=colour33,bg=colour240",
     windowStatusCurrentStyle: "fg=colour33,bg=colour240",
@@ -45,4 +47,9 @@ test("tmuxChromeFromTheme converts numeric tokens to tmux colour indexes", () =>
 test("tmuxChromeFromTheme falls back for empty invalid and out-of-range colors", () => {
   assert.deepEqual(tmuxChromeFromTheme({ text: "", accent: "not-a-color", border: 256, dim: -1 }), darkTmuxChrome);
   assert.deepEqual(tmuxChromeFromTheme({ accent: 1.5, border: "#12345g", dim: "" }), darkTmuxChrome);
+});
+
+test("tmuxChromeFromTheme uses the theme warning color for attention", () => {
+  assert.equal(tmuxChromeFromTheme({ warning: "#9a7326" }).attentionColor, "#9a7326");
+  assert.equal(darkTmuxChrome.attentionColor, "#e0af68");
 });

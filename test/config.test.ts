@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardAttentionBell, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
+import { configPath, effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -151,6 +151,18 @@ test("attention bell is validated, defaults off, and preserves sibling settings"
 
   await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { attentionBell: "yes" } }), "utf8");
   await assert.rejects(() => effectiveDashboardAttentionBell(env), /Invalid dashboard\.attentionBell/);
+});
+
+test("attention notifications are opt-in and validated", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  assert.equal(await effectiveDashboardAttentionNotify(env), false);
+
+  await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { attentionNotify: true } }), "utf8");
+  assert.equal(await effectiveDashboardAttentionNotify(env), true);
+
+  await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { attentionNotify: "on" } }), "utf8");
+  await assert.rejects(() => effectiveDashboardAttentionNotify(env), /Invalid dashboard\.attentionNotify/);
 });
 
 test("config setters serialize concurrent sibling updates", async () => {

@@ -356,9 +356,12 @@ test("help overlay opens and closes", () => {
   const help = view.render(120).join("\n");
   assert.match(help, /pi agent hub help/);
   assert.match(help, /Status legend/);
+  assert.match(help, /⠋ running\/starting \(animated, with run time\)/);
   assert.doesNotMatch(help, /Alt\+Q/);
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
+  assert.match(help, /Alt\+W open next request/);
+  assert.match(help, /\]\s+Next request · select the next visible session that needs you · unavailable: no visible requests/);
   assert.match(help, /i toggle/);
   assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
@@ -1318,7 +1321,7 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 
 function rowIndexFor(rendered: string[], title: string): number {
   const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const titleRow = new RegExp(`(?:●|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
+  const titleRow = new RegExp(`(?:[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
   const index = rendered.findIndex((line) => titleRow.test(stripAnsi(line)));
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
@@ -1573,11 +1576,11 @@ test("all non-attention tiers can collapse and retain counts", () => {
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ACTIVE\s+·1/);
   assert.match(collapsed, /▸ QUIET\s+·1/);
-  assert.doesNotMatch(collapsed, /● running|○ quiet/);
+  assert.doesNotMatch(collapsed, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
   assert.match(expanded, /▾ ACTIVE/);
-  assert.match(expanded, /● running/);
+  assert.match(expanded, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
 
@@ -1599,13 +1602,13 @@ test("filtered tier folds are interactive and do not persist", () => {
     const header = view.render(120).findIndex((line) => stripAnsi(line).includes(tier.toUpperCase()));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
-    assert.doesNotMatch(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
+    assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
     assert.match(fleetText(view.render(120)), new RegExp(`▸ ${tier.toUpperCase()}`));
     view.handleInput("\r");
-    assert.match(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
+    assert.match(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
     assert.deepEqual(saved.at(-1)?.collapsedSections, [tier]);
     view.handleInput("\u001b");
-    assert.doesNotMatch(fleetText(view.render(120)), /[●×○] (?:\[default\] )?unique-match/);
+    assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
   }
 });
 
@@ -4252,4 +4255,94 @@ test("closed parents reopen only through U, block A and B, and children cannot a
   assert.deepEqual(events, []);
   view.handleInput("U");
   assert.deepEqual(events, ["restore:done"]);
+});
+
+function requestSession(id: string, lastActivityAt: number): ManagedSession {
+  return { ...session(id, id), status: "waiting", lastActivityAt,
+    context: { version: 1, updatedAt: 2, attention: { requestId: `req-${id}`, kind: "blocked", text: "Need input" } } } as ManagedSession;
+}
+
+test("openNextRequest opens the top request other than the origin through the Enter path", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const events: string[] = [];
+    const controller = new SessionsController({ version: 1, sessions: [session("plain", "plain"), requestSession("a", 30), requestSession("b", 20), requestSession("c", 10)] });
+    const view = new SessionsView(controller, () => {}, {
+      switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+      acknowledgeSession: (id, requestId) => { events.push(`ack:${id}:${requestId}`); },
+    });
+
+    assert.equal(view.openNextRequest("pi-agent-hub-a"), true);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(controller.selected()?.id, "b");
+    assert.deepEqual(events, ["ack:b:req-b", "switch:pi-agent-hub-b"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("openNextRequest stays on the dashboard when nothing else needs you", () => {
+  const events: string[] = [];
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("plain", "plain"), requestSession("a", 30)] }), () => {}, {
+    switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+  });
+
+  assert.equal(view.openNextRequest("pi-agent-hub-a"), false);
+  assert.deepEqual(events, []);
+  assert.match(stripAnsi(view.render(100).join("\n")), /nothing else needs you/);
+});
+
+test("] cycles visible request rows without opening or acknowledging", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [session("plain", "plain"), requestSession("a", 30), requestSession("b", 20)] });
+  const view = new SessionsView(controller, () => {}, {
+    switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+  });
+  view.render(120);
+  controller.selectSession("plain");
+
+  view.handleInput("]");
+  assert.equal(controller.selected()?.id, "a");
+  view.handleInput("]");
+  assert.equal(controller.selected()?.id, "b");
+  view.handleInput("]");
+  assert.equal(controller.selected()?.id, "a");
+  assert.deepEqual(events, []);
+});
+
+test("] keeps the filter and reports when no request row is visible", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("plain", "plain"), requestSession("a", 30)] });
+  const view = new SessionsView(controller, () => {}, {});
+  controller.setFilter("plain");
+  view.render(120);
+
+  view.handleInput("]");
+
+  assert.equal(controller.selected()?.id, "plain");
+  assert.equal(controller.snapshot().filter, "plain");
+  assert.match(stripAnsi(view.render(120).join("\n")), /no visible requests/);
+});
+
+test("hasVisibleRunningRows tracks on-screen running rows only", () => {
+  const failing = Array.from({ length: 30 }, (_, index) => ({ ...session(`err-${index}`, `err ${index}`), status: "error" as const }));
+  const running = { ...session("busy", "busy"), status: "running" as const };
+  const controller = new SessionsController({ version: 1, sessions: [...failing, running] });
+  controller.selectSession("err-0");
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 12 });
+
+  view.render(120);
+  assert.equal(view.hasVisibleRunningRows, false, "running row is off-screen");
+
+  controller.selectSession("busy");
+  view.render(120);
+  assert.equal(view.hasVisibleRunningRows, true);
+
+  view.handleInput("?");
+  view.render(120);
+  assert.equal(view.hasVisibleRunningRows, false, "help covers the fleet");
 });

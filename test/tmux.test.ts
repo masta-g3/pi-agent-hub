@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionAttentionCount, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -211,7 +211,7 @@ test("configureManagedSessionStatusBar sets a Pi-native right footer", async () 
   assert.deepEqual(exec.calls.map((call) => call.args), [[
     "set-option", "-t", "pi-agent-hub-api", "status", "on",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-style", "bg=#1a1b26,fg=#a9b1d6",
-    ";", "set-option", "-t", "pi-agent-hub-api", "status-right", "#[fg=#565f89]ctrl+q return · alt+r rename#[default] │ 📁 package | example-service ",
+    ";", "set-option", "-t", "pi-agent-hub-api", "status-right", "#[fg=#565f89]ctrl+q return · alt+r rename#[default] │ #{?@pi_hub_needs,#[fg=#e0af68]⚑ #{@pi_hub_needs} need you#[fg=#565f89] · alt+w next#[default] │ ,}📁 package | example-service ",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-right-length", "100",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-left", "",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-left-length", "120",
@@ -220,6 +220,29 @@ test("configureManagedSessionStatusBar sets a Pi-native right footer", async () 
     ";", "set-option", "-t", "pi-agent-hub-api", "window-status-format", " #I:#W#F ",
     ";", "set-option", "-t", "pi-agent-hub-api", "window-status-current-format", " #I:#W#F ",
   ]]);
+});
+
+test("configureManagedSessionStatusBar keeps attention branches free of tmux conditional commas", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await configureManagedSessionStatusBar({ name: "pi-agent-hub-api", title: "package", cwd: "/repo/example-service", theme: { warning: 3, muted: 244 } }, exec);
+
+  const args = exec.calls[0]?.args ?? [];
+  const statusRight = args[args.indexOf("status-right") + 1] ?? "";
+  const conditional = statusRight.match(/#\{\?@pi_hub_needs,(.*),\}/)?.[1];
+  assert.equal(conditional, "#[fg=colour3]⚑ #{@pi_hub_needs} need you#[fg=colour244] · alt+w next#[default] │ ");
+});
+
+test("setSessionAttentionCount sets or unsets the session request count", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+
+  await setSessionAttentionCount("pi-agent-hub-api", 2, exec);
+  await setSessionAttentionCount("pi-agent-hub-api", 0, exec);
+
+  assert.deepEqual(exec.calls.map((call) => call.args), [
+    ["set-option", "-t", "pi-agent-hub-api", "@pi_hub_needs", "2"],
+    ["set-option", "-u", "-t", "pi-agent-hub-api", "@pi_hub_needs"],
+  ]);
 });
 
 test("configureManagedSessionStatusBar keeps chrome configured while hidden in a panel", async () => {
@@ -605,6 +628,36 @@ test("switchClientWithReturn installs rename action binding when requested", asy
   assert.match(renameScript, /unbind-key -T root 'C-q'/);
   assert.doesNotMatch(renameScript, /unbind-key -T root 'M-q'/);
   assert.match(renameScript, /unbind-key -T root 'M-r'/);
+});
+
+test("switchClientWithReturn installs a forwarding next-request binding and restores it with the others", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-agent-hub-return-"));
+  const exec = fakeTmux((call) => {
+    const subcommand = call.args[0];
+    if (subcommand === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
+    if (subcommand === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
+    if (subcommand === "list-keys" && call.args[3] === "M-w") return { stdout: "bind-key -T root M-w copy-mode\n", stderr: "" };
+    return { stdout: "", stderr: "" };
+  });
+
+  await switchClientWithReturn({ targetSession: "pi-agent-hub-target", stateDir, renameKey: "M-r", nextRequestKey: "M-w" }, exec);
+
+  const bindCalls = exec.calls.filter((call) => call.args[0] === "bind-key");
+  assert.deepEqual(bindCalls.map((call) => call.args.slice(0, 4)), [
+    ["bind-key", "-n", "C-q", "run-shell"],
+    ["bind-key", "-n", "M-r", "run-shell"],
+    ["bind-key", "-n", "M-w", "run-shell"],
+  ]);
+  const nextScript = bindCalls.find((call) => call.args[2] === "M-w")?.args[4] ?? "";
+  assert.match(nextScript, /"action":"next-request","tmuxSession":"pi-agent-hub-target"/);
+  assert.match(nextScript, /tmux switch-client -t 'control'/);
+  assert.match(nextScript, /\*\) tmux send-keys 'M-w';;/);
+  assert.match(nextScript, /unbind-key -T root 'M-w'/);
+  assert.match(nextScript, /next-request\.previous\.tmux/);
+  assert.equal(await readFile(join(stateDir, "next-request.previous.tmux"), "utf8"), "bind-key -T root M-w copy-mode\n");
+  const returnScript = bindCalls.find((call) => call.args[2] === "C-q")?.args[4] ?? "";
+  assert.match(returnScript, /unbind-key -T root 'M-w'/);
+  assert.doesNotMatch(returnScript, /\*\);/);
 });
 
 test("switchClientWithReturn can self-heal a missing return session before cleanup", async () => {
