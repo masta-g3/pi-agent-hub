@@ -41,3 +41,14 @@ test("consumeDashboardAction consumes invalid actions without executing them", a
   assert.equal(await consumeDashboardAction(path), undefined);
   await assert.rejects(() => readFile(path, "utf8"), /ENOENT/);
 });
+
+test("consumeDashboardAction consumes a next-request action and rejects one without a session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-action-"));
+  const path = join(root, "dashboard-action.json");
+  await writeFile(path, JSON.stringify({ action: "next-request", tmuxSession: "pi-agent-hub-a" }), "utf8");
+  assert.deepEqual(await consumeDashboardAction(path), { action: "next-request", tmuxSession: "pi-agent-hub-a" });
+
+  await writeFile(path, JSON.stringify({ action: "next-request", tmuxSession: "" }), "utf8");
+  assert.equal(await consumeDashboardAction(path), undefined);
+  await assert.rejects(() => readFile(path, "utf8"), /ENOENT/);
+});

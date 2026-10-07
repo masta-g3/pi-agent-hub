@@ -318,6 +318,13 @@ test("handoff reveals and acknowledges before managed chrome and switch", async 
   before(value.events, "managed:api:true", "switch:pi-agent-hub-api");
 });
 
+test("handoff installs the rename and next-request session keys", async (t) => {
+  const value = await harness(t, { sessions: [session("api")] });
+  assert.equal(await value.lifecycle.handoff("pi-agent-hub-api"), true);
+  const binds = value.tmux.commands.filter((command) => command.startsWith("bind-key -n ")).map((command) => command.split(" ")[2]);
+  assert.deepEqual(binds.filter((key) => key === "M-r" || key === "M-w"), ["M-r", "M-w"]);
+});
+
 test("handoff reports unavailable when exact reveal fails", async (t) => {
   const value = await harness(t, { revealResult: false });
   value.events.length = 0;

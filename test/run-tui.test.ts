@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop, syncAttentionCounts, clearAttentionCounts, terminalNotification } from "../src/app/run-tui.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
 import type { TmuxClient } from "../src/core/tmux.js";
@@ -106,6 +106,33 @@ test("attention delivery isolates client failures and rings once when all locati
     display: async () => { throw new Error("must not run"); },
     ring: () => { throw new Error("must not ring"); },
   }));
+});
+
+test("attention delivery raises one desktop notification per successful client delivery when enabled", async () => {
+  const notified: string[] = [];
+  let bells = 0;
+  await deliverAttentionBatch([attention("api")], {
+    dashboardSession: "hub", dashboardPaneId: "%1", pins: [], bellEnabled: true,
+    listClients: async () => [client("watching", "pi-agent-hub-api", "%7"), client("broken", "shell", "%8"), client("good", "other", "%9")],
+    display: async (target) => { if (target === "broken") throw new Error("gone"); },
+    ring: () => { bells += 1; },
+    notify: async (tty, message) => { notified.push(`${tty}:${message}`); if (tty === "/dev/good") throw new Error("tty closed"); },
+  });
+  assert.deepEqual(notified, ["/dev/good:? QUESTION · API · Choose api release"]);
+  assert.equal(bells, 0);
+
+  notified.length = 0;
+  await deliverAttentionBatch([attention("api")], {
+    dashboardSession: "hub", pins: [], bellEnabled: false,
+    listClients: async () => [client("good", "other", "%9")],
+    display: async () => {},
+    ring: () => { bells += 1; },
+  });
+  assert.deepEqual(notified, []);
+});
+
+test("terminalNotification writes one sanitized OSC 9 sequence", () => {
+  assert.equal(terminalNotification("? QUESTION · API\x1b]0;evil\x07 · ok\nnext"), "\x1b]9;? QUESTION · API · ok next\x07");
 });
 
 test("view state normalizes the JSON-safe lifecycle filter and cockpit collapse tiers", () => {
@@ -218,6 +245,7 @@ test("dashboard Ctrl+Q return completion survives refresh failure while rename s
   const view = {
     openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
     completeFullScreenReturn: (key: "ctrl-q") => { events.push(`return:${key}`); },
+    openNextRequest: (tmuxSession: string) => { events.push(`next:${tmuxSession}`); return true; },
   };
   await assert.rejects(() => processDashboardAction(view, { action: "return", key: "ctrl-q" }, async () => {
     events.push("refresh");
@@ -228,6 +256,10 @@ test("dashboard Ctrl+Q return completion survives refresh failure while rename s
   events.length = 0;
   await processDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" }, async () => { events.push("refresh"); });
   assert.deepEqual(events, ["refresh", "rename:pi-agent-hub-api"]);
+
+  events.length = 0;
+  await processDashboardAction(view, { action: "next-request", tmuxSession: "pi-agent-hub-api" }, async () => { events.push("refresh"); });
+  assert.deepEqual(events, ["refresh", "next:pi-agent-hub-api"]);
 });
 
 test("dashboard actions route Ctrl+Q completion separately from rename", () => {
@@ -235,6 +267,7 @@ test("dashboard actions route Ctrl+Q completion separately from rename", () => {
   const view = {
     openRenameForTmuxSession: (tmuxSession: string) => { events.push(`rename:${tmuxSession}`); return true; },
     completeFullScreenReturn: (key: "ctrl-q") => { events.push(`return:${key}`); },
+    openNextRequest: (tmuxSession: string) => { events.push(`next:${tmuxSession}`); return true; },
   };
   applyDashboardAction(view, { action: "rename", tmuxSession: "pi-agent-hub-api" });
   applyDashboardAction(view, { action: "return", key: "ctrl-q" });
@@ -506,4 +539,52 @@ test("dashboard archive detaches only the exact pin for every choice and preserv
     else process.env.PI_AGENT_HUB_DIR = oldDir;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("syncAttentionCounts writes only changed counts and retries failed or reset writes", async () => {
+  const request = { version: 1 as const, updatedAt: 2, attention: { requestId: "r", kind: "question" as const, text: "Choose" } };
+  const base = (id: string) => ({ ...session(id, "/repo", "g"), tmuxSession: `t-${id}`, statusEvidence: {
+    observedAt: 1, reason: "fallback-idle" as const, tmux: { state: "present" as const }, heartbeat: { freshness: "missing" as const },
+    acknowledgement: { state: "not-applicable" as const }, workflow: { source: "absent" as const },
+  } });
+  const waiting = [{ ...base("a"), status: "waiting" as const, context: request }, { ...base("b"), status: "idle" as const }];
+  const calls: [string, number][] = [];
+  let fail = false;
+  const set = async (name: string, count: number) => {
+    calls.push([name, count]);
+    if (fail) throw new Error("tmux failed");
+  };
+  const state = { counts: new Map<string, number>(), resetAt: 0 };
+
+  await syncAttentionCounts(state, waiting, set, 1_000);
+  assert.deepEqual(calls, [["t-a", 0], ["t-b", 1]]);
+
+  calls.length = 0;
+  await syncAttentionCounts(state, waiting, set, 2_000);
+  assert.deepEqual(calls, []);
+
+  calls.length = 0;
+  fail = true;
+  const cleared = [{ ...waiting[0]!, status: "running" as const }, waiting[1]!];
+  await syncAttentionCounts(state, cleared, set, 3_000);
+  assert.deepEqual(calls, [["t-b", 0]]);
+
+  calls.length = 0;
+  fail = false;
+  await syncAttentionCounts(state, cleared, set, 4_000);
+  assert.deepEqual(calls, [["t-b", 0]]);
+
+  calls.length = 0;
+  await syncAttentionCounts(state, cleared, set, 16_000);
+  assert.deepEqual(calls, [["t-a", 0], ["t-b", 0]]);
+});
+
+test("clearAttentionCounts hides every shown count and empties the cache", async () => {
+  const calls: [string, number][] = [];
+  const state = { counts: new Map([["t-a", 2], ["t-b", 0]]) };
+
+  await clearAttentionCounts(state, async (name, count) => { calls.push([name, count]); });
+
+  assert.deepEqual(calls, [["t-a", 0]]);
+  assert.equal(state.counts.size, 0);
 });

@@ -56,6 +56,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `/` | Filter sessions |
 | `b` | Show or hide Backlog in the current filter |
 | `:` | Search actions, sessions, and named filters |
+| `]` | Select the next visible session that needs you; `Enter` opens it |
 | `p` | Send a one-line message to the selected live session |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
@@ -131,7 +132,7 @@ Named filters share the same filter state. For example, `lifecycle:archived,back
 ## Status vocabulary
 
 ```text
-● running or starting
+⠋ running or starting (animated, with run time)
 ◐ waiting
 ○ idle/read
 × error
@@ -166,9 +167,11 @@ Press `i` to show or hide `LIVE DETAILS`: tmux presence, heartbeat, read state, 
 
 Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
 
+While you work inside a managed session, its bottom bar shows `⚑ N need you · alt+w next` when other sessions need you. `Alt+W` opens the top one, the same way `Enter` does from the dashboard.
+
 Opening or explicitly focusing a waiting session marks it read. Pin creation, search results, and opening details do not. Use `a` to mark it read manually.
 
-Fresh requests with producer-supplied IDs can show a six-second notification band and a tmux message when you are elsewhere. Click the band or choose **Locate newest request** in `:` to reveal the session without opening it. **Attention bell** is optional and off by default. Requests already present when Hub starts do not announce themselves again.
+Fresh requests with producer-supplied IDs can show a six-second notification band and a tmux message when you are elsewhere. Click the band or choose **Locate newest request** in `:` to reveal the session without opening it. **Attention bell** and desktop notifications (`dashboard.attentionNotify`, see [Configuration](CONFIG.md#desktop-notifications)) are optional and off by default. Requests already present when Hub starts do not announce themselves again.
 
 An empty first-run dashboard teaches create, open a request, and return with `Ctrl+Q`. That coaching ends after the first successful request round trip.
 
@@ -222,6 +225,7 @@ Pins are live tmux attaches, not copied output. Closing a pin leaves its Pi sess
 | `Ctrl+Q` | Return to the dashboard |
 | `Alt+Q` | Pi message editing; Hub does not intercept it |
 | `Alt+R` | Open Hub's rename dialog, then return to the session after saving |
+| `Alt+W` | Open the top session that needs you, other than this one |
 
 ## New session form
 

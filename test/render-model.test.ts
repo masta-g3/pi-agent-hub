@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { boardLaneRows, buildDashboardProjection, buildRenderModel, retainSelectionAfterRefresh, type BuildRenderModelInput } from "../src/tui/render-model.js";
+import { boardLaneRows, buildDashboardProjection, buildRenderModel, needsYouOwners, otherRequestCounts, retainSelectionAfterRefresh, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { computeStatus } from "../src/core/status.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { renderSessions, workflowStepMarker } from "../src/tui/layout.js";
@@ -759,7 +759,7 @@ test("archived tails show one meaning: closure outcome, else compact producer st
   assert.match(rowText(lines, "Date-based paths"), /- .*Date-based paths\s+CM ✓ · 1h/);
   assert.match(rowText(lines, "Investigate publishing"), /Investigate publishing\s+3h/);
   assert.doesNotMatch(rowText(lines, "Investigate publishing"), /[✓◉⊘]/);
-  assert.match(rowText(lines, "Note templates"), /● .*Note templates\s+✓ · now/);
+  assert.match(rowText(lines, "Note templates"), /⠋ .*Note templates\s+✓ · now/);
   assert.doesNotMatch(rowText(lines, "Note templates"), /CM/);
   assert.match(rowText(lines, "Alternative planning approach"), /× .*Alternative planning approach\s+⊘ · 3d/);
   assert.doesNotMatch(rowText(lines, "Alternative planning approach"), /EX/);
@@ -808,7 +808,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
   for (const width of [100, 120, 160]) {
     const text = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width, height: 30, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
-    assert.match(text, /● running/, `${width}`);
+    assert.match(text, /⠋ running/, `${width}`);
     assert.match(text, /Commit · step 5 of 5/, `${width}`);
     assert.match(text, /▸ U\s+Reopen/, `${width}`);
     assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
@@ -2409,4 +2409,54 @@ test("workflow board uses activity plus an eight-cell square progress bar", () =
   const noTotal = { ...row, workflow: { ...row.workflow, activity: undefined, plan: { tasks: { completed: 0, total: 0 } } } };
   const noTotalText = stripAnsi(renderSessions(buildRenderModel({ sessions: [noTotal], grouping: "stage", width: 100 }), darkTheme).lines.join("\n"));
   assert.doesNotMatch(noTotalText, /■|□|0\/0/);
+});
+
+test("needsYouOwners lists explicit owner requests in dashboard order and otherRequestCounts excludes self", () => {
+  const request = (requestId: string) => ({ version: 1 as const, updatedAt: 2, attention: { requestId, kind: "question" as const, text: "Choose" } });
+  const tmux = (state: "present" | "missing") => ({ statusEvidence: {
+    observedAt: 1, reason: "fallback-idle" as const, tmux: { state }, heartbeat: { freshness: "missing" as const },
+    acknowledgement: { state: "not-applicable" as const }, workflow: { source: "absent" as const },
+  } });
+  const sessions: RuntimeSession[] = [
+    { ...session("older", "g", "waiting"), lastActivityAt: 10, context: request("older"), ...tmux("present") },
+    { ...session("newer", "g", "waiting"), lastActivityAt: 20, context: request("newer"), ...tmux("present") },
+    { ...session("running", "g", "running"), context: request("running"), ...tmux("present") },
+    { ...session("plain", "g", "idle"), ...tmux("present") },
+    { ...session("child", "g", "waiting"), kind: "subagent", parentId: "plain", context: request("child"), ...tmux("present") },
+    { ...session("crashed", "g", "error"), ...tmux("missing") },
+    { ...session("unobserved", "g", "idle") },
+    { ...session("archived", "g", "waiting"), bucket: "archived", bucketChangedAt: 1, context: request("archived"), ...tmux("present") },
+  ];
+
+  assert.deepEqual(needsYouOwners(sessions).map((row) => row.id), ["newer", "older"]);
+  assert.deepEqual(otherRequestCounts(sessions), new Map([
+    ["pi-agent-hub-older", 1],
+    ["pi-agent-hub-newer", 1],
+    ["pi-agent-hub-running", 2],
+    ["pi-agent-hub-plain", 2],
+    ["pi-agent-hub-archived", 2],
+  ]));
+});
+
+test("running rows animate with the render clock and show running time", () => {
+  const now = 10 * 60_000;
+  const sessions: RuntimeSession[] = [
+    { ...session("long", "default", "running", "Long task"), lastActivityAt: now - 3 * 60_000 },
+    { ...session("fresh", "default", "starting", "Fresh task"), lastActivityAt: now - 20_000 },
+    { ...session("wait", "default", "waiting", "Waiting task"), lastActivityAt: now - 5 * 60_000 },
+  ];
+  const symbols = (at?: number) => Object.fromEntries(buildRenderModel({ sessions, width: 120, now: at }).sections
+    .flatMap((section) => section.groups.flatMap((group) => group.sessions)).map((row) => [row.id, row.symbol]));
+  assert.deepEqual(symbols(now), { long: "⠋", fresh: "⠋", wait: "◐" });
+  assert.deepEqual(symbols(now + 250), { long: "⠙", fresh: "⠙", wait: "◐" });
+  assert.deepEqual(symbols(), { long: "●", fresh: "●", wait: "◐" });
+
+  for (const grouping of ["project", "stage"] as const) {
+    const lines = renderSessions(buildRenderModel({ sessions, width: 120, now, grouping }), darkTheme).lines.map(stripAnsi);
+    const owner = (title: string) => lines.slice(lines.findIndex((line) => line.includes(title)), lines.findIndex((line) => line.includes(title)) + 2).join("\n");
+    assert.match(owner("Long task"), /3m/, grouping);
+    assert.doesNotMatch(owner("Fresh task"), /\bnow\b/, grouping);
+    assert.match(owner("Waiting task"), /5m/, grouping);
+    assert.equal(new Set(lines.map((line) => visibleWidth(line))).size, 1, grouping);
+  }
 });

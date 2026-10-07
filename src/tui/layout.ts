@@ -1220,9 +1220,14 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
   const groupWidth = Math.max(0, leftWidth - (signals ? displayWidth(signals) + 1 : 0));
   const group = groupWidth >= 3 ? renderGroupBadge(session.group, Math.min(24, groupWidth), styles) : "";
   let left = truncate([group, signals].filter(Boolean).join(" "), leftWidth);
-  const age = session.displayStatus !== "running" ? session.activityAge : undefined;
+  const age = rowAge(session);
   if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.dim(` · ${age}`);
   return right ? twoColumn(left, right, width) : left;
+}
+
+/** Running rows show how long they have run; the spinner already says "now". */
+function rowAge(session: RenderSession): string | undefined {
+  return session.displayStatus === "running" && session.activityAge === "now" ? undefined : session.activityAge;
 }
 
 function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
@@ -1240,7 +1245,7 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
   const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
   const quiet = session.cockpitTier === "quiet" ? styles.muted("quiet") : "";
-  const age = terminalWidth >= 80 && session.displayStatus !== "running" && session.activityAge ? styles.dim(session.activityAge) : "";
+  const age = terminalWidth >= 80 && rowAge(session) ? styles.dim(rowAge(session)!) : "";
   const hierarchy = (tail: string[]) => [
     [hidden, running, ...tail, age],
     [hidden, running, ...tail],

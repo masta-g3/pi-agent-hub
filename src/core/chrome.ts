@@ -5,10 +5,12 @@ export interface ChromeThemeTokens {
   muted?: string | number;
   statusLineBg?: string | number;
   text?: string | number;
+  warning?: string | number;
 }
 
 export interface TmuxChrome {
   hintColor: string;
+  attentionColor: string;
   statusStyle: string;
   windowStatusStyle: string;
   windowStatusCurrentStyle: string;
@@ -19,6 +21,7 @@ export interface TmuxChrome {
 
 export const darkTmuxChrome: TmuxChrome = {
   hintColor: "#565f89",
+  attentionColor: "#e0af68",
   statusStyle: "bg=#1a1b26,fg=#a9b1d6",
   windowStatusStyle: "fg=#a9b1d6,bg=#1a1b26",
   windowStatusCurrentStyle: "fg=#a9b1d6,bg=#1a1b26",
@@ -36,6 +39,7 @@ export function tmuxChromeFromTheme(theme?: ChromeThemeTokens): TmuxChrome {
   const accentColor = tmuxColor(theme.accent) ?? "#7aa2f7";
   return {
     hintColor,
+    attentionColor: tmuxColor(theme.warning) ?? "#e0af68",
     statusStyle: `bg=${background},fg=${foreground}`,
     windowStatusStyle: `fg=${foreground},bg=${background}`,
     windowStatusCurrentStyle: `fg=${foreground},bg=${background}`,
