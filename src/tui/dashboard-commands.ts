@@ -551,8 +551,8 @@ function slotAvailability(slot: number): ActionSpec["available"] {
       return disabled(`Slot ${slot} contains ${title}; close it first`);
     }
     if (state.constrained) return disabled("pin layout is constrained; widen the dashboard or close a pin");
-    if (slot > state.capacity) return disabled(`slot ${slot} needs 160 columns`);
-    return enabled();
+    if (existingSlot >= 0) return enabled();
+    return pinCountAvailability(state);
   };
 }
 
@@ -563,6 +563,10 @@ function pinAvailability(session: RuntimeSession, input: DashboardCommandInput):
   if (!state) return disabled("pin state unavailable");
   if (state.slots.includes(session.id)) return enabled();
   if (state.constrained) return disabled("pin layout is constrained; widen the dashboard or close a pin");
+  return pinCountAvailability(state);
+}
+
+function pinCountAvailability(state: DashboardPinState): Availability {
   if (state.capacity < 1) return disabled("pinning needs 100 columns; use Enter instead");
   if (state.count >= state.capacity) {
     return state.capacity === 2

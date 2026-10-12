@@ -1272,7 +1272,7 @@ export class SessionsView implements Component {
           const occupant = this.controller.snapshot().sessions.find((item) => item.tmuxSession === result.session)?.title ?? result.session;
           this.flashMessage(`Slot ${slot} contains ${occupant}; close it first`);
         } else if (result.kind === "capacity") {
-          this.flashMessage(slot > result.capacity ? `slot ${slot} needs 160 columns` : `pin capacity ${result.capacity}; close a pin or widen`);
+          this.flashMessage(result.capacity ? `pin capacity ${result.capacity}; close a pin or widen` : "pinning needs 100 columns; use Enter instead");
         } else this.flashMessage(result.kind === "focused" ? `focused slot ${slot} · ${session.title}` : `slot ${slot} · ${session.title}`);
       },
       failure: (error) => { this.message = errorMessage(error); },

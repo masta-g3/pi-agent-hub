@@ -159,7 +159,7 @@ test("attention announcement remains available in workflow empty state and compa
   const pinned = renderSessions(buildRenderModel({ sessions: [backlog], width: 100, height: 20, now: 200, attentionAnnouncements: [announcement], pinSlots: [backlog.id], pinCapacity: 2 }));
   assert.match(stripAnsi(pinned.lines[2] ?? ""), /✓ READY.*: locate/);
   assert.doesNotMatch(stripAnsi(pinned.lines[2] ?? ""), /Review/);
-  assert.doesNotMatch(stripAnsi(pinned.lines[3] ?? ""), /^│─/);
+  assert.match(stripAnsi(pinned.lines[3] ?? ""), /^│── NEEDS YOU/);
 });
 
 test("Backlog lifecycle stays independent from higher-priority cockpit signals", () => {

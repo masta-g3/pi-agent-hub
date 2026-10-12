@@ -102,7 +102,7 @@ export function slotLayout(
   const borderRows = options.borderRows ?? 1;
   const height = options.windowHeight - borderRows;
   const split = clampSplit(options.splitPercent ?? 50);
-  if (!usesWideSlots(slots)) {
+  if (!usesWideSlots(slots, options.windowWidth)) {
     const layouts = compactLayout(slots.length, options.contentWidth, height, options.windowWidth, split);
     return new Map(slots.map((slot, index) => [slot, layouts[index]!]));
   }
@@ -195,7 +195,7 @@ export async function sidePaneStatus(options: { ownPane: string }, exec: TmuxExe
     ...(active ? { activeSessionId: active.session } : {}),
     ...(own ? { own, windowWidth: own.windowWidth, windowHeight: own.windowHeight } : {}),
     capacity,
-    constrained: inspected.pins.some((pin) => pin.slot > capacity) || !pinsFit(inspected.pins.length, own),
+    constrained: inspected.pins.length > capacity || !pinsFit(inspected.pins.length, own),
     splitPercent: deriveSplitPercent(inspected.pins, own),
   };
 }
@@ -213,8 +213,8 @@ export async function pinSidePane(options: {
     return { kind: "focused", session: options.target, slot: existing.slot };
   }
   const capacity = sidePaneCapacity(inspected.own?.windowWidth ?? 0);
-  const slot = ALL_SLOTS.slice(0, capacity).find((candidate) => !inspected.pins.some((pin) => pin.slot === candidate));
-  if (!slot || inspected.pins.some((pin) => pin.slot > capacity) || !pinsFit(inspected.pins.length + 1, inspected.own)) {
+  const slot = ALL_SLOTS.find((candidate) => !inspected.pins.some((pin) => pin.slot === candidate));
+  if (!slot || inspected.pins.length >= capacity || !pinsFit(inspected.pins.length + 1, inspected.own)) {
     return { kind: "capacity", capacity, pins: inspected.pins.length };
   }
   return assignInspected(options, slot, inspected, exec);
@@ -236,7 +236,8 @@ export async function assignSidePaneSlot(options: {
   const occupied = inspected.pins.find((pin) => pin.slot === options.slot);
   if (occupied) return { kind: "occupied", slot: options.slot, session: occupied.session };
   const capacity = sidePaneCapacity(inspected.own?.windowWidth ?? 0);
-  if (options.slot > capacity || inspected.pins.some((pin) => pin.slot > capacity) || !pinsFit(existing ? inspected.pins.length : inspected.pins.length + 1, inspected.own)) {
+  const count = existing ? inspected.pins.length : inspected.pins.length + 1;
+  if (count > capacity || !pinsFit(count, inspected.own)) {
     return { kind: "capacity", capacity, pins: inspected.pins.length };
   }
   return assignInspected(options, options.slot, inspected, exec);
@@ -299,7 +300,7 @@ export async function resizeSidePane(options: {
   await removeDuplicates(inspected, exec);
   if (inspected.duplicatePaneIds.length) inspected = await inspectSidePaneWindow(options.ownPane, exec);
   const capacity = sidePaneCapacity(inspected.own?.windowWidth ?? 0);
-  if (inspected.pins.length < 2 || !inspected.own || inspected.pins.some((pin) => pin.slot > capacity) || !pinsFit(inspected.pins.length, inspected.own)) {
+  if (inspected.pins.length < 2 || !inspected.own || inspected.pins.length > capacity || !pinsFit(inspected.pins.length, inspected.own)) {
     return { kind: "unavailable" };
   }
   const splitPercent = clampSplit(deriveSplitPercent(inspected.pins, inspected.own) + (options.delta < 0 ? -10 : 10));
@@ -338,7 +339,7 @@ function clampSplit(value: number): number {
 
 function deriveSplitPercent(pins: readonly Pin[], own?: WindowPane): number {
   if (!own || pins.length < 2) return 50;
-  const wide = usesWideSlots(pins.map((pin) => pin.slot));
+  const wide = usesWideSlots(pins.map((pin) => pin.slot), own.windowWidth);
   const vertical = splitAxis(pins.map((pin) => pin.slot), own.windowWidth) === "vertical";
   const first = !wide
     ? pins.find((pin) => pin.slot === 1) ?? pins[0]!
@@ -402,14 +403,15 @@ async function inspectSidePaneWindow(ownPane: string, exec: TmuxExec): Promise<I
   return { own, pins, duplicatePaneIds };
 }
 
-function usesWideSlots(slots: Iterable<SidePaneSlot>): boolean {
+/** Below 120 columns any pair stacks; otherwise slots above 2 use the 1/3 and 2/4 columns. */
+function usesWideSlots(slots: Iterable<SidePaneSlot>, windowWidth: number): boolean {
   const values = [...slots];
-  return values.length > 2 || values.some((slot) => slot > 2);
+  return values.length > 2 || (windowWidth >= 120 && values.some((slot) => slot > 2));
 }
 
 function splitAxis(slots: Iterable<SidePaneSlot>, windowWidth: number): "horizontal" | "vertical" {
   const values = [...slots];
-  if (!usesWideSlots(values)) return windowWidth < 120 ? "vertical" : "horizontal";
+  if (!usesWideSlots(values, windowWidth)) return windowWidth < 120 ? "vertical" : "horizontal";
   const hasLeft = values.some((slot) => slot === 1 || slot === 3);
   const hasRight = values.some((slot) => slot === 2 || slot === 4);
   return hasLeft !== hasRight && values.length > 1 ? "vertical" : "horizontal";
@@ -460,7 +462,7 @@ async function rebuildSidePanes(
       try { await presizeSessionWindow({ target: session, width: rect.width, height: rect.height - 1 }, exec); }
       catch (error) { if (!targetMissing(error)) throw error; }
     }
-    if (usesWideSlots(sessions.keys())) await buildWideSlots(ownPane, sessions, geometry, contentWidth, titleFor, exec);
+    if (usesWideSlots(sessions.keys(), own.windowWidth)) await buildWideSlots(ownPane, sessions, geometry, contentWidth, titleFor, exec);
     else await buildCompactSlots(ownPane, sessions, geometry, contentWidth, titleFor, exec);
   } catch (error) { layoutError = error; }
   let resetError: unknown;

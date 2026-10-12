@@ -118,7 +118,9 @@ test("slot commands assign exact free destinations and name occupied conflicts",
   assert.equal(slot1.disabledReason, "Slot 1 contains API; close it first");
   assert.equal(commandForKey(commands(occupied), "\u001b1")?.id, "view:focus-slot-1");
   assert.equal(commands(occupied).find((item) => item.id === "view:focus-slot-2")?.disabledReason, "slot 2 is empty");
-  assert.equal(commands(emptyPinState).find((item) => item.id === "action:alpha:slot-3")?.disabledReason, "slot 3 needs 160 columns");
+  assert.equal(commands(occupied).find((item) => item.id === "action:alpha:slot-3")?.enabled, true);
+  const full = { ...emptyPinState, slots: ["beta", undefined, "gamma", undefined], count: 2 };
+  assert.equal(commands(full).find((item) => item.id === "action:alpha:slot-4")?.disabledReason, "a third pin needs 160 columns; close a pin or use Enter instead");
 });
 
 test("linked ticket context disables manual rename with the naming owner reason", () => {

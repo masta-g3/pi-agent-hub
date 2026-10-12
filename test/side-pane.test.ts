@@ -88,6 +88,14 @@ test("full slots preserve quadrant identity and medium-width slot order", () => 
     [2, { left: 39, top: 0, width: 37, height: 29 }],
     [4, { left: 39, top: 30, width: 37, height: 29 }],
   ]);
+  assert.deepEqual([...slotLayout(new Set([3, 4]), { windowWidth: 119, contentWidth: 76, windowHeight: 60 })], [
+    [3, { left: 0, top: 0, width: 76, height: 29 }],
+    [4, { left: 0, top: 30, width: 76, height: 29 }],
+  ]);
+  assert.deepEqual([...slotLayout(new Set([1, 4]), { windowWidth: 130, contentWidth: 87, windowHeight: 60 })], [
+    [1, { left: 0, top: 0, width: 43, height: 59 }],
+    [4, { left: 44, top: 0, width: 43, height: 59 }],
+  ]);
   assert.deepEqual([...slotLayout(new Set([1, 3]), { windowWidth: 160, contentWidth: 117, windowHeight: 60, splitPercent: 60 })], [
     [1, { left: 0, top: 0, width: 117, height: 35 }],
     [3, { left: 0, top: 36, width: 117, height: 23 }],
@@ -225,11 +233,25 @@ test("failed rebuild restores the original slot attachments before surfacing the
   assert.deepEqual(exec.calls.at(-1)?.args, ["select-pane", "-t", "%1"]);
 });
 
-test("pin refuses new assignments while a contracted high slot survives", async () => {
-  const panes = dashboard(120) + row(2, 2, 0, 43, 0, 77, 59, 120, "", 4);
-  const exec = sidePaneExec(panes, clients([2, "pi-agent-hub-api"]));
-  assert.deepEqual(await pinSidePane({ target: "pi-agent-hub-docs", ownPane: "%1" }, exec), { kind: "capacity", capacity: 2, pins: 1 });
-  assert.equal(exec.calls.some((call) => call.args[0] === "kill-pane" || call.args[0] === "split-window"), false);
+test("medium width counts pins rather than slot numbers", async () => {
+  const highSlot = dashboard(120) + row(2, 2, 0, 43, 0, 77, 59, 120, "", 4);
+  const status = await sidePaneStatus({ ownPane: "%1" }, sidePaneExec(highSlot, clients([2, "pi-agent-hub-api"])));
+  assert.equal(status.constrained, false);
+  assert.deepEqual(await pinSidePane({ target: "pi-agent-hub-docs", ownPane: "%1" }, sidePaneExec(highSlot, clients([2, "pi-agent-hub-api"]))), {
+    kind: "pinned", session: "pi-agent-hub-docs", slot: 1,
+  });
+
+  const firstSlot = dashboard(130) + row(2, 2, 0, 43, 0, 87, 59, 130, "", 1);
+  const exec = sidePaneExec(firstSlot, clients([2, "pi-agent-hub-api"]));
+  assert.deepEqual(await assignSidePaneSlot({ target: "pi-agent-hub-docs", ownPane: "%1", slot: 3 }, exec), {
+    kind: "pinned", session: "pi-agent-hub-docs", slot: 3,
+  });
+  assert.equal(exec.calls.some((call) => call.args[0] === "split-window" && call.args.includes("-v")), true);
+
+  const pair = dashboard(130) + row(2, 2, 0, 43, 0, 87, 29, 130, "", 1) + row(3, 3, 0, 43, 30, 87, 29, 130, "", 3);
+  const full = sidePaneExec(pair, sessions);
+  assert.deepEqual(await assignSidePaneSlot({ target: "pi-agent-hub-web", ownPane: "%1", slot: 2 }, full), { kind: "capacity", capacity: 2, pins: 2 });
+  assert.equal(full.calls.some((call) => call.args[0] === "kill-pane" || call.args[0] === "split-window"), false);
 });
 
 test("pin refuses at capacity before pane mutation", async () => {

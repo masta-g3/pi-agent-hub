@@ -1147,7 +1147,7 @@ test("named pin presence updates rendering without registry mutation", () => {
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /[▢▣]/);
   state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
   const rendered = stripAnsi(view.render(100).join("\n"));
-  assert.match(rendered, /PINNED · ▢1 docs · ▣2 api/);
+  assert.match(rendered, /2 pinned/);
   assert.match(rendered, /○ ▣2 api[^\n]*\n[^\n]*\[default\]/);
   assert.match(rendered, /○ ▢1 docs[^\n]*\n[^\n]*\[default\]/);
   assert.strictEqual(controller.snapshot().registry, before);
@@ -1196,13 +1196,12 @@ test("P pins or focuses exact selected identity and x closes only that selected 
   assert.deepEqual(events, ["pin:api", "close:api", "close:docs"]);
 });
 
-test("slot badges and summary preserve holes and focused identity", () => {
+test("slot badges preserve holes and focused identity", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "API"), session("docs", "Docs")] });
   const view = new SessionsView(controller, () => {}, {
     sidePaneState: () => ({ slots: ["api", undefined, "docs", undefined], activeSessionId: "docs", capacity: 4, constrained: false, splitPercent: 50 }),
   });
   const rendered = stripAnsi(view.render(100).join("\n"));
-  assert.match(rendered, /PINNED · ▢1 API · 2 empty · ▣3 Docs · 4 empty/);
   assert.match(rendered, /▢1 API/);
   assert.match(rendered, /▣3 Docs/);
 });

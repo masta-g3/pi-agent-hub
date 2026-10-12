@@ -139,7 +139,7 @@ export interface RenderCockpitNavigationEntry extends CockpitNavigationEntry {
 }
 
 export interface RenderPinSummary {
-  slots: readonly { slot: number; title?: string; active: boolean }[];
+  count: number;
   constrained: boolean;
 }
 
@@ -668,13 +668,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       ...(showReleaseCue ? { releaseCue: { ...COCKPIT_RELEASE_CUE, selected: input.releaseCueSelected ?? false } } : {}),
     },
     ...(pinMode ? {
-      pinSummary: {
-        slots: [1, 2, 3, 4].slice(0, Math.max(input.pinCapacity ?? 0, pinSlots.reduce((highest, id, index) => id ? index + 1 : highest, 0))).map((slot) => {
-          const id = pinSlots[slot - 1];
-          return { slot, ...(id ? { title: input.sessions.find((session) => session.id === id)?.title } : {}), active: id === input.activePinnedSessionId };
-        }),
-        constrained: input.pinConstrained ?? false,
-      },
+      pinSummary: { count: pinned.size, constrained: input.pinConstrained ?? false },
     } : {}),
   };
 }

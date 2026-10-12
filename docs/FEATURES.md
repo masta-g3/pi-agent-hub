@@ -206,11 +206,11 @@ Use `1`–`4` to assign a live session to an exact free slot, or `P` for the low
 | Terminal width | Available layout |
 | --- | --- |
 | Below 100 columns | No new pins |
-| 100–119 | Slots 1 and 2 stacked |
-| 120–159 | Slots 1 and 2 side by side |
-| 160+ | Four slots in a 2×2 layout |
+| 100–119 | Two pins in any slots, stacked |
+| 120–159 | Two pins in any slots; 1+3 or 2+4 stack, other pairs sit side by side |
+| 160+ | Four pins in a 2×2 layout |
 
-In the four-slot layout, 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
+Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
 
 `Alt+1`–`Alt+4` focuses occupied slots from the sidebar or live panes. `Ctrl+Q` returns to the sidebar. `Alt+Arrow` is an optional spatial alias; some terminals consume it for word movement, so numeric focus is more reliable.
 

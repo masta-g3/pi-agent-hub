@@ -60,7 +60,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   }
   if (model.noBoardSessions) {
     const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
-    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...(model.pinSummary ? [renderPinSummary(model, bodyWidth, styles)] : []), ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
     const layout = emptyLayout(box(width, fitBoxBody(body, model.height), styles));
     for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
     return layout;
@@ -86,8 +86,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
       : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const minimumRows = 4 + filterLines.length + decision.lines.length;
   const footerVisible = Boolean(model.footer) && (!filterBar || !model.height || model.height >= minimumRows + 2);
-  const pinSummaryVisible = Boolean(model.pinSummary) && (!filterBar || !model.height || model.height >= minimumRows + (footerVisible ? 2 : 0) + 1);
-  const baseStripLines = filterLines.length + (pinSummaryVisible ? 1 : 0) + decision.lines.length;
+  const baseStripLines = filterLines.length + decision.lines.length;
   const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
@@ -100,7 +99,6 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const navigator = renderTierNavigator(model, navigatorWidth, rows, styles);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
   const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines];
-  if (pinSummaryVisible) body.push(renderPinSummary(model, bodyWidth, styles));
   const visibleLinesByOwner = new Map<string, number>();
   for (const meta of windowedLeft.lineMeta) {
     if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
@@ -129,7 +127,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
   for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
-  const listStart = 2 + filterLines.length + announcement.lines.length + (pinSummaryVisible ? 1 : 0);
+  const listStart = 2 + filterLines.length + announcement.lines.length;
   const decisionStart = listStart + rows;
   for (let i = 0; i < decision.targets.length && decisionStart + i < lines.length - 1; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
   for (let i = 0; i < rows; i += 1) {
@@ -350,7 +348,8 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
   const countLabel = model.filter !== undefined
     ? `${visibleTrees}/${totalTrees}${board ? " Active" : ""} trees`
     : `${visibleTrees}${board ? " Active" : ""} ${visibleTrees === 1 ? "tree" : "trees"}`;
-  const pinCount = model.pinSummary?.slots.filter((slot) => slot.title).length ?? 0;
+  const pinCount = model.pinSummary?.count ?? 0;
+  const constrained = model.pinSummary?.constrained ? styles.warning("constrained") : "";
   const needsYou = board
     ? new Set(parentRows.filter((session) => session.cockpitTier === "needs-you").map((session) => session.cockpitOwnerId)).size
     : model.cockpitNavigation.find((entry) => entry.tier === "needs-you")?.ownerCount ?? 0;
@@ -360,6 +359,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
   const ordered = [
     styles.accent(countLabel),
     ...(pinCount ? [styles.muted(`${pinCount} pinned`)] : []),
+    ...(constrained ? [constrained] : []),
     ...(needsYou ? [styles.warning(`${needsYou} needs you`)] : []),
     ...(health ? [styles.error(`${health} health`)] : []),
   ];
@@ -368,6 +368,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
   const candidates = [
     ordered,
     ordered.filter((part) => !stripAnsi(part).endsWith(" health")),
+    [required, ...(constrained ? [constrained] : []), ...(needs ? [needs] : [])],
     [required, ...(needs ? [needs] : [])],
     [required],
   ].map((parts) => parts.join(styles.border(" · ")));
@@ -389,16 +390,6 @@ function groupAttentionCount(count: number, styles: LayoutStyles, muted = false)
 
 function groupBoardCounts(group: RenderModel["sections"][number]["groups"][number], parentCount: number, styles: LayoutStyles): string {
   return [groupAttentionCount(group.attentionCount, styles), styles.dim(`·${parentCount}`)].filter(Boolean).join(" ");
-}
-
-function renderPinSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
-  const summary = model.pinSummary;
-  if (!summary) return "";
-  const slots = summary.slots.map((slot) => slot.title
-    ? `${slot.active ? styles.accent(`▣${slot.slot}`) : styles.muted(`▢${slot.slot}`)} ${slot.title}`
-    : styles.dim(`${slot.slot} empty`));
-  const constrained = summary.constrained ? ` · ${styles.warning("constrained")}` : "";
-  return truncate(`${styles.dim("PINNED")} · ${slots.join(" · ")}${constrained}`, width);
 }
 
 function pinnedDecisionRows(height: number | undefined): number {

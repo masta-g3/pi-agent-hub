@@ -1059,21 +1059,19 @@ test("render model records named pin and focused identity", () => {
   const api = modelRows(model).find((item) => item.id === "api");
   const docs = modelRows(model).find((item) => item.id === "docs");
   assert.deepEqual([api?.pinSlot, api?.pinned, api?.pinFocused, docs?.pinSlot, docs?.pinned], [2, true, true, 1, true]);
-  assert.deepEqual(model.pinSummary, {
-    slots: [{ slot: 1, title: "docs", active: false }, { slot: 2, title: "api", active: true }],
-    constrained: false,
-  });
+  assert.deepEqual(model.pinSummary, { count: 2, constrained: false });
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(text, /PINNED · ▢1 docs · ▣2 api/);
+  assert.match(text, /PINNED FLEET\s+2 trees · 2 pinned/);
+  assert.doesNotMatch(text, /PINNED ·/);
   assert.match(text, /● ▣2 api[\s\S]*\[default\]/);
   assert.match(text, /○ ▢1 docs[\s\S]*\[default\]/);
 });
 
 test("named pin summary reports constraint and unpinned rows gain title width", () => {
   const sessions = [session("api", "default", "running", "long-api-title"), session("docs", "default", "idle", "long-docs-title")];
-  const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "api", width: 40, pinSlots: ["api"], pinCapacity: 0, pinConstrained: true })).lines.map(stripAnsi).join("\n");
+  const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "api", width: 60, pinSlots: ["api"], pinCapacity: 0, pinConstrained: true })).lines.map(stripAnsi).join("\n");
   const unpinned = renderSessions(buildRenderModel({ sessions, selectedId: "docs", width: 40 })).lines.map(stripAnsi).join("\n");
-  assert.match(pinned, /PINNED · ▢1 long-api.*constrai/);
+  assert.match(pinned, /PINNED FLEET\s+2 trees · 1 pinned · constrained/);
   assert.match(pinned, /▢1 long-api/);
   assert.match(unpinned, /long-docs/);
   assert.doesNotMatch(unpinned, /[▢▣]/);
