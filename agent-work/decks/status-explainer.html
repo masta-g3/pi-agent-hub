@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>How pi-hub knows what each session is doing</title>
+<style>
+:root {
+  --page: #EFF1F5; --ink: #4C4F69; --ink-strong: #2B2D3F; --muted: #5C5F77; --rule: #CCD0DA; --wash: #E6E9EF;
+  --status: #1A58D6; --request: #B4430A; --workflow: #8839EF; --placement: #2D7A1F; --label: #5C5F77;
+  --term: #1E1E2E; --term-ink: #CDD6F4; --term-dim: #8C91AB; --term-rule: #585B70;
+  --t-status: #89B4FA; --t-request: #FAB387; --t-workflow: #CBA6F7; --t-placement: #A6E3A1; --t-label: #BAC2DE; --t-error: #F38BA8;
+  --tmux: #A6E3A1;
+  --sans: "Avenir Next", "Avenir", "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #24273A; --ink: #CAD3F5; --ink-strong: #E6EBFF; --muted: #A5ADCB; --rule: #494D64; --wash: #2E3249;
+    --status: #8AADF4; --request: #F5A97F; --workflow: #C6A0F6; --placement: #A6DA95; --label: #A5ADCB;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.55 var(--sans); }
+main { max-width: 1180px; margin: 0 auto; padding: 48px 32px 96px; }
+h1, h2, h3 { color: var(--ink-strong); line-height: 1.2; font-weight: 600; }
+h1 { font-size: 40px; margin: 0 0 12px; max-width: 22ch; letter-spacing: -0.01em; }
+h2 { font-size: 28px; margin: 0 0 10px; }
+h3 { font-size: 19px; margin: 28px 0 8px; }
+p { margin: 0 0 14px; max-width: 70ch; }
+.lede { font-size: 20px; max-width: 62ch; }
+code, kbd { font-family: var(--mono); font-size: 0.86em; background: var(--wash); padding: 1px 5px; border-radius: 4px; color: var(--ink-strong); }
+a { color: var(--status); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--status); outline-offset: 2px; }
+nav.toc { margin: 22px 0 36px; display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 15px; }
+nav.toc a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+nav.toc a:hover { border-color: var(--ink); }
+nav.toc span { color: var(--muted); }
+section { padding: 56px 0 8px; border-top: 1px solid var(--rule); margin-top: 40px; scroll-margin-top: 8px; }
+section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.note { color: var(--muted); font-size: 15px; }
+
+/* The key: one color and one name per kind of fact, reused everywhere. */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.legend button { font: 600 14px/1 var(--sans); color: var(--ink-strong); background: transparent; border: 1.5px solid var(--rule); border-left: 6px solid var(--c); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+.legend button[aria-pressed="true"] { background: var(--wash); border-color: var(--c); }
+.c-status { --c: var(--status); } .c-request { --c: var(--request); } .c-workflow { --c: var(--workflow); }
+.c-placement { --c: var(--placement); } .c-label { --c: var(--label); } .c-children { --c: var(--muted); }
+.fact { font-weight: 600; color: var(--c); }
+
+/* Hero: the real 100-column cockpit frame */
+.hero { display: grid; grid-template-columns: auto minmax(260px, 1fr); gap: 28px; align-items: start; }
+.term { background: var(--term); color: var(--term-ink); border-radius: 10px; padding: 16px 18px 14px; overflow-x: auto; }
+.term pre { margin: 0; font: 12.5px/1.42 var(--mono); }
+.term i { font-style: normal; display: inline-block; width: 1ch; text-align: center; overflow: visible; }
+.term .k { border-radius: 2px; cursor: pointer; transition: opacity .15s; }
+.term .k-status { color: var(--t-status); } .term .k-request { color: var(--t-request); } .term .k-workflow { color: var(--t-workflow); }
+.term .k-placement { color: var(--t-placement); } .term .k-label { color: var(--t-label); } .term .k-children { color: var(--term-ink); text-decoration: underline dotted; }
+.term.focus .k { opacity: .3; }
+.term.focus .k.on { opacity: 1; background: rgba(205,214,244,.16); outline: 1px solid currentColor; }
+.term-caption { font-size: 14px; color: var(--muted); margin-top: 8px; max-width: none; }
+.explain { border-left: 4px solid var(--c, var(--rule)); padding: 2px 0 2px 18px; min-height: 360px; }
+.explain h3 { margin-top: 0; }
+.explain dl { margin: 0; font-size: 15.5px; }
+.explain dt { font-weight: 600; color: var(--ink-strong); margin-top: 12px; }
+.explain dd { margin: 2px 0 0; }
+.explain ul { padding-left: 18px; margin: 6px 0; font-size: 15.5px; }
+
+/* Pipeline diagram */
+.diagram { width: 100%; height: auto; display: block; margin: 18px 0 6px; }
+.diagram text { font-family: var(--sans); fill: var(--ink); font-size: 13px; }
+.diagram .t { fill: var(--ink-strong); font-size: 15px; font-weight: 600; }
+.diagram .m { font-family: var(--mono); font-size: 12.5px; fill: var(--ink-strong); }
+.diagram .s { fill: var(--muted); font-size: 12.5px; }
+.diagram .box { fill: var(--page); stroke: var(--ink); stroke-width: 1.5; }
+.diagram .file { fill: var(--wash); stroke: var(--ink); stroke-width: 1.5; }
+.diagram .bound { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.diagram .wire { fill: none; stroke: var(--ink); stroke-width: 1.6; marker-end: url(#arrow); }
+.diagram .wire.tmux { stroke: var(--placement); }
+.diagram .row { fill: var(--term); }
+.diagram .rowtext { font-family: var(--mono); font-size: 12.5px; fill: var(--term-ink); }
+.shape-key { display: flex; flex-wrap: wrap; gap: 6px 26px; font-size: 14px; color: var(--muted); margin: 0 0 22px; }
+.shape-key svg { vertical-align: -4px; margin-right: 6px; }
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 32px; margin-top: 10px; }
+.facts div { border-top: 2px solid var(--ink); padding-top: 10px; }
+.facts b { display: block; color: var(--ink-strong); font-size: 22px; font-weight: 600; }
+.facts p { font-size: 15px; }
+
+/* Status ladder */
+.ladder { list-style: none; margin: 18px 0 8px; padding: 0; max-width: 900px; counter-reset: rung; }
+.ladder li { display: grid; grid-template-columns: 2.4em 1fr 12em; gap: 14px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--rule); counter-increment: rung; }
+.ladder li::before { content: counter(rung); color: var(--muted); font-size: 14px; text-align: right; }
+.ladder .src { font-size: 13px; color: var(--muted); display: block; }
+.out { font-family: var(--mono); font-size: 15px; color: var(--ink-strong); }
+.out .g { display: inline-block; width: 1.4em; color: var(--status); font-weight: 700; }
+.out .g.err { color: #D20F39; }
+@media (prefers-color-scheme: dark) { .out .g.err { color: #ED8796; } }
+.ladder li.fallback { background: var(--wash); }
+
+/* Timeline */
+.timeline { display: grid; grid-template-columns: 9.5em repeat(5, 1fr); margin: 18px 0 8px; font-size: 14.5px; }
+.timeline > div { padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.timeline .h { color: var(--muted); font-size: 13px; padding-left: 0; }
+.timeline .ev { font-weight: 600; color: var(--ink-strong); border-bottom: 2px solid var(--ink); }
+.timeline .ev small { display: block; font-weight: 400; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.timeline .hb { font-family: var(--mono); font-size: 13.5px; }
+.timeline .row { background: var(--term); color: var(--term-ink); font-family: var(--mono); font-size: 13.5px; border-bottom-color: var(--term-rule); }
+.timeline .row b { color: var(--t-status); font-weight: 400; }
+.timeline .why { font-size: 13.5px; color: var(--muted); }
+.timeline .changed { box-shadow: inset 0 -3px 0 var(--status); }
+
+/* Requests */
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin: 18px 0; }
+.compare h3 { margin: 0 0 8px; font-size: 17px; }
+.compare .note { margin-top: 10px; }
+.mini { background: var(--term); color: var(--term-ink); border-radius: 8px; padding: 12px 14px; font: 13px/1.5 var(--mono); white-space: pre; overflow-x: auto; }
+.mini .tier { color: var(--t-placement); } .mini .st { color: var(--t-status); } .mini .rq { color: var(--t-request); } .mini .dim { color: var(--term-dim); }
+.tiers { list-style: none; padding: 0; margin: 14px 0; max-width: 900px; counter-reset: tier; }
+.tiers li { display: grid; grid-template-columns: 2.4em 9.5em 1fr; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--rule); counter-increment: tier; }
+.tiers li::before { content: counter(tier); color: var(--muted); font-size: 14px; text-align: right; }
+.tiers b { color: var(--placement); font-weight: 700; letter-spacing: .02em; }
+.tiers li.sep::before { content: ""; }
+.rules { columns: 2; column-gap: 40px; padding-left: 18px; max-width: 1000px; font-size: 15.5px; }
+.rules li { break-inside: avoid; margin-bottom: 10px; }
+
+/* Workflow rail */
+.rail { border-collapse: collapse; margin: 18px 0 8px; font-size: 15px; }
+.rail th, .rail td { padding: 9px 14px; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: middle; }
+.rail th { font-size: 13px; font-weight: 600; color: var(--muted); }
+.rail .cells { font-family: var(--mono); white-space: pre; background: var(--term); color: var(--term-ink); }
+.rail .cells .w { color: var(--t-workflow); }
+.rail code { white-space: nowrap; }
+
+/* Evidence */
+.evidence { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: start; margin-top: 16px; }
+.evidence .mini { white-space: pre-wrap; }
+.mini .ok { color: var(--t-placement); } .mini .bad { color: var(--t-error); }
+.takeaway { margin-top: 48px; padding: 22px 0 0; border-top: 3px solid var(--ink-strong); max-width: 70ch; font-size: 20px; color: var(--ink-strong); }
+
+@media (max-width: 1100px) {
+  .hero, .evidence, .compare { grid-template-columns: 1fr; }
+  .explain { min-height: 0; }
+  .facts { grid-template-columns: 1fr; }
+  .rules { columns: 1; }
+}
+</style>
+</head>
+<body>
+<main>
+
+<section id="row" aria-labelledby="row-h">
+  <h1 id="row-h">How pi-hub knows what each session is doing</h1>
+  <p class="lede">Each dashboard row combines several separate facts. Each fact comes from its own source. When you know the source, you can tell what a row promises and what it does not.</p>
+  <nav class="toc" aria-label="Sections">
+    <a href="#row">Read one row</a>
+    <a href="#path">From Pi to your row</a>
+    <a href="#status">The status icon</a>
+    <a href="#requests">Requests</a>
+    <a href="#rail">Workflow rail</a>
+    <a href="#check">Check a row</a>
+    <span>← → moves between sections</span>
+  </nav>
+
+  <div class="legend" role="group" aria-label="Kinds of fact">
+    <button type="button" class="c-status" data-key="status" aria-pressed="false">Runtime status</button>
+    <button type="button" class="c-request" data-key="request" aria-pressed="false">Request</button>
+    <button type="button" class="c-workflow" data-key="workflow" aria-pressed="false">Workflow position</button>
+    <button type="button" class="c-placement" data-key="placement" aria-pressed="false">Section</button>
+    <button type="button" class="c-label" data-key="label" aria-pressed="false">Your labels</button>
+    <button type="button" class="c-children" data-key="children" aria-pressed="false">Child counts</button>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="term" id="term"><pre aria-label="pi-hub dashboard at 100 columns"><i>╭</i> pi agent hub <i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>╮</i>
+<i>│</i>FLEET                                                             8 trees <i>·</i> <span class="k k-placement" data-key="placement">1 needs you <i>·</i> 1 health</span><i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">TIERS</span>           <i>│</i><i>─</i><i>│</i> <span class="k k-placement" data-key="placement">NEEDS YOU</span>                                                       <i>·</i>1  <span class="k k-workflow" data-key="workflow">PL  EX  RV</span><i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">NEEDS YOU</span>      1<i>│</i><i>▌</i><i>│</i> <i>·</i> <span class="k k-request" data-key="request">?</span> <span class="k k-status" data-key="status"><i>◐</i></span> Docs refresh                                                            <i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">HEALTH</span>         1<i>│</i> <i>│</i> <span class="k k-label" data-key="label">[Docs]</span> <i>·</i> 8m                                                         <span class="k k-workflow" data-key="workflow"><i>✓</i>   <i>✓</i>   <i>◉</i></span> <i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">ACTIVE</span>         2<i>│</i> <i>└</i> <span class="k k-request" data-key="request"><i>“</i>Which changelog section wins?<i>”</i></span>                                               <i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">QUIET</span>          3<i>│</i><i>─</i><i>▾</i> <span class="k k-placement" data-key="placement">HEALTH</span>                                                                      <i>·</i>1<i>│</i>
+<i>│</i><span class="k k-placement" data-key="placement">ARCHIVED</span>       1<i>│</i> <i>│</i> <i>·</i>   <span class="k k-status" data-key="status"><i>×</i></span> Flaky test investigation                                                <i>│</i>
+<i>│</i>                <i>│</i> <i>└</i> <span class="k k-label" data-key="label">[QA]</span> <i>·</i> 8m                                                                     <i>│</i>
+<i>│</i>                <i>│</i><i>─</i><i>▾</i> <span class="k k-placement" data-key="placement">ACTIVE</span>                                                          <i>·</i>2  <span class="k k-workflow" data-key="workflow">PL  EX  RV</span><i>│</i>
+<i>│</i>                <i>│</i> <i>│</i> <i>▾</i>   <span class="k k-status" data-key="status"><i>◐</i></span> Dashboard UI polish                                                     <i>│</i>
+<i>│</i>                <i>│</i> <i>│</i> <span class="k k-label" data-key="label">[Pi Agent Hub]</span> <span class="k k-children" data-key="children"><i>⚙</i>1</span> <i>·</i> 8m                                              <span class="k k-workflow" data-key="workflow"><i>✓</i>   <i>◉</i>   <i>·</i></span> <i>│</i>
+<i>│</i>                <i>│</i> <i>└</i> <i>└</i><i>─</i>   <span class="k k-status" data-key="status"><i>⠋</i></span> code-critic Review cockpit hierarchy geometry                          <i>│</i>
+<i>│</i>                <i>│</i> <i>│</i> <i>·</i>   <span class="k k-status" data-key="status"><i>⠋</i></span> Package release checks                                                  <i>│</i>
+<i>│</i>                <i>│</i> <i>└</i> <span class="k k-label" data-key="label">[Release]</span> <i>·</i> 8m                                                      <span class="k k-workflow" data-key="workflow"><i>✓</i>   <i>✓</i>   <i>◉</i></span> <i>│</i>
+<i>│</i>                <i>│</i><i>─</i><i>▾</i> <span class="k k-placement" data-key="placement">QUIET</span>                                                            <i>·</i>3 <i>·</i> <span class="k k-children" data-key="children">?1 child</span><i>│</i>
+<i>│</i>                <i>│</i> <i>│</i> <i>▸</i>   <span class="k k-status" data-key="status"><i>○</i></span> Quiet parent                                                            <i>│</i>
+<i>│</i>                <i>│</i> <i>└</i> <span class="k k-label" data-key="label">[Agents]</span> <span class="k k-children" data-key="children">?1</span> quiet <i>·</i> 8m                                                        <i>│</i>
+<i>│</i>                <i>│</i> <i>│</i> <i>·</i>   <span class="k k-status" data-key="status"><i>○</i></span> MCP integration cleanup                                                 <i>│</i>
+<i>│</i>                <i>│</i> <i>└</i> <span class="k k-label" data-key="label">[Integrations]</span> quiet <i>·</i> 8m                                                     <i>│</i>
+<i>│</i>                <i>│</i>   <i>·</i>   <span class="k k-status" data-key="status"><i>○</i></span> <span class="k k-label" data-key="label">[Experiments]</span> Theme compatibility spike                  <span class="k k-label" data-key="label">backlog</span> <i>·</i> quiet<i>│</i>
+<i>│</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>│</i>
+<i>│</i><i>↑</i><i>↓</i> Move <i>·</i> Enter Workspace <i>·</i> n New <i>·</i> / Filter <i>·</i> b Backlog <i>·</i> v Group <i>·</i> S Board <i>·</i> : Actions <i>·</i> ? Help <i>│</i>
+<i>╰</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>─</i><i>╯</i></pre></div>
+      <p class="term-caption">The dashboard at 100 columns, copied from Hub's test fixture <code>test/fixtures/cockpit-frames.ts</code>. Colors mark the kind of fact. Pick a kind above, or click a marked part of the frame.</p>
+    </div>
+    <aside class="explain" id="explain" aria-live="polite">
+      <h3>Read a row as separate facts</h3>
+      <ul>
+        <li><span class="fact c-status">Runtime status</span> (⠋ ◐ ○ × -): is Pi working, done, or gone? Comes from tmux plus the heartbeat.</li>
+        <li><span class="fact c-request">Request</span> (? ✓ !): a Pi extension asked for you. Comes from the extension, through the heartbeat.</li>
+        <li><span class="fact c-workflow">Workflow position</span> (✓ ◉ ·): where the workflow says it is. Comes from the workflow extension.</li>
+        <li><span class="fact c-placement">Section</span>: Hub sorts each tree into NEEDS YOU, HEALTH, ACTIVE, or QUIET from the facts above.</li>
+        <li><span class="fact c-label">Your labels</span>: group and Backlog/Archive. You set them; Hub stores them.</li>
+      </ul>
+      <p class="note">One fact never changes another. A waiting icon is not a request, and a checked step does not mean the agent is idle.</p>
+    </aside>
+  </div>
+</section>
+
+<section id="path" aria-labelledby="path-h">
+  <h2 id="path-h">From Pi to your row: two inputs, read every second</h2>
+  <p>Hub does not watch your terminal output. It reads two things: whether the tmux session exists, and a small JSON file that a Pi extension rewrites. Once a second, the dashboard combines both into a row.</p>
+
+  <svg class="diagram" viewBox="0 0 1100 400" role="img" aria-labelledby="path-title path-desc">
+    <title id="path-title">Data path from a Pi session to a dashboard row</title>
+    <desc id="path-desc">A workflow extension adds entries to the Pi branch. Inside the tmux session, Pi events reach the Hub extension, which writes heartbeats/id.json. The dashboard controller reads that file and one tmux session list every second, saves durable fields in registry.json, and passes the rest to the render projection, which draws the row.</desc>
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="fill: var(--ink)"/></marker>
+      <marker id="arrowg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--placement)"/></marker>
+    </defs>
+
+    <!-- producer -->
+    <rect class="box" x="20" y="22" width="200" height="64" rx="10"/>
+    <text class="t" x="36" y="49">Workflow extension</text>
+    <text class="s" x="36" y="70">optional, e.g. Rules</text>
+    <path class="wire" d="M120 86 V158"/>
+    <text class="s" x="132" y="104">adds request, ticket and</text>
+    <text class="s" x="132" y="119">workflow entries to the Pi branch</text>
+
+    <!-- tmux boundary -->
+    <rect class="bound" x="8" y="132" width="472" height="150" rx="12"/>
+    <text class="m" x="22" y="272">tmux session pi-agent-hub-&lt;id&gt;</text>
+    <rect class="box" x="20" y="160" width="200" height="86" rx="10"/>
+    <text class="t" x="36" y="188">Pi agent</text>
+    <text class="s" x="36" y="208">turns, prompts,</text>
+    <text class="s" x="36" y="225">compaction, shutdown</text>
+    <path class="wire" d="M220 203 H264"/>
+    <text class="s" x="242" y="196" text-anchor="middle">events</text>
+    <rect class="box" x="266" y="160" width="200" height="86" rx="10"/>
+    <text class="t" x="282" y="188">Hub extension</text>
+    <text class="s" x="282" y="208">loaded into every</text>
+    <text class="s" x="282" y="225">managed Pi process</text>
+
+    <!-- heartbeat file -->
+    <path class="wire" d="M466 203 H528"/>
+    <text class="s" x="497" y="196" text-anchor="middle">writes</text>
+    <path class="file" d="M530 158 H692 L712 178 V248 H530 Z"/>
+    <path class="file" d="M692 158 V178 H712" />
+    <text class="m" x="544" y="186">heartbeats/</text>
+    <text class="m" x="544" y="204">&lt;id&gt;.json</text>
+    <text class="s" x="544" y="230">state, request, workflow</text>
+    <text class="s" x="621" y="272" text-anchor="middle">rewritten on each Pi event</text>
+    <text class="s" x="621" y="288" text-anchor="middle">and every 15 s</text>
+
+    <!-- controller -->
+    <path class="wire" d="M712 203 H758"/>
+    <text class="s" x="735" y="196" text-anchor="middle">reads</text>
+    <rect class="box" x="760" y="150" width="152" height="106" rx="10"/>
+    <text class="t" x="776" y="178">Controller</text>
+    <text class="s" x="776" y="198">refreshes every 1 s</text>
+    <text class="s" x="776" y="215">computes status</text>
+    <text class="s" x="776" y="232">and read state</text>
+
+    <!-- registry -->
+    <path class="file" d="M760 20 H892 L912 40 V100 H760 Z"/>
+    <path class="file" d="M892 20 V40 H912"/>
+    <text class="m" x="774" y="46">registry.json</text>
+    <text class="s" x="774" y="68">status, read time,</text>
+    <text class="s" x="774" y="85">labels, last workflow</text>
+    <path class="wire" d="M812 150 V102"/>
+    <text class="s" x="804" y="130" text-anchor="end">saves</text>
+    <path class="wire" d="M860 102 V148"/>
+    <text class="s" x="868" y="130">loads</text>
+
+    <!-- tmux snapshot -->
+    <path class="wire tmux" style="marker-end:url(#arrowg)" d="M300 282 V352 H836 V258"/>
+    <text class="s" x="560" y="344" text-anchor="middle">tmux list-sessions: one snapshot of which sessions exist</text>
+
+    <!-- render -->
+    <text class="s" x="936" y="118">memory only:</text>
+    <text class="s" x="936" y="134">request, ticket, mode</text>
+    <path class="wire" d="M912 203 H958"/>
+    <rect class="box" x="960" y="150" width="130" height="106" rx="10"/>
+    <text class="t" x="976" y="178">Render</text>
+    <text class="t" x="976" y="197">projection</text>
+    <text class="s" x="976" y="220">sorts trees</text>
+    <text class="s" x="976" y="237">into sections</text>
+    <path class="wire" d="M1025 256 V306"/>
+    <rect class="row" x="942" y="308" width="152" height="40" rx="6"/>
+    <text class="rowtext" x="954" y="333">· ? ◐ Docs refresh</text>
+    <text class="s" x="1018" y="372" text-anchor="middle">your row</text>
+  </svg>
+  <div class="shape-key">
+    <span><svg width="22" height="16" aria-hidden="true"><rect x="1" y="1" width="20" height="14" rx="4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>running code</span>
+    <span><svg width="22" height="16" aria-hidden="true"><path d="M1 1 H15 L21 7 V15 H1 Z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>file on disk, under the Hub state folder</span>
+    <span><svg width="22" height="16" aria-hidden="true"><rect x="1" y="1" width="20" height="14" rx="4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/></svg>tmux session</span>
+    <span><svg width="26" height="16" aria-hidden="true"><path d="M1 8 H24" stroke="var(--placement)" stroke-width="2"/></svg>tmux presence check</span>
+  </div>
+
+  <div class="facts">
+    <div><b>60 s</b><p>A heartbeat older than this is stale. Hub stops trusting its state and uses the last state it knew.</p></div>
+    <div><b>Saved vs. memory</b><p>Status, your read time, labels and the last workflow position go to <code>registry.json</code>. Requests and ticket context stay in memory and come only from a fresh heartbeat.</p></div>
+    <div><b>Safe to be wrong</b><p>Hub checks each optional part of the heartbeat on its own. A malformed workflow entry is dropped; the liveness part still counts.</p></div>
+  </div>
+</section>
+
+<section id="status" aria-labelledby="status-h">
+  <h2 id="status-h">The status icon: the first matching rule wins</h2>
+  <p>The status icon answers one question: what is the Pi process doing right now? Hub checks these rules in order on every refresh and stops at the first match. The rule list follows <code>computeStatus()</code> in <code>src/core/status.ts</code>.</p>
+
+  <ol class="ladder">
+    <li><span>No tmux session, and Hub stopped it on purpose<span class="src">you stopped it, or a lifecycle action did</span></span><span class="out"><span class="g">-</span>stopped</span></li>
+    <li><span>No tmux session, or tmux did not answer<span class="src">the process died or tmux failed</span></span><span class="out"><span class="g err">×</span>error</span></li>
+    <li class="fallback"><span>No heartbeat file yet<span class="src">use the fallback below</span></span><span class="out">fallback</span></li>
+    <li><span>Heartbeat says <code>error</code><span class="src">for example, Fork and compact failed</span></span><span class="out"><span class="g err">×</span>error</span></li>
+    <li><span>Heartbeat says <code>shutdown</code><span class="src">Pi exited cleanly</span></span><span class="out"><span class="g">-</span>stopped</span></li>
+    <li class="fallback"><span>Heartbeat is older than 60 s<span class="src">use the fallback below</span></span><span class="out">fallback</span></li>
+    <li><span>Heartbeat says <code>running</code> or <code>starting</code></span><span class="out"><span class="g">⠋</span>running</span></li>
+    <li><span>Agent finished after you last opened the session</span><span class="out"><span class="g">◐</span>waiting</span></li>
+    <li><span>You opened the session after the agent finished</span><span class="out"><span class="g">○</span>idle</span></li>
+  </ol>
+  <p class="note"><strong>Fallback:</strong> Hub cannot see live work without a fresh heartbeat. A starting session stays starting. Any other session shows ◐ waiting, or ○ idle if you have opened it before.</p>
+
+  <h3>One session over time</h3>
+  <p>The Hub extension turns Pi events into a heartbeat state. Hub adds your read time. Notice the fourth column: the heartbeat does not change, but the icon does.</p>
+  <div class="timeline" aria-label="Example session timeline">
+    <div class="h">What happens</div>
+    <div class="ev">You send a prompt<small>agent_start</small></div>
+    <div class="ev">Pi compacts<small>session_before_compact</small></div>
+    <div class="ev">Agent finishes<small>agent_end</small></div>
+    <div class="ev">You open it<small>Enter in Hub</small></div>
+    <div class="ev">You quit Pi<small>session_shutdown</small></div>
+
+    <div class="h">Heartbeat state</div>
+    <div class="hb">running</div>
+    <div class="hb">running</div>
+    <div class="hb changed">waiting</div>
+    <div class="hb">waiting</div>
+    <div class="hb changed">shutdown</div>
+
+    <div class="h">Row shows</div>
+    <div class="row"><b>⠋</b> running</div>
+    <div class="row"><b>⠋</b> running</div>
+    <div class="row"><b>◐</b> waiting</div>
+    <div class="row"><b>○</b> idle</div>
+    <div class="row"><b>-</b> stopped</div>
+
+    <div class="h">Why</div>
+    <div class="why">Pi started a turn.</div>
+    <div class="why">Compaction counts as work. The old state returns after it.</div>
+    <div class="why">The result is newer than your last read.</div>
+    <div class="why">Hub saved your read time. Pi did nothing.</div>
+    <div class="why">The extension wrote its last heartbeat.</div>
+  </div>
+  <p class="note">An open Pi prompt, such as a questionnaire, also reports waiting until you close it. Status never reports workflow progress or a request.</p>
+</section>
+
+<section id="requests" aria-labelledby="requests-h">
+  <h2 id="requests-h">Waiting is not a request</h2>
+  <p>A session that finished its turn shows ◐ waiting. That does not mean it needs you. Only a Pi extension can ask for you, by publishing a request with a kind and a short text. Hub shows that request only on waiting or idle rows.</p>
+
+  <div class="compare">
+    <div>
+      <h3>Waiting, no request</h3>
+<div class="mini"><span class="tier">── QUIET</span>
+  ·   <span class="st">◐</span> Release notes draft
+  [Docs] · 2m</div>
+      <p class="note">The agent stopped. Nothing asked for you, so the tree stays in QUIET.</p>
+    </div>
+    <div>
+      <h3>Waiting, with a request</h3>
+<div class="mini"><span class="tier">── NEEDS YOU</span>
+  · <span class="rq">?</span> <span class="st">◐</span> Docs refresh
+  [Docs] · 8m
+  <span class="rq">“Which changelog section wins?”</span></div>
+      <p class="note">The extension published a question. The tree moves to NEEDS YOU and the text appears under the title.</p>
+    </div>
+  </div>
+  <p>Request kinds: <span class="fact c-request">?</span> question, <span class="fact c-request">!</span> blocker, <span class="fact c-request">✓</span> ready for handoff.</p>
+
+  <h3>How Hub picks a section</h3>
+  <p>Hub sorts each whole tree (a parent and its children) by checking the parent first. The first match wins.</p>
+  <ol class="tiers">
+    <li><b>NEEDS YOU</b><span>The parent is waiting or idle and has a request you have not read.</span></li>
+    <li><b>HEALTH</b><span>The parent shows × error.</span></li>
+    <li><b>ACTIVE</b><span>The parent or any child is starting or running. In the frame above, “Dashboard UI polish” is ◐ waiting but sits in ACTIVE because its child is ⠋ running.</span></li>
+    <li><b>QUIET</b><span>Everything else that is not archived.</span></li>
+    <li class="sep"><b>ARCHIVED</b><span>Your Archive choice puts the tree here, newest first. Archiving does not stop Pi.</span></li>
+  </ol>
+
+  <h3>Rules you can rely on</h3>
+  <ul class="rules">
+    <li><strong>A child never changes its parent.</strong> A child's request shows as <code>?1</code> on the parent and <code>?1 child</code> on the section. A child's error stays on the child.</li>
+    <li><strong>Opening marks it read.</strong> Enter, a pin focus, or <kbd>a</kbd> records your read time. The request disappears until the extension publishes a newer one.</li>
+    <li><strong>Looking does not mark it read.</strong> Creating a pin, searching, or opening details changes nothing.</li>
+    <li><strong>New requests announce once.</strong> A new request with an ID can show a six-second band, and a tmux message when you are elsewhere. Requests that existed when Hub started stay silent.</li>
+    <li><strong>Inside a session you still see the count.</strong> The tmux bar shows <code>⚑ N need you · alt+w next</code>. <kbd>Alt+W</kbd> opens the next one.</li>
+    <li><strong>Bell and desktop alerts are off by default.</strong> Turn on the bell with <strong>Attention bell</strong> in <kbd>:</kbd>. Turn on desktop alerts with <code>dashboard.attentionNotify</code>.</li>
+  </ul>
+</section>
+
+<section id="rail" aria-labelledby="rail-h">
+  <h2 id="rail-h">The workflow rail shows position, not proof</h2>
+  <p>The step columns come from the workflow extension, not from Hub. Rules supplies Plan, Execute, Review, Reflect and Commit; another extension can supply other steps. The extension reports the current step and, optionally, whether that step is complete. Hub draws the markers from position alone.</p>
+
+  <table class="rail">
+    <thead><tr><th>Extension reports</th><th>Row shows</th><th>What it means</th></tr></thead>
+    <tbody>
+      <tr><td>current step: <code>execute</code></td><td class="cells">PL EX RV RF CM
+<span class="w">✓  ◉  ·  ·  ·</span></td><td>At Execute, still working on it.</td></tr>
+      <tr><td>current step: <code>execute</code>, <code>currentStepComplete: true</code></td><td class="cells">PL EX RV RF CM
+<span class="w">✓  ✓  ·  ·  ·</span></td><td>Execute is done. Review has not started.</td></tr>
+      <tr><td>current step: <code>review</code>, started directly</td><td class="cells">PL EX RV RF CM
+<span class="w">✓  ✓  ◉  ·  ·</span></td><td>Execute is checked because it comes earlier. Hub does not know whether it ran.</td></tr>
+    </tbody>
+  </table>
+  <ul class="rules">
+    <li><strong>Separate from status.</strong> A row can show ✓ at Commit and ⠋ running at the same time.</li>
+    <li><strong>Kept after stop.</strong> Hub saves the last position in <code>registry.json</code>, so a stopped row still shows where it ended.</li>
+    <li><strong>Modes do not move columns.</strong> A mode such as Rules' focus mode (<code>FOC</code>) shows in the row details only.</li>
+    <li><strong>Read-only.</strong> The board (<kbd>S</kbd>) groups Active trees by step. It never starts a step or marks one complete.</li>
+  </ul>
+</section>
+
+<section id="check" aria-labelledby="check-h">
+  <h2 id="check-h">When you doubt a row, ask for the evidence</h2>
+  <p>Press <kbd>i</kbd> on a selected session, or run <code>pi-hub explain &lt;id-or-prefix&gt;</code>. Hub shows the inputs that produced the icon and the section. The command only reads; it does not update the registry.</p>
+  <div class="evidence">
+<div class="mini" aria-label="Example evidence">tmux       <span class="ok">✓</span> tmux session present
+heartbeat  <span class="ok">✓</span> heartbeat fresh · 9s old · Pi state waiting
+read       <span class="ok">✓</span> agent result is newer than your last read
+workflow   · step 2 of 3 · Execute · fresh
+result     → fresh heartbeat reports an unread result</div>
+    <div>
+      <p class="note">Example built from the wording in <code>src/tui/status-evidence.ts</code>. The real layout can differ.</p>
+      <p>What Hub never reads to decide a row:</p>
+      <ul>
+        <li>your terminal output or pane text;</li>
+        <li>your Pi conversation;</li>
+        <li>guesses about idle time or workflow progress.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="takeaway">Read each mark on a row as a separate claim. The icon comes from tmux and the heartbeat. Requests and steps come from Pi extensions. Sections and labels come from Hub. If a claim looks wrong, <kbd>i</kbd> shows its source.</p>
+</section>
+
+</main>
+<script>
+(() => {
+  const info = {
+    status: { name: "Runtime status", c: "c-status", html: `
+      <dl><dt>Shows</dt><dd>⠋ running/starting · ◐ waiting (unread result) · ○ idle (read) · × error · - stopped</dd>
+      <dt>Source</dt><dd>tmux presence plus the heartbeat file. Hub recomputes it every second.</dd>
+      <dt>Changes when</dt><dd>Pi starts or ends a turn, compacts, opens a prompt, exits, or you open the session.</dd>
+      <dt>Does not mean</dt><dd>◐ waiting does not mean the agent asked for you. It means a result exists that you have not opened.</dd></dl>` },
+    request: { name: "Request", c: "c-request", html: `
+      <dl><dt>Shows</dt><dd>? question · ! blocker · ✓ ready, plus the text under the title.</dd>
+      <dt>Source</dt><dd>A Pi extension publishes it in the Pi branch. The Hub extension copies it into the heartbeat. Hub keeps it in memory only.</dd>
+      <dt>Changes when</dt><dd>The extension publishes a new request, or you open the session. Opening hides it until a newer one arrives.</dd>
+      <dt>Does not mean</dt><dd>Hub never invents a request from silence or idle time. It appears only on waiting or idle rows.</dd></dl>` },
+    workflow: { name: "Workflow position", c: "c-workflow", html: `
+      <dl><dt>Shows</dt><dd>Step labels in the section header (PL EX RV) and ✓ done · ◉ current · · later under each row.</dd>
+      <dt>Source</dt><dd>The workflow extension lists the steps and the current one. Hub saves the last position in <code>registry.json</code>.</dd>
+      <dt>Changes when</dt><dd>The extension reports a new step or marks the current step complete.</dd>
+      <dt>Does not mean</dt><dd>A ✓ is a position, not a record that the step ran. It says nothing about whether Pi is running.</dd></dl>` },
+    placement: { name: "Section", c: "c-placement", html: `
+      <dl><dt>Shows</dt><dd>NEEDS YOU, HEALTH, ACTIVE, QUIET, ARCHIVED, with counts in the left TIERS column and the top bar.</dd>
+      <dt>Source</dt><dd>Hub derives it on every render from the parent's request, error, and running state, plus running children.</dd>
+      <dt>Changes when</dt><dd>Any of those inputs change. Filtering hides rows but never moves a tree.</dd>
+      <dt>Does not mean</dt><dd>The section never changes a row's own icon. A waiting parent can sit in ACTIVE because a child runs.</dd></dl>` },
+    label: { name: "Your labels", c: "c-label", html: `
+      <dl><dt>Shows</dt><dd>[group] badges, and backlog or archived placement.</dd>
+      <dt>Source</dt><dd>Your own actions: <kbd>g</kbd> group, <kbd>B</kbd> Backlog, <kbd>A</kbd> Archive. Hub saves them in <code>registry.json</code>.</dd>
+      <dt>Changes when</dt><dd>Only when you change them.</dd>
+      <dt>Does not mean</dt><dd>Archive or Backlog never stops Pi. A backlog session can still run.</dd></dl>` },
+    children: { name: "Child counts", c: "c-children", html: `
+      <dl><dt>Shows</dt><dd>⚙︎1: one child subagent is running. ?1: one hidden child has a request.</dd>
+      <dt>Source</dt><dd>Child rows from subagent tooling, each with its own heartbeat. Hub counts them for the parent.</dd>
+      <dt>Changes when</dt><dd>A child starts, finishes, or publishes a request. Expand a tree with → to see children.</dd>
+      <dt>Does not mean</dt><dd>A child's request or error never becomes the parent's state.</dd></dl>` },
+  };
+  const term = document.getElementById("term");
+  const explain = document.getElementById("explain");
+  const buttons = [...document.querySelectorAll(".legend button")];
+  const defaultHtml = explain.innerHTML;
+  let current = null;
+  const select = (key) => {
+    current = key === current ? null : key;
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.key === current)));
+    term.classList.toggle("focus", Boolean(current));
+    term.querySelectorAll(".k").forEach((s) => s.classList.toggle("on", s.dataset.key === current));
+    explain.className = "explain" + (current ? " " + info[current].c : "");
+    explain.innerHTML = current ? `<h3>${info[current].name}</h3>${info[current].html}` : defaultHtml;
+  };
+  buttons.forEach((b) => b.addEventListener("click", () => select(b.dataset.key)));
+  term.addEventListener("click", (e) => { const k = e.target.closest(".k"); if (k) select(k.dataset.key); });
+
+  const sections = [...document.querySelectorAll("main > section")];
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const el = document.activeElement;
+    if (el && el !== document.body && el.matches("button, input, select, textarea, [contenteditable]")) return;
+    const y = window.scrollY + 40;
+    let i = 0;
+    sections.forEach((s, n) => { if (s.offsetTop <= y) i = n; });
+    const next = sections[Math.max(0, Math.min(sections.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)))];
+    e.preventDefault();
+    next.scrollIntoView({ block: "start" });
+  });
+})();
+</script>
+</body>
+</html>

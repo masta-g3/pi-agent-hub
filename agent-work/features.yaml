@@ -1098,3 +1098,13 @@
   priority: 3
   created_at: '2026-10-06'
   discovered_from: dashboard-polish-001
+- id: dashboard-visibility-003
+  status: pending
+  title: Tmux activity fallback
+  subtitle: Wire or remove dead activity rule
+  description: computeStatus checks tmux.recentActivityMs but no production code sets
+    it, so the documented 5 s pane-activity fallback never fires; wire it to tmux
+    activity or remove the rule and its docs.
+  priority: 3
+  created_at: '2026-10-11'
+  discovered_from: rules explain-html eval 2026-10-11 (hub-d explainer)
