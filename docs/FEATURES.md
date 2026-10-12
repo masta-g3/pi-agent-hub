@@ -263,7 +263,7 @@ When worktree mode is on, enter a branch name. Hub creates the same branch in ev
 
 New sessions and fresh-conversation restarts use `New · <repository>`. Forks use `Fork · <source session name>`. Duplicate defaults gain ` · 2`, ` · 3`, and so on. Worktree sessions use the source repo's folder name.
 
-These are initial names. Manual or agent naming can replace an unlinked session's name; resuming a saved conversation preserves it. `R` renames a live session, and `N` syncs from Pi's saved name.
+These are Hub titles, not Pi names. New conversations start unnamed in Pi so a producer such as Rules can name them from the first request. Forks pass their title to Pi as `--name`, because Pi copies the source session's name into the fork. Manual or agent naming can replace an unlinked session's name; resuming a saved conversation preserves it. `R` renames a live session, and `N` syncs from Pi's saved name.
 
 With Rules installed, a linked ticket owns the name. It identifies the task, not the workflow stage. Hub disables Rename while ticket context is present. In Pi, use `/wf-ticket clear` to unlink the ticket while keeping workflow progress, or `/wf-clear` to clear both. Both stop Focus continuation and release name protection without changing the current name or ticket files. Dismissing only the completed workflow indicator keeps the ticket linked.
 

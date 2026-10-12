@@ -107,7 +107,8 @@ async function startManagedSessionImpl(
     });
   });
   session = findSession(committed, session.id);
-  const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile, ...(!session.sessionFile ? { name: session.title } : {}) });
+  // New conversations start unnamed in Pi so producers can name them; the Hub title stays a local fallback.
+  const piArgs = buildPiArgs({ extensionPath: extensionPath(), sessionFile: session.sessionFile });
   const worktreeGuidance = renderWorktreeGuidance(session);
   await newSession({
     name: session.tmuxSession,

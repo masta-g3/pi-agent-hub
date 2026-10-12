@@ -258,7 +258,7 @@ test("addManagedSession injects worktree guidance for a single-repo worktree", a
 
     assert.equal(created.additionalCwds, undefined);
     assert.equal(created.title, "New · api");
-    assert.match(commands, /'--name' 'New · api'/);
+    assert.doesNotMatch(commands, /--name/);
     const more = await Promise.all([addManagedSession({ cwd: repo }), addManagedSession({ cwd: repo })]);
     assert.deepEqual(new Set(more.map((item) => item.title)), new Set(["New · api · 2", "New · api · 3"]));
     assert.match(commands, new RegExp(`${WORKTREE_GUIDANCE_ENV}=`));
@@ -344,7 +344,7 @@ test("startManagedSession merges prepared workspace outputs into the latest row"
     assert.deepEqual(committed.additionalCwds, ["/tmp/canonical-extra"]);
     const commands = await readFile(log, "utf8");
     assert.match(commands, /new-session/);
-    assert.match(commands, /'--name' 'latest title'/);
+    assert.doesNotMatch(commands, /--name/);
     await updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((item) => ({ ...item, sessionFile: "/tmp/saved.jsonl" })) }));
     await writeFile(log, "");
     await startManagedSession("source-session", async (prepared) => prepared);
@@ -468,7 +468,7 @@ test("restartManagedSessionFresh clears saved Pi state and starts a new tmux ses
     const commands = await readFile(log, "utf8");
     assert.match(commands, /kill-session -t pi-agent-hub-source/);
     assert.match(commands, /new-session .*PI_AGENT_HUB_SESSION_ID='source-session'/);
-    assert.match(commands, /'--name' 'New · project'/);
+    assert.doesNotMatch(commands, /--name/);
     assert.doesNotMatch(commands, new RegExp(`${WORKTREE_GUIDANCE_ENV}=`));
     assert.doesNotMatch(commands, new RegExp(`${SUBAGENT_PROMPT_APPEND_ENV}=`));
     assert.match(commands, /set-option -t pi-agent-hub-source status on/);
