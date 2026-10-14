@@ -3226,67 +3226,76 @@ test("custom dashboard shortcut reports unavailable without a transport action",
   assert.match(stripAnsi(view.render(100).join("\n")), /shortcut transport unavailable/);
 });
 
-test("p opens footer send prompt and submits message to selected live session", async () => {
-  const sent: Array<{ tmuxSession: string; message: string }> = [];
+const messageActions = {
+  interactionTarget,
+  loadInteractionState: async () => ({ questionProtocol: false, pending: [], messageDelivery: "idle" as const }),
+};
+
+test("p opens a send form and submits message to selected live session", async () => {
+  const sent: unknown[] = [];
   let now = 100;
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    sendMessage: async (tmuxSession, message) => { sent.push({ tmuxSession, message }); },
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
+    ...messageActions,
+    sendMessage: async (target, message, delivery) => { sent.push({ target, message, delivery }); },
     now: () => now,
   });
 
+  await view.refreshInteraction();
   view.handleInput("p");
   const rawPrompt = view.render(100).join("\n");
-  assert.match(rawPrompt, /\u001b\[5m█\u001b\[25m/);
   const prompt = stripAnsi(rawPrompt);
-  assert.match(prompt, /pi agent hub/);
-  assert.match(prompt, /▌.*·\s+○ api/);
-  assert.match(prompt, /send to api: █/);
-  assert.doesNotMatch(prompt, /Send to api/);
-  now = 1_100;
-  assert.match(view.render(100).join("\n"), /\u001b\[5m▌\u001b\[25m/);
+  assert.match(prompt, /Send to api/);
+  assert.match(prompt, /▎ message\s+█/);
+  assert.match(prompt, /enter send · esc cancel/);
+  assert.doesNotMatch(prompt, /FLEET|send to api:/);
   for (const char of "fix it") view.handleInput(char);
   view.handleInput("\r");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(sent, [{ tmuxSession: "pi-agent-hub-api", message: "fix it" }]);
+  assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "fix it", delivery: "send" }]);
   assert.match(stripAnsi(view.render(100).join("\n")), /sent → api/);
   now = 3_000;
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /sent → api/);
 });
 
-test("themed footer text remains styled when input is truncated", () => {
+test("send form keeps input, recipient and controls visible in narrow themed layouts", async () => {
   const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
-  const cases = [
-    { key: "p", expected: "send api:" },
-  ];
-
-  for (const { key, expected } of cases) {
-    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-      sendMessage: () => {},
+  for (const width of [40, 50, 80, 120]) {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
+      ...messageActions,
+      sendMessage: () => {}, terminalRows: () => 12,
     }, theme);
-    view.handleInput(key);
+    await view.refreshInteraction();
+    view.handleInput("p");
     for (const char of "界".repeat(52)) view.handleInput(char);
-
-    const footer = view.render(50).at(-2) ?? "";
-    assert.match(footer, /\u001b\[38;2;1;2;3m/);
-    assert.match(stripAnsi(footer), new RegExp(`${expected}.*…`));
-    assert.ok(stripAnsi(footer).length <= 50, stripAnsi(footer));
+    const rows = view.render(width);
+    const rendered = stripAnsi(rows.join("\n"));
+    assert.match(rendered, /Send to api/);
+    assert.match(rendered, /message/);
+    assert.match(rendered, /….*█/);
+    assert.match(rendered, /enter send|Enter Send/);
+    assert.match(rendered, /esc cancel|Esc Cancel/);
+    assert.match(rows.join("\n"), /\u001b\[38;2;1;2;3m/);
+    assert.ok(rows.length <= 12);
+    for (const row of rows) assert.ok(visibleWidth(row) <= width, row);
   }
 });
 
-test("footer send prompt validates blank message and escape cancels", () => {
+test("send form validates blank message and escape cancels", async () => {
   const sent: string[] = [];
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
-    sendMessage: (_tmuxSession, message) => { sent.push(message); },
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
+    ...messageActions,
+    sendMessage: (_target, message) => { sent.push(message); },
   });
 
+  await view.refreshInteraction();
   view.handleInput("p");
   view.handleInput("\r");
   assert.match(stripAnsi(view.render(100).join("\n")), /message is required/);
   view.handleInput("\u001b");
 
   assert.deepEqual(sent, []);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /send to api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Send to api/);
 });
 
 test("send shortcut blocks subagent stopped and error rows", () => {
@@ -3308,13 +3317,15 @@ test("send shortcut blocks subagent stopped and error rows", () => {
   }
 });
 
-test("send shortcut allows all live statuses", () => {
+test("send shortcut allows all live statuses with a ready bridge", async () => {
   for (const status of ["starting", "running", "waiting", "idle"] as const) {
-    const view = new SessionsView(new SessionsController({ version: 1, sessions: [{ ...session(status, status), status }] }), () => {}, {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [{ ...readySession(status, status), status }] }), () => {}, {
+      ...messageActions,
       sendMessage: () => {},
     });
+    await view.refreshInteraction();
     view.handleInput("p");
-    assert.match(stripAnsi(view.render(100).join("\n")), new RegExp(`send to ${status}:`));
+    assert.match(stripAnsi(view.render(100).join("\n")), new RegExp(`Send to ${status}`));
   }
 });
 
@@ -3324,14 +3335,105 @@ test("send shortcut reports unavailable without a transport action", () => {
   view.handleInput("p");
 
   assert.match(stripAnsi(view.render(100).join("\n")), /send transport unavailable/);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /send to api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Send to api/);
+});
+
+test("send form edits and pastes text while preserving its original recipient", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api"), readySession("web", "web")] });
+  controller.selectSession("api");
+  const sent: unknown[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    ...messageActions,
+    sendMessage: (target, message) => { sent.push({ target, message }); },
+  });
+  await view.refreshInteraction();
+  view.handleInput("p");
+  for (const char of "ac") view.handleInput(char);
+  view.handleInput("\u001b[D");
+  view.handleInput("\u001b[200~b\nline\u001b[201~");
+  controller.selectSession("web");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Send to api/);
+  view.handleInput("\r");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "ab linec" }]);
+});
+
+test("send form does not send after its recipient disappears", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api"), readySession("web", "web")] });
+  controller.selectSession("api");
+  const sent: unknown[] = [];
+  const view = new SessionsView(controller, () => {}, { ...messageActions, sendMessage: (target) => { sent.push(target); } });
+  await view.refreshInteraction();
+  view.handleInput("p");
+  for (const char of "hello") view.handleInput(char);
+  controller.removeSession("api");
+  view.handleInput("\r");
+  assert.deepEqual(sent, []);
+});
+
+test("busy send form exposes steer and queue while preserving text and bounded layout", async () => {
+  for (const queue of [false, true]) {
+    const sent: unknown[] = [];
+    // Pi's busy state, not the dashboard's waiting label, controls delivery choices.
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [{ ...readySession("api", "api"), status: "waiting" }] }), () => {}, {
+      interactionTarget,
+      loadInteractionState: async () => ({ questionProtocol: false, pending: [], messageDelivery: "busy" }),
+      sendMessage: (target, message, delivery) => { sent.push({ target, message, delivery }); },
+      terminalRows: () => 12,
+    });
+    await view.refreshInteraction();
+    view.handleInput("p");
+    for (const char of "continue here") view.handleInput(char);
+    assert.match(stripAnsi(view.render(40).join("\n")), /Steer now/);
+    if (queue) {
+      view.handleInput("\t");
+      view.handleInput("\u001b[C");
+      view.handleInput("x"); // Printable keys cannot overwrite a delivery choice.
+      assert.match(stripAnsi(view.render(40).join("\n")), /Queue for later/);
+      view.handleInput("\t");
+    }
+    const rows = view.render(40);
+    assert.ok(rows.length <= 12);
+    for (const row of rows) assert.ok(visibleWidth(row) <= 40);
+    assert.match(stripAnsi(rows.join("\n")), queue ? /Enter Queue/ : /Enter Steer/);
+    assert.match(stripAnsi(rows.join("\n")), /Esc Cancel/);
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "continue here", delivery: queue ? "followUp" : "steer" }]);
+    assert.match(stripAnsi(view.render(100).join("\n")), queue ? /queue requested → api/ : /steer requested → api/);
+  }
+});
+
+test("send requires a message-capable bridge and rejects a replaced Pi instance", async () => {
+  const selected = readySession("api", "api");
+  let capable = false;
+  let now = 0;
+  let sends = 0;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, {
+    interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: false, pending: [], ...(capable ? { messageDelivery: "idle" as const } : {}) }),
+    sendMessage: () => { sends++; }, now: () => now,
+  });
+  await view.refreshInteraction();
+  view.handleInput("p");
+  assert.match(stripAnsi(view.render(100).join("\n")), /Reload Pi/);
+  capable = true; now = 10_000;
+  await view.refreshInteraction();
+  view.handleInput("p");
+  for (const char of "hello") view.handleInput(char);
+  selected.interaction = { version: 1, instanceId: "replacement" };
+  view.handleInput("\r");
+  assert.equal(sends, 0);
+  assert.match(stripAnsi(view.render(100).join("\n")), /send target changed/);
 });
 
 test("send action errors show in footer", async () => {
-  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {}, {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
+    ...messageActions,
     sendMessage: async () => { throw new Error("send failed"); },
   });
 
+  await view.refreshInteraction();
   view.handleInput("p");
   view.handleInput("h");
   view.handleInput("\r");

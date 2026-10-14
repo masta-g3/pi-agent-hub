@@ -57,9 +57,9 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
     handlers.failure(error);
   }
 }
-import { handlePromptInput, openFilterPrompt, openSendPrompt, promptFilterValue, sendPromptFooter } from "./prompt-dialog.js";
+import { handlePromptInput, openFilterPrompt, promptFilterValue } from "./prompt-dialog.js";
 import { isEnterKey } from "./text-input.js";
-import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
+import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, openSendForm, renderFormDialog } from "./form-dialogs.js";
 import { createRestartDialog, handleArchiveInput, handleRestartDialogInput, handleConfirmInput, openArchiveDialog, openDeleteDialog, openFinishDialog, renderArchiveDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
@@ -440,8 +440,7 @@ export class SessionsView implements Component {
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
-    const footer = this.dialog?.kind === "prompt" && this.dialog.purpose === "send" ? sendPromptFooter(this.dialog, this.dialogContext(), width - 2) : undefined;
-    let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : footer ? replaceFooter(layout.lines, footer, this.theme) : layout.lines;
+    let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : layout.lines;
     this.paletteRowTargets = [];
     this.paletteBounds = undefined;
     this.paletteDetailRegion = undefined;
@@ -798,6 +797,7 @@ export class SessionsView implements Component {
       controller: this.controller,
       actions: this.actions,
       theme: this.theme,
+      interactionState: sameInteractionTarget(this.interaction.target, this.controller.selected() && this.actions.interactionTarget?.(this.controller.selected()!)) ? this.interaction.state : undefined,
       now: () => this.actions.now?.() ?? Date.now(),
       close: () => { this.dialog = undefined; },
       setDialog: (dialog) => { this.dialog = dialog; },
@@ -1226,7 +1226,7 @@ export class SessionsView implements Component {
   }
 
   private startSendDialog() {
-    this.openDialog(openSendPrompt);
+    this.openDialog(openSendForm);
   }
 
   private pinSidePane(sessionId: string) {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { EventEmitter, once } from "node:events";
 import { startSessionInteraction, type InteractionAdapter } from "../src/extension/session-interaction.js";
-import { requestSessionInteraction, interactionSocketPath, type InteractionRequest } from "../src/core/session-interaction.js";
+import { requestSessionInteraction, interactionSocketPath, parseInteractionRequest, type InteractionRequest } from "../src/core/session-interaction.js";
 
 test("bridge binds identities, pages branches, and guards/replays configured dispatch", async () => {
   const dir = await mkdtemp("/tmp/hc13.");
@@ -169,6 +169,57 @@ test("confirmed stale socket is replaced, but a regular file is never removed", 
     try { assert.notEqual(replacement.target.instanceId, f.server.target.instanceId); }
     finally { await replacement.close(); }
   } finally { await f.close(); }
+});
+
+test("message delivery uses Pi's steer and follow-up APIs without touching its editor or blocking on existing queues", async () => {
+  let idle = false;
+  const sent: unknown[] = [];
+  const f = await fixture({ isIdle: () => idle, hasPendingMessages: () => true, getEditorText: () => "keep my draft",
+    sendUserMessage: (text, options) => { sent.push({ text, options }); },
+  });
+  try {
+    assert.equal((await f.request({ kind: "state" }) as { messageDelivery?: string }).messageDelivery, "busy");
+    await f.request({ kind: "send-message", text: "change direction", delivery: "steer" });
+    const queued = { kind: "send-message", text: "/literal text", delivery: "followUp" };
+    await Promise.all([f.request(queued, "queued-once"), f.request(queued, "queued-once")]);
+    idle = true;
+    assert.equal((await f.request({ kind: "state" }) as { messageDelivery?: string }).messageDelivery, "idle");
+    await f.request({ kind: "send-message", text: "new task", delivery: "send" });
+    assert.deepEqual(sent, [
+      { text: "change direction", options: { deliverAs: "steer", expandPromptTemplates: false } },
+      { text: "/literal text", options: { deliverAs: "followUp", expandPromptTemplates: false } },
+      { text: "new task", options: { deliverAs: "steer", expandPromptTemplates: true } },
+    ]);
+  } finally { await f.close(); }
+});
+
+test("send rejects an idle-to-busy race and stale session identity without dispatch", async () => {
+  let sends = 0;
+  let piSessionId = "pi";
+  const f = await fixture({ isIdle: () => false, getPiSessionId: () => piSessionId, sendUserMessage: () => { sends++; } });
+  try {
+    await assert.rejects(f.request({ kind: "send-message", text: "hello", delivery: "send" }), /Steer|Queue/);
+    piSessionId = "replacement";
+    await assert.rejects(f.request({ kind: "send-message", text: "hello", delivery: "steer" }), /unavailable/);
+    assert.equal(sends, 0);
+  } finally { await f.close(); }
+});
+
+test("explicit queued delivery still dispatches if Pi becomes idle", async () => {
+  let options: unknown;
+  const f = await fixture({ sendUserMessage: (_text, value) => { options = value; } });
+  try {
+    await f.request({ kind: "send-message", text: "next task", delivery: "followUp" });
+    assert.deepEqual(options, { deliverAs: "followUp", expandPromptTemplates: false });
+  } finally { await f.close(); }
+});
+
+test("message request parsing rejects blank text and unknown delivery modes", () => {
+  const base = { version: 1, id: "request", managedId: "managed", piSessionId: "pi", instanceId: "instance", kind: "send-message", text: "hello", delivery: "steer" };
+  assert.ok(parseInteractionRequest(base));
+  for (const changes of [{ text: " " }, { text: 2 }, { delivery: "queue" }, { delivery: ["steer"] }, { delivery: undefined }]) {
+    assert.equal(parseInteractionRequest({ ...base, ...changes }), undefined);
+  }
 });
 
 test("lost producer receipt reports uncertainty and never retries a write", async () => {

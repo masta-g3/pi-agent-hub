@@ -14,11 +14,13 @@ export interface PendingQuestion {
 export type AnswerInput = { questionIndex: number; kind: "option"; optionIndex: number }
   | { questionIndex: number; kind: "custom"; text: string }
   | { questionIndex: number; kind: "multi"; optionIndices: number[] };
-export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; shortcutDisabledReason?: string }
+export type MessageDelivery = "send" | "steer" | "followUp";
+export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
 export type InteractionRequest = InteractionTarget & { version: 1; id: string } & (
   { kind: "state" } | { kind: "read"; before?: string; branchId?: string; limit?: number }
   | { kind: "submit-answer"; toolCallId: string; answers: AnswerInput[] }
-  | { kind: "run-shortcut"; key: string; expectedSend: string });
+  | { kind: "run-shortcut"; key: string; expectedSend: string }
+  | { kind: "send-message"; text: string; delivery: MessageDelivery });
 export type InteractionResult = SessionInteractionState | ConversationPage | { accepted: true };
 export type InteractionResponse = InteractionTarget & { version: 1; id: string } & ({ ok: true; result: InteractionResult } | { ok: false; error: string });
 export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -37,6 +39,7 @@ export function parseInteractionRequest(value: unknown): InteractionRequest | un
   const text = (v: unknown) => typeof v === "string";
   if (value.kind === "state"
     || value.kind === "read" && (value.before === undefined || text(value.before)) && (value.branchId === undefined || text(value.branchId)) && (value.limit === undefined || Number.isInteger(value.limit) && Number(value.limit) > 0 && Number(value.limit) <= 20)
+    || value.kind === "send-message" && typeof value.text === "string" && Boolean(value.text.trim()) && typeof value.delivery === "string" && ["send", "steer", "followUp"].includes(value.delivery)
     || value.kind === "run-shortcut" && text(value.key) && text(value.expectedSend)
     || value.kind === "submit-answer" && text(value.toolCallId) && Array.isArray(value.answers) && value.answers.length <= 4 && value.answers.every(isAnswerInput)) return value as unknown as InteractionRequest;
 }
@@ -62,7 +65,7 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
     const socket = createConnection(path);
     let buffer = Buffer.alloc(0);
     let settled = false;
-    const write = request.kind === "run-shortcut" || request.kind === "submit-answer";
+    const write = request.kind === "run-shortcut" || request.kind === "submit-answer" || request.kind === "send-message";
     const finish = (error?: Error, result?: InteractionResult) => {
       if (settled) return;
       settled = true; clearTimeout(timer); socket.destroy();
@@ -91,7 +94,8 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
 function validResult(kind: InteractionRequest["kind"], value: unknown): value is InteractionResult {
   if (!isObject(value)) return false;
   if (kind === "state") return typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
-    && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string");
+    && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
+    && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy");
   if (kind === "read") return typeof value.branchId === "string" && typeof value.revision === "string"
     && (value.before === undefined || typeof value.before === "string") && Array.isArray(value.items) && value.items.length <= 20
     && value.items.every((item) => isObject(item) && typeof item.id === "string" && typeof item.text === "string"

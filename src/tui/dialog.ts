@@ -1,4 +1,4 @@
-import type { InteractionTarget, SessionInteractionState, AnswerInput } from "../core/session-interaction.js";
+import type { InteractionTarget, SessionInteractionState, AnswerInput, MessageDelivery } from "../core/session-interaction.js";
 import type { ConversationPage } from "../core/conversation.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
 import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
@@ -119,7 +119,7 @@ export interface FavoritesActions {
 export interface NavigationActions {
   attachOutsideTmux: (tmuxSession: string) => void | Promise<void>;
   switchInsideTmux: (tmuxSession: string) => void | boolean | Promise<void | boolean>;
-  sendMessage: (tmuxSession: string, message: string) => unknown;
+  sendMessage: (target: InteractionTarget, message: string, delivery: MessageDelivery) => unknown;
   refreshStatusEvidence: () => void | Promise<void>;
 }
 
@@ -198,7 +198,7 @@ export interface SessionsViewActions {
   previewDashboardTheme?: (setting: string) => void;
   cancelDashboardTheme?: (setting: string) => void;
   applyDashboardTheme?: (setting: string, syncPi: boolean) => void | Promise<void>;
-  sendMessage?: (tmuxSession: string, message: string) => unknown;
+  sendMessage?: NavigationActions["sendMessage"];
   dashboardShortcuts?: readonly DashboardShortcut[];
   runDashboardShortcut?: (sessionId: string, shortcut: DashboardShortcut) => unknown;
   copy?: (text: string) => void;
@@ -213,6 +213,7 @@ export interface DialogContext {
   controller: SessionsController;
   actions: SessionsViewActions;
   theme: SessionsTheme | undefined;
+  interactionState?: SessionInteractionState;
   now(): number;
   close(): void;
   setDialog(dialog: SessionDialog): void;
@@ -229,8 +230,8 @@ export interface DialogContext {
 /** Context boundary for a dialog family. Only the declared action fields are visible. */
 export type DialogContextFor<Actions extends object> = Omit<DialogContext, "actions"> & { actions: Actions };
 
-export type PromptDialogContext = DialogContextFor<Partial<Pick<NavigationActions, "sendMessage">>>;
-export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">>>;
+export type PromptDialogContext = Omit<DialogContext, "actions">;
+export type FormDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "forkSession" | "changeGroup" | "renameSession" | "renameGroup">> & Partial<Pick<NavigationActions, "sendMessage">> & Pick<SessionsViewActions, "interactionTarget">>;
 export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "deleteSession" | "closeSubagents" | "discardWorktree" | "finishWorktree" | "restart" | "restartNew" | "restartAll" | "archiveSession">>>;
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
 export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions }>;

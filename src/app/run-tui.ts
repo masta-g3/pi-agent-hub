@@ -1,4 +1,4 @@
-import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut } from "./session-interaction.js";
+import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut, sendSessionMessage } from "./session-interaction.js";
 import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
 import { plainTerminalText } from "../core/terminal-text.js";
@@ -23,7 +23,7 @@ import { sessionSection } from "../core/session-bucket.js";
 import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renameSessionFavorite, removeSessionFavorite } from "../core/session-favorites.js";
-import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, sendTextToSession, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
+import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
@@ -616,9 +616,7 @@ export async function runTui(): Promise<void> {
     reorderSession(sessionId, delta) {
       return mutateRegistry(() => controller.reorderSession(sessionId, delta));
     },
-    sendMessage(tmuxSession, message) {
-      return sendTextToSession(tmuxSession, message);
-    },
+    sendMessage: sendSessionMessage,
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
       const session = controller.snapshot().sessions.find(row => row.id === sessionId);

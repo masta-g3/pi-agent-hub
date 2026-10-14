@@ -30,7 +30,7 @@ Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` f
 | Task context | The selected-session workspace shows requests, task text, workflow position, and actions. |
 | Conversation | `c` shows completed messages and supported inline questions below the fleet. |
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
-| Direct send | `p` sends a one-line message without opening the session. |
+| Direct send | `p` opens a message form: Send while idle, or Steer/Queue while busy. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Multi-repo sessions | `Ctrl+R` adds a repo in the new-session form. |
@@ -57,7 +57,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `b` | Show or hide Backlog in the current filter |
 | `:` | Search actions, sessions, and named filters |
 | `]` | Select the next visible session that needs you; `Enter` opens it |
-| `p` | Send a one-line message to the selected live session |
+| `p` | Open the selected live session's Send / Steer / Queue form |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
@@ -96,6 +96,16 @@ Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the
 Direct answers require a [compatible question extension](CONFIG.md#inline-questions). If unavailable, use **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. Opening or hiding Conversation neither answers nor cancels a request.
 
 Conversation shows completed text and question/answer exchanges, not tools, thinking, or streaming fragments. It reads the live session without saving a second transcript or searching messages. Stopped sessions require Restart. After updating Hub, reopen the dashboard and reload idle Pi sessions with `/reload` if their extension changed.
+
+## Send, steer, or queue
+
+Press `p` to open a message form for the selected live parent. Its title names the recipient. Enter sends from the message field; Escape cancels without sending.
+
+When Pi is busy, delivery starts at **Steer now**: Pi uses the message before its next model call, after current tool calls finish. Press Tab to focus delivery, then ←/→, Space, or Enter to switch to **Queue for later**: Pi uses the message after the current run finishes. Tab back to the message field and press Enter to submit. Idle Pi shows only **Send**.
+
+Messages go through Pi's exact-session bridge without changing its editor draft. Busy messages are literal text; idle Send expands Pi commands and prompt templates. Delivery confirmations report dispatch, not completion of the requested work. If Pi starts working after an idle form opens, reopen the form to choose Steer or Queue. If a delivery is not confirmed, check Pi before retrying.
+
+After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessions once idle to enable message delivery. New sessions load the bridge automatically.
 
 ## Repo grouping
 

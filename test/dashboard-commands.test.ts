@@ -290,8 +290,10 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
   ];
 
   for (const item of cases) {
-    const selected = session(item.name, item.values);
-    const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
+    const selected = session(item.name, { piSessionId: "pi", interaction: { version: 1, instanceId: "instance" }, ...item.values });
+    const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState,
+      interactionState: { questionProtocol: false, pending: [], messageDelivery: "idle" },
+    });
     const workspace = selectWorkspaceCommands(selected, commands, 3);
     assert.equal(workspace.guidance, item.guidance, item.name);
     assert.deepEqual(workspace.actions.map((command) => command.id), item.actions.map((name) => `action:${selected.id}:${name}`), item.name);

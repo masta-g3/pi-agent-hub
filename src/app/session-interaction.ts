@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RuntimeSession } from "../core/types.js";
 import type { ConversationPage } from "../core/conversation.js";
-import { requestSessionInteraction, type AnswerInput, type InteractionRequest, type InteractionTarget, type SessionInteractionState } from "../core/session-interaction.js";
+import { requestSessionInteraction, type AnswerInput, type InteractionRequest, type InteractionTarget, type MessageDelivery, type SessionInteractionState } from "../core/session-interaction.js";
 export type { AnswerInput, InteractionTarget, PendingQuestion, SessionInteractionState } from "../core/session-interaction.js";
 
 export function interactionTarget(session: RuntimeSession): InteractionTarget | undefined {
@@ -17,6 +17,9 @@ export async function loadSessionConversation(target: InteractionTarget, options
 }
 export async function submitSessionAnswer(target: InteractionTarget, toolCallId: string, answers: AnswerInput[]): Promise<void> {
   await requestSessionInteraction({ ...envelope(target), kind: "submit-answer", toolCallId, answers });
+}
+export async function sendSessionMessage(target: InteractionTarget, text: string, delivery: MessageDelivery): Promise<void> {
+  await requestSessionInteraction({ ...envelope(target), kind: "send-message", text, delivery });
 }
 export async function runSessionShortcut(target: InteractionTarget, key: string, expectedSend: string): Promise<void> {
   const request: InteractionRequest = { ...envelope(target), kind: "run-shortcut", key, expectedSend };

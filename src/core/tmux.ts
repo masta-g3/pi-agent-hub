@@ -244,13 +244,6 @@ export async function clientSessionByTty(tty: string, exec: TmuxExec = realTmuxE
   return (await clientSessionsByTty(exec)).get(tty);
 }
 
-export async function sendTextToSession(name: string, text: string, exec: TmuxExec = realTmuxExec): Promise<void> {
-  const buffer = `pi-agent-hub-send-${process.pid}`;
-  await exec.exec("tmux", ["set-buffer", "-b", buffer, "--", text]);
-  await exec.exec("tmux", ["paste-buffer", "-d", "-b", buffer, "-t", name]);
-  await exec.exec("tmux", ["send-keys", "-t", name, "Enter"]);
-}
-
 type TmuxStatusOption = readonly [key: string, value: string];
 
 function statusBarArgs(options: {

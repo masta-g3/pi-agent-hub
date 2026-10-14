@@ -16,7 +16,7 @@ export interface InteractionAdapter {
   hasPendingMessages(): boolean;
   getEditorText(): string;
   uiPromptOpen(): boolean;
-  sendUserMessage(text: string, options: { expandPromptTemplates: true }): void;
+  sendUserMessage(text: string, options: { expandPromptTemplates: boolean; deliverAs?: "steer" | "followUp" }): void;
 }
 const REQUEST_EVENT = "rpiv:ask-user:request";
 const RESPONSE_EVENT = "rpiv:ask-user:response";
@@ -105,7 +105,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
     if (request.kind === "state") {
       const pending = await query();
       checkRequest();
-      return { questionProtocol: supported === true, pending, shortcutDisabledReason: disabled(pending) } satisfies SessionInteractionState;
+      return { questionProtocol: supported === true, pending, shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" } satisfies SessionInteractionState;
     }
     if (request.kind === "submit-answer") {
       const pending = await query();
@@ -116,6 +116,16 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       checkRequest();
       if (!reply) throw new Error(DELIVERY_UNCONFIRMED);
       if (!isObject(reply) || reply.ok !== true || reply.accepted !== true) throw new Error(isObject(reply) && typeof reply.error === "string" ? reply.error : "Answer unavailable");
+      return { accepted: true };
+    }
+    if (request.kind === "send-message") {
+      if (request.delivery === "send" && !adapter.isIdle()) throw new Error("Pi started working; reopen Send and choose Steer now or Queue for later");
+      checkRequest();
+      adapter.sendUserMessage(request.text, {
+        deliverAs: request.delivery === "followUp" ? "followUp" : "steer",
+        // Busy messages are text: slash commands must not bypass the chosen queue.
+        expandPromptTemplates: request.delivery === "send",
+      });
       return { accepted: true };
     }
     const shortcuts = await effectiveDashboardShortcuts(adapter.env);
@@ -160,7 +170,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
         send({ version: 1, id: request.id, managedId: request.managedId, piSessionId: request.piSessionId, instanceId: request.instanceId, ok: false, error: "Session interaction unavailable" });
         return;
       }
-      const write = request.kind === "run-shortcut" || request.kind === "submit-answer";
+      const write = request.kind === "run-shortcut" || request.kind === "submit-answer" || request.kind === "send-message";
       const fingerprint = JSON.stringify(request);
       const existing = receipts.get(request.id);
       if (existing) { if (existing.fingerprint !== fingerprint) send(failure("Request ID already used")); else void existing.promise.then(send); return; }

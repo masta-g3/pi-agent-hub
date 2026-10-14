@@ -5,7 +5,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { darkTmuxChrome } from "../src/core/chrome.js";
-import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sendTextToSession, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionAttentionCount, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
+import { attachSessionCommand, cliTuiCommand, clientSessionByTty, clientSessionsByTty, clientSize, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxClient, currentTmuxSession, displayClientMessage, inspectSidebarReturnBinding, inspectSwitchReturnBinding, installSidebarReturnBinding, killPane, listSessions, listTmuxClients, listWindowPanes, presizeSessionWindow, reconcileSidebarReturnBinding, removeSidebarReturnBinding, resetSessionWindowSize, resizePaneWidth, restoreSwitchReturnBinding, selectPane, sessionPresence, sessionPresenceSnapshot, setDashboardMouse, setSessionAttentionCount, setSessionStatusBarVisible, setPaneSlot, setPaneTitle, setWindowPaneBorderStatus, shellQuote, splitPaneAttach, splitWindowAttach, switchClient, switchClientTo, switchClientWithReturn, type TmuxExec } from "../src/core/tmux.js";
 import type { CommandResult } from "../src/core/types.js";
 
 interface Call {
@@ -363,27 +363,6 @@ test("currentTmuxClient reads and trims the current tmux client", async () => {
 
   await assert.equal(await currentTmuxClient(exec), "/dev/ttys011");
   assert.deepEqual(exec.calls, [{ command: "tmux", args: ["display-message", "-p", "#{client_name}"] }]);
-});
-
-test("sendTextToSession pastes text into target and submits", async () => {
-  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
-
-  await sendTextToSession("pi-agent-hub-api", "-fix quotes 'and' unicode ✓", exec);
-
-  assert.deepEqual(exec.calls, [
-    { command: "tmux", args: ["set-buffer", "-b", `pi-agent-hub-send-${process.pid}`, "--", "-fix quotes 'and' unicode ✓"] },
-    { command: "tmux", args: ["paste-buffer", "-d", "-b", `pi-agent-hub-send-${process.pid}`, "-t", "pi-agent-hub-api"] },
-    { command: "tmux", args: ["send-keys", "-t", "pi-agent-hub-api", "Enter"] },
-  ]);
-});
-
-test("sendTextToSession surfaces tmux errors", async () => {
-  const exec = fakeTmux((call) => {
-    if (call.args[0] === "paste-buffer") throw new Error("paste failed");
-    return { stdout: "", stderr: "" };
-  });
-
-  await assert.rejects(() => sendTextToSession("pi-agent-hub-api", "hello", exec), /paste failed/);
 });
 
 test("sidebar bindings deliver guarded spatial and return intents to the exact cockpit pane then restore prior bindings", async () => {

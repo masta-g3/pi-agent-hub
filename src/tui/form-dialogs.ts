@@ -1,11 +1,12 @@
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { orderedSessionRows } from "../core/session-tree.js";
+import { sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
 import { isEnterKey } from "./text-input.js";
 import { createForm, editField, moveFocus, setValue, validateRequired, type FormState } from "./form.js";
 import { renderForm, wrapWords } from "./layout.js";
 import type { FormDialogContext } from "./dialog.js";
 
-export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup";
+export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup" | "send";
 
 export interface FormDialog {
   kind: "form";
@@ -15,6 +16,8 @@ export interface FormDialog {
   groupFrom?: string;
   returnTmuxSession?: string;
   detailOffset?: number;
+  sendTarget?: InteractionTarget;
+  delivery?: MessageDelivery;
 }
 
 export function openForkDialog(ctx: FormDialogContext): FormDialog | undefined {
@@ -82,6 +85,41 @@ export function openRenameSessionForm(ctx: FormDialogContext, returnTmuxSession?
   };
 }
 
+export function openSendForm(ctx: FormDialogContext): FormDialog | undefined {
+  const selected = ctx.controller.selected();
+  if (!selected) return undefined;
+  if (selected.kind === "subagent") {
+    ctx.setMessage("subagent rows cannot receive input");
+    return undefined;
+  }
+  if (selected.status === "stopped" || selected.status === "error") {
+    ctx.setMessage("session is not live; press r to restart");
+    return undefined;
+  }
+  if (!ctx.actions.sendMessage) {
+    ctx.setMessage("send unavailable");
+    return undefined;
+  }
+  const target = ctx.actions.interactionTarget?.(selected);
+  const state = ctx.interactionState?.messageDelivery;
+  if (!target || !state) {
+    ctx.setMessage("Reload Pi in this session to enable message delivery");
+    return undefined;
+  }
+  const delivery = state === "busy" ? "steer" : "send";
+  return {
+    kind: "form",
+    purpose: "send",
+    targetId: selected.id,
+    sendTarget: target,
+    delivery,
+    form: createForm([
+      { key: "message", label: "message", value: "" },
+      ...(delivery === "send" ? [] : [{ key: "delivery", label: "delivery", value: "Steer now" }]),
+    ]),
+  };
+}
+
 export function openRenameGroupDialog(ctx: FormDialogContext): FormDialog | undefined {
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
@@ -111,9 +149,16 @@ export function handleFormDialogInput(dialog: FormDialog, data: string, ctx: For
     ctx.setMessage(undefined);
     return undefined;
   }
+  if (dialog.purpose === "send" && dialog.form.focus === "delivery"
+    && (isEnterKey(data) || matchesKey(data, Key.left) || matchesKey(data, Key.right) || data === " ")) {
+    const delivery = dialog.delivery === "steer" ? "followUp" : "steer";
+    const form = setValue(dialog.form, "delivery", delivery === "steer" ? "Steer now" : "Queue for later");
+    return { ...dialog, delivery, form, detailOffset: 0 };
+  }
   if (isEnterKey(data)) return submitFormDialog(dialog, ctx);
   if (matchesKey(data, Key.tab) || matchesKey(data, Key.down)) return { ...dialog, detailOffset: 0, form: moveFocus(dialog.form, 1) };
   if (matchesKey(data, Key.shift("tab")) || matchesKey(data, Key.up)) return { ...dialog, detailOffset: 0, form: moveFocus(dialog.form, -1) };
+  if (dialog.purpose === "send" && dialog.form.focus === "delivery") return dialog;
   const edited = editField(dialog.form, data);
   if (!edited) return dialog;
   ctx.setMessage(undefined);
@@ -124,11 +169,14 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
   const spec = formRenderSpec(dialog, ctx);
   return renderForm({
     title: spec.title,
-    fields: dialog.form.order.map((key) => dialog.form.fields[key]),
+    fields: dialog.form.order.map((key) => dialog.purpose === "send" && key === "delivery"
+      ? { ...dialog.form.fields[key], readonly: true, value: `‹ ${dialog.form.fields[key].value} ›` }
+      : dialog.form.fields[key]),
     focus: dialog.form.focus,
     footer: spec.footer,
     narrowFooter: spec.narrowFooter,
     height,
+    compact: dialog.purpose === "send",
     detailOffset: dialog.detailOffset,
   }, width, ctx.theme);
 }
@@ -140,7 +188,35 @@ function submitFormDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialo
     case "moveGroup": return submitGroupDialog(dialog, ctx);
     case "renameSession": return submitRenameSessionDialog(dialog, ctx);
     case "renameGroup": return submitRenameGroupDialog(dialog, ctx);
+    case "send": return submitSendForm(dialog, ctx);
   }
+}
+
+function submitSendForm(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
+  const target = formTarget(dialog, ctx);
+  if (!target || target.kind === "subagent" || target.status === "stopped" || target.status === "error") {
+    ctx.setMessage("send target is no longer available");
+    return undefined;
+  }
+  const current = ctx.controller.snapshot().sessions.find((session) => session.id === dialog.targetId);
+  const sendTarget = dialog.sendTarget;
+  const delivery = dialog.delivery;
+  if (!sendTarget || !delivery || !sameInteractionTarget(sendTarget, current && ctx.actions.interactionTarget?.(current))) {
+    ctx.setMessage("send target changed; reopen Send for this session");
+    return undefined;
+  }
+  const result = validateRequired(dialog.form, ["message"]);
+  if (!result.ok) return { ...dialog, form: result.state };
+  const message = result.state.fields.message.value;
+  ctx.runAction(
+    () => {
+      if (!ctx.actions.sendMessage) throw new Error("send transport unavailable");
+      return ctx.actions.sendMessage(sendTarget, message, delivery);
+    },
+    "sending message...",
+    () => { ctx.flashMessage(`${delivery === "send" ? "sent" : delivery === "steer" ? "steer requested" : "queue requested"} → ${target.title}`); },
+  );
+  return undefined;
 }
 
 function submitForkDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialog | undefined {
@@ -240,6 +316,14 @@ function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: st
         title: "Move to group",
         footer: choices.length ? "ctrl-n/p cycle · ←→ edit · enter move · esc cancel" : "←→ edit · enter move · esc cancel",
         narrowFooter: "Enter Move · Esc Cancel",
+      };
+    }
+    case "send": {
+      const action = dialog.form.focus === "delivery" ? "Change" : dialog.delivery === "send" ? "Send" : dialog.delivery === "steer" ? "Steer" : "Queue";
+      return {
+        title: `Send to ${formTarget(dialog, ctx)?.title ?? "session"}`,
+        footer: `${dialog.delivery === "send" ? "←→ edit" : "tab field · ←→ edit/change"} · enter ${action.toLowerCase()} · esc cancel`,
+        narrowFooter: `${dialog.delivery === "send" ? "" : "Tab · "}Enter ${action} · Esc Cancel`,
       };
     }
     case "renameSession": return { title: "Rename session", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "Enter Rename · Esc Cancel" };

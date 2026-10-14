@@ -112,7 +112,7 @@ const slotActionSpecs: ActionSpec[] = [1, 2, 3, 4].map((slot) => ({
 const actionSpecs: ActionSpec[] = [
   { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: "Restart choices…", hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
-  { name: "send", label: "Send text…", hint: "send one line without opening the session", keys: ["p"], available: liveMainCapability("sendMessage", "send transport unavailable") },
+  { name: "send", label: "Send text…", hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
   { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
@@ -492,6 +492,15 @@ function sessionHint(session: RuntimeSession): string {
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
   if (!isLive(session)) return input.capabilities?.restart === true ? enabled() : disabled("restart transport unavailable");
   return input.capabilities?.openSession === true ? enabled() : disabled("session transport unavailable");
+}
+
+function sendAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  const live = liveMainCapability("sendMessage", "send transport unavailable")(session, input);
+  if (!live.enabled) return live;
+  if (!session.piSessionId || !session.interaction) return disabled("Reload Pi in this session to enable message delivery");
+  if (!input.interactionState) return disabled("Checking Pi message delivery; try again shortly");
+  if (!input.interactionState.messageDelivery) return disabled("Reload Pi in this session to enable message delivery");
+  return enabled();
 }
 
 function renameAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
