@@ -18,6 +18,18 @@ test("generic context accepts bounded optional fields and ignores unknown fields
   assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1 }), { version: 1, updatedAt: 1 });
 });
 
+test("handoff attention accepts bounded recommendation and raw artifact fields", () => {
+  const base = { requestId: "r1", kind: "ready", text: "Review it" };
+  assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, recommendation: " Commit   it ", artifact: " /tmp/agent  work/v.md " } })?.attention, {
+    ...base, recommendation: "Commit it", artifact: "/tmp/agent  work/v.md",
+  });
+  for (const artifact of ["/tmp/\u001b[31mx", "/tmp/\u0007bell", "/tmp/a\tb", "x".repeat(1_025), " "]) {
+    assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, artifact } })?.attention, base);
+  }
+  assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, recommendation: "x".repeat(151) } })?.attention, base);
+  assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: base })?.attention, base);
+});
+
 test("generic context accepts producer-neutral worktree-only snapshots", () => {
   const parsed = parseSessionContext({
     version: 1,

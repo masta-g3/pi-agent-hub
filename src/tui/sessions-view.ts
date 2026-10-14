@@ -912,6 +912,7 @@ export class SessionsView implements Component {
       sendMessage: Boolean(this.actions.sendMessage),
       runConfiguredShortcut: Boolean(this.actions.runDashboardShortcut),
       answerQuestion: Boolean(this.actions.submitAnswer),
+      copyPath: Boolean(this.actions.copy),
       skills: Boolean(this.actions.skills),
       mcp: Boolean(this.actions.mcpServers),
       theme: Boolean(this.actions.themeSettings),
@@ -1067,6 +1068,7 @@ export class SessionsView implements Component {
       const prefix = `action:${command.targetSessionId}:`;
       const action = command.id.slice(prefix.length);
       if (action.startsWith("answer:")) { this.openQuestion(); return; }
+      if (action.startsWith("copy-path:")) { this.copyHandoffPath(command.targetSessionId); return; }
       const slot = action.match(/^slot-([1-4])$/)?.[1];
       if (slot) {
         this.closeConversation();
@@ -2129,6 +2131,14 @@ export class SessionsView implements Component {
     const hadPendingRestart = Boolean(this.pendingRestart);
     this.pendingRestart = undefined;
     if (hadPendingRestart) this.message = undefined;
+  }
+
+  // The request-bound command ID already rejects stale targets before this runs.
+  private copyHandoffPath(sessionId: string): void {
+    const artifact = this.controller.snapshot().sessions.find((session) => session.id === sessionId)?.context?.attention?.artifact;
+    if (!artifact) return;
+    this.actions.copy?.(artifact);
+    this.flashMessage("Copied path");
   }
 
   private flashMessage(text: string, ttlMs = 1_500): void {

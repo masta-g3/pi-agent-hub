@@ -212,6 +212,28 @@ test("mark read uses current idle attention even after announcement expiry", () 
   assert.deepEqual(requests, ["req-current"]);
 });
 
+test("copy path copies the exact current handoff evidence", () => {
+  const copied: string[] = [];
+  const selected = { ...session("handoff", "handoff"), status: "idle" as const, context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "ready" as const, text: "Review result", artifact: "/tmp/agent work/v.md" } } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, {
+    copy: (text) => { copied.push(text); },
+    now: () => 10_000,
+  });
+  view.handleInput("y");
+  assert.deepEqual(copied, ["/tmp/agent work/v.md"]);
+  assert.match(stripAnsi(view.render(160).join("\n")), /Copied path/);
+
+  const rendered = view.render(160);
+  const row = rendered.findIndex((line) => /Copy path/.test(stripAnsi(line)));
+  assert.ok(row >= 0);
+  const column = stripAnsi(rendered[row]!).indexOf("Copy path") + 2;
+  selected.context = { ...selected.context, attention: { ...selected.context.attention, requestId: "req-2", artifact: "/tmp/newer.md" } };
+  view.handleInput(mousePressAtLine(row, column));
+  view.handleInput(mouseReleaseAtLine(row, column));
+  assert.deepEqual(copied, ["/tmp/agent work/v.md"]);
+  assert.match(stripAnsi(view.render(160).join("\n")), /command target changed and is no longer available/);
+});
+
 test("restored lifecycle filter reaches the controller before rendering", () => {
   const controller = new SessionsController({ version: 1, sessions: [session("active", "active")] });
   const view = new SessionsView(controller, () => {}, {

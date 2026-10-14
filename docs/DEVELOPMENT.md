@@ -120,4 +120,6 @@ tmux -L pi-hub-smoke kill-session -t bootstrap
 tmux -L pi-hub-smoke attach-session -t pi-agent-hub
 ```
 
+Run lifecycle CLI commands such as `add` from a window on that same socket. Run outside it, they create managed sessions on the default tmux server.
+
 A per-command environment override changes the dashboard process but not the isolated server's inherited environment for later managed sessions. Sidebar pins also cannot be tested end to end on `tmux -L`: their nested attach intentionally clears `TMUX` and reconnects through the default socket. Use the side-pane integration tests for exact-pin behavior, or use the default tmux server only when that test is explicitly safe.

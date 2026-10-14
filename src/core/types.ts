@@ -63,6 +63,8 @@ export interface SessionAttention {
   requestId?: string;
   kind: SessionAttentionKind;
   text: string;
+  recommendation?: string;
+  artifact?: string;
 }
 
 export type WorktreeLifecycleState = "active" | "awaiting-merge" | "cleanup-pending" | "check-needed" | "cleaned";

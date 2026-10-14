@@ -2142,6 +2142,24 @@ test("attention-only context shows the request without provenance narration", ()
   assert.doesNotMatch(text, /producer|CONTEXT|no explicit request|RECOMMENDED/);
 });
 
+test("handoff workspace shows recommendation and evidence rows only when present", () => {
+  const now = 30_000;
+  const artifact = "/Users/someone/Code/agents/pi-agent-hub/agent-work/tickets/cockpit-014/validation.md";
+  const selected = {
+    ...session("api", "default", "idle", "api"),
+    context: { version: 1 as const, updatedAt: 20_000, attention: { requestId: "r1", kind: "ready" as const, text: "Send form supports Steer", recommendation: "Commit, then reload idle sessions", artifact } },
+  };
+  const lines = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })).lines.map(stripAnsi);
+  const request = lines.findIndex((line) => /✓ “Send form supports Steer”/.test(line));
+  assert.ok(request >= 0);
+  assert.match(lines[request + 1] ?? "", /→ Commit, then reload idle sessions/);
+  assert.match(lines[request + 2] ?? "", /▤ …\S*cockpit-014\/validation\.md/);
+
+  const plain = { ...selected, context: { ...selected.context, attention: { kind: "ready" as const, text: "Send form supports Steer" } } };
+  const plainText = renderSessions(workspaceModel({ sessions: [plain], selectedId: "api", width: 160, now })).lines.map(stripAnsi).join("\n");
+  assert.doesNotMatch(plainText, /→ |▤ /);
+});
+
 test("subagent workspace folds task and owner into the shared hierarchy", () => {
   const owner = { ...session("owner", "agents", "idle", "Owner session"), workflow: WORKFLOW };
   const child = { ...session("child", "agents", "idle", "worker"), kind: "subagent" as const, parentId: "owner", agentName: "worker", taskPreview: "Inspect the API boundary" };

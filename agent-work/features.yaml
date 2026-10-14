@@ -1108,3 +1108,14 @@
   priority: 3
   created_at: '2026-10-11'
   discovered_from: rules explain-html eval 2026-10-11 (hub-d explainer)
+- id: cockpit-014
+  status: done
+  title: Explicit handoffs
+  subtitle: Agents declare handoffs with evidence paths
+  description: The working agent calls a Rules hand_off tool to mark work ready or
+    blocked with a recommendation and evidence path, replacing guessed attention;
+    Hub shows these and copies the path.
+  priority: 2
+  created_at: '2026-10-13'
+  plan_file: agent-work/history/20261013_cockpit-014_explicit_handoffs.md
+  completed_at: '2026-10-13'

@@ -207,11 +207,11 @@ test("dashboard shortcut config allows non-reserved printable variants", async (
     version: 1,
     dashboard: { shortcuts: [
       { key: "O", send: "/session-name-refresh" }, { key: "!", send: "/shifted" },
-      { key: "F", send: "/custom F" }, { key: "o", send: "/custom o" },
+      { key: "L", send: "/custom L" }, { key: "o", send: "/custom o" },
     ] },
   }), "utf8");
 
-  assert.deepEqual((await effectiveDashboardShortcuts(env)).map((shortcut) => shortcut.key), ["O", "!", "F", "o"]);
+  assert.deepEqual((await effectiveDashboardShortcuts(env)).map((shortcut) => shortcut.key), ["O", "!", "L", "o"]);
 });
 
 test("dashboard shortcut config rejects conflicts and invalid send values", async () => {

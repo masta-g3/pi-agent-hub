@@ -55,6 +55,7 @@ export interface DashboardCommandCapabilities {
   acknowledge?: boolean;
   attentionBell?: boolean;
   answerQuestion?: boolean;
+  copyPath?: boolean;
 }
 
 export interface DashboardPinState {
@@ -132,6 +133,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "size-increase", label: "Size +", footerLabel: "Size", hint: "increase the main pinned-pane split", keys: ["+"], available: resizeAvailability },
   { name: "size-decrease", label: "Size -", footerLabel: "Size", hint: "decrease the main pinned-pane split", keys: ["-"], available: resizeAvailability },
   { name: "info", label: "Details", hint: "show runtime and cockpit evidence", keys: ["i"], available: () => enabled() },
+  { name: "copy-path", label: "Copy path", hint: "copy the handoff evidence path", keys: ["y"], available: copyPathAvailability },
   { name: "mark-read", label: "Mark read", hint: "acknowledge the selected waiting session", keys: ["a"], available: markReadAvailability },
   { name: "reorder-up", label: "Move up", hint: "reorder inside the current priority tie", keys: ["K", "Shift+Up"], available: reorderAvailability },
   { name: "reorder-down", label: "Move down", hint: "reorder inside the current priority tie", keys: ["J", "Shift+Down"], available: reorderAvailability },
@@ -184,7 +186,7 @@ export function selectWorkspaceCommands(
     if (attention.kind === "ready") {
       guidance = "Review the completed result.";
       guidanceAction = "open";
-      actionNames = ["open", "send", "mark-read"];
+      actionNames = ["open", "send", "copy-path", "mark-read"];
     } else if (attention.kind === "question") {
       guidance = "Answer in the Pi session.";
       guidanceAction = "open";
@@ -192,7 +194,7 @@ export function selectWorkspaceCommands(
     } else {
       guidance = "Resolve the reported blocker.";
       guidanceAction = "send";
-      actionNames = ["send", "open", "mark-read"];
+      actionNames = ["send", "open", "copy-path", "mark-read"];
     }
   } else if (session.status === "error") {
     guidance = "Check Details before restarting.";
@@ -219,7 +221,7 @@ export function selectWorkspaceCommands(
   const actionsByName = new Map(
     commands
       .filter((command) => command.group === "actions" && command.targetSessionId === session.id && command.enabled)
-      .map((command) => [command.id.startsWith(`action:${session.id}:answer:`) ? "answer" : command.id.slice(`action:${session.id}:`.length), command]),
+      .map((command) => [command.id.slice(`action:${session.id}:`.length).split(":")[0]!, command]),
   );
   if (actionsByName.has("answer")) actionNames = ["answer", "open", ...actionNames.filter(name => name !== "answer" && name !== "open")];
   const selectedActions = actionNames.map((name) => actionsByName.get(name)).filter((command): command is DashboardCommand => command !== undefined);
@@ -319,8 +321,10 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
     : spec.name === "pin" && isPinned ? "focus this session's live pinned pane"
     : spec.name === "restore" && closed ? "clear the closure and return to Active without restarting Pi"
     : spec.hint;
+  // Request-bound IDs keep a stale click from copying a newer handoff's evidence.
+  const requestSuffix = spec.name === "copy-path" ? `:${encodeURIComponent(session.context?.attention?.requestId ?? "")}` : "";
   return makeCommand({
-    id: `action:${session.id}:${spec.name}`,
+    id: `action:${session.id}:${spec.name}${requestSuffix}`,
     group: "actions",
     label,
     hint,
@@ -544,6 +548,11 @@ function markReadAvailability(session: RuntimeSession, input: DashboardCommandIn
   const waitingUnread = session.status === "waiting" && session.acknowledgedAt === undefined;
   if (!unreadAttention && !waitingUnread && !activeRequest) return disabled("session has no unread attention");
   return input.capabilities?.acknowledge === true ? enabled() : disabled("acknowledge unavailable");
+}
+
+function copyPathAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if ((session.status !== "waiting" && session.status !== "idle") || !session.context?.attention?.artifact) return disabled("no handoff evidence path");
+  return input.capabilities?.copyPath === true ? enabled() : disabled("clipboard unavailable");
 }
 
 function slotAvailability(slot: number): ActionSpec["available"] {

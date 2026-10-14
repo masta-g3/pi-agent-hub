@@ -1013,11 +1013,12 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   ]);
 
   const closure = block("closure", workspaceClosureLine(session, styles));
-  const request = block("request", session.attention ? prefixedWorkspaceText(
-    attentionGlyph(session.attention.kind, styles),
-    `“${stripAnsi(session.attention.text)}”`,
-    width,
-  ) : []);
+  const attention = session.attention;
+  const request = block("request", attention ? [
+    ...prefixedWorkspaceText(attentionGlyph(attention.kind, styles), `“${stripAnsi(attention.text)}”`, width),
+    ...(attention.recommendation ? prefixedWorkspaceText("→", stripAnsi(attention.recommendation), width).map((line) => styles.dim(line)) : []),
+    ...(attention.artifact ? [styles.dim(`▤ ${truncateValue(attention.artifact, Math.max(1, width - 2), "start")}`)] : []),
+  ] : []);
   const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;

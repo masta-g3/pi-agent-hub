@@ -303,6 +303,39 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
   }
 });
 
+test("configured shortcuts cannot claim any built-in catalog key", () => {
+  const selected = session("keys", { status: "idle" });
+  const keys = new Set(buildDashboardCommands({ sessions: [selected], selectedId: selected.id }).flatMap((command) => command.bindings.map((binding) => binding.key)));
+  for (const key of keys) assert.throws(() => validateDashboardShortcuts([{ key, send: "x" }]), /conflicts/, key);
+});
+
+test("copy path binds the exact handoff evidence and replaces mark read in the workspace", () => {
+  const attention = { requestId: "req-1", kind: "ready" as const, text: "Review", artifact: "/tmp/agent work/v.md" };
+  const build = (values: Partial<RuntimeSession>, capabilities: DashboardCommandCapabilities = { ...allCapabilities, copyPath: true }) => {
+    const selected = session("handoff", { status: "idle", piSessionId: "pi", interaction: { version: 1, instanceId: "instance" }, context: { version: 1, updatedAt: 2, attention }, ...values });
+    const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities, pinState: emptyPinState,
+      interactionState: { questionProtocol: false, pending: [], messageDelivery: "idle" } });
+    return { selected, commands, copy: commands.find((command) => command.id.startsWith("action:handoff:copy-path")) };
+  };
+  const ready = build({});
+  assert.equal(ready.copy?.id, "action:handoff:copy-path:req-1");
+  assert.equal(ready.copy?.enabled, true);
+  assert.equal(ready.copy?.displayKey, "y");
+  assert.equal(commandForKey(ready.commands, "y")?.id, ready.copy?.id);
+  assert.deepEqual(selectWorkspaceCommands(ready.selected, ready.commands, 3).actions.map((command) => command.id),
+    ["action:handoff:open", "action:handoff:send", "action:handoff:copy-path:req-1"]);
+  const blocked = build({ context: { version: 1, updatedAt: 2, attention: { ...attention, kind: "blocked" } } });
+  assert.deepEqual(selectWorkspaceCommands(blocked.selected, blocked.commands, 3).actions.map((command) => command.id),
+    ["action:handoff:send", "action:handoff:open", "action:handoff:copy-path:req-1"]);
+
+  for (const values of [
+    { status: "running" as const },
+    { context: { version: 1 as const, updatedAt: 2, attention: { ...attention, artifact: undefined } } },
+  ]) assert.equal(build(values).copy?.enabled, false);
+  assert.equal(build({}, allCapabilities).copy?.enabled, false);
+  assert.throws(() => validateDashboardShortcuts([{ key: "y", send: "hello" }]), /conflicts/);
+});
+
 test("workspace selection reuses exact enabled descriptors and respects the action cap", () => {
   const selected = session("exact", { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Choose" } } });
   const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: { ...allCapabilities, sendMessage: false } });

@@ -72,6 +72,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `f` | Fork the selected session through the group-selection form |
 | `Shift+F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
 | `a` | Mark the selected waiting session read |
+| `y` | Copy the selected handoff's evidence path |
 | `A` / `B` / `U` | Archive (Done, Abandoned, or archive only) / move to Backlog / restore or reopen to Active |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the Hub title from Pi's saved name |
@@ -175,7 +176,7 @@ Press `i` to show or hide `LIVE DETAILS`: tmux presence, heartbeat, read state, 
 
 ### Requests and notifications
 
-Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
+Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only. A handoff can add a recommendation (`→`) and an evidence path or URL (`▤`) below the request; press `y` or choose **Copy path** to copy that path on macOS. On other systems, copy the visible path manually. Rules publishes `✓` and `!` only when the agent calls its `hand_off` tool. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
 
 While you work inside a managed session, its bottom bar shows `⚑ N need you · alt+w next` when other sessions need you. `Alt+W` opens the top one, the same way `Enter` does from the dashboard.
 

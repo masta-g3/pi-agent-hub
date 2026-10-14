@@ -6,6 +6,8 @@ const SUBTITLE_MAX = 64;
 const DESCRIPTION_MAX = 240;
 const ATTENTION_MAX = 150;
 const ATTENTION_REQUEST_ID_MAX = 64;
+const RECOMMENDATION_MAX = 150;
+const ARTIFACT_MAX = 1024;
 const WORKTREE_ID_MAX = 128;
 const WORKTREE_PRODUCER_MAX = 80;
 const WORKTREE_PATH_MAX = 1024;
@@ -83,7 +85,23 @@ function parseAttention(value: unknown): SessionAttention | undefined {
   const requestId = optionalText(value.requestId, ATTENTION_REQUEST_ID_MAX);
   const text = boundedText(value.text, ATTENTION_MAX);
   if (requestId === null || !text) return undefined;
-  return { ...(requestId ? { requestId } : {}), kind: value.kind as SessionAttention["kind"], text };
+  // Optional handoff details are isolated so a malformed one cannot hide the request.
+  const recommendation = boundedText(value.recommendation, RECOMMENDATION_MAX);
+  const artifact = artifactText(value.artifact);
+  return {
+    ...(requestId ? { requestId } : {}),
+    kind: value.kind as SessionAttention["kind"],
+    text,
+    ...(recommendation ? { recommendation } : {}),
+    ...(artifact ? { artifact } : {}),
+  };
+}
+
+// Paths keep internal whitespace; terminal controls are rejected before display or copy.
+function artifactText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return text && [...text].length <= ARTIFACT_MAX && !/[\x00-\x1f\x7f-\x9f]/u.test(text) ? text : undefined;
 }
 
 function optionalText(value: unknown, max: number): string | undefined | null {
