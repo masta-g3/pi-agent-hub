@@ -1119,3 +1119,14 @@
   created_at: '2026-10-13'
   plan_file: agent-work/history/20261013_cockpit-014_explicit_handoffs.md
   completed_at: '2026-10-13'
+- id: dashboard-scanability-012
+  status: done
+  title: Taller fleet cards
+  subtitle: Repo, branch and activity per card
+  description: Active fleet parent cards add a repo and branch line, an activity and
+    plan phase line, and a spacer between cards so every session is scannable without
+    selecting it.
+  priority: 2
+  created_at: '2026-10-20'
+  plan_file: agent-work/history/20261022_dashboard-scanability-012_taller_fleet_cards.md
+  completed_at: '2026-10-22'

@@ -2045,11 +2045,11 @@ test("mouse clicks on list scroll indicators are ignored", () => {
   const opened: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: manyViewSessions(20) });
   const view = new SessionsView(controller, () => {}, {
-    terminalRows: () => 15,
+    terminalRows: () => 16,
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
-  const indicator = rendered.findIndex((line) => stripAnsi(line).includes("↓"));
+  const indicator = rendered.findIndex((line) => /↓ \d+ more/.test(stripAnsi(line)));
   assert.notEqual(indicator, -1, "missing scroll indicator");
 
   view.handleInput(mousePressAtLine(indicator));

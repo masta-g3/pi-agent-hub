@@ -477,11 +477,11 @@ test("tree gutter tones reuse warning and border theme tokens", () => {
   const lines = renderSessions(buildRenderModel({ sessions: [needs, quiet], selectedId: "quiet", width: 120 }), theme).lines;
   assert.ok((lines.find((line) => stripAnsi(line).includes("Needs")) ?? "").includes(styleToken(theme, "warning", "│")));
   assert.ok((lines.find((line) => stripAnsi(line).includes("Quiet")) ?? "").includes(styleToken(theme, "border", "│")));
-  assert.match(lines.map(stripAnsi).find((line) => line.includes("NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
+  assert.match(lines.map(stripAnsi).find((line) => line.includes(" NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
 
   const active = { ...session("active", "app", "running", "Active"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "active-001", subtitle: "Active context" } } };
-  const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 12 })).lines.map(stripAnsi);
-  assert.match(clipped.find((line) => line.includes("NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
+  const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 14 })).lines.map(stripAnsi);
+  assert.match(clipped.find((line) => line.includes(" NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
   assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│ · \? ◐ Needs/);
   assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└ · \? ◐ Needs/);
 });
@@ -1634,9 +1634,9 @@ test("cockpit tier headers keep a shared title column", () => {
     { ...session("archived", "default", "stopped", "archived"), bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const lines = renderSessions(buildRenderModel({ sessions, width: 100 })).lines.map(stripAnsi);
-  const active = lines.find((line) => line.includes("ACTIVE") && /─[▾▸] /.test(line)) ?? "";
-  const quiet = lines.find((line) => line.includes("QUIET") && /─[▾▸] /.test(line)) ?? "";
-  const archived = lines.find((line) => line.includes("ARCHIVED") && /─[▾▸] /.test(line)) ?? "";
+  const active = lines.find((line) => /─[▾▸] ACTIVE/.test(line)) ?? "";
+  const quiet = lines.find((line) => /─[▾▸] QUIET/.test(line)) ?? "";
+  const archived = lines.find((line) => /─[▾▸] ARCHIVED/.test(line)) ?? "";
   assert.equal(active.indexOf("─▾ ACTIVE"), quiet.indexOf("─▾ QUIET"));
   assert.equal(active.indexOf("─▾ ACTIVE"), archived.indexOf("─▾ ARCHIVED"));
   assert.match(active, /─▾ ACTIVE/);
@@ -1753,7 +1753,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const theme = { ...darkTheme, accent: "#010203" };
   const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] quiet ⧉ 3/);
+  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
@@ -1980,7 +1980,9 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   assert.match(text, /Stored session 3/);
   assert.match(text, /Stored session [24]/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
-  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 1);
+  // Metadata, activity and repo: the selected card stays whole.
+  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 3);
+  assert.match(text, /Activity 3/);
   assert.equal(layout.lines.length, 12);
 
   const clipped = renderSessions(buildRenderModel({ sessions: [sessions[0]!], selectedId: "s0", width: 60, height: 8 }));
@@ -2225,7 +2227,8 @@ test("generic context and producer attention define canonical parent hierarchy",
   assert.match(output, /Canonical Name/);
   assert.match(output, /#metadata-redesign-001 · Canonical Name/);
   assert.match(output, /Simplify session context/);
-  assert.doesNotMatch(output, /Reviewing implementation \(pass 2\)/);
+  // The fleet card carries live activity once; the workspace keeps plain workflow position.
+  assert.equal(output.match(/Reviewing implementation \(pass 2\) · Phase 2\/4 · Hub bridge/g)?.length, 1);
   assert.doesNotMatch(output, /ticket:/);
   assert.doesNotMatch(output, /Use one generic[\s\S]*contract/);
   assert.match(output, /\? “Choose the rollout order”/);

@@ -62,12 +62,23 @@ test("project cockpit classifies independent state axes without promotion", () =
   assert.equal(rowOf(acknowledged, "docs")?.needsAttention, false);
 });
 
-test("quiet rows retain a textual quiet cue when width permits", () => {
-  const model = buildRenderModel({ sessions: cockpitFleet(), width: 100, now: COCKPIT_NOW, expandedProjectParentIds: new Set(["quiet-parent"]) });
-  const layout = renderSessions(model);
-  const titleIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "mcp");
-  assert.ok(titleIndex >= 0);
-  assert.match(stripAnsi(layout.lines[titleIndex + 1] ?? ""), /quiet/);
+test("status view leaves the quiet cue to its tier heading while repo grouping keeps it", () => {
+  const rowLines = (fleetGrouping: "status" | "repo") => {
+    const layout = renderSessions(buildRenderModel({ sessions: cockpitFleet(), width: 100, now: COCKPIT_NOW, fleetGrouping, expandedProjectParentIds: new Set(["quiet-parent"]) }));
+    const line = (id: string, offset: number) => {
+      const index = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
+      assert.ok(index >= 0, id);
+      return stripAnsi(layout.lines[index + offset] ?? "");
+    };
+    return { metadata: line("mcp", 1), backlog: line("theme", 0) };
+  };
+  const status = rowLines("status");
+  assert.doesNotMatch(status.metadata, /quiet/);
+  assert.match(status.backlog, /backlog/);
+  assert.doesNotMatch(status.backlog, /quiet/);
+  const repo = rowLines("repo");
+  assert.match(repo.metadata, /QUIET/);
+  assert.match(repo.backlog, /QUIET/);
 });
 
 test("project cockpit collapses each non-attention tier without changing placement", () => {

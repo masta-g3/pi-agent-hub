@@ -91,7 +91,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
   const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible);
-  const left = renderSessionList(model, listWidth, styles);
+  // Card spacers are a luxury: drop them all once the fleet needs windowing.
+  const spaced = renderSessionList(model, listWidth, styles, true);
+  const left = targetRows !== undefined && spaced.lines.length > targetRows
+    ? renderSessionList(model, listWidth, styles, false)
+    : spaced;
   const workspace = model.showWorkspace && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
@@ -439,7 +443,7 @@ interface SessionListContent {
   priorityIndexes?: number[];
 }
 
-function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles): SessionListContent {
+function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean): SessionListContent {
   if (model.noMatches) {
     const lines = noMatchListLines(width, model, styles);
     return {
@@ -461,7 +465,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     for (const session of visibleSessions) {
       if (adaptiveRowShape(session) !== "full-parent") continue;
       const hasVisibleChild = visibleSessions.some((candidate) => candidate.kind === "subagent" && candidate.cockpitOwnerId === session.cockpitOwnerId);
-      const hasContinuation = !board || adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width).length > 0;
+      const hasContinuation = !board || adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width, false).length > 0;
       if (hasVisibleChild || hasContinuation) richOwners.add(session.cockpitOwnerId);
     }
   }
@@ -500,7 +504,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       continuationPriorities.set(lines.length - 1, -1);
     }
     if (shape === "full-parent" && !model.compactRows) {
-      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width)) {
+      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width, model.fleetGrouping === "repo" && !board)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
       }
@@ -575,7 +579,15 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         pushLine(twoColumn(styles.accent(group.name), groupBoardCounts(group, parentCount, styles), width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
-      for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
+      const cardSpacers = spacers && model.width >= 100 && !board && !model.compactRows;
+      let parentSeen = false;
+      for (const [index, session] of group.sessions.entries()) {
+        if (adaptiveRowShape(session) === "full-parent") {
+          if (cardSpacers && parentSeen) pushLine("");
+          parentSeen = true;
+        }
+        pushRow(session, group.sessions, index, context);
+      }
     }
     if (section.cockpitTier === "needs-you") pushReleaseCue();
     if (section.archiveDisclosure) {
@@ -913,6 +925,7 @@ function adaptiveCardLines(
   styles: LayoutStyles,
   board: boolean,
   terminalWidth: number,
+  repoMode: boolean,
 ): { line: string; priority: number }[] {
   if (board) {
     if (terminalWidth < 100) return [];
@@ -921,8 +934,7 @@ function adaptiveCardLines(
       ? `#${session.ticketId}${session.ticketSubtitle ? ` · ${session.ticketSubtitle}` : ""}`
       : session.ticketSubtitle;
     if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
-    const activity = session.workflow?.activity;
-    const activityText = activity ? `${activity.label}${activity.pass && activity.pass > 1 ? ` (pass ${activity.pass})` : ""}` : "";
+    const activityText = activityLabel(session.workflow?.activity);
     const phase = planPhaseLabel(session.plan);
     if (phase) lines.push({ line: styles.muted(truncate(phase, width)), priority: 0 });
     const progress = planProgressBar(session.plan, styles);
@@ -939,7 +951,27 @@ function adaptiveCardLines(
     const text = session.attention ? `“${summary}”` : summary;
     lines.push({ line: styles.muted(truncate(text, width)), priority: 0 });
   }
+  if (terminalWidth < 100) return lines;
+
+  // Activity is live progress: stale once stopped, and a completed step already shows its checkmark.
+  const live = session.status !== "stopped" && session.workflow?.currentStepComplete !== true;
+  const activityText = live ? activityLabel(session.workflow?.activity) : "";
+  const phase = live ? planPhaseLabel(executePlan(session)) : "";
+  const now = [activityText && styles.accent(activityText), phase && styles.muted(phase)].filter(Boolean).join(styles.border(" · "));
+  if (now) lines.push({ line: truncate(now, width), priority: 2 });
+
+  const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories
+    ?.find((item) => item.role === "primary" && item.state !== "cleaned")?.branch;
+  const branch = branchName ? `${styles.dim("⎇")} ${styles.muted(branchName)}` : "";
+  // Repo grouping names the repo in its section header; elsewhere the accent slot makes it scannable.
+  const repoName = repoMode ? "" : `${styles.dim("◈")} ${styles.text(session.repoLabel)}`;
+  const repo = [repoName, branch].filter(Boolean).join(" ");
+  if (repo) lines.push({ line: truncate(repo, width), priority: 1 });
   return lines;
+}
+
+function activityLabel(activity: WorkflowRuntimeSnapshot["activity"]): string {
+  return activity ? `${activity.label}${activity.pass && activity.pass > 1 ? ` (pass ${activity.pass})` : ""}` : "";
 }
 
 function executePlan(session: RenderSession): RenderSession["plan"] {
@@ -1198,8 +1230,8 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
     session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "",
     mode && compatible ? styles.accent(mode.short) : "",
     taskCount ? styles.muted(`${taskCount.completed}/${taskCount.total} tasks`) : "",
-    repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])
-      : session.cockpitTier === "quiet" ? styles.muted("quiet") : "",
+    // Status grouping already names the tier in the section heading.
+    repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]) : "",
     session.repoCount > 1 ? styles.dim(`⧉ ${session.repoCount}`) : "",
   ].filter(Boolean);
   const leftWidth = Math.max(0, width - (right ? displayWidth(right) + 1 : 0));
@@ -1236,7 +1268,6 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
   const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
-  const quiet = session.cockpitTier === "quiet" ? styles.muted("quiet") : "";
   const age = terminalWidth >= 80 && rowAge(session) ? styles.dim(rowAge(session)!) : "";
   const hierarchy = (tail: string[]) => [
     [hidden, running, ...tail, age],
@@ -1264,9 +1295,9 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   }
   if (session.section === "backlog") {
     const backlog = styles.muted("backlog");
-    return [join([hidden, backlog, quiet]), join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
+    return [join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
-  return hierarchy(full ? [quiet, full] : [quiet]).find(fits) ?? "";
+  return hierarchy(full ? [full] : []).find(fits) ?? "";
 }
 
 function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
