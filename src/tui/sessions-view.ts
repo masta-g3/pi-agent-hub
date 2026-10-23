@@ -807,6 +807,7 @@ export class SessionsView implements Component {
       message: () => this.message,
       flashMessage: (text) => this.flashMessage(text),
       runAction: (action, pending, onSuccess) => this.runAction(action, pending, onSuccess),
+      revealSession: (sessionId) => { this.revealSession(sessionId); },
       attachSession: (session) => this.attachSession(session),
       stop: () => this.stop(),
     };
@@ -2156,18 +2157,18 @@ export class SessionsView implements Component {
     if (this.flash.expiresAt <= now) this.flash = undefined;
   }
 
-  private runAction(action: () => unknown, pendingMessage: string, onSuccess?: () => void): void {
+  private runAction(action: () => unknown, pendingMessage: string, onSuccess?: (result: unknown) => void): void {
     try {
       const result = action();
       if (!isPromise(result)) {
-        onSuccess?.();
+        onSuccess?.(result);
         return;
       }
       this.busy = true;
       this.message = pendingMessage;
-      void result.then(() => {
+      void result.then((value) => {
         this.busy = false;
-        onSuccess?.();
+        onSuccess?.(value);
         if (this.message === pendingMessage) this.message = undefined;
       }).catch((error: unknown) => {
         this.busy = false;

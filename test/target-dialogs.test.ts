@@ -120,3 +120,18 @@ test("picker aborts when its bound session disappears", () => {
   assert.equal(applied, false);
   assert.equal(ctx.message(), "picker target is no longer available");
 });
+
+test("fork reveals the forked session after success", () => {
+  const first = session("first");
+  const controller = new SessionsController({ version: 1, sessions: [first] });
+  const revealed: string[] = [];
+  const ctx: DialogContext = {
+    ...context(controller, { forkSession: () => "forked-id" }),
+    runAction: (action, _pending, onSuccess) => { onSuccess?.(action()); },
+    revealSession: (id) => { revealed.push(id); },
+  };
+
+  handleFormDialogInput(openForkDialog(ctx)!, "\r", ctx);
+
+  assert.deepEqual(revealed, ["forked-id"]);
+});

@@ -1128,9 +1128,9 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
 
 test("layout hit map marks only rendered session rows", () => {
   const sessions = [
-    session("active", "default", "idle", "active-api"),
-    { ...session("backlog", "default", "running", "backlog-docs"), bucket: "backlog" as const, bucketChangedAt: 1 },
-    { ...session("archived", "work", "stopped", "archived-worker"), bucket: "archived" as const, bucketChangedAt: 1 },
+    { ...session("active", "default", "idle", "active-api"), cwd: "/tmp/shared" },
+    { ...session("backlog", "default", "running", "backlog-docs"), cwd: "/tmp/shared", bucket: "backlog" as const, bucketChangedAt: 1 },
+    { ...session("archived", "work", "stopped", "archived-worker"), cwd: "/tmp/shared", bucket: "archived" as const, bucketChangedAt: 1 },
   ];
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "backlog", width: 70, now: 100 }));
 
@@ -1753,7 +1753,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const theme = { ...darkTheme, accent: "#010203" };
   const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ⧉ 3/);
+  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ◈ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
@@ -2477,5 +2477,37 @@ test("running rows animate with the render clock and show running time", () => {
     assert.doesNotMatch(owner("Fresh task"), /\bnow\b/, grouping);
     assert.match(owner("Waiting task"), /5m/, grouping);
     assert.equal(new Set(lines.map((line) => visibleWidth(line))).size, 1, grouping);
+  }
+});
+
+test("sessions created within the last minute show a new badge after the title", () => {
+  const now = 1_000_000;
+  const fresh = { ...session("fresh", "default", "running", "fresh-title"), createdAt: now - 10_000 };
+  const old = { ...session("old", "default", "running", "old-title"), createdAt: now - 61_000 };
+  const child = { ...session("child", "default", "running"), createdAt: now - 1_000, kind: "subagent" as const, parentId: "fresh", agentName: "child-agent" };
+  const backlog = { ...session("later", "default", "idle", "later-title"), createdAt: now - 1_000, bucket: "backlog" as const };
+  const sessions = [fresh, old, child, backlog];
+
+  const rows = modelRows(buildRenderModel({ sessions, width: 120, now }));
+  assert.deepEqual(rows.filter((row) => row.fresh).map((row) => row.id), ["fresh"]);
+
+  for (const grouping of ["project", "stage"] as const) {
+    const text = stripAnsi(renderSessions(buildRenderModel({ sessions, width: 120, now, grouping }), darkTheme).lines.join("\n"));
+    assert.match(text, /fresh-title new/);
+    assert.doesNotMatch(text, /old-title new/);
+    assert.doesNotMatch(text, /later-title new/);
+  }
+  assert.equal(modelRows(buildRenderModel({ sessions, width: 120 })).some((row) => row.fresh), false);
+});
+
+test("the new badge yields to the title on narrow rows", () => {
+  const now = 1_000_000;
+  const fresh = { ...session("fresh", "default", "running", "a-rather-long-session-title"), createdAt: now };
+  for (const width of [40, 60]) {
+    const lines = renderSessions(buildRenderModel({ sessions: [fresh], width, now }), darkTheme).lines;
+    assert.equal(lines.every((line) => visibleWidth(line) <= width), true);
+    const titleLine = stripAnsi(lines.join("\n")).split("\n").find((line) => line.includes("a-rather"))!;
+    assert.ok(titleLine, `title visible at ${width}`);
+    assert.match(titleLine, /a-rather-long-ses\S{0,10} new/);
   }
 });

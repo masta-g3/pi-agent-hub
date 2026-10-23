@@ -312,15 +312,16 @@ export interface RegistryMutatorDeps {
   render(): void;
 }
 
-export function createRegistryMutator(deps: RegistryMutatorDeps): (action: () => Promise<void>) => Promise<void> {
-  let queue = Promise.resolve();
-  return (action) => {
+export function createRegistryMutator(deps: RegistryMutatorDeps): <T>(action: () => Promise<T>) => Promise<T> {
+  let queue: Promise<unknown> = Promise.resolve();
+  return <T>(action: () => Promise<T>) => {
     const run = async () => {
       try {
         await deps.pause();
-        await action();
+        const result = await action();
         await deps.refresh();
         deps.render();
+        return result;
       } finally {
         deps.resume();
       }
@@ -583,13 +584,14 @@ export async function runTui(): Promise<void> {
         const created = await addManagedSession(input);
         const createdHistory = input.worktree ? [input.cwd, ...(input.additionalCwds ?? [])] : [created.cwd, ...(created.additionalCwds ?? [])];
         historyCwds = mergeRepoCwds(createdHistory, historyCwds);
+        return created.id;
       });
     },
     finishWorktree(sessionId) {
       return mutateRegistry(async () => { await finishWorktreeSession(sessionId); });
     },
     forkSession(sourceSessionId, input) {
-      return mutateRegistry(async () => { await forkManagedSession(sourceSessionId, input); });
+      return mutateRegistry(async () => (await forkManagedSession(sourceSessionId, input)).id);
     },
     changeGroup(sessionId, group) {
       return mutateRegistry(() => controller.moveSessionToGroup(sessionId, group));

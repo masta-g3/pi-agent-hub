@@ -4,7 +4,7 @@ import { sameInteractionTarget, type InteractionTarget, type MessageDelivery } f
 import { isEnterKey } from "./text-input.js";
 import { createForm, editField, moveFocus, setValue, validateRequired, type FormState } from "./form.js";
 import { renderForm, wrapWords } from "./layout.js";
-import type { FormDialogContext } from "./dialog.js";
+import { revealCreated, type FormDialogContext } from "./dialog.js";
 
 export type FormDialogPurpose = "fork" | "forkCompact" | "moveGroup" | "renameSession" | "renameGroup" | "send";
 
@@ -230,7 +230,7 @@ function submitForkDialog(dialog: FormDialog, ctx: FormDialogContext): FormDialo
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
   const compact = dialog.purpose === "forkCompact";
-  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) }), compact ? "forking and compacting session..." : "forking session...");
+  ctx.runAction(() => ctx.actions.forkSession?.(target.id, { group, ...(compact ? { compact: true } : {}) }), compact ? "forking and compacting session..." : "forking session...", (id) => revealCreated(ctx, id));
   return undefined;
 }
 

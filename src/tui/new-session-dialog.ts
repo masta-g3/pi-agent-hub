@@ -1,6 +1,6 @@
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionFavorite } from "../core/session-favorites.js";
-import type { NewSessionDialogContext } from "./dialog.js";
+import { revealCreated, type NewSessionDialogContext } from "./dialog.js";
 import { editTextInput, isEnterKey } from "./text-input.js";
 import { renderForm, truncate, type FormField } from "./layout.js";
 import { normalizeDetailOffset } from "./form-dialogs.js";
@@ -104,7 +104,7 @@ function handleNewFormInput(dialog: NewSessionDialog, data: string, ctx: NewSess
 function createSession(dialog: NewSessionDialog, ctx: NewSessionDialogContext): NewSessionDialog | undefined {
   const result = validateNewForm(dialog.form);
   if (!result.ok) return { ...dialog, actionFocus: undefined, optionsExpanded: dialog.optionsExpanded || !isRepoKey(result.state.focus), form: result.state };
-  ctx.runAction(() => ctx.actions.createSession?.(submission(result.state)), "creating session...");
+  ctx.runAction(() => ctx.actions.createSession?.(submission(result.state)), "creating session...", (id) => revealCreated(ctx, id));
   return undefined;
 }
 

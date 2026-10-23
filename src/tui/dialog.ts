@@ -222,7 +222,9 @@ export interface DialogContext {
   setFilter?: (filter: string | undefined) => void;
   message(): string | undefined;
   flashMessage(text: string): void;
-  runAction(action: () => unknown, pending: string, onSuccess?: () => void): void;
+  /** `onSuccess` receives the action's resolved value. */
+  runAction(action: () => unknown, pending: string, onSuccess?: (result: unknown) => void): void;
+  revealSession?: (sessionId: string) => void;
   attachSession(session: ManagedSession): void;
   stop(): void;
 }
@@ -236,6 +238,11 @@ export type ConfirmDialogContext = DialogContextFor<Partial<Pick<SessionLifecycl
 export type PickerDialogContext = DialogContextFor<Partial<Pick<SkillsActions, "pickerTarget" | "skillPoolDir" | "skillPoolDirExtraCount" | "saveSkillPoolDir" | "applySkills">> & Partial<Pick<McpActions, "applyMcpServers">>>;
 export type NewSessionDialogContext = DialogContextFor<Partial<Pick<SessionLifecycleActions, "createSession">> & { newFormContext?: () => NewFormContext; favorites?: FavoritesActions }>;
 export type ThemeDialogContext = DialogContextFor<Partial<Pick<ThemeActions, "previewDashboardTheme" | "cancelDashboardTheme" | "applyDashboardTheme">>>;
+
+/** Select and reveal a session created by a dialog action, when the action returned its id. */
+export function revealCreated(ctx: Pick<DialogContext, "revealSession">, id: unknown): void {
+  if (typeof id === "string") ctx.revealSession?.(id);
+}
 
 export function isPromise<T = unknown>(value: unknown): value is Promise<T> {
   return typeof value === "object" && value !== null && typeof (value as { then?: unknown }).then === "function";

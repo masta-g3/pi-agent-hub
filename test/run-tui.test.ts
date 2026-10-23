@@ -588,3 +588,9 @@ test("clearAttentionCounts hides every shown count and empties the cache", async
   assert.deepEqual(calls, [["t-a", 0]]);
   assert.equal(state.counts.size, 0);
 });
+
+test("registry mutator resolves with the action result", async () => {
+  const mutate = createRegistryMutator({ pause: async () => {}, resume: () => {}, refresh: async () => {}, render: () => {} });
+
+  assert.equal(await mutate(async () => "created-id"), "created-id");
+});

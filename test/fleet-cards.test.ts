@@ -199,12 +199,32 @@ test("producer-owned worktrees show their branch until cleaned", () => {
   assert.ok(!cleaned.some((line) => line.includes("costs-002")), cleaned.join("\n"));
 });
 
-test("repo names stay in their slot even when they repeat the group badge", () => {
+test("the bold group badge stands in for a repo that repeats it", () => {
   const same = cardLines(render([session("same", { group: "Hub Repo" })]), "same");
-  assert.match(same.at(-1)!, /◈ hub-repo/, same.join("\n"));
+  assert.equal(same.length, 1, same.join("\n"));
   const branched = cardLines(render([session("same", { group: "hub-repo", worktreeBranch: "feat/x" })]), "same");
-  assert.ok(branched.some((line) => /◈ hub-repo ⎇ feat\/x/.test(line)), branched.join("\n"));
+  const repoLine = branched.find((line) => line.includes("⎇ feat/x"));
+  assert.ok(repoLine && !/hub-repo ⎇/.test(repoLine), branched.join("\n"));
   const raw = renderSessions(buildRenderModel({ sessions: [session("same")], selectedId: "same", width: 160, height: 60, now: NOW, guidanceHidden: true }), darkTheme).lines;
-  const styled = raw.find((line) => stripAnsi(line).includes("◈ hub-repo"))!;
-  assert.ok(styled.includes(styleToken(darkTheme, "dim", "◈")) && !styled.includes(styleToken(darkTheme, "accent", "hub-repo")), styled);
+  assert.ok(raw.some((line) => line.includes("\u001b[1mcards\u001b[22m")), "bold group badge");
+  const differing = raw.find((line) => stripAnsi(line).includes("◈ hub-repo"))!;
+  assert.ok(differing.includes(styleToken(darkTheme, "accent", "◈")) && differing.includes("\u001b[1mhub-repo\u001b[22m"), differing);
+});
+
+test("narrow and pinned views carry a differing repo name on the metadata line", () => {
+  const differing = session("diff", { group: "mobile" });
+  const same = session("same", { group: "hub-repo" });
+  for (const input of [{ width: 60 }, { width: 99 }, { width: 120, pinSlots: ["diff", undefined], activePinnedSessionId: "diff" }] as Partial<BuildRenderModelInput>[]) {
+    const rendered = render([differing, same], { height: 40, ...input });
+    const diffCard = cardLines(rendered, "diff");
+    assert.equal(diffCard.length, 1, JSON.stringify(input) + "\n" + diffCard.join("\n"));
+    assert.match(diffCard[0]!, /\[mobile\] ◈ hub-repo/, JSON.stringify(input) + "\n" + diffCard[0]);
+    const sameCard = cardLines(rendered, "same");
+    assert.doesNotMatch(sameCard[0]!, /◈/, JSON.stringify(input) + "\n" + sameCard[0]);
+  }
+  const wide = cardLines(render([differing]), "diff");
+  assert.doesNotMatch(wide[0]!, /◈/, "wide cards keep the repo on its own line\n" + wide.join("\n"));
+  assert.ok(wide.some((line) => /◈ hub-repo/.test(line)), wide.join("\n"));
+  const tight = cardLines(render([differing], { width: 30, height: 40 }), "diff");
+  assert.match(tight[0]!, /\[mobile\]/, tight.join("\n"));
 });

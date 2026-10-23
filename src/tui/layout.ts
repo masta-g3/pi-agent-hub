@@ -270,6 +270,8 @@ interface LayoutStyles {
   success(text: string): string;
   muted(text: string): string;
   text(text: string): string;
+  /** Bold primary text; the only emphasis that does not borrow a semantic color. */
+  strong(text: string): string;
   warning(text: string): string;
   selected(text: string): string;
   status(status: RenderSession["displayStatus"], text: string): string;
@@ -284,6 +286,7 @@ function createStyles(theme: SessionsTheme): LayoutStyles {
     success: (text) => styleToken(theme, "success", text),
     muted: (text) => styleToken(theme, "muted", text),
     text: (text) => styleToken(theme, "text", text),
+    strong: (text) => text ? `\u001b[1m${styleToken(theme, "text", text)}\u001b[22m` : text,
     warning: (text) => styleToken(theme, "warning", text),
     selected: (text) => styleBgToken(theme, "selectedBg", text),
     status: (status, text) => styleToken(theme, status === "error" ? "error" : status === "waiting" ? "warning" : status === "running" ? "success" : "muted", text),
@@ -500,7 +503,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     contextIndexes.set(lines.length - 1, context);
     if (titleFirst) {
       const indent = gutterColumn ? "   " : "  ";
-      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, styles, gridWorkflow, model.fleetGrouping === "repo")}`, { kind: "session-continuation", id: session.id }, session);
+      // Without card lines, the metadata line is the only place a differing repo name can appear.
+      const repoInline = model.width < 100 || model.compactRows;
+      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, styles, gridWorkflow, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
     }
     if (shape === "full-parent" && !model.compactRows) {
@@ -963,11 +968,20 @@ function adaptiveCardLines(
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories
     ?.find((item) => item.role === "primary" && item.state !== "cleaned")?.branch;
   const branch = branchName ? `${styles.dim("⎇")} ${styles.muted(branchName)}` : "";
-  // Repo grouping names the repo in its section header; elsewhere the accent slot makes it scannable.
-  const repoName = repoMode ? "" : `${styles.dim("◈")} ${styles.text(session.repoLabel)}`;
-  const repo = [repoName, branch].filter(Boolean).join(" ");
+  const repo = [repoNameSignal(session, styles, repoMode), branch].filter(Boolean).join(" ");
   if (repo) lines.push({ line: truncate(repo, width), priority: 1 });
   return lines;
+}
+
+/** Repo grouping names the repo in its header, and groups usually name the repo; only a differing name earns the slot. */
+function repoNameSignal(session: RenderSession, styles: LayoutStyles, repoMode: boolean): string {
+  if (repoMode || sameName(session.repoLabel, session.group)) return "";
+  return `${styles.accent("◈")} ${styles.strong(session.repoLabel)}`;
+}
+
+function sameName(left: string, right: string): boolean {
+  const key = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  return key(left) === key(right);
 }
 
 function activityLabel(activity: WorkflowRuntimeSnapshot["activity"]): string {
@@ -1214,7 +1228,7 @@ function workflowGridHeader(workflow: WorkflowRuntimeSnapshot): string {
   return workflow.steps.map((step) => pad(step.short, Math.max(2, displayWidth(step.short)))).join("  ");
 }
 
-function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, grid: WorkflowRuntimeSnapshot | undefined, repoMode: boolean): string {
+function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, grid: WorkflowRuntimeSnapshot | undefined, repoMode: boolean, repoInline = false): string {
   const workflow = session.workflow;
   const mode = activeWorkflowMode(session);
   const compatible = workflow && grid && workflow.steps.length === grid.steps.length
@@ -1237,9 +1251,15 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
   const leftWidth = Math.max(0, width - (right ? displayWidth(right) + 1 : 0));
   const minimumGroup = Math.min(8, Math.max(0, leftWidth - (hidden ? displayWidth(hidden) + 1 : 0)));
   let signals = hidden;
+  // The repo name never shrinks the group badge; it comes only when the full badge still fits.
+  const repo = repoInline ? repoNameSignal(session, styles, repoMode) : "";
+  const fullGroup = Math.min(24, displayWidth(session.group) + 2);
+  const repoFits = Boolean(repo) && fullGroup + 1 + displayWidth(signals ? `${signals} ${repo}` : repo) <= leftWidth;
+  if (repoFits) signals = signals ? `${signals} ${repo}` : repo;
+  const groupFloor = repoFits ? fullGroup : minimumGroup;
   for (const signal of optionalSignals) {
     const candidate = signals ? `${signals} ${signal}` : signal;
-    if (minimumGroup + 1 + displayWidth(candidate) <= leftWidth) signals = candidate;
+    if (groupFloor + 1 + displayWidth(candidate) <= leftWidth) signals = candidate;
   }
   const groupWidth = Math.max(0, leftWidth - (signals ? displayWidth(signals) + 1 : 0));
   const group = groupWidth >= 3 ? renderGroupBadge(session.group, Math.min(24, groupWidth), styles) : "";
@@ -1463,7 +1483,8 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const worktree = session.worktreeMarker ? `${worktreeMarkerStyle(session.worktreeMarker, styles)} ` : "";
   if (options.titleFirst) {
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
-    return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available))}`, width);
+    const fresh = freshBadge(session, available, styles);
+    return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available - displayWidth(fresh)))}${fresh}`, width);
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.dim(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
@@ -1482,10 +1503,20 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const fittedBadge = fittedBadgeWidth >= 3 ? `${renderGroupBadge(session.group, fittedBadgeWidth, styles)} ` : "";
   const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableAdornments ? repoCount : "";
   const fittedAdornments = `${fittedBadge}${fittedCount}`;
-  const titleWidth = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);
-  const title = styles.text(truncate(session.title, titleWidth));
-  const left = `${prefix}${fittedBadge}${worktree}${title}${fittedCount}`;
+  const titleSpace = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);
+  const fresh = freshBadge(session, titleSpace, styles);
+  const title = styles.text(truncate(session.title, titleSpace - displayWidth(fresh)));
+  const left = `${prefix}${fittedBadge}${worktree}${title}${fresh}${fittedCount}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
+}
+
+const FRESH_BADGE = " new";
+
+/** Drops before the title would truncate below its readable minimum. */
+function freshBadge(session: RenderSession, titleSpace: number, styles: LayoutStyles): string {
+  if (!session.fresh) return "";
+  const titleNeed = Math.min(12, displayWidth(session.title));
+  return titleSpace - FRESH_BADGE.length >= titleNeed ? styles.accent(FRESH_BADGE) : "";
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
@@ -1496,7 +1527,7 @@ function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {
-  return `${styles.dim("[")}${styles.text(truncate(group, width - 2))}${styles.dim("]")}`;
+  return `${styles.dim("[")}${styles.strong(truncate(group, width - 2))}${styles.dim("]")}`;
 }
 
 export interface FormField {

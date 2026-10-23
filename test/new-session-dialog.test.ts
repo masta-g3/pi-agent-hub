@@ -24,3 +24,10 @@ test('Enter creates from text fields and activates non-text controls',()=>{
  assert.equal(moved.form.focus,'repo:1');
  assert.equal(created.length,3);
 });
+
+test('create reveals the created session after success',()=>{
+ const revealed:string[]=[];
+ const ctx={actions:{newFormContext:()=>({cwd:'/code/web'}),createSession:()=>'created-id'},setMessage:()=>{},revealSession:(id:string)=>revealed.push(id),runAction:(fn:()=>unknown,_pending:string,onSuccess?:(result:unknown)=>void)=>onSuccess?.(fn())} as unknown as NewSessionDialogContext;
+ assert.equal(handleNewSessionInput(openNewSessionDialog(ctx),'\r',ctx),undefined);
+ assert.deepEqual(revealed,['created-id']);
+});

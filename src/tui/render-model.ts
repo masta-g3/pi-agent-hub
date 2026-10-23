@@ -78,7 +78,12 @@ export interface RenderSession {
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
+  /** Active parent created within FRESH_SESSION_MS of render time. */
+  fresh?: true;
 }
+
+/** How long a newly created or forked session keeps its `new` badge. */
+export const FRESH_SESSION_MS = 60_000;
 
 export interface StatusCounts {
   running: number;
@@ -1045,6 +1050,8 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),
+    ...(lifecycle.section === "active" && session.kind !== "subagent" && now !== undefined
+      && now - session.createdAt < FRESH_SESSION_MS ? { fresh: true } : {}),
   };
 }
 
