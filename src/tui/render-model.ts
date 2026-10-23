@@ -146,6 +146,8 @@ export interface RenderCockpitNavigationEntry extends CockpitNavigationEntry {
 export interface RenderPinSummary {
   count: number;
   constrained: boolean;
+  /** Pins stay attached but are hidden because the window is too narrow to show them. */
+  hidden: boolean;
 }
 
 export interface RenderPlanSummary {
@@ -540,6 +542,7 @@ export interface BuildRenderModelInput {
   activePinnedSessionId?: string;
   pinCapacity?: number;
   pinConstrained?: boolean;
+  pinsHidden?: boolean;
   archiveExpanded?: boolean;
   archiveDisclosureSelected?: boolean;
   selectedSection?: CollapsibleSection;
@@ -571,7 +574,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const pinSlots = input.pinSlots ?? [];
   const pinned = new Set(pinSlots.filter((id): id is string => Boolean(id)));
   const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
-  const pinMode = pinned.size > 0;
+  const pinMode = pinned.size > 0 && !input.pinsHidden;
   const guidanceVisible = !input.guidanceHidden && !board && fleetGrouping === "status" && !pinMode && !filterActive && !input.workspaceFullScreen;
   const coach = guidanceVisible && coachingActive(input.cockpitOnboarding);
   const showReleaseCue = guidanceVisible && input.releaseCueEnabled === true
@@ -672,8 +675,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       coach,
       ...(showReleaseCue ? { releaseCue: { ...COCKPIT_RELEASE_CUE, selected: input.releaseCueSelected ?? false } } : {}),
     },
-    ...(pinMode ? {
-      pinSummary: { count: pinned.size, constrained: input.pinConstrained ?? false },
+    ...(pinned.size ? {
+      pinSummary: { count: pinned.size, constrained: !input.pinsHidden && (input.pinConstrained ?? false), hidden: input.pinsHidden ?? false },
     } : {}),
   };
 }

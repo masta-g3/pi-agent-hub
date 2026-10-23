@@ -281,9 +281,11 @@ test("framed public renders stay aligned at narrow, normal, and wide widths", ()
     const form = renderForm({ title: "New session", fields: [{ key: "cwd", label: "cwd", value: "/tmp/api" }], focus: "cwd", footer: "enter · esc" }, width, darkTheme);
     const dialog = renderDialog("Confirm", ["Continue with this action?"], width, darkTheme);
     for (const lines of [dashboard, form, dialog]) {
-      for (const line of lines) assert.equal(stripAnsi(line).length, lines === dashboard ? Math.max(40, width) : Math.max(22, Math.min(Math.max(22, width), 88)), `${width}: ${stripAnsi(line)}`);
+      for (const line of lines) assert.equal(stripAnsi(line).length, lines === dashboard ? Math.max(30, width) : Math.max(22, Math.min(Math.max(22, width), 88)), `${width}: ${stripAnsi(line)}`);
     }
-    assert.match(stripAnsi(dashboard[0] ?? ""), /pi agent hub/);
+    // Phone-width dashboards are frameless; forms and dialogs keep their frames.
+    if (width > 60) assert.match(stripAnsi(dashboard[0] ?? ""), /pi agent hub/);
+    else assert.match(stripAnsi(dashboard[0] ?? ""), /^FLEET/);
     assert.equal(stripAnsi(form[0] ?? "").at(0), "╭");
     assert.equal(stripAnsi(dialog[0] ?? "").at(0), "╭");
   }

@@ -496,8 +496,8 @@ test("mode labels survive every 40-column signal combination", () => {
     ["Needs", workspaceModel({ sessions: [needs, health], selectedId: "needs", width: 40 })],
   ] as const;
   for (const [mode, model] of modes) {
-    const header = stripAnsi(renderSessions(model).lines[1] ?? "");
-    assert.match(header, new RegExp(`^│${mode}`));
+    const header = stripAnsi(renderSessions(model).lines[0] ?? "");
+    assert.match(header, new RegExp(`^${mode}`));
     assert.equal(visibleWidth(header), 40);
   }
 });
@@ -1059,7 +1059,7 @@ test("render model records named pin and focused identity", () => {
   const api = modelRows(model).find((item) => item.id === "api");
   const docs = modelRows(model).find((item) => item.id === "docs");
   assert.deepEqual([api?.pinSlot, api?.pinned, api?.pinFocused, docs?.pinSlot, docs?.pinned], [2, true, true, 1, true]);
-  assert.deepEqual(model.pinSummary, { count: 2, constrained: false });
+  assert.deepEqual(model.pinSummary, { count: 2, constrained: false, hidden: false });
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(text, /PINNED FLEET\s+2 trees · 2 pinned/);
   assert.doesNotMatch(text, /PINNED ·/);
@@ -1198,34 +1198,34 @@ test("height-bounded empty and no-match states fit terminal rows", () => {
 });
 
 test("height-bounded list keeps a top selection and nearby titles", () => {
-  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s0", width: 80, height: 15 }));
+  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s0", width: 100, height: 15 }));
   assert.deepEqual(renderedSessionIds(layout), manySessions(4).map((item) => item.id));
 });
 
 test("height-bounded list keeps a bottom selection and nearby titles", () => {
-  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s19", width: 80, height: 15 }));
+  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s19", width: 100, height: 15 }));
   assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(16).map((item) => item.id));
 });
 
 test("height-bounded list centers a middle selection among nearby titles", () => {
-  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s10", width: 80, height: 15 }));
+  const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s10", width: 100, height: 15 }));
   assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(8, 12).map((item) => item.id));
 });
 
 test("height-bounded list handles exact and one-over capacity", () => {
-  const exact = renderSessions(buildRenderModel({ sessions: manySessions(4), selectedId: "s0", width: 80, height: 15 }));
+  const exact = renderSessions(buildRenderModel({ sessions: manySessions(4), selectedId: "s0", width: 100, height: 15 }));
   assert.equal(exact.listScrollTop, 0);
   assert.doesNotMatch(exact.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more/);
   assert.deepEqual(renderedSessionIds(exact), manySessions(4).map((item) => item.id));
 
-  const oneOver = renderSessions(buildRenderModel({ sessions: manySessions(5), selectedId: "s0", width: 80, height: 15 }));
+  const oneOver = renderSessions(buildRenderModel({ sessions: manySessions(5), selectedId: "s0", width: 100, height: 15 }));
   assert.deepEqual(renderedSessionIds(oneOver), manySessions(4).map((item) => item.id));
 });
 
 test("height-bounded list derives its adaptive window from selection", () => {
   const sessions = manySessions(30);
-  const first = renderSessions(buildRenderModel({ sessions, selectedId: "s10", width: 80, height: 15 }));
-  const next = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 80, height: 15, listScrollTop: 99 }));
+  const first = renderSessions(buildRenderModel({ sessions, selectedId: "s10", width: 100, height: 15 }));
+  const next = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 100, height: 15, listScrollTop: 99 }));
 
   assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(8, 12).map((item) => item.id));
   assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(10, 14).map((item) => item.id));
@@ -1399,7 +1399,7 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showWorkspace, false);
-  assert.equal(model.footer, "↑↓ · / Filter · b Backlog · : Actions · ? Help");
+  assert.equal(model.footer, "Enter Open · i Info · : Actions · / Filter · ? Help");
 });
 
 
@@ -1546,7 +1546,7 @@ test("editing filter stays visible and selected titles survive compact fleet mod
         assert.match(text, /FILTERING.*au█th.*Esc cancel/, geometry);
         for (const targets of [layout.rowTargets, layout.navigatorRowTargets, layout.workspaceRowTargets, layout.announcementRowTargets]) {
           assert.equal(targets.length, layout.lines.length, geometry);
-          assert.equal(targets.at(-1), undefined, geometry);
+          if (width > 60) assert.equal(targets.at(-1), undefined, `${geometry}: frame border has no target`);
         }
         if (height >= 5) assert.ok(layout.rowTargets.some(target => target?.kind === "session" && target.id === parent.id), geometry);
       }
@@ -2318,7 +2318,7 @@ test("project tier navigator is independent, responsive, and keeps zero tiers", 
 
   const narrow = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 60 }), darkTheme);
   assert.equal(narrow.navigatorWidth, 0);
-  assert.equal(narrow.listStartX, 2);
+  assert.equal(narrow.listStartX, 1, "phone widths are frameless");
   for (const [width, expected] of [[40, 0], [59, 0], [60, 0], [99, 0], [100, 16], [119, 16], [120, 17], [159, 17], [160, 17]] as const) {
     const responsive = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width }), darkTheme);
     assert.equal(responsive.navigatorWidth, expected, `width ${width}`);

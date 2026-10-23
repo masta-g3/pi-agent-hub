@@ -211,7 +211,9 @@ test("configureManagedSessionStatusBar sets a Pi-native right footer", async () 
   assert.deepEqual(exec.calls.map((call) => call.args), [[
     "set-option", "-t", "pi-agent-hub-api", "status", "on",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-style", "bg=#1a1b26,fg=#a9b1d6",
-    ";", "set-option", "-t", "pi-agent-hub-api", "status-right", "#[fg=#565f89]ctrl+q return · alt+r rename#[default] │ #{?@pi_hub_needs,#[fg=#e0af68]⚑ #{@pi_hub_needs} need you#[fg=#565f89] · alt+w next#[default] │ ,}📁 package | example-service ",
+    ";", "set-option", "-t", "pi-agent-hub-api", "status-right", "#{?#{e|<:#{client_width},80},"
+      + "#{?@pi_hub_needs,#[fg=#e0af68]⚑ #{@pi_hub_needs}#[default] │ ,}📁 package │ #[fg=#565f89]#[range=user|pi-hub-return]⌂ hub#[norange]#[default] ,"
+      + "#[fg=#565f89]#[range=user|pi-hub-return]ctrl+q return#[norange] · alt+r rename#[default] │ #{?@pi_hub_needs,#[fg=#e0af68]⚑ #{@pi_hub_needs} need you#[fg=#565f89] · alt+w next#[default] │ ,}📁 package | example-service }",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-right-length", "100",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-left", "",
     ";", "set-option", "-t", "pi-agent-hub-api", "status-left-length", "120",
@@ -229,8 +231,11 @@ test("configureManagedSessionStatusBar keeps attention branches free of tmux con
 
   const args = exec.calls[0]?.args ?? [];
   const statusRight = args[args.indexOf("status-right") + 1] ?? "";
-  const conditional = statusRight.match(/#\{\?@pi_hub_needs,(.*),\}/)?.[1];
-  assert.equal(conditional, "#[fg=colour3]⚑ #{@pi_hub_needs} need you#[fg=colour244] · alt+w next#[default] │ ");
+  const conditionals = [...statusRight.matchAll(/#\{\?@pi_hub_needs,(.*?),\}/g)].map((match) => match[1]);
+  assert.deepEqual(conditionals, [
+    "#[fg=colour3]⚑ #{@pi_hub_needs}#[default] │ ",
+    "#[fg=colour3]⚑ #{@pi_hub_needs} need you#[fg=colour244] · alt+w next#[default] │ ",
+  ]);
 });
 
 test("setSessionAttentionCount sets or unsets the session request count", async () => {
@@ -268,7 +273,7 @@ test("configureManagedSessionStatusBar applies theme-derived chrome", async () =
 
   const args = exec.calls[0]?.args.join("\n") ?? "";
   assert.match(args, /status-style\nbg=colour240,fg=#010203/);
-  assert.match(args, /#\[fg=#445566\]ctrl\+q return · alt\+r rename#\[default\]/);
+  assert.match(args, /#\[fg=#445566\]#\[range=user\|pi-hub-return\]ctrl\+q return#\[norange\] · alt\+r rename#\[default\]/);
   assert.match(args, /window-status-style\nfg=#010203,bg=colour240/);
 });
 
@@ -278,6 +283,11 @@ test("configureManagedSessionStatusBar escapes tmux format markers in labels", a
   await configureManagedSessionStatusBar({ name: "pi-agent-hub-api", title: "api #1", cwd: "/repo/proj#ect" }, exec);
 
   assert.match(exec.calls[0]?.args.join("\n"), /api ##1 \| proj##ect/);
+
+  const branchExec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+  await configureManagedSessionStatusBar({ name: "pi-agent-hub-api", title: "fix, then {ship}", cwd: "/repo/a,b" }, branchExec);
+  const statusRight = branchExec.calls[0]?.args[branchExec.calls[0].args.indexOf("status-right") + 1] ?? "";
+  assert.match(statusRight, /📁 fix#, then \{ship#\} \| a#,b /, "conditional branches escape commas and braces");
 });
 
 test("configureDashboardStatusBar overrides inherited colored window formats", async () => {
@@ -637,6 +647,34 @@ test("switchClientWithReturn installs a forwarding next-request binding and rest
   const returnScript = bindCalls.find((call) => call.args[2] === "C-q")?.args[4] ?? "";
   assert.match(returnScript, /unbind-key -T root 'M-w'/);
   assert.doesNotMatch(returnScript, /\*\);/);
+});
+
+test("switchClientWithReturn makes the status-bar return hint clickable and keeps other status clicks", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "pi-agent-hub-return-"));
+  const exec = fakeTmux((call) => {
+    const subcommand = call.args[0];
+    if (subcommand === "display-message" && call.args[2] === "#{session_name}") return { stdout: "control\n", stderr: "" };
+    if (subcommand === "display-message" && call.args[2] === "#{client_name}") return { stdout: "/dev/ttys011\n", stderr: "" };
+    if (subcommand === "list-keys" && call.args[3] === "MouseDown1Status") return { stdout: "bind-key -T root MouseDown1Status select-window -t =\n", stderr: "" };
+    return { stdout: "", stderr: "" };
+  });
+
+  await switchClientWithReturn({ targetSession: "pi-agent-hub-target", stateDir, statusClickReturn: true }, exec);
+
+  const mouse = exec.calls.find((call) => call.args[0] === "bind-key" && call.args[2] === "MouseDown1Status")?.args ?? [];
+  assert.deepEqual(mouse.slice(0, 6), ["bind-key", "-n", "MouseDown1Status", "if-shell", "-F", "#{==:#{mouse_status_range},pi-hub-return}"]);
+  assert.match(mouse[6] ?? "", /^run-shell "S=\\\$\(tmux display-message/);
+  assert.match(mouse[6] ?? "", /switch-client -t 'control'/);
+  assert.match(mouse[6] ?? "", /unbind-key -T root 'MouseDown1Status'/);
+  assert.equal(mouse[7], "select-window -t =", "other status clicks keep the previous binding");
+  assert.equal(await readFile(join(stateDir, "status-click.previous.tmux"), "utf8"), "bind-key -T root MouseDown1Status select-window -t =\n");
+});
+
+test("managed status bar marks the return hint as a click range", async () => {
+  const exec = fakeTmux(() => ({ stdout: "", stderr: "" }));
+  await configureManagedSessionStatusBar({ name: "pi-agent-hub-api", title: "package", cwd: "/repo/example-service" }, exec);
+  const statusRight = exec.calls[0]?.args[exec.calls[0].args.indexOf("status-right") + 1] ?? "";
+  assert.match(statusRight, /#\[range=user\|pi-hub-return\]ctrl\+q return#\[norange\]/);
 });
 
 test("switchClientWithReturn can self-heal a missing return session before cleanup", async () => {

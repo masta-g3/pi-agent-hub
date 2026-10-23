@@ -18,6 +18,7 @@ class NamedPaneTmux implements TmuxExec {
   ownTitle = "Dashboard";
   ownWidth = 42;
   windowWidth = 160;
+  zoomed = false;
   failSplit?: Error;
   failPinTitle?: Error;
   failBorder?: Error;
@@ -31,7 +32,7 @@ class NamedPaneTmux implements TmuxExec {
   }
 
   paneOutput(): string {
-    const own = `%1\t/dev/ttys001\t${this.ownActive ? 1 : 0}\t0\t0\t${this.ownWidth}\t59\t${this.windowWidth}\t60\t\t${this.ownTitle}\n`;
+    const own = `%1\t/dev/ttys001\t${this.ownActive ? 1 : 0}\t0\t0\t${this.zoomed ? this.windowWidth : this.ownWidth}\t59\t${this.windowWidth}\t60\t\t${this.ownTitle}\n`;
     const contentWidth = this.windowWidth - this.ownWidth - 1;
     return own + this.panes.map((pane, index) => {
       const count = this.panes.length;
@@ -106,10 +107,16 @@ class NamedPaneTmux implements TmuxExec {
       this.events.push(`border:${args.at(-1)}`);
       if (this.failBorder && args.at(-1) === "top") throw this.failBorder;
     }
+    if (action === "resize-pane" && args.includes("-Z")) {
+      this.zoomed = !this.zoomed;
+      this.events.push(`zoom:${this.zoomed}`);
+      return { stdout: "", stderr: "" };
+    }
     if (action === "resize-pane") this.ownWidth = Number(args.at(-1));
     if (action === "switch-client") this.events.push(`switch:${args.at(-1)}`);
     if (action === "display-message") {
       const format = args.at(-1);
+      if (format === "#{window_zoomed_flag}") return { stdout: `${this.zoomed ? 1 : 0}\n`, stderr: "" };
       if (format === "#{session_name}") return { stdout: "pi-agent-hub\n", stderr: "" };
       if (format === "#{client_name}") return { stdout: "/dev/ttys001\n", stderr: "" };
       if (format === "#{client_width} #{client_height}") return { stdout: "160 60\n", stderr: "" };
@@ -177,7 +184,7 @@ test("presence adopts named pins and publishes the complete live snapshot", asyn
   assert.deepEqual(value.lifecycle.snapshot(), {
     pins: [{ slot: 1, sessionId: "api", tmuxSession: "pi-agent-hub-api", paneId: "%2", title: "API", active: true,
       rect: { left: 43, top: 0, width: 117, height: 59 } }],
-    activeSessionId: "api", capacity: 4, constrained: false, splitPercent: 50, dashboardStatusVisible: false,
+    activeSessionId: "api", capacity: 4, constrained: false, hidden: false, splitPercent: 50, dashboardStatusVisible: false,
   });
   assert.equal(value.tmux.ownTitle, "PI HUB / PINNED FLEET");
   assert.equal(value.tmux.panes[0]?.title, "LIVE 1 · API · Alt+1–4 · Ctrl+Q");
@@ -306,6 +313,79 @@ test("capacity refusal preserves chrome and existing pins", async (t) => {
   assert.deepEqual(await value.lifecycle.pin("more"), { kind: "capacity", capacity: 2, pins: 2 });
   assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api", "docs"]);
   assert.equal(value.tmux.panes.length, 2);
+});
+
+test("phone-width window hides pins behind a Hub zoom and restores the layout when wide again", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  value.events.length = 0;
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  assert.equal(value.tmux.zoomed, true);
+  assert.ok(value.events.includes("border:off"));
+  assert.equal(value.events.some((event) => event.startsWith("kill:")), false, "hiding never closes pins");
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api", "docs"]);
+
+  value.events.length = 0;
+  value.tmux.windowWidth = 160;
+  await waitFor(() => !value.lifecycle.snapshot().hidden);
+  assert.equal(value.tmux.zoomed, false);
+  before(value.events, "zoom:false", "border:top");
+  assert.ok(value.tmux.commands.includes("resize-pane -t %1 -x 42"), "restores the last wide sidebar width");
+  assert.ok(value.events.some((event) => event.startsWith("split:")), "rebuilds pins at the wide geometry");
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId).sort(), ["api", "docs"]);
+});
+
+test("Hub never undoes a zoom it did not make", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  value.tmux.zoomed = true;
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  value.events.length = 0;
+  value.tmux.windowWidth = 160;
+  await waitFor(() => !value.lifecycle.snapshot().hidden);
+  assert.equal(value.tmux.zoomed, true);
+  assert.equal(value.events.some((event) => event.startsWith("zoom:")), false);
+});
+
+test("hidden pin focus opens the exact session full screen instead of selecting a hidden pane", async (t) => {
+  const waiting = session("api", "waiting");
+  const value = await harness(t, { sessions: [waiting, session("docs")], initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focus(1), { kind: "focused" });
+  before(value.events, "reveal:api", "ack:api");
+  before(value.events, "ack:api", "switch:pi-agent-hub-api");
+  assert.equal(value.events.some((event) => event.startsWith("focus:%")), false);
+  assert.equal(value.tmux.zoomed, true);
+  assert.deepEqual(await value.lifecycle.focusPinnedSession("docs"), { kind: "unavailable" });
+  assert.deepEqual(await value.lifecycle.focusDirection("right"), { kind: "unavailable" });
+});
+
+test("a narrow window hides pins for focus even before presence zooms it", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  value.tmux.windowWidth = 50;
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focusPinnedSession("api"), { kind: "unavailable" });
+  assert.deepEqual(await value.lifecycle.focusDirection("right"), { kind: "unavailable" });
+  assert.deepEqual(await value.lifecycle.focus(2), { kind: "focused" });
+  assert.equal(value.events.some((event) => /^focus:%[23]$/.test(event)), false, "never selects a hidden pin pane");
+  assert.ok(value.events.includes("switch:pi-agent-hub-docs"));
+});
+
+test("closing a hidden pin kills only its pane", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.close("docs"), { kind: "closed" });
+  assert.deepEqual(value.events.filter((event) => event.startsWith("kill:") || event.startsWith("split:")), ["kill:%3"]);
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api"]);
 });
 
 test("handoff reveals and acknowledges before managed chrome and switch", async (t) => {

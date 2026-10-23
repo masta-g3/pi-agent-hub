@@ -322,7 +322,7 @@ test("filter editor is visible with an empty draft and slash leaves narrow works
   assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FLEET/);
   view.handleInput("/");
   const lines = view.render(60).map(stripAnsi);
-  assert.match(lines[2]!, /FILTERING.*█.*Enter apply.*Esc cancel/);
+  assert.match(lines[1]!, /FILTERING.*█.*Enter apply.*Esc cancel/);
   assert.match(lines.join("\n"), /FLEET/);
   view.handleInput("\r");
   assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FILTERING|FILTERED/);
@@ -493,11 +493,11 @@ test("help overlay stays within terminal width", () => {
 test("narrow dashboard renders width-safe notice", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("api", "api")] }), () => {});
 
-  for (const width of [10, 25, 38]) {
+  for (const width of [10, 25, 29]) {
     const rendered = view.render(width);
     const text = stripAnsi(rendered.join("\n"));
     assert.match(text, /pane too/);
-    if (width === 38) assert.match(text, /pane too narrow/);
+    if (width === 29) assert.match(text, /pane too narrow/);
     for (const line of rendered) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
 });
@@ -512,8 +512,9 @@ test("narrow dashboard guards dialogs", () => {
 
   view.handleInput("?");
   view.handleInput("n");
-  for (const line of view.render(38)) assert.ok(visibleWidth(line) <= 38, line);
-  assert.match(stripAnsi(view.render(38).join("\n")), /pane too narrow/);
+  for (const line of view.render(29)) assert.ok(visibleWidth(line) <= 29, line);
+  assert.match(stripAnsi(view.render(29).join("\n")), /pane too narrow/);
+  for (const width of [30, 34, 39]) for (const line of view.render(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
 });
 
 test("narrow mouse press is ignored", () => {
@@ -523,7 +524,7 @@ test("narrow mouse press is ignored", () => {
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
 
-  view.render(38);
+  view.render(29);
   view.handleInput(mousePressAtLine(3));
 
   assert.equal(controller.snapshot().selectedId, "api");
@@ -2024,8 +2025,8 @@ test("sidebar dashboard renders readable primary controls", () => {
   });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-2) ?? "", /x Close · : Actions · \? Help/);
-  assert.doesNotMatch(rendered.at(-2) ?? "", /…/);
+  assert.match(rendered.at(-1) ?? "", /x Close · : Actions · \? Help/);
+  assert.doesNotMatch(rendered.at(-1) ?? "", /…/);
 });
 
 test("mouse hit map follows scrolled list window", () => {
@@ -4229,9 +4230,9 @@ test("resize below the minimum width clears stale workspace hit targets", () => 
 
 test("colon is inert below the minimum dashboard width", () => {
   const view = new SessionsView(new SessionsController(), () => {});
-  view.render(39);
+  view.render(29);
   view.handleInput(":");
-  assert.doesNotMatch(stripAnsi(view.render(39).join("\n")), /Search actions, sessions, filters/);
+  assert.doesNotMatch(stripAnsi(view.render(29).join("\n")), /Search actions, sessions, filters/);
 });
 
 test("A opens a target-bound Archive chooser where d, x and a archive without falling through and Esc changes nothing", () => {
@@ -4468,4 +4469,52 @@ test("hasVisibleRunningRows tracks on-screen running rows only", () => {
   view.handleInput("?");
   view.render(120);
   assert.equal(view.hasVisibleRunningRows, false, "help covers the fleet");
+});
+
+function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
+  const row = lines.length - 1;
+  const footer = stripAnsi(lines[row] ?? "");
+  const column = footer.indexOf(key === "Esc" || key === "Enter" ? key : `${key} `);
+  assert.ok(column >= 0, `footer has ${key}: ${footer}`);
+  view.handleInput(mousePressAtLine(row, column + 1));
+}
+
+test("phone footer taps follow the same dashboard key paths", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 22, now: () => 0 });
+  tapFooterKey(view, view.render(44), "/");
+  assert.match(stripAnsi(view.render(44).join("\n")), /FILTERING/);
+  view.handleInput("\u001b");
+
+  tapFooterKey(view, view.render(44), "i");
+  const workspace = view.render(44);
+  assert.doesNotMatch(stripAnsi(workspace.join("\n")), /^FLEET/m);
+  tapFooterKey(view, workspace, "Esc");
+  assert.match(stripAnsi(view.render(44)[0] ?? ""), /^FLEET/);
+});
+
+test("phone dashboards render down to 30 columns", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 20 });
+  assert.match(stripAnsi(view.render(30).join("\n")), /session-0/);
+  assert.match(stripAnsi(view.render(29).join("\n")), /pane too narrow/);
+});
+
+test("flash messages replace a frameless phone footer and disable its taps", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(2) }), () => {}, { terminalRows: () => 20 });
+  view.handleInput("P");
+  const lines = view.render(44).map(stripAnsi);
+  assert.equal(lines.length, 20);
+  assert.match(lines.at(-1) ?? "", /^pin transport unavailable\s*$/);
+  view.handleInput(mousePressAtLine(lines.length - 1, 2));
+  assert.equal(view.render(44).some((line) => /FILTERING/.test(stripAnsi(line))), false);
+});
+
+test("hidden pins leave pin mode so phones can open the workspace", () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(2) }), () => {}, {
+    terminalRows: () => 20,
+    sidePaneState: () => ({ slots: ["s0", undefined, undefined, undefined], capacity: 0, constrained: true, hidden: true, splitPercent: 50 }),
+  });
+  const fleet = view.render(44).map(stripAnsi);
+  assert.match(fleet[0] ?? "", /^FLEET .*1 pin hidden/);
+  view.handleInput("i");
+  assert.doesNotMatch(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
 });

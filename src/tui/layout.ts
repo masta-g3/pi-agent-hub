@@ -8,6 +8,9 @@ import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField }
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
 export const NARROW_LAYOUT_MAX_WIDTH = 60;
+export const MIN_LAYOUT_WIDTH = 30;
+/** Fleet rows collapse to one line below this height; the selected row keeps its metadata line. */
+const SHORT_FLEET_HEIGHT = 20;
 
 export type SessionListTarget =
   | { kind: "session"; id: string }
@@ -21,6 +24,13 @@ export interface TierNavigatorTarget {
   tier: CockpitTier;
 }
 
+/** A tappable footer control; `x` is the 1-based terminal column of its key. */
+export interface FooterItem {
+  key: string;
+  x: number;
+  width: number;
+}
+
 export interface SessionsLayout {
   lines: string[];
   rowTargets: (SessionListTarget | undefined)[];
@@ -32,11 +42,55 @@ export interface SessionsLayout {
   workspaceStartX?: number;
   listWidth: number;
   listScrollTop: number;
+  footerRow?: number;
+  footerItems: FooterItem[];
+}
+
+/** Phone-width panes drop the outer frame; every row and column offset follows this inset. */
+interface Shell {
+  framed: boolean;
+  inset: 0 | 1;
+  bodyWidth: number;
+}
+
+function shellFor(width: number): Shell {
+  const framed = width > NARROW_LAYOUT_MAX_WIDTH;
+  return { framed, inset: framed ? 1 : 0, bodyWidth: framed ? width - 2 : width };
+}
+
+function wrapShell(shell: Shell, width: number, body: string[], height: number | undefined, styles: LayoutStyles): string[] {
+  const fitted = fitBody(body, height, shell.inset * 2);
+  return shell.framed ? box(width, fitted, styles) : fitted.map((line) => pad(line, width));
+}
+
+function footerLines(shell: Shell, footer: string, styles: LayoutStyles): string[] {
+  const line = styleFooter(fitFooter(footer, shell.bodyWidth), styles);
+  return shell.framed ? [styles.border("─".repeat(shell.bodyWidth)), line] : [line];
+}
+
+function footerItems(footer: string, width: number, x: number): FooterItem[] {
+  const items: FooterItem[] = [];
+  let offset = 0;
+  for (const part of fitFooter(footer, width).split(" · ")) {
+    const key = part.split(" ")[0] ?? "";
+    if (key === "Enter" || key === "Esc" || [...key].length === 1) items.push({ key, x: x + offset, width: displayWidth(part) });
+    offset += displayWidth(part) + 3;
+  }
+  return items;
+}
+
+/** Drops whole trailing footer items instead of cutting a label mid-word. */
+function fitFooter(footer: string, width: number): string {
+  const items = footer.split(" · ");
+  while (items.length > 1 && displayWidth(items.join(" · ")) > width) items.pop();
+  return truncate(items.join(" · "), width);
 }
 
 export function renderSessions(model: RenderModel, theme?: SessionsTheme): SessionsLayout {
   const styles = theme ? createStyles(theme) : plainStyles();
-  const width = Math.max(40, model.width);
+  const width = Math.max(MIN_LAYOUT_WIDTH, model.width);
+  const shell = shellFor(width);
+  const { inset, bodyWidth } = shell;
   const emptyLayout = (lines: string[]): SessionsLayout => ({
     lines,
     rowTargets: lines.map(() => undefined),
@@ -44,29 +98,29 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     workspaceRowTargets: lines.map(() => undefined),
     announcementRowTargets: lines.map(() => undefined),
     navigatorWidth: 0,
-    listStartX: 2,
+    listStartX: 1 + inset,
     listWidth: 0,
     listScrollTop: 0,
+    footerItems: [],
   });
-  const bodyWidth = width - 2;
   const filterBar = renderFilterBar(model, bodyWidth, styles);
   const filterLines = filterBar ? [filterBar] : [];
   if (filterBar && model.height === 3 && !(model.showWorkspace && model.workspace?.fullScreen)) {
-    return emptyLayout(box(width, [filterBar], styles));
+    return emptyLayout(wrapShell(shell, width, [filterBar], model.height, styles));
   }
   if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
-    const body = filterBar ? [renderTopSummary(model, bodyWidth, styles), filterBar, ...emptyLines(width, styles)] : emptyLines(width, styles);
-    return emptyLayout(box(width, fitBoxBody(body, model.height), styles));
+    const body = filterBar ? [renderTopSummary(model, bodyWidth, styles), filterBar, ...emptyLines(bodyWidth, styles)] : emptyLines(bodyWidth, styles);
+    return emptyLayout(wrapShell(shell, width, body, model.height, styles));
   }
   if (model.noBoardSessions) {
     const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
-    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...noBoardLines(width, model, styles), ...(model.footer ? [styles.border("─".repeat(bodyWidth)), styleFooter(model.footer, styles)] : [])];
-    const layout = emptyLayout(box(width, fitBoxBody(body, model.height), styles));
-    for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
+    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...noBoardLines(bodyWidth, model, styles), ...(model.footer ? footerLines(shell, model.footer, styles) : [])];
+    const layout = emptyLayout(wrapShell(shell, width, body, model.height, styles));
+    for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[inset + 1 + filterLines.length + i] = announcement.targets[i];
     return layout;
   }
   if (model.showWorkspace && model.workspace?.fullScreen) {
-    return renderWorkspaceScreen(model.workspace, width, model.height, model.now, styles);
+    return renderWorkspaceScreen(model.workspace, shell, width, model.height, model.now, styles);
   }
 
   const syntheticSelection = model.sections.some((section) => section.selected || section.archiveDisclosure?.selected);
@@ -77,7 +131,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const listWidth = bodyWidth
     - workspaceWidth - (workspaceWidth ? 1 : 0)
     - navigatorWidth - (navigatorWidth ? 1 : 0);
-  const listStartX = 2 + navigatorWidth + (navigatorWidth ? 1 : 0);
+  const listStartX = 1 + inset + navigatorWidth + (navigatorWidth ? 1 : 0);
   const decisionRows = pinnedDecisionRows(model.height);
   const decision = model.pinMode && model.workspace
     ? renderPinnedDecisionStrip(model.workspace, bodyWidth, decisionRows, model.now, styles, width <= NARROW_LAYOUT_MAX_WIDTH)
@@ -90,7 +144,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const announcement = renderAttentionAnnouncement(model, bodyWidth, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
-  const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible);
+  const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible ? (shell.framed ? 2 : 1) : 0, inset);
   // Card spacers are a luxury: drop them all once the fleet needs windowing.
   const spaced = renderSessionList(model, listWidth, styles, true);
   const left = targetRows !== undefined && spaced.lines.length > targetRows
@@ -121,22 +175,21 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     body.push(`${navLine}${leftLine}${workspaceLine}`);
   }
   body.push(...decision.lines);
-  if (footerVisible) {
-    body.push(styles.border("─".repeat(bodyWidth)));
-    body.push(truncate(styleFooter(model.footer, styles), bodyWidth));
-  }
-  const lines = box(width, fitBoxBody(body, model.height), styles);
+  if (footerVisible) body.push(...footerLines(shell, model.footer, styles));
+  const lines = wrapShell(shell, width, body, model.height, styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
   const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
-  for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[2 + filterLines.length + i] = announcement.targets[i];
-  const listStart = 2 + filterLines.length + announcement.lines.length;
+  for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[inset + 1 + filterLines.length + i] = announcement.targets[i];
+  const listStart = inset + 1 + filterLines.length + announcement.lines.length;
   const decisionStart = listStart + rows;
-  for (let i = 0; i < decision.targets.length && decisionStart + i < lines.length - 1; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
+  const contentEnd = lines.length - inset;
+  for (let i = 0; i < decision.targets.length && decisionStart + i < contentEnd; i += 1) workspaceRowTargets[decisionStart + i] = decision.targets[i];
+  const footerRow = footerVisible && body.length <= lines.length - inset * 2 ? inset + body.length - 1 : undefined;
   for (let i = 0; i < rows; i += 1) {
     const lineIndex = listStart + i;
-    if (lineIndex >= lines.length - 1) break;
+    if (lineIndex >= contentEnd) break;
     rowTargets[lineIndex] = windowedLeft.targets[i];
     navigatorRowTargets[lineIndex] = navigator.targets[i];
     workspaceRowTargets[lineIndex] = workspace.targets[i];
@@ -149,9 +202,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     announcementRowTargets,
     navigatorWidth,
     listStartX,
-    ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 2 } : {}),
+    ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 1 + inset } : {}),
     listWidth,
     listScrollTop: windowedLeft.top,
+    ...(footerRow !== undefined ? { footerRow } : {}),
+    footerItems: footerRow !== undefined ? footerItems(model.footer, bodyWidth, 1 + inset) : [],
   };
 }
 
@@ -211,18 +266,19 @@ function renderTierNavigator(model: RenderModel, width: number, rows: number, st
   };
 }
 
-function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height: number | undefined, now: number, styles: LayoutStyles): SessionsLayout {
-  const bodyWidth = width - 2;
-  const bodyRows = height && height > 0 ? Math.max(2, height - 2) : undefined;
-  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - 2);
+function renderWorkspaceScreen(workspace: RenderWorkspace, shell: Shell, width: number, height: number | undefined, now: number, styles: LayoutStyles): SessionsLayout {
+  const { bodyWidth, inset } = shell;
+  const footerRows = shell.framed ? 2 : 1;
+  const bodyRows = height && height > 0 ? Math.max(footerRows, height - inset * 2) : undefined;
+  const contentRows = bodyRows === undefined ? undefined : Math.max(0, bodyRows - footerRows);
   const rendered = renderActionWorkspace(workspace, bodyWidth, contentRows, now, styles);
   const footer = workspaceFooter(workspace);
   const content = contentRows === undefined
     ? rendered.lines
     : [...rendered.lines.slice(0, contentRows), ...Array.from({ length: Math.max(0, contentRows - rendered.lines.length) }, () => "")];
-  const lines = box(width, [...content, styles.border("─".repeat(bodyWidth)), truncate(styleFooter(footer, styles), bodyWidth)], styles);
+  const lines = wrapShell(shell, width, [...content, ...footerLines(shell, footer, styles)], undefined, styles);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
-  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + 1] = rendered.targets[i];
+  for (let i = 0; i < content.length; i += 1) workspaceRowTargets[i + inset] = rendered.targets[i];
   return {
     lines,
     rowTargets: lines.map(() => undefined),
@@ -230,10 +286,12 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height
     workspaceRowTargets,
     announcementRowTargets: lines.map(() => undefined),
     navigatorWidth: 0,
-    listStartX: 2,
-    workspaceStartX: 2,
+    listStartX: 1 + inset,
+    workspaceStartX: 1 + inset,
     listWidth: 0,
     listScrollTop: 0,
+    footerRow: lines.length - 1 - inset,
+    footerItems: footerItems(footer, bodyWidth, 1 + inset),
   };
 }
 
@@ -250,14 +308,14 @@ function styleFooter(footer: string, styles: LayoutStyles): string {
   ).join(styles.border("│"));
 }
 
-function bodyRowsFromHeight(height: number | undefined, stripLines = 0, footer = true): number | undefined {
+function bodyRowsFromHeight(height: number | undefined, stripLines: number, footerRows: number, inset: number): number | undefined {
   if (!height || height <= 0) return undefined;
-  return Math.max(1, height - (footer ? 5 : 3) - stripLines);
+  return Math.max(1, height - inset * 2 - 1 - footerRows - stripLines);
 }
 
-function fitBoxBody(lines: string[], height: number | undefined): string[] {
+function fitBody(lines: string[], height: number | undefined, frameRows: number): string[] {
   if (!height || height <= 0) return lines;
-  const target = Math.max(0, height - 2);
+  const target = Math.max(0, height - frameRows);
   if (lines.length >= target) return lines.slice(0, target);
   return [...lines, ...Array.from({ length: target - lines.length }, () => "")];
 }
@@ -297,8 +355,7 @@ function plainStyles(): LayoutStyles {
   return createStyles({ ...darkTheme, accent: "", border: "", dim: "", error: "", muted: "", success: "", warning: "", selectedBg: "" });
 }
 
-function emptyLines(width: number, styles: LayoutStyles): string[] {
-  const inner = width - 2;
+function emptyLines(inner: number, styles: LayoutStyles): string[] {
   return [
     "",
     styles.accent("No managed Pi sessions yet."),
@@ -310,8 +367,7 @@ function emptyLines(width: number, styles: LayoutStyles): string[] {
   ].map((line) => truncate(line, inner));
 }
 
-function noBoardLines(width: number, model: RenderModel, styles: LayoutStyles): string[] {
-  const inner = width - 2;
+function noBoardLines(inner: number, model: RenderModel, styles: LayoutStyles): string[] {
   return [
     "",
     styles.accent("No Active sessions."),
@@ -356,6 +412,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     ? `${visibleTrees}/${totalTrees}${board ? " Active" : ""} trees`
     : `${visibleTrees}${board ? " Active" : ""} ${visibleTrees === 1 ? "tree" : "trees"}`;
   const pinCount = model.pinSummary?.count ?? 0;
+  const pinLabel = model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`;
   const constrained = model.pinSummary?.constrained ? styles.warning("constrained") : "";
   const needsYou = board
     ? new Set(parentRows.filter((session) => session.cockpitTier === "needs-you").map((session) => session.cockpitOwnerId)).size
@@ -365,7 +422,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     : model.cockpitNavigation.find((entry) => entry.tier === "health")?.ownerCount ?? 0;
   const ordered = [
     styles.accent(countLabel),
-    ...(pinCount ? [styles.muted(`${pinCount} pinned`)] : []),
+    ...(pinCount ? [styles.muted(pinLabel)] : []),
     ...(constrained ? [constrained] : []),
     ...(needsYou ? [styles.warning(`${needsYou} needs you`)] : []),
     ...(health ? [styles.error(`${health} health`)] : []),
@@ -491,6 +548,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     } : undefined));
   };
   let gridWorkflow: WorkflowRuntimeSnapshot | undefined;
+  const gridGap = model.width <= NARROW_LAYOUT_MAX_WIDTH ? " " : "  ";
+  const oneLineRows = !board && model.width < 100 && model.height !== undefined && model.height > 0 && model.height < SHORT_FLEET_HEIGHT;
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     if (session.selected) selectedIndex = lines.length;
     const shape = adaptiveRowShape(session);
@@ -499,16 +558,20 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       : false;
     const gutterColumn = model.width >= 100 && !model.pinMode;
     const titleFirst = !board && shape === "full-parent";
-    pushLine(renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst }), { kind: "session", id: session.id }, session);
+    const row = renderSessionRow(session, width, styles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst });
+    const cell = titleFirst ? fleetWorkflowCell(session, styles, gridWorkflow, gridGap) : undefined;
+    // Short windows move the workflow cell onto the title line so every row keeps its progress.
+    pushLine(oneLineRows && cell?.right ? twoColumn(row, cell.right, width) : row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (titleFirst) {
+    if (cell && (!oneLineRows || session.selected)) {
       const indent = gutterColumn ? "   " : "  ";
+      const metadataCell = oneLineRows ? { ...cell, right: "" } : cell;
       // Without card lines, the metadata line is the only place a differing repo name can appear.
-      const repoInline = model.width < 100 || model.compactRows;
-      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, styles, gridWorkflow, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
+      const repoInline = model.width < 100 || model.compactRows || oneLineRows;
+      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, styles, metadataCell, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
     }
-    if (shape === "full-parent" && !model.compactRows) {
+    if (shape === "full-parent" && !model.compactRows && !oneLineRows) {
       for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), styles, board, model.width, model.fleetGrouping === "repo" && !board)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
@@ -535,7 +598,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   if (releaseCue && model.sections[0]?.cockpitTier !== "needs-you") pushReleaseCue();
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
-    gridWorkflow = !board ? section.groups.flatMap((group) => group.sessions)
+    // Below 40 columns rows show their current step label instead of a shared grid.
+    gridWorkflow = !board && model.width >= 40 ? section.groups.flatMap((group) => group.sessions)
       .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow : undefined;
     const headingRight = board
       ? styles.dim(`·${section.sessionsTotal}`)
@@ -552,7 +616,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         ].join(styles.border(" · "));
     if (gridWorkflow) {
       const headingWidth = Math.min(20, displayWidth(section.title) + 4);
-      const rightWidth = displayWidth(headingRight) + 2 + displayWidth(workflowGridHeader(gridWorkflow));
+      const rightWidth = displayWidth(headingRight) + 2 + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
       if (headingWidth + 1 + rightWidth > width) gridWorkflow = undefined;
     }
     const sectionHeadingIndex = lines.length;
@@ -567,7 +631,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
     pushLine(
-      sectionHeader(section.title, gridWorkflow ? `${headingRight}  ${styles.dim(workflowGridHeader(gridWorkflow))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
+      sectionHeader(section.title, gridWorkflow ? `${headingRight}  ${styles.dim(workflowGridHeader(gridWorkflow, gridGap))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -1224,20 +1288,31 @@ function railCompact(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDispla
   return short ? `${styledWorkflowMarker(workflow, workflow.activeIndex, styles)}${styles.accent(short)}` : "";
 }
 
-function workflowGridHeader(workflow: WorkflowRuntimeSnapshot): string {
-  return workflow.steps.map((step) => pad(step.short, Math.max(2, displayWidth(step.short)))).join("  ");
+function workflowGridHeader(workflow: WorkflowRuntimeSnapshot, gap: string): string {
+  return workflow.steps.map((step) => pad(step.short, Math.max(2, displayWidth(step.short)))).join(gap);
 }
 
-function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, grid: WorkflowRuntimeSnapshot | undefined, repoMode: boolean, repoInline = false): string {
+interface FleetWorkflowCell {
+  right: string;
+  compatible: boolean;
+}
+
+/** Positional markers under the section grid, or an explicit step label for other pipelines. */
+function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: WorkflowRuntimeSnapshot | undefined, gap: string): FleetWorkflowCell {
   const workflow = session.workflow;
-  const mode = activeWorkflowMode(session);
-  const compatible = workflow && grid && workflow.steps.length === grid.steps.length
-    && workflow.steps.every((step, index) => step.id === grid.steps[index].id && step.short === grid.steps[index].short);
+  const compatible = Boolean(workflow && grid && workflow.steps.length === grid.steps.length
+    && workflow.steps.every((step, index) => step.id === grid.steps[index].id && step.short === grid.steps[index].short));
   const right = workflow
     ? compatible
-      ? workflow.steps.map((step, index) => pad(styledWorkflowMarker(workflow, index, styles), Math.max(2, displayWidth(step.short)))).join("  ")
-      : railCompact(workflow, mode, styles)
+      ? workflow.steps.map((step, index) => pad(styledWorkflowMarker(workflow, index, styles), Math.max(2, displayWidth(step.short)))).join(gap)
+      : railCompact(workflow, activeWorkflowMode(session), styles)
     : "";
+  return { right, compatible };
+}
+
+function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, repoInline = false): string {
+  const mode = activeWorkflowMode(session);
+  const { right, compatible } = cell;
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
   const taskCount = planTaskCount(executePlan(session));
   const optionalSignals = [

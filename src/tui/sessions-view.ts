@@ -21,7 +21,7 @@ import {
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -67,7 +67,7 @@ import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAttentionTrip, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
-const MIN_RENDER_WIDTH = 40;
+const MIN_RENDER_WIDTH = MIN_LAYOUT_WIDTH;
 const DOUBLE_CLICK_MS = 400;
 
 export class SessionsView implements Component {
@@ -114,6 +114,8 @@ export class SessionsView implements Component {
   private navigatorWidth = 0;
   private listStartX = 2;
   private workspaceStartX: number | undefined;
+  private footerRow: number | undefined;
+  private footerItems: FooterItem[] = [];
   private paletteRowTargets: (CommandPaletteRowTarget | undefined)[] = [];
   private paletteBounds: { start: number; end: number } | undefined;
   private paletteDetailRegion: CommandPaletteDetailRegion | undefined;
@@ -313,6 +315,8 @@ export class SessionsView implements Component {
 
   render(width: number): string[] {
     this.runningRowsVisible = false;
+    this.footerRow = undefined;
+    this.footerItems = [];
     this.confirmationReview = undefined;
     this.clearExpiredFlash();
     this.lastWidth = width;
@@ -410,6 +414,7 @@ export class SessionsView implements Component {
       activePinnedSessionId: sidePaneState.activeSessionId,
       pinCapacity: sidePaneState.capacity,
       pinConstrained: sidePaneState.constrained,
+      pinsHidden: sidePaneState.hidden,
       archiveExpanded: this.archiveExpanded,
       archiveDisclosureSelected: this.archiveDisclosureSelected,
       selectedSection: this.selectedSection,
@@ -440,6 +445,10 @@ export class SessionsView implements Component {
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
     this.listScrollTop = layout.listScrollTop;
+    if (!this.dialog && !this.message && !this.flash && !this.conversationOpen) {
+      this.footerRow = layout.footerRow;
+      this.footerItems = layout.footerItems;
+    }
     let withFooter = this.conversationOpen ? this.renderConversation(layout.lines, width, panelHeight) : layout.lines;
     this.paletteRowTargets = [];
     this.paletteBounds = undefined;
@@ -881,7 +890,7 @@ export class SessionsView implements Component {
   }
 
   private pinMode(): boolean {
-    return this.pinState().slots.some(Boolean);
+    return this.pinState().slots.some(Boolean) && !this.pinState().hidden;
   }
 
   private activeAttentionAnnouncements(now = this.actions.now?.() ?? Date.now()): readonly AttentionAnnouncement[] {
@@ -1379,6 +1388,15 @@ export class SessionsView implements Component {
     if (event.kind === "wheel") {
       this.lastMouseClick = undefined;
       if (!this.workspaceSessionId) this.moveSelection(event.delta);
+      return;
+    }
+    const footerItem = event.kind === "press" && event.y - 1 === this.footerRow
+      ? this.footerItems.find((item) => event.x >= item.x && event.x < item.x + item.width)
+      : undefined;
+    if (footerItem) {
+      // A footer tap is the same input as its key, so every availability guard still applies.
+      this.lastMouseClick = undefined;
+      this.handleInput(footerItem.key === "Enter" ? "\r" : footerItem.key === "Esc" ? "\u001b" : footerItem.key);
       return;
     }
     const announcementTarget = event.kind === "press" ? this.announcementRowTargets[event.y - 1] : undefined;
@@ -2293,7 +2311,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  Enter/double-click opens or switches directly at every width",
     "  with pins, Enter opens directly and i toggles details in the compact decision strip",
   ];
-  const inner = Math.max(40, width) - 2;
+  const inner = Math.max(MIN_RENDER_WIDTH, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
   const content = width <= NARROW_LAYOUT_MAX_WIDTH
     ? lines.slice(2).flatMap((line) => line ? wrapWords(stripAnsi(line), inner, inner) : [""])
@@ -2331,6 +2349,12 @@ function narrowNotice(width: number): string[] {
 }
 
 function replaceFooter(lines: string[], message: string, theme?: SessionsTheme): string[] {
+  if (!lines.length) return lines;
+  const lastLine = stripAnsi(lines.at(-1) ?? "");
+  if (!lastLine.startsWith("╰")) {
+    // Frameless phone layouts keep the footer on the last row.
+    return [...lines.slice(0, -1), truncateVisible(message, Math.max(1, visibleWidth(lastLine)))];
+  }
   if (lines.length < 3) return lines;
   const copy = lines.slice();
   const footerIndex = copy.length - 2;

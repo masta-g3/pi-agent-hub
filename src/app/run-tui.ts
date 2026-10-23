@@ -549,6 +549,7 @@ export async function runTui(): Promise<void> {
         ...(state.activeSessionId ? { activeSessionId: state.activeSessionId } : {}),
         capacity: state.capacity,
         constrained: state.constrained,
+        hidden: state.hidden,
         splitPercent: state.splitPercent,
       };
     },

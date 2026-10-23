@@ -119,12 +119,13 @@ test("attention announcement follows the responsive hierarchy and exact hit targ
   ];
   for (const width of [40, 60, 99, 100, 119, 120, 159, 160]) {
     const layout = renderSessions(buildRenderModel({ sessions, width, height: 24, now: COCKPIT_NOW, attentionAnnouncements: announcements }));
-    const line = stripAnsi(layout.lines[2] ?? "");
+    const row = width <= 60 ? 1 : 2;
+    const line = stripAnsi(layout.lines[row] ?? "");
     assert.match(line, /\? 2 NEW/);
     assert.match(line, /Docs/);
     assert.match(line, /: locate/);
-    assert.equal(layout.announcementRowTargets[2], "view:locate-attention:docs:req%2F1");
-    assert.equal(visibleWidth(layout.lines[2] ?? ""), width);
+    assert.equal(layout.announcementRowTargets[row], "view:locate-attention:docs:req%2F1");
+    assert.equal(visibleWidth(layout.lines[row] ?? ""), width);
     if (width < 100) assert.doesNotMatch(line, /Choose release target|\+1 more/);
     else assert.match(line, /Choose release target.*\+1 more/);
     if (width >= 160) assert.match(line, /6s/);

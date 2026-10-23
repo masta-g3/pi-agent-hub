@@ -5,6 +5,7 @@ import {
   presizeSessionWindow,
   realTmuxExec,
   resetSessionWindowSize,
+  resizePaneWidth,
   selectPane,
   setPaneSlot,
   setPaneTitle,
@@ -307,6 +308,22 @@ export async function resizeSidePane(options: {
   await rebuildSidePanes(options.ownPane, inspected, pinSessions(inspected.pins), splitPercent, exec, options.titleFor);
   await selectPane(options.ownPane, exec);
   return { kind: "resized", splitPercent };
+}
+
+/** Rebuilds pins at the current window geometry after a hidden period distorted their sizes. */
+export async function relayoutSidePanes(options: {
+  ownPane: string;
+  sidebarWidth?: number;
+  splitPercent: number;
+  titleFor?: (tmuxSession: string) => string | undefined;
+}, exec: TmuxExec = realTmuxExec): Promise<void> {
+  if (options.sidebarWidth !== undefined) await resizePaneWidth(options.ownPane, options.sidebarWidth, exec);
+  const inspected = await inspectSidePaneWindow(options.ownPane, exec);
+  await removeDuplicates(inspected, exec);
+  const capacity = sidePaneCapacity(inspected.own?.windowWidth ?? 0);
+  if (!inspected.pins.length || inspected.pins.length > capacity || !pinsFit(inspected.pins.length, inspected.own)) return;
+  await rebuildSidePanes(options.ownPane, inspected, pinSessions(inspected.pins), options.splitPercent, exec, options.titleFor);
+  await selectPane(options.ownPane, exec);
 }
 
 export async function closeSidePaneShowing(options: { target: string; ownPane: string }, exec: TmuxExec = realTmuxExec): Promise<boolean> {

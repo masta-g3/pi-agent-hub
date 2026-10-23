@@ -66,6 +66,8 @@ export interface SidePaneViewState {
   activeSessionId?: string;
   capacity: number;
   constrained: boolean;
+  /** Pins are attached but hidden because the window is too narrow to show them. */
+  hidden?: boolean;
   splitPercent: number;
 }
 

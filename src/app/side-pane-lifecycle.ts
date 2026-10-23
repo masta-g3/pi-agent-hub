@@ -11,6 +11,8 @@ import {
   setSessionStatusBarVisible,
   setWindowPaneBorderStatus,
   switchClientWithReturn,
+  togglePaneZoom,
+  windowZoomed,
   type TmuxExec,
 } from "../core/tmux.js";
 import type { ManagedSession, RuntimeSession } from "../core/types.js";
@@ -24,8 +26,10 @@ import {
   pinSidePane,
   reconcileSidePanes,
   rectangleNeighbor,
+  relayoutSidePanes,
   resizeSidePane,
   sidebarRepairWidth,
+  sidePaneCapacity,
   sidePaneStatus,
   type CloseSidePaneResult,
   type FocusSidePaneResult,
@@ -33,6 +37,7 @@ import {
   type ResizeSidePaneResult,
   type SidePaneResult,
   type SidePaneSlot,
+  type SidePaneStatus,
   type SpatialDirection,
 } from "./side-pane.js";
 
@@ -51,6 +56,8 @@ export interface SidePaneLifecycleSnapshot {
   activeSessionId?: string;
   capacity: 0 | 2 | 4;
   constrained: boolean;
+  /** Pins are alive but hidden behind a Hub-made zoom because the window is too narrow for them. */
+  hidden: boolean;
   splitPercent: number;
   dashboardStatusVisible: boolean;
 }
@@ -98,7 +105,7 @@ const COCKPIT_PANE_TITLE = "PI HUB / PINNED FLEET";
 const FOCUSED_PIN_HINT = "Alt+1–4 · Ctrl+Q";
 
 const EMPTY_SNAPSHOT: SidePaneLifecycleSnapshot = {
-  pins: [], capacity: 0, constrained: false, splitPercent: 50, dashboardStatusVisible: true,
+  pins: [], capacity: 0, constrained: false, hidden: false, splitPercent: 50, dashboardStatusVisible: true,
 };
 
 export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): SidePaneLifecycle {
@@ -112,6 +119,9 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   let started = false;
   let stopped = false;
   let bindingFingerprint: string | undefined;
+  // Phone-size windows share the desktop window; pins hide behind a zoom and are rebuilt from the last wide layout.
+  let hiddenPins: { zoomedByHub: boolean } | undefined;
+  let wideLayout: { sidebarWidth: number; splitPercent: number } | undefined;
   const activeIntents = new Set<Promise<unknown>>();
 
   const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -193,19 +203,51 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     }
   };
 
+  const reconcileHiddenPins = async (ownPane: string, status: SidePaneStatus): Promise<boolean> => {
+    const own = status.own!;
+    if (status.pins.length && sidePaneCapacity(own.windowWidth) === 0) {
+      if (!hiddenPins) {
+        hiddenPins = { zoomedByHub: false };
+        await setWindowPaneBorderStatus(ownPane, false, undefined, exec);
+      }
+      if (await windowZoomed(ownPane, exec)) return false;
+      await togglePaneZoom(ownPane, exec);
+      hiddenPins.zoomedByHub = true;
+      return true;
+    }
+    if (!hiddenPins) {
+      if (status.pins.length && !status.constrained && own.width < own.windowWidth) {
+        wideLayout = { sidebarWidth: own.width, splitPercent: status.splitPercent };
+      }
+      return false;
+    }
+    const restored = hiddenPins;
+    hiddenPins = undefined;
+    if (restored.zoomedByHub && await windowZoomed(ownPane, exec)) await togglePaneZoom(ownPane, exec);
+    if (status.pins.length) {
+      await setWindowPaneBorderStatus(ownPane, true, deps.currentChrome(), exec);
+      if (restored.zoomedByHub) {
+        await relayoutSidePanes({ ownPane, sidebarWidth: wideLayout?.sidebarWidth, splitPercent: wideLayout?.splitPercent ?? 50, titleFor }, exec);
+      }
+    }
+    return true;
+  };
+
   const refreshPresence = async () => {
     const ownPane = deps.ownPane();
-    const status = ownPane ? await sidePaneStatus({ ownPane }, exec) : undefined;
+    let status = ownPane ? await sidePaneStatus({ ownPane }, exec) : undefined;
+    if (ownPane && status?.own && await reconcileHiddenPins(ownPane, status)) status = await sidePaneStatus({ ownPane }, exec);
     const nextTmux = status?.pins.map((pin) => pin.session) ?? [];
     const hadPins = openTmuxSessions.length > 0;
     const hasPins = nextTmux.length > 0;
-    if (ownPane && status?.own && hasPins) {
+    // A full-window dashboard pane with pins is zoomed; resizing it would cancel that zoom.
+    if (ownPane && status?.own && hasPins && !hiddenPins && status.own.width < status.own.windowWidth) {
       const repairWidth = sidebarRepairWidth(status.own.width, status.own.windowWidth);
       if (repairWidth !== undefined) await resizePaneWidth(ownPane, repairWidth, exec);
     }
     if (ownPane && hadPins !== hasPins) {
       await setDashboardStatusVisible(!hasPins);
-      await setWindowPaneBorderStatus(ownPane, hasPins, hasPins ? deps.currentChrome() : undefined, exec);
+      if (!hiddenPins) await setWindowPaneBorderStatus(ownPane, hasPins, hasPins ? deps.currentChrome() : undefined, exec);
     }
     if (ownPane && hasPins && status?.own?.title !== COCKPIT_PANE_TITLE) await setPaneTitle(ownPane, COCKPIT_PANE_TITLE, exec);
     if (ownPane && !hasPins && status?.own?.title === COCKPIT_PANE_TITLE) await setPaneTitle(ownPane, "", exec);
@@ -236,6 +278,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       ...(activeSessionId ? { activeSessionId } : {}),
       capacity: status?.capacity ?? 0,
       constrained: status?.constrained ?? false,
+      hidden: hiddenPins !== undefined,
       splitPercent: status?.splitPercent ?? 50,
       dashboardStatusVisible: snapshot.dashboardStatusVisible,
     };
@@ -280,6 +323,24 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     return result;
   };
 
+  // A narrow window counts as hidden before the presence loop has zoomed it.
+  const pinsHidden = (status: SidePaneStatus) => hiddenPins !== undefined
+    || (status.pins.length > 0 && sidePaneCapacity(status.own?.windowWidth ?? 0) === 0);
+
+  const handoffNow = async (tmuxSession: string): Promise<boolean> => {
+    if (stopped) return false;
+    const ownPane = deps.ownPane();
+    if (ownPane) await reconcileSidePanes({ ownPane }, exec);
+    const session = sessionByTmux(tmuxSession);
+    if (session && !await revealAndAcknowledge(session)) return false;
+    if (session) await deps.configureManagedSession(session, true);
+    if (stopped) return false;
+    await removeSidebarReturnBinding({ stateDir: deps.sidebarBindingStateDir, onlyOwnerPid: process.pid }, exec);
+    await switchClientWithReturn({ targetSession: tmuxSession, stateDir: deps.switchBindingStateDir, renameKey: "M-r", nextRequestKey: "M-w", statusClickReturn: true,
+      returnSession: { name: deps.dashboardSession, cwd: deps.dashboardCwd, command: deps.dashboardCommand, env: deps.dashboardEnv() } }, exec);
+    return true;
+  };
+
   const sync = () => {
     if (stopped) return;
     void serialize(() => deps.syncManagedSessionStatusBars(openTargets())).catch(() => {});
@@ -293,6 +354,11 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     const before = await sidePaneStatus({ ownPane }, exec);
     const existing = before.pins.find((pin) => pin.session === session.tmuxSession);
     if (existing && (slot === undefined || existing.slot === slot)) {
+      if (pinsHidden(before)) {
+        return await handoffNow(session.tmuxSession)
+          ? { kind: "focused", session: session.tmuxSession, slot: existing.slot } as const
+          : { kind: "capacity", capacity: before.capacity, pins: before.pins.length } as const;
+      }
       if (!await revealAndAcknowledge(session)) return { kind: "capacity", capacity: before.capacity, pins: before.pins.length } as const;
       const result = slot === undefined
         ? await focusSidePane({ target: session.tmuxSession, ownPane }, exec)
@@ -348,6 +414,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         const status = await sidePaneStatus({ ownPane }, exec);
         const pin = status.pins.find((candidate) => candidate.slot === slot);
         if (!pin) return { kind: "unavailable" as const };
+        if (pinsHidden(status)) return { kind: await handoffNow(pin.session) ? "focused" as const : "unavailable" as const };
         const session = sessionByTmux(pin.session);
         if (session && !await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
         const result = await focusSidePaneSlot({ slot, ownPane }, exec);
@@ -356,12 +423,14 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       }));
     },
     focusPinnedSession(sessionId) {
+      // Hidden pins fall back to the caller's normal full-screen attach.
       if (stopped || !deps.insideTmux()) return Promise.resolve({ kind: "unavailable" });
       return trackIntent(withPausedPresence(async () => {
         const session = sessionById(sessionId);
         if (!session) return { kind: "unavailable" as const };
         const ownPane = ownPaneOrThrow();
         const status = await sidePaneStatus({ ownPane }, exec);
+        if (pinsHidden(status)) return { kind: "unavailable" as const };
         if (!status.pins.some((pin) => pin.session === session.tmuxSession)) return { kind: "unavailable" as const };
         if (!await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
         const result = await focusSidePane({ target: session.tmuxSession, ownPane }, exec);
@@ -374,7 +443,13 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       return trackIntent(withPausedPresence(async () => {
         const session = sessionById(sessionId);
         if (!session) return { kind: "unavailable" as const };
-        const result = await closeSidePane({ target: session.tmuxSession, ownPane: ownPaneOrThrow(), titleFor }, exec);
+        const ownPane = ownPaneOrThrow();
+        // A rebuild at phone width would split the zoomed window; the wide relayout repairs geometry later.
+        if (pinsHidden(await sidePaneStatus({ ownPane }, exec))) {
+          const closed = await closeSidePaneShowing({ target: session.tmuxSession, ownPane }, exec);
+          return afterMutation(closed ? { kind: "closed" } as const : { kind: "unavailable" } as const);
+        }
+        const result = await closeSidePane({ target: session.tmuxSession, ownPane, titleFor }, exec);
         return afterMutation(result);
       }));
     },
@@ -388,7 +463,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         const ownPane = ownPaneOrThrow();
         await reconcileSidePanes({ ownPane }, exec);
         const status = await sidePaneStatus({ ownPane }, exec);
-        if (!status.own) return { kind: "unavailable" as const };
+        if (!status.own || pinsHidden(status)) return { kind: "unavailable" as const };
         const cockpit = { paneId: ownPane, rect: { left: status.own.left, top: status.own.top, width: status.own.width, height: status.own.height } };
         const active = status.pins.find((pin) => pin.active);
         const source = active?.rect ?? cockpit.rect;
@@ -427,25 +502,13 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       }));
     },
     handoff(tmuxSession) {
-      return trackIntent(withPausedPresence(async () => {
-        if (stopped) return false;
-        const ownPane = deps.ownPane();
-        if (ownPane) await reconcileSidePanes({ ownPane }, exec);
-        const session = sessionByTmux(tmuxSession);
-        if (session && !await revealAndAcknowledge(session)) return false;
-        if (session) await deps.configureManagedSession(session, true);
-        if (stopped) return false;
-        await removeSidebarReturnBinding({ stateDir: deps.sidebarBindingStateDir, onlyOwnerPid: process.pid }, exec);
-        await switchClientWithReturn({ targetSession: tmuxSession, stateDir: deps.switchBindingStateDir, renameKey: "M-r", nextRequestKey: "M-w",
-          returnSession: { name: deps.dashboardSession, cwd: deps.dashboardCwd, command: deps.dashboardCommand, env: deps.dashboardEnv() } }, exec);
-        return true;
-      }));
+      return trackIntent(withPausedPresence(() => handoffNow(tmuxSession)));
     },
     refreshPanelChrome() {
       if (stopped) return;
       void serialize(async () => {
         const ownPane = deps.ownPane();
-        if (ownPane && openTmuxSessions.length) await setWindowPaneBorderStatus(ownPane, true, deps.currentChrome(), exec);
+        if (ownPane && openTmuxSessions.length && !hiddenPins) await setWindowPaneBorderStatus(ownPane, true, deps.currentChrome(), exec);
       }).catch(() => {});
     },
     sync,

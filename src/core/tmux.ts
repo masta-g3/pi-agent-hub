@@ -183,6 +183,15 @@ export async function resizePaneWidth(paneId: string, width: number, exec: TmuxE
   await exec.exec("tmux", ["resize-pane", "-t", paneId, "-x", String(width)]);
 }
 
+export async function windowZoomed(paneId: string, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+  const result = await exec.exec("tmux", ["display-message", "-p", "-t", paneId, "#{window_zoomed_flag}"]);
+  return result.stdout.trim() === "1";
+}
+
+export async function togglePaneZoom(paneId: string, exec: TmuxExec = realTmuxExec): Promise<void> {
+  await exec.exec("tmux", ["resize-pane", "-Z", "-t", paneId]);
+}
+
 export async function selectPane(paneId: string, exec: TmuxExec = realTmuxExec): Promise<void> {
   await exec.exec("tmux", ["select-pane", "-t", paneId]);
 }
@@ -274,7 +283,13 @@ export async function configureManagedSessionStatusBar(options: {
   const chrome = tmuxChromeFromTheme(options.theme);
   // tmux condition branches use commas, so the attention branch must not contain any.
   const attention = `#{?@${ATTENTION_COUNT_OPTION},#[fg=${chrome.attentionColor}]⚑ #{@${ATTENTION_COUNT_OPTION}} need you#[fg=${chrome.hintColor}] · alt+w next#[default] │ ,}`;
-  const statusRight = `#[fg=${chrome.hintColor}]ctrl+q return · alt+r rename#[default] │ ${attention}📁 ${tmuxFormatText(options.title)} | ${tmuxFormatText(projectDisplayName(options.cwd))} `;
+  const phoneAttention = `#{?@${ATTENTION_COUNT_OPTION},#[fg=${chrome.attentionColor}]⚑ #{@${ATTENTION_COUNT_OPTION}}#[default] │ ,}`;
+  const returnHint = (label: string) => `#[range=user|${RETURN_STATUS_RANGE}]${label}#[norange]`;
+  const title = tmuxBranchText(options.title);
+  const wide = `#[fg=${chrome.hintColor}]${returnHint("ctrl+q return")} · alt+r rename#[default] │ ${attention}📁 ${title} | ${tmuxBranchText(projectDisplayName(options.cwd))} `;
+  // tmux cuts long status-right text from the left, so phone clients get the tappable return last.
+  const phone = `${phoneAttention}📁 ${title} │ #[fg=${chrome.hintColor}]${returnHint("⌂ hub")}#[default] `;
+  const statusRight = `#{?#{e|<:#{client_width},${PHONE_STATUS_WIDTH}},${phone},${wide}}`;
   await exec.exec("tmux", statusBarArgs({
     name: options.name,
     chrome,
@@ -289,6 +304,10 @@ export async function configureManagedSessionStatusBar(options: {
 }
 
 const ATTENTION_COUNT_OPTION = "pi_hub_needs";
+// tmux 3.4+ reports this status-line range on click; older versions ignore the range and keep the text.
+const RETURN_STATUS_RANGE = "pi-hub-return";
+const PHONE_STATUS_WIDTH = 80;
+const STATUS_CLICK_KEY = "MouseDown1Status";
 
 export async function setSessionAttentionCount(name: string, count: number, exec: TmuxExec = realTmuxExec): Promise<void> {
   await exec.exec("tmux", count > 0
@@ -338,6 +357,8 @@ export interface SwitchClientOptions {
   stateDir?: string;
   renameKey?: string;
   nextRequestKey?: string;
+  /** Let a tap on the managed status bar's return hint act like the return key. */
+  statusClickReturn?: boolean;
   actionPath?: string;
   returnSession?: {
     name: string;
@@ -419,6 +440,13 @@ export async function switchClientWithReturn(
     await writeFile(nextRequestRestorePath, await currentKeyBinding(options.nextRequestKey, exec), "utf8");
     keyBindings.push({ key: options.nextRequestKey, restorePath: nextRequestRestorePath });
   }
+  let previousStatusClick = "";
+  if (options.statusClickReturn) {
+    const statusClickRestorePath = join(stateDir, "status-click.previous.tmux");
+    previousStatusClick = await currentKeyBinding(STATUS_CLICK_KEY, exec);
+    await writeFile(statusClickRestorePath, previousStatusClick, "utf8");
+    keyBindings.push({ key: STATUS_CLICK_KEY, restorePath: statusClickRestorePath });
+  }
 
   const active: ActiveReturnBinding = {
     ownerPid: process.pid,
@@ -472,6 +500,22 @@ export async function switchClientWithReturn(
         },
         passthroughKey: options.nextRequestKey,
       })]);
+    }
+    if (options.statusClickReturn) {
+      const script = returnBindingScript({
+        controlSession,
+        activePath,
+        managedPrefix,
+        keyBindings,
+        returnSession: options.returnSession,
+        action: {
+          path: actionPath,
+          json: JSON.stringify({ action: "return", key: "ctrl-q" }),
+        },
+      });
+      const otherClick = boundCommand(previousStatusClick, STATUS_CLICK_KEY);
+      await exec.exec("tmux", ["bind-key", "-n", STATUS_CLICK_KEY, "if-shell", "-F", `#{==:#{mouse_status_range},${RETURN_STATUS_RANGE}}`,
+        `run-shell ${tmuxQuote(script)}`, ...(otherClick ? [otherClick] : [])]);
     }
     try {
       const size = await clientSize(controlClient, exec);
@@ -714,6 +758,17 @@ function returnBindingScript(input: {
     + `${input.passthroughKey ? ` *) tmux send-keys ${shellQuote(input.passthroughKey)};;` : ""} esac`;
 }
 
+/** The command part of one `list-keys` line, so a wrapper binding can still run it. */
+function boundCommand(listKeysOutput: string, key: string): string {
+  const line = listKeysOutput.split(/\r?\n/).find((candidate) => candidate.trim()) ?? "";
+  const prefix = new RegExp(`^bind-key\\s+(?:-r\\s+)?-T\\s+root\\s+${key}\\s+`);
+  return prefix.test(line) ? line.replace(prefix, "").trim() : "";
+}
+
+function tmuxQuote(value: string): string {
+  return `"${value.replace(/[\\"$]/g, (char) => `\\${char}`)}"`;
+}
+
 function commandWithEnv(command: string, env: Record<string, string> | undefined): string {
   const assignments = Object.entries(env ?? {}).map(([key, value]) => `${key}=${shellQuote(value)}`);
   return [...assignments, command].join(" ");
@@ -735,6 +790,11 @@ function projectDisplayName(cwd: string): string {
 
 function tmuxFormatText(value: string): string {
   return value.replaceAll("#", "##");
+}
+
+/** Text inside a `#{?cond,a,b}` branch also escapes the comma and brace delimiters. */
+function tmuxBranchText(value: string): string {
+  return tmuxFormatText(value).replaceAll(",", "#,").replaceAll("}", "#}");
 }
 
 function shellCasePrefix(value: string): string {

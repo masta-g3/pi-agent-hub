@@ -293,7 +293,8 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
     return [item("Enter", "Open"), item("Ctrl+Q", "Return"), palette, help].join(" · ");
   }
   const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
-  if (width < 60) return ["↑↓", item("/", "Filter"), item("b", "Backlog"), palette, help].join(" · ");
+  // Phone-width items are tap targets, ordered so trailing ones drop first.
+  if (width <= NARROW_LAYOUT_MAX_WIDTH) return [item(open.keys[0]!, open.label), item("i", "Info"), palette, item("/", "Filter"), help].join(" · ");
   const filter = item("/", "Filter");
   if (width < 100) return ["↑↓ Move", openItem, filter, item("b", "Backlog"), palette, help].join(" · ");
   return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, item("b", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"), palette, help].join(" · ");
