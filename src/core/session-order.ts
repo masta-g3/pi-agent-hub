@@ -13,19 +13,18 @@ export function orderedSessions<T extends ManagedSession>(sessions: T[]): T[] {
       const bChangedAt = typeof b.bucketChangedAt === "number" ? b.bucketChangedAt : -Infinity;
       return bChangedAt - aChangedAt || indexById.get(a.id)! - indexById.get(b.id)!;
     }
-    return groupOrder(a.group, b.group)
-      || compareSessionPriority(a, b)
+    return compareSessionPriority(a, b)
+      || groupOrder(a.group, b.group)
       || ranks.get(a.id)! - ranks.get(b.id)!
       || indexById.get(a.id)! - indexById.get(b.id)!;
   });
 }
 
+// Attention first, then recency: errors and unanswered requests stay on top; every other row sorts by last interaction.
 export function sessionPriorityRank(session: Pick<ManagedSession, "status" | "acknowledgedAt">): number {
   if (session.status === "error") return 0;
   if (session.status === "waiting" && session.acknowledgedAt === undefined) return 1;
-  if (session.status === "starting" || session.status === "running") return 2;
-  if (session.status === "waiting" || session.status === "idle") return 3;
-  return 4;
+  return 2;
 }
 
 export function compareSessionPriority(
@@ -36,7 +35,7 @@ export function compareSessionPriority(
   const bRank = sessionPriorityRank(b);
   const rankDifference = aRank - bRank;
   if (rankDifference) return rankDifference;
-  return aRank === 1 || aRank === 3 ? compareActivity(a.lastActivityAt, b.lastActivityAt) : 0;
+  return aRank === 0 ? 0 : compareActivity(a.lastActivityAt, b.lastActivityAt);
 }
 
 function compareActivity(a: number | undefined, b: number | undefined): number {

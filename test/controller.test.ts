@@ -53,7 +53,7 @@ test("movement keeps errors ahead of the activity-sorted tier", () => {
   assert.equal(controller.snapshot().selectedId, "b");
 });
 
-test("movement follows stable group order and attention-first rows", () => {
+test("movement follows attention and recency across groups", () => {
   const controller = new SessionsController({
     version: 1,
     sessions: [
@@ -65,13 +65,13 @@ test("movement follows stable group order and attention-first rows", () => {
     ],
   });
 
-  assert.equal(controller.snapshot().selectedId, "default");
+  assert.equal(controller.snapshot().selectedId, "z-waiting");
   controller.move(1);
   assert.equal(controller.snapshot().selectedId, "work-waiting");
   controller.move(1);
   assert.equal(controller.snapshot().selectedId, "work-idle");
   controller.move(1);
-  assert.equal(controller.snapshot().selectedId, "z-waiting");
+  assert.equal(controller.snapshot().selectedId, "default");
   controller.move(1);
   assert.equal(controller.snapshot().selectedId, "z-idle");
 });
@@ -555,6 +555,21 @@ test("exact request acknowledgement advances idle read state only for current pr
     await controller.acknowledgeSession("api", now + 2, "req-2");
     assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, now + 2);
     assert.equal(controller.snapshot().registry.sessions[0]?.status, "idle");
+  });
+});
+
+test("touchSession records the user's interaction as activity without moving it backwards", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = { version: 1 as const, sessions: [session("running", { id: "api", updatedAt: 100, lastActivityAt: 500 })] };
+    await updateRegistry(() => registry);
+    const controller = new SessionsController(registry, async () => "present");
+    await controller.refresh(1_000);
+
+    await controller.touchSession("api", 2_000);
+    assert.equal(controller.snapshot().registry.sessions[0]?.lastActivityAt, 2_000);
+
+    await controller.touchSession("api", 1_500);
+    assert.equal(controller.snapshot().registry.sessions[0]?.lastActivityAt, 2_000);
   });
 });
 

@@ -1086,7 +1086,7 @@ test("view state saves preserve onboarding and release cue fields", () => {
 
 test("existing-user release cue is target-safe and dismisses without changing session selection", () => {
   const saved: SessionsViewState[] = [];
-  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), { ...session("work", "work"), status: "running" }] });
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), { ...session("work", "work"), status: "running", lastActivityAt: 1 }] });
   const view = new SessionsView(controller, () => {}, {
     initialViewState: { grouping: "project" },
     saveViewState: (state) => { saved.push(state); },

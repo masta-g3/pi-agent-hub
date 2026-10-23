@@ -110,7 +110,7 @@ After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessio
 
 ## Repo grouping
 
-Press `v` for alphabetical repository sections. Each section contains complete parent/child trees ordered by requests, errors, active work, then quiet work. Archived sessions stay separate and newest-first. Active parents show their chosen `[group]` badge below the title. Backlog and Archived rows keep it before the title.
+Press `v` for alphabetical repository sections. Each section contains complete parent/child trees: errors and unanswered requests first, then every other tree by last interaction, newest-first. Opening, pinning into focus, answering, or sending to a session counts as interaction. Archived sessions stay separate and newest-first. Active parents show their chosen `[group]` badge below the title. Backlog and Archived rows keep it before the title.
 
 Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The action workspace shows the actual path.
 
@@ -295,7 +295,7 @@ Normal Hub forks retain the ticket. Native Pi forks clear it in the child. See [
 
 Groups are labels, not project records. `g` moves a session to a label, creating it if needed; `Ctrl+N` / `Ctrl+P` cycles known groups in the dialog. `G` renames the group for every session using it.
 
-Within Status sections, source order keeps groups stable with `default` first. Within each group, errors and unread waits precede running work, read/idle sessions, and stopped sessions. Activity orders rows within these priorities. `K` / `J` breaks exact priority/activity ties only, and is unavailable while filtering or in Repo/board views. Archived always uses archive time.
+Within Status sections, errors and unread waits come first across all groups; every other session follows by last interaction, newest-first, whatever its runtime status. Your own open, pin focus, answer, or send counts as interaction. `K` / `J` breaks exact priority/activity ties only, and is unavailable while filtering or in Repo/board views. Archived always uses archive time.
 
 Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; Backlog does not. Children follow their parent's lifecycle and cannot move independently.
 

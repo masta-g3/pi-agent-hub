@@ -9,7 +9,7 @@ import { ARCHIVE_PRUNE_AFTER_MS, closeBucket, moveToBucket, restoreBucket, sessi
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
-import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged } from "../core/status.js";
+import { applyComputedStatus, computeStatus, isFreshHeartbeat, markAcknowledged, markInteracted } from "../core/status.js";
 import { sessionPresence, sessionPresenceSnapshot, type TmuxPresence, type TmuxPresenceResult } from "../core/tmux.js";
 import type { SessionsRegistry, ManagedSession, RuntimeSession, PiAgentHubContextV1, RuntimeStatusEvidence, SessionBucket, SessionClosure, WorkflowModeDisplay, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { observeSessions, type SessionObservation } from "./session-observation.js";
@@ -158,6 +158,13 @@ export class SessionsController {
     await this.mutateRegistry((latest) => ({
       ...latest,
       sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined) : session),
+    }));
+  }
+
+  async touchSession(id: string, now = Date.now()): Promise<void> {
+    await this.mutateRegistry((latest) => ({
+      ...latest,
+      sessions: latest.sessions.map((session) => session.id === id ? markInteracted(session, now) : session),
     }));
   }
 

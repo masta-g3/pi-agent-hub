@@ -1262,7 +1262,7 @@ test("grouping order and status counts", () => {
   assert.doesNotMatch(rendered, /1 waiting · 1 error/);
 });
 
-test("groups keep stable order and expose unacknowledged waiting counts", () => {
+test("rows sort across groups without inferring attention from waiting", () => {
   const sessions = [
     { ...session("default-waiting", "default", "waiting"), lastActivityAt: 100 },
     { ...session("default-idle", "default", "idle"), lastActivityAt: 300 },
@@ -1272,7 +1272,7 @@ test("groups keep stable order and expose unacknowledged waiting counts", () => 
   const model = buildRenderModel({ sessions, width: 120 });
 
   const rows = modelRows(model);
-  assert.deepEqual([...new Set(rows.map((row) => row.group))], ["default", "work", "z"]);
+  assert.deepEqual(rows.map((row) => row.id), ["z-waiting", "default-waiting", "work-waiting", "default-idle"]);
   assert.equal(rows.find((row) => row.id === "default-waiting")?.needsAttention, false);
   assert.equal(rows.find((row) => row.id === "work-waiting")?.needsAttention, false);
 
@@ -1294,7 +1294,7 @@ test("groups are rendered by newest waiting or idle activity", () => {
     width: 120,
   });
 
-  assert.deepEqual([...new Set(modelRows(model).map((row) => row.group))], ["default", "work", "z"]);
+  assert.deepEqual(modelRows(model).map((row) => row.id), ["z-waiting", "work-waiting", "work-idle", "default-idle", "z-idle"]);
 });
 
 test("cockpit flattens groups into row tags and keeps Archived chronological", () => {
@@ -1583,8 +1583,8 @@ test("error reason appears in selected metadata", () => {
   assert.match(lines.join("\n"), /Error · MCP failed/);
 });
 
-test("selected and stopped rows have distinct treatments with stopped rows last", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "stopped", "api"), session("b", "default", "idle", "docs")], selectedId: "b", width: 100 });
+test("selected and stopped rows have distinct treatments with inactive stopped rows last", () => {
+  const model = buildRenderModel({ sessions: [session("a", "default", "stopped", "api"), { ...session("b", "default", "idle", "docs"), lastActivityAt: 1 }], selectedId: "b", width: 100 });
   const layout = renderSessions(model);
   const lines = layout.lines.map(stripAnsi).join("\n");
   const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "b");

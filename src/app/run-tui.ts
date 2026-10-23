@@ -520,24 +520,44 @@ export async function runTui(): Promise<void> {
       }).catch(() => {});
     }
   };
+  // The user's own open, pin focus, answer, and send count as session activity for recency ordering.
+  const touchSession = (sessionId: string) => mutateRegistry(() => controller.touchSession(sessionId));
+  const touchByTmuxSession = async (tmuxSession: string) => {
+    const session = controller.snapshot().sessions.find((row) => row.tmuxSession === tmuxSession);
+    if (session) await touchSession(session.id);
+  };
   view = new SessionsView(controller, stop, {
     interactionTarget,
     loadInteractionState: loadSessionInteractionState,
     loadConversation: loadSessionConversation,
-    submitAnswer: submitSessionAnswer,
+    async submitAnswer(target, toolCallId, answers) {
+      await submitSessionAnswer(target, toolCallId, answers);
+      await touchSession(target.managedId);
+    },
     requestRender: () => tui.requestRender(),
     initialViewState,
     saveViewState(state) { viewStateWriter.save(state); },
-    attachOutsideTmux(tmuxSession) {
+    async attachOutsideTmux(tmuxSession) {
+      await touchByTmuxSession(tmuxSession);
       stop();
       const attach = attachSessionCommand(tmuxSession);
       spawn(attach.command, attach.args, { stdio: "inherit" });
     },
-    switchInsideTmux: (tmuxSession) => sidePanes!.handoff(tmuxSession),
+    switchInsideTmux: async (tmuxSession) => {
+      await touchByTmuxSession(tmuxSession);
+      return sidePanes!.handoff(tmuxSession);
+    },
     pinSidePane: (sessionId) => sidePanes!.pin(sessionId),
     assignSidePaneSlot: (sessionId, slot) => sidePanes!.assign(sessionId, slot),
-    focusSidePaneSlot: (slot) => sidePanes!.focus(slot),
-    focusPinnedSession: (sessionId) => sidePanes!.focusPinnedSession(sessionId),
+    focusSidePaneSlot: async (slot) => {
+      const pinned = sidePanes!.snapshot().pins.find((pin) => pin.slot === slot)?.sessionId;
+      if (pinned) await touchSession(pinned);
+      return sidePanes!.focus(slot);
+    },
+    focusPinnedSession: async (sessionId) => {
+      await touchSession(sessionId);
+      return sidePanes!.focusPinnedSession(sessionId);
+    },
     closeSidePane: (sessionId) => sidePanes!.close(sessionId),
     resizeSidePane: (delta) => sidePanes!.resize(delta),
     focusSidePaneDirection: (direction) => sidePanes!.focusDirection(direction),
@@ -619,13 +639,17 @@ export async function runTui(): Promise<void> {
     reorderSession(sessionId, delta) {
       return mutateRegistry(() => controller.reorderSession(sessionId, delta));
     },
-    sendMessage: sendSessionMessage,
+    async sendMessage(target, text, delivery) {
+      await sendSessionMessage(target, text, delivery);
+      await touchSession(target.managedId);
+    },
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
       const session = controller.snapshot().sessions.find(row => row.id === sessionId);
       const target = session && interactionTarget(session);
       if (!target) throw new Error("Restart this session to enable guarded commands");
       await runSessionShortcut(target, shortcut.key, shortcut.send);
+      await touchSession(sessionId);
     },
     acknowledgeSession(sessionId, requestId) {
       return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
