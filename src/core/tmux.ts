@@ -210,6 +210,8 @@ export async function setWindowPaneBorderStatus(paneId: string, visible: boolean
     if (chrome) {
       await exec.exec("tmux", ["set-option", "-w", "-t", paneId, "pane-border-style", chrome.paneBorderStyle]);
       await exec.exec("tmux", ["set-option", "-w", "-t", paneId, "pane-active-border-style", chrome.paneActiveBorderStyle]);
+      // Heavy lines make the accent-colored focused outline readable; a background tint fights Pi's own panels.
+      await exec.exec("tmux", ["set-option", "-w", "-t", paneId, "pane-border-lines", "heavy"]);
     }
     await exec.exec("tmux", ["set-option", "-w", "-t", paneId, "pane-border-status", "top"]);
     return;
@@ -218,6 +220,7 @@ export async function setWindowPaneBorderStatus(paneId: string, visible: boolean
   await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-border-format"]);
   await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-border-style"]);
   await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-active-border-style"]);
+  await exec.exec("tmux", ["set-option", "-w", "-u", "-t", paneId, "pane-border-lines"]);
 }
 
 export interface TmuxClient {

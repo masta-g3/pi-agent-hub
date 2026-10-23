@@ -19,6 +19,8 @@ export interface TmuxChrome {
   paneBorderFormat: string;
 }
 
+export const FOCUSED_PANE_MARKER = "⌨";
+
 export const darkTmuxChrome: TmuxChrome = {
   hintColor: "#565f89",
   attentionColor: "#e0af68",
@@ -27,7 +29,7 @@ export const darkTmuxChrome: TmuxChrome = {
   windowStatusCurrentStyle: "fg=#a9b1d6,bg=#1a1b26",
   paneBorderStyle: "fg=#565f89",
   paneActiveBorderStyle: "fg=#7aa2f7",
-  paneBorderFormat: "#{?pane_active,#[fg=#7aa2f7]#[reverse]#[bold] #{pane_title} #[default], #[fg=#565f89]#{pane_title}#[default] }",
+  paneBorderFormat: `#{?pane_active,#[fg=#7aa2f7]#[reverse]#[bold] ${FOCUSED_PANE_MARKER} #{pane_title} #[default], #[fg=#565f89]#{pane_title}#[default] }`,
 };
 
 export function tmuxChromeFromTheme(theme?: ChromeThemeTokens): TmuxChrome {
@@ -46,7 +48,7 @@ export function tmuxChromeFromTheme(theme?: ChromeThemeTokens): TmuxChrome {
     paneBorderStyle: `fg=${borderColor}`,
     paneActiveBorderStyle: `fg=${accentColor}`,
     // tmux condition branches use commas, so keep attributes in separate blocks.
-    paneBorderFormat: `#{?pane_active,#[fg=${accentColor}]#[reverse]#[bold] #{pane_title} #[default], #[fg=${hintColor}]#{pane_title}#[default] }`,
+    paneBorderFormat: `#{?pane_active,#[fg=${accentColor}]#[reverse]#[bold] ${FOCUSED_PANE_MARKER} #{pane_title} #[default], #[fg=${hintColor}]#{pane_title}#[default] }`,
   };
 }
 

@@ -130,6 +130,7 @@ test("pane helpers target pane ids and window-local border chrome", async () => 
     { command: "tmux", args: ["set-option", "-w", "-u", "-t", "%0", "pane-border-format"] },
     { command: "tmux", args: ["set-option", "-w", "-u", "-t", "%0", "pane-border-style"] },
     { command: "tmux", args: ["set-option", "-w", "-u", "-t", "%0", "pane-active-border-style"] },
+    { command: "tmux", args: ["set-option", "-w", "-u", "-t", "%0", "pane-border-lines"] },
   ]);
 });
 
@@ -140,6 +141,7 @@ test("pane border chrome applies theme-derived active and inactive styles", asyn
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-format", darkTmuxChrome.paneBorderFormat] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-style", darkTmuxChrome.paneBorderStyle] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-active-border-style", darkTmuxChrome.paneActiveBorderStyle] },
+    { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-lines", "heavy"] },
     { command: "tmux", args: ["set-option", "-w", "-t", "%0", "pane-border-status", "top"] },
   ]);
 });

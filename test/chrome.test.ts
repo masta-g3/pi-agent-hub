@@ -15,7 +15,7 @@ test("tmuxChromeFromTheme derives tmux hex colors from theme tokens", () => {
     windowStatusCurrentStyle: "fg=#7aa2f7,bg=#547da7",
     paneBorderStyle: "fg=#547da7",
     paneActiveBorderStyle: "fg=#7aa2f7",
-    paneBorderFormat: "#{?pane_active,#[fg=#7aa2f7]#[reverse]#[bold] #{pane_title} #[default], #[fg=#767676]#{pane_title}#[default] }",
+    paneBorderFormat: "#{?pane_active,#[fg=#7aa2f7]#[reverse]#[bold] ⌨ #{pane_title} #[default], #[fg=#767676]#{pane_title}#[default] }",
   });
 });
 
@@ -40,7 +40,7 @@ test("tmuxChromeFromTheme converts numeric tokens to tmux colour indexes", () =>
     windowStatusCurrentStyle: "fg=colour33,bg=colour240",
     paneBorderStyle: "fg=colour240",
     paneActiveBorderStyle: "fg=colour33",
-    paneBorderFormat: "#{?pane_active,#[fg=colour33]#[reverse]#[bold] #{pane_title} #[default], #[fg=colour244]#{pane_title}#[default] }",
+    paneBorderFormat: "#{?pane_active,#[fg=colour33]#[reverse]#[bold] ⌨ #{pane_title} #[default], #[fg=colour244]#{pane_title}#[default] }",
   });
 });
 
