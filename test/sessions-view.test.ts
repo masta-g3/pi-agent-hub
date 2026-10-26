@@ -50,6 +50,55 @@ function session(id: string, title: string): ManagedSession {
   };
 }
 
+test("first render selects the first cockpit session without overriding later cursor moves", () => {
+  const request = { ...session("request", "Request"), status: "waiting" as const,
+    context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
+  const error = { ...session("error", "Error"), status: "error" as const };
+  const controller = new SessionsController({ version: 1, sessions: [error, request] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+  assert.equal(controller.selected()?.id, "error");
+  view.render(160);
+  assert.equal(controller.selected()?.id, "request");
+  view.handleInput("j"); // HEALTH header
+  view.handleInput("j"); // Error session
+  assert.equal(controller.selected()?.id, "error");
+  view.render(160);
+  assert.equal(controller.selected()?.id, "error");
+});
+
+test("first render preserves explicit controller selection and pre-render navigation", () => {
+  const request = { ...session("request", "Request"), status: "waiting" as const,
+    context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
+  const error = { ...session("error", "Error"), status: "error" as const };
+  for (const afterConstruction of [false, true]) {
+    const controller = new SessionsController({ version: 1, sessions: [error, request] });
+    if (!afterConstruction) controller.selectSession("error");
+    const view = new SessionsView(controller, () => {});
+    if (afterConstruction) controller.selectSession("error");
+    view.render(160);
+    assert.equal(controller.selected()?.id, "error");
+  }
+  const controller = new SessionsController({ version: 1, sessions: [error, request] });
+  const view = new SessionsView(controller, () => {});
+  view.handleInput("k");
+  const selected = controller.selected()?.id;
+  view.render(160);
+  assert.equal(controller.selected()?.id, selected);
+});
+
+test("footer request navigation reflects visible requests and backlog state", () => {
+  const request = { ...session("request", "Request"), status: "waiting" as const,
+    context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
+  const controller = new SessionsController({ version: 1, sessions: [request, session("quiet", "Quiet")] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Hide backlog/);
+  view.handleInput("b");
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Show backlog/);
+  controller.setFilter("Quiet");
+  for (const width of [80, 160]) assert.doesNotMatch(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+});
+
 test("persisted new-user state reaches the live empty SessionsView", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [] }), () => {}, {
     initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
@@ -687,6 +736,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   ] });
   const view = new SessionsView(controller, () => {});
 
+  view.render(120);
   view.handleInput("S");
   assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 Active trees/m);
   assert.equal(controller.snapshot().selectedId, "a");
@@ -2111,6 +2161,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
       now: () => now,
     });
 
+    view.render(100);
     view.handleInput("\r");
 
     assert.equal(switched, "pi-agent-hub-api");
@@ -2119,7 +2170,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /Enter Workspace .* : Actions .* \? Help/);
+    assert.match(rendered, /Enter Open .* i Workspace .* : Actions .* \? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -3282,7 +3333,7 @@ test("p opens a send form and submits message to selected live session", async (
 });
 
 test("send form keeps input, recipient and controls visible in narrow themed layouts", async () => {
-  const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
+  const theme = { ...darkTheme, muted: "#010203", border: "#040506" };
   for (const width of [40, 50, 80, 120]) {
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
       ...messageActions,
@@ -3913,6 +3964,7 @@ test("attention band locates the exact request without hijacking Enter or select
     context: { version: 1 as const, updatedAt: now, attention: { requestId: "req/1", kind: "question" as const, text: "Choose release" } },
   };
   const controller = new SessionsController({ version: 1, sessions: [api, docs] });
+  controller.selectSession("api");
   const acknowledgements: Array<[string, string | undefined]> = [];
   const opened: string[] = [];
   const view = new SessionsView(controller, () => {}, {
@@ -3942,6 +3994,7 @@ test("attention band locates the exact request without hijacking Enter or select
   assert.deepEqual(acknowledgements, [["api", undefined], ["docs", "req/1"]]);
 
   const runningController = new SessionsController({ version: 1, sessions: [{ ...api, status: "running" }, docs] });
+  runningController.selectSession("api");
   const recordOpen = (tmuxSession: string) => { opened.push(tmuxSession); };
   const runningView = new SessionsView(runningController, () => {}, { attachOutsideTmux: recordOpen, switchInsideTmux: recordOpen });
   runningView.setAttentionAnnouncements([{ sessionId: "docs", requestId: "req/1", kind: "question", text: "Choose release", title: "Docs", announcedAt: now, expiresAt: now + 6_000 }]);
@@ -3999,7 +4052,7 @@ test("colon opens the bottom command ledger and Escape returns to the cockpit", 
   assert.match(palette, /Search actions, sessions, filters/);
   assert.match(palette, /ACTIONS/);
   assert.match(palette, /Actions/);
-  assert.match(palette, /Enter Workspace.*: Actions.*\? Help/);
+  assert.match(palette, /Enter Open.*i Workspace.*: Actions.*\? Help/);
 
   view.handleInput("\u001b");
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
@@ -4490,6 +4543,21 @@ test("phone footer taps follow the same dashboard key paths", () => {
   assert.doesNotMatch(stripAnsi(workspace.join("\n")), /^FLEET/m);
   tapFooterKey(view, workspace, "Esc");
   assert.match(stripAnsi(view.render(44)[0] ?? ""), /^FLEET/);
+});
+
+test("phone Next footer tap selects the next request without opening or acknowledging", () => {
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [requestSession("a", 30), requestSession("b", 20)] });
+  const view = new SessionsView(controller, () => {}, {
+    terminalRows: () => 22,
+    switchInsideTmux: (id) => { events.push(`switch:${id}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+  });
+  const rendered = view.render(60);
+  assert.equal(controller.selected()?.id, "a");
+  tapFooterKey(view, rendered, "]");
+  assert.equal(controller.selected()?.id, "b");
+  assert.deepEqual(events, []);
 });
 
 test("phone dashboards render down to 30 columns", () => {

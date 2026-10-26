@@ -100,6 +100,7 @@ export class SessionsView implements Component {
   private busy = false;
   private archiveExpanded = false;
   private archiveDisclosureSelected = false;
+  private initialSelectionPending = true;
   private selectedSection: CollapsibleSection | undefined;
   private filterDisclosure: FilterDisclosure = { sections: new Set(), repos: new Set(), projectTrees: new Set(), boardTrees: new Set() };
   private collapsedSections = new Set<CollapsibleSection>();
@@ -382,6 +383,13 @@ export class SessionsView implements Component {
       this.confirmationReview = rendered.review;
       return rendered.lines;
     }
+    if (this.initialSelectionPending) {
+      this.initialSelectionPending = false;
+      if (!this.controller.hasExplicitSelection && !this.releaseCueSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo) {
+        const first = this.visibleListTargets().find((target) => target.kind === "session");
+        if (first?.kind === "session" && first.id !== this.controller.snapshot().selectedId) this.selectListTarget(first);
+      }
+    }
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
@@ -395,6 +403,7 @@ export class SessionsView implements Component {
     const model = buildRenderModel({
       sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
+      visibleRequestCount: this.visibleRequestIds().length,
       width,
       compactRows: this.conversationOpen,
       filter,
@@ -782,17 +791,6 @@ export class SessionsView implements Component {
     this.clearPendingRestart();
     this.clearFlash();
     this.runAction(() => refresh(), "refreshing status evidence...", () => reveal(true));
-  }
-
-  private openWorkspace(showEvidence: boolean): void {
-    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) return;
-    const selected = this.controller.selected();
-    if (!selected) return;
-    this.workspaceSessionId = selected.id;
-    this.workspaceEvidenceSessionId = showEvidence ? selected.id : undefined;
-    this.clearPendingRestart();
-    this.clearFlash();
-    this.message = undefined;
   }
 
   private closeWorkspace(): void {
@@ -1728,6 +1726,7 @@ export class SessionsView implements Component {
 
   private selectListTarget(next: SessionListTarget): boolean {
     if ((next.kind === "session" || next.kind === "session-continuation") && !this.controller.selectSession(next.id)) return false;
+    this.initialSelectionPending = false;
     this.releaseCueSelected = next.kind === "release-cue";
     this.archiveDisclosureSelected = next.kind === "archive-disclosure";
     this.selectedSection = next.kind === "section-header" ? next.section : undefined;

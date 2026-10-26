@@ -560,6 +560,7 @@ export interface BuildRenderModelInput {
   releaseCueSelected?: boolean;
   guidanceHidden?: boolean;
   compactRows?: boolean;
+  visibleRequestCount?: number;
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
@@ -663,7 +664,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
     ...(workspace ? { workspace } : {}),
-    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, { coaching: coach }),
+    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, {
+      coaching: coach,
+      requestCount: input.visibleRequestCount ?? visible.filter((session) => visibleAttention(session)).length,
+      filter: input.filter,
+    }),
     filter: input.filter,
     filterEditing: input.filterEditing,
     grouping,

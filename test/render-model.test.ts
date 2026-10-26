@@ -1405,7 +1405,17 @@ test("narrow layout hides preview and uses readable compact footer", () => {
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+});
+
+test("footer request count follows the visible projection at medium and wide widths", () => {
+  const request = { ...session("request", "default", "waiting"), context: { version: 1 as const, updatedAt: 2,
+    attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
+  for (const width of [80, 160]) {
+    const sessions = [request, session("quiet", "default", "idle")];
+    assert.match(buildRenderModel({ sessions, width }).footer, /\] Next request/);
+    assert.doesNotMatch(buildRenderModel({ sessions, width, filter: "quiet" }).footer, /\] Next request/);
+  }
 });
 
 test("wide footer stays stable for worktree sessions", () => {
@@ -1413,7 +1423,22 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+});
+
+test("footer controls survive layout fitting at each responsive boundary", () => {
+  for (const width of [61, 80, 99, 100, 119, 120, 160]) {
+    for (const requested of [false, true]) {
+      const context = requested ? { version: 1 as const, updatedAt: 2,
+        attention: { requestId: "req", kind: "question" as const, text: "Choose" } } : undefined;
+      const layout = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "idle"), context }], width, height: 24 }));
+      assert.ok(layout.lines.every((line) => visibleWidth(line) === width), `${width}`);
+      const footer = stripAnsi(layout.lines[layout.footerRow!]!);
+      assert.match(footer, /Enter Open/);
+      if (width < 120) assert.match(footer, /i Workspace/);
+      assert.equal(layout.footerItems.some((item) => item.key === "]"), requested);
+    }
+  }
 });
 
 test("long titles/cwd truncate without exceeding width", () => {
@@ -1735,7 +1760,7 @@ test("verified cleaned worktree markers are muted", () => {
   };
   const rendered = renderSessions(buildRenderModel({ sessions: [item], width: 120 }), theme).lines.join("\n");
 
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇✓")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇✓")));
   assert.ok(!rendered.includes(styleToken(theme, "success", "⎇✓")));
 });
 
@@ -1755,7 +1780,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const plain = stripAnsi(rendered);
   assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ◈ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇ ")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });

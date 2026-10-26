@@ -13,7 +13,9 @@ Excludes: New features, new commands or shortcuts, new persisted state (except r
 - The tier navigator column is removed. The header summary becomes clickable tier chips with the same jump behavior (user, 2026-10-25).
 - Running rows show a static `●`; only the selected running row animates (user, 2026-10-25).
 - The recent taller fleet cards (`dashboard-scanability-012`) stay as the richest rung. Density changes add rungs; they do not remove richer ones.
-- Dim is decoration only (rules, separators, borders). Information uses `muted` or stronger. Pi themes keep their own token values; the fix is the role assignment, plus a readable fallback `dim` in the built-in dark theme.
+- Dim is decoration only (rules, separators, borders). Information uses `muted` or stronger. Theme token values (built-in and Pi themes) are unchanged; the fix is role assignment. On the selected row, dim decoration renders `muted`.
+- Ordering: ui-polish-005 also depends on ui-polish-002 (summary copy). ui-polish-010 runs last, after 005–009, so no renderer adds glyph literals after its ASCII check.
+- ASCII glyphs are selected by the environment variable `PI_AGENT_HUB_GLYPHS=ascii`, not persisted config.
 
 ## Tickets
 
@@ -26,4 +28,4 @@ Excludes: New features, new commands or shortcuts, new persisted state (except r
 - `ui-polish-007` — Done when the board uses the fleet workflow grid and its lane headings outrank group headings.
 - `ui-polish-008` — Done when help is a grouped static reference and workspace actions are label-first with a clear primary row.
 - `ui-polish-009` — Done when the new-session dialog has a clear primary button and one hint line, and the answer card docks under the latest message.
-- `ui-polish-010` — Done when `NO_COLOR` is honored with visible selection and an ASCII glyph set exists.
+- `ui-polish-010` — Done when `NO_COLOR` is honored with visible selection and `PI_AGENT_HUB_GLYPHS=ascii` renders ASCII-only chrome.
