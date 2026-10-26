@@ -25,9 +25,23 @@ test("a clipped message keeps its speaker visible without hiding the last conten
   const reader = new ConversationReader();
   reader.accept({ branchId: "b", revision: "1", items: [{ id: "reply", role: "assistant", text: Array.from({ length: 30 }, (_, index) => `Line ${index}`).join("\n\n") }] });
   const lines = reader.render(40, 5).map(stripAnsi);
-  assert.match(lines[0]!, /^  PI ─+$/);
+  assert.equal(lines[0], "  PI");
   assert.ok(lines.some(line => line.includes("Line 29")));
   assert.ok(lines.every(line => visibleWidth(line) <= 40));
+});
+
+test("speaker headers use labels without trailing rules", () => {
+  const reader = new ConversationReader();
+  reader.accept({ branchId: "b", revision: "1", items: [
+    { id: "u", role: "user", text: "Hello" },
+    { id: "p", role: "assistant", text: "Hi" },
+    { id: "q", role: "question", text: "Which?", toolCallId: "call" },
+    { id: "a", role: "answer", text: "First", toolCallId: "call" },
+  ] });
+  const lines = reader.render(80, 40).map(stripAnsi);
+  assert.deepEqual(lines.filter(line => /^  (YOU|PI)/.test(line)), ["  YOU", "  PI", "  PI · QUESTION", "  YOU · ANSWER"]);
+  assert.ok(!lines.some(line => line.includes("─")));
+  assert.ok(lines.includes(""), "message spacing stays intact");
 });
 
 test("reader preserves an item anchor during older insertion and append", () => {

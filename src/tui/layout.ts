@@ -72,7 +72,7 @@ function footerLines(shell: Shell, footer: string, styles: LayoutStyles): string
   return shell.framed ? [styles.border("─".repeat(shell.bodyWidth)), line] : [line];
 }
 
-function footerItems(footer: string, width: number, x: number): FooterItem[] {
+export function footerItems(footer: string, width: number, x: number): FooterItem[] {
   const items: FooterItem[] = [];
   let offset = 0;
   for (const part of fitFooter(footer, width).split(" · ")) {
@@ -84,7 +84,7 @@ function footerItems(footer: string, width: number, x: number): FooterItem[] {
 }
 
 /** Drops whole trailing footer items instead of cutting a label mid-word. */
-function fitFooter(footer: string, width: number): string {
+export function fitFooter(footer: string, width: number): string {
   const items = footer.split(" · ");
   while (items.length > 1 && displayWidth(items.join(" · ")) > width) items.pop();
   return truncate(items.join(" · "), width);
@@ -1637,6 +1637,7 @@ export interface FormField {
   section?: string;
   truncate?: "end" | "start";
   readonly?: boolean;
+  primary?: boolean;
   frame?: "input" | "picker";
 }
 
@@ -1661,7 +1662,7 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
   const fieldBlocks = spec.fields.map((field) => {
     const lines: string[] = [];
     if (field.section && field.section !== previousSection) {
-      lines.push(styles.muted(field.section));
+      lines.push(`  ${styles.muted(field.section)}`);
       previousSection = field.section;
     }
     const focused = field.key === spec.focus;
@@ -1676,7 +1677,9 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
       ? truncateValue(field.value, contentWidth, field.truncate)
       : renderCursorValue(field.value, field.cursor, contentWidth, field.truncate);
     const rawValue = focused ? styles.accent(focusedValue) : truncateValue(field.value, contentWidth, field.truncate);
-    const content = field.readonly && !focused ? styles.muted(rawValue) : rawValue;
+    const content = field.readonly && !focused
+      ? field.primary ? styles.accent(rawValue) : styles.muted(rawValue)
+      : rawValue;
     const value = `${styles.border(prefix)}${content}${styles.border(suffix)}`;
     if (stacked) {
       lines.push(`${caret} ${truncate(label, Math.max(0, inner - 2))}`);
