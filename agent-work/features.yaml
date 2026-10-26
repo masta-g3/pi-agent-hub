@@ -1200,6 +1200,7 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-005
+  plan_file: agent-work/plans/ui-polish-006.md
 - id: ui-polish-007
   status: pending
   title: Board consistency
