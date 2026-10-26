@@ -235,7 +235,7 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 - Below 100 columns, Hub hides open pins and gives the dashboard the whole window. Pins keep running. Rows keep their `▢N` markers, and the header shows `N pins hidden`.
 - `Enter` or `Alt+1`–`Alt+4` opens a hidden pin full screen. Back on a desktop-size window, Hub restores the pin layout.
-- At 60 columns or less the dashboard drops its frame. The footer lists `Enter Open · i Info · : Actions · / Filter · ? Help` and drops whole items when space runs out. Tap a footer item to run its key. In the full-screen workspace, tap `Esc Back`.
+- At 60 columns or less the dashboard drops its frame. The footer lists `Enter Open · i Info · : Actions · / Filter · ? Help` and drops whole items when space runs out. With visible requests, `] Next` appears before Help only if both fit. Tap a footer item to run its key. In the full-screen workspace, tap `Esc Back`.
 - Below 40 columns rows show the current workflow step instead of the step grid. The dashboard works down to 30 columns.
 - Below 100 columns and 20 rows, for example with the on-screen keyboard open, fleet sessions use one line. The selected session keeps its detail line. The workflow board is unchanged.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.
