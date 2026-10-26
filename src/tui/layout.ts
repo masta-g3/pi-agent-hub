@@ -1041,7 +1041,7 @@ function adaptiveCardLines(
 /** Repo grouping names the repo in its header, and groups usually name the repo; only a differing name earns the slot. */
 function repoNameSignal(session: RenderSession, styles: LayoutStyles, repoMode: boolean): string {
   if (repoMode || sameName(session.repoLabel, session.group)) return "";
-  return `${styles.accent("◈")} ${styles.strong(session.repoLabel)}`;
+  return `${styles.accent("◈")} ${styles.muted(session.repoLabel)}`;
 }
 
 function sameName(left: string, right: string): boolean {
@@ -1533,15 +1533,14 @@ interface SessionRowOptions {
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
   const selection = session.selected ? styles.accent("▌") : " ";
-  const attention = session.attention ? attentionGlyph(session.attention.kind, styles) : " ";
-  const symbol = session.section === "active"
-    ? styles.status(session.displayStatus, session.symbol)
+  const state = session.attention ? attentionGlyph(session.attention.kind, styles)
+    : session.section === "active" ? styles.status(session.displayStatus, session.symbol)
     : styles.muted(session.symbol);
   const sidePaneMarker = pinGlyph(session, styles);
 
   if (session.kind === "subagent") {
     const branch = session.depth > 1 ? "│└" : options.childLast ? "└─" : "├─";
-    const prefix = `${selection}${options.gutterColumn ? "  " : " "}${styles.dim(branch)} ${attention} ${symbol} ${sidePaneMarker}`;
+    const prefix = `${selection}${options.gutterColumn ? "  " : " "}${styles.dim(branch)} ${state} ${sidePaneMarker}`;
     const available = Math.max(0, width - displayWidth(prefix));
     const task = session.taskPreview?.trim() ?? "";
     const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
@@ -1554,13 +1553,13 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
 
   const disclosure = session.boardDescendantCount
     ? styles.accent(session.boardExpanded ? "▾" : "▸")
-    : styles.dim("·");
-  const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${attention} ${symbol} ${sidePaneMarker}`;
-  const worktree = session.worktreeMarker ? `${worktreeMarkerStyle(session.worktreeMarker, styles)} ` : "";
+    : " ";
+  const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${state} ${sidePaneMarker}`;
+  const worktree = session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : "";
   if (options.titleFirst) {
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
     const fresh = freshBadge(session, available, styles);
-    return truncate(`${prefix}${worktree}${styles.text(truncate(session.title, available - displayWidth(fresh)))}${fresh}`, width);
+    return truncate(`${prefix}${styles.strong(truncate(session.title, available - displayWidth(fresh)))}${worktree}${fresh}`, width);
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
@@ -1581,8 +1580,8 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const fittedAdornments = `${fittedBadge}${fittedCount}`;
   const titleSpace = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);
   const fresh = freshBadge(session, titleSpace, styles);
-  const title = styles.text(truncate(session.title, titleSpace - displayWidth(fresh)));
-  const left = `${prefix}${fittedBadge}${worktree}${title}${fresh}${fittedCount}`;
+  const title = styles.strong(truncate(session.title, titleSpace - displayWidth(fresh)));
+  const left = `${prefix}${fittedBadge}${title}${worktree}${fresh}${fittedCount}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
 }
 
@@ -1596,14 +1595,12 @@ function freshBadge(session: RenderSession, titleSpace: number, styles: LayoutSt
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
-  const token = marker === "⎇" ? "⎇ " : marker;
-  if (marker === "⎇✓") return styles.muted(token);
-  if (marker === "⎇…" || marker === "⎇!") return styles.warning(token);
-  return styles.muted(token);
+  if (marker === "⎇…" || marker === "⎇!") return styles.warning(marker);
+  return styles.muted(marker);
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {
-  return `${styles.dim("[")}${styles.strong(truncate(group, width - 2))}${styles.dim("]")}`;
+  return `${styles.dim("[")}${styles.muted(truncate(group, width - 2))}${styles.dim("]")}`;
 }
 
 export interface FormField {

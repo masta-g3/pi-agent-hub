@@ -427,7 +427,7 @@ test("help overlay opens and closes", () => {
   const help = view.render(120).join("\n");
   assert.match(help, /pi agent hub help/);
   assert.match(help, /Status legend/);
-  assert.match(help, /⠋ running\/starting \(animated, with run time\)/);
+  assert.match(help, /● running \(selected row animates\)/);
   assert.doesNotMatch(help, /Alt\+Q/);
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
@@ -1393,7 +1393,7 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 
 function rowIndexFor(rendered: string[], title: string): number {
   const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const titleRow = new RegExp(`(?:[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
+  const titleRow = new RegExp(`(?:[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏?!✓]|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
   const index = rendered.findIndex((line) => titleRow.test(stripAnsi(line)));
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
@@ -2117,7 +2117,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌.*·\s+○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /▌.*\s+○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {
@@ -4505,7 +4505,7 @@ test("] keeps the filter and reports when no request row is visible", () => {
   assert.match(stripAnsi(view.render(120).join("\n")), /no visible requests/);
 });
 
-test("hasVisibleRunningRows tracks on-screen running rows only", () => {
+test("hasAnimatingSelectedRow tracks the on-screen selected running row only", () => {
   const failing = Array.from({ length: 30 }, (_, index) => ({ ...session(`err-${index}`, `err ${index}`), status: "error" as const }));
   const running = { ...session("busy", "busy"), status: "running" as const };
   const controller = new SessionsController({ version: 1, sessions: [...failing, running] });
@@ -4513,15 +4513,36 @@ test("hasVisibleRunningRows tracks on-screen running rows only", () => {
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 12 });
 
   view.render(120);
-  assert.equal(view.hasVisibleRunningRows, false, "running row is off-screen");
+  assert.equal(view.hasAnimatingSelectedRow, false, "running row is off-screen");
 
   controller.selectSession("busy");
   view.render(120);
-  assert.equal(view.hasVisibleRunningRows, true);
+  assert.equal(view.hasAnimatingSelectedRow, true);
 
   view.handleInput("?");
   view.render(120);
-  assert.equal(view.hasVisibleRunningRows, false, "help covers the fleet");
+  assert.equal(view.hasAnimatingSelectedRow, false, "help covers the fleet");
+});
+
+test("visible unselected runners and synthetic selections do not request animation frames", () => {
+  const idle = session("idle", "idle");
+  const running = { ...session("busy", "busy"), status: "running" as const };
+  const starting = { ...session("starting", "starting"), status: "starting" as const };
+  const controller = new SessionsController({ version: 1, sessions: [idle, running, starting] });
+  const view = new SessionsView(controller, () => {});
+  controller.selectSession("idle");
+  const rendered = view.render(120);
+  assert.ok(rendered.some(line => stripAnsi(line).includes("busy")));
+  assert.equal(view.hasAnimatingSelectedRow, false);
+  for (const id of ["busy", "starting"]) {
+    controller.selectSession(id);
+    view.render(120);
+    assert.equal(view.hasAnimatingSelectedRow, true, id);
+  }
+  const activeHeader = view.render(120).findIndex(line => /▾ ACTIVE/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(activeHeader, 23));
+  view.render(120);
+  assert.equal(view.hasAnimatingSelectedRow, false, "synthetic tier header cannot animate a stale session");
 });
 
 function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
