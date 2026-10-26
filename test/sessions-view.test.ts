@@ -903,7 +903,7 @@ test("Space expands and collapses the selected board parent tree", () => {
   assert.match(fleetText(view.render(120)), /api/);
 
   view.handleInput(" ");
-  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api/);
   assert.match(fleetText(view.render(120)), /worker/);
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -989,7 +989,7 @@ test("left and right arrows collapse and expand the selected board tree", () => 
 
   view.handleInput("S");
   view.handleInput("\u001b[C");
-  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");

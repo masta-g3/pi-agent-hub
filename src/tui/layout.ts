@@ -447,15 +447,6 @@ function renderModeHeader(mode: string, rightCandidates: string[], width: number
   return truncate(left, width);
 }
 
-function groupAttentionCount(count: number, styles: LayoutStyles, muted = false): string {
-  if (!count) return "";
-  return (muted ? styles.muted : styles.warning)(`◐${count}`);
-}
-
-function groupBoardCounts(group: RenderModel["sections"][number]["groups"][number], parentCount: number, styles: LayoutStyles): string {
-  return [groupAttentionCount(group.attentionCount, styles), styles.muted(`·${parentCount}`)].filter(Boolean).join(" ");
-}
-
 function pinnedDecisionRows(height: number | undefined): number {
   if (height === undefined || height <= 0 || height >= 24) return 6;
   if (height >= 14) return 4;
@@ -559,12 +550,12 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       : false;
     const gutterColumn = model.width >= 100 && !model.pinMode;
     const titleFirst = !board && shape === "full-parent";
-    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst });
-    const cell = titleFirst ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
+    const cell = titleFirst || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
+    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, workflowCell: board ? cell : undefined });
     // Short windows move the workflow cell onto the title line so every row keeps its progress.
     pushLine(oneLineRows && cell?.right ? twoColumn(row, cell.right, width) : row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (cell && (!oneLineRows || session.selected)) {
+    if (titleFirst && cell && (!oneLineRows || session.selected)) {
       const indent = gutterColumn ? "   " : "  ";
       const metadataCell = oneLineRows ? { ...cell, right: "" } : cell;
       // Without card lines, the metadata line is the only place a differing repo name can appear.
@@ -600,10 +591,11 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
     // Below 40 columns rows show their current step label instead of a shared grid.
-    gridWorkflow = !board && model.width >= 40 ? section.groups.flatMap((group) => group.sessions)
-      .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow : undefined;
+    gridWorkflow = model.width < 40 ? undefined : board ? section.gridWorkflow : section.groups.flatMap((group) => group.sessions)
+      .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow;
+    const headingTitle = board ? `${section.title} ${section.sessionsTotal}` : section.title;
     const headingRight = board
-      ? styles.muted(`·${section.sessionsTotal}`)
+      ? ""
       : section.repoKey
         ? [
           styles.muted(section.sessionsVisible !== undefined && section.sessionsVisible !== section.sessionsTotal
@@ -616,7 +608,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
           ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
         ].join(styles.border(" · "));
     if (gridWorkflow) {
-      const headingWidth = Math.min(20, displayWidth(section.title) + 4);
+      const headingWidth = board ? displayWidth(headingTitle) + 4 : Math.min(20, displayWidth(headingTitle) + 4);
       const rightWidth = displayWidth(headingRight) + 2 + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
       if (headingWidth + 1 + rightWidth > width) gridWorkflow = undefined;
     }
@@ -632,7 +624,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
     pushLine(
-      sectionHeader(section.title, gridWorkflow ? `${headingRight}  ${styles.muted(workflowGridHeader(gridWorkflow, gridGap))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, section.repoKey !== undefined),
+      sectionHeader(headingTitle, gridWorkflow ? `${headingRight}  ${styles.muted(workflowGridHeader(gridWorkflow, gridGap))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, board ? "active" : section.cockpitTier, section.repoKey !== undefined, board),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -644,9 +636,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       if (groupIndex && model.width >= 100) pushLine("");
       let groupHeadingIndex: number | undefined;
       if (board && model.width >= 100) {
-        const parentCount = group.sessions.filter((session) => session.kind !== "subagent").length;
         groupHeadingIndex = lines.length;
-        pushLine(twoColumn(styles.accent(group.name), groupBoardCounts(group, parentCount, styles), width));
+        pushLine(twoColumn(`   ${styles.muted(group.name)}`, group.attentionCount ? styles.warning(`?${group.attentionCount}`) : "", width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
       const cardSpacers = spacers && model.width >= 100 && !board && !model.compactRows;
@@ -739,7 +730,7 @@ function noMatchListLines(width: number, model: RenderModel, styles: LayoutStyle
 function boardHiddenSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
   const parts = [
     model.boardHidden.nonActive ? `${model.boardHidden.nonActive} backlog/archived` : "",
-    "S projects",
+    "S Fleet",
   ].filter(Boolean);
   return styles.muted(truncate(parts.join(" · "), width));
 }
@@ -1355,15 +1346,18 @@ function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
   return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
 }
 
-function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, repoMode: boolean, width: number, terminalWidth: number): string {
+function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, repoMode: boolean, width: number, terminalWidth: number, cell?: FleetWorkflowCell): string {
   if (session.kind === "subagent") return "";
   const mode = activeWorkflowMode(session);
-  const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= 8;
+  const minimumTitle = board && terminalWidth <= NARROW_LAYOUT_MAX_WIDTH && !mode
+    ? Math.max(8, Math.min(18, displayWidth(session.title))) : 8;
+  const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= minimumTitle;
   const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
   const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
-  const full = session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles, false) : compact;
+  const workflow = board ? cell?.right ?? ""
+    : session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles) : compact;
   const age = terminalWidth >= 80 && rowAge(session) ? styles.muted(rowAge(session)!) : "";
   const hierarchy = (tail: string[]) => [
     [hidden, running, ...tail, age],
@@ -1377,7 +1371,22 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
     [age],
   ].map(join);
 
-  if (board) return hierarchy(full ? [full] : []).find(fits) ?? "";
+  if (board) {
+    const modeLabel = mode && cell?.compatible ? styles.accent(mode.short) : "";
+    return [
+      [hidden, running, modeLabel, age, workflow],
+      [hidden, running, modeLabel, workflow],
+      [hidden, running, compact],
+      [hidden, compact],
+      [hidden, running, workflow],
+      [hidden, workflow],
+      [hidden],
+      [running, workflow],
+      [workflow],
+      [running],
+      [age],
+    ].map(join).find(fits) ?? "";
+  }
   if (session.section === "archived") {
     // The meaning is atomic: drop age first, then omit it whole rather than leave an ambiguous lone marker.
     const meaning = archivedMeaning(session, styles);
@@ -1387,13 +1396,13 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   if (repoMode) {
     const label = cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]);
     const lifecycle = session.section === "backlog" ? styles.muted("backlog") : "";
-    return [...hierarchy([lifecycle, label, ...(full ? [full] : [])]), label].find(fits) ?? "";
+    return [...hierarchy([lifecycle, label, ...(workflow ? [workflow] : [])]), label].find(fits) ?? "";
   }
   if (session.section === "backlog") {
     const backlog = styles.muted("backlog");
     return [join([hidden, backlog]), hidden, backlog].find(fits) ?? "";
   }
-  return hierarchy(full ? [full] : []).find(fits) ?? "";
+  return hierarchy(workflow ? [workflow] : []).find(fits) ?? "";
 }
 
 function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
@@ -1412,15 +1421,14 @@ function workspaceClosureLine(session: RenderSession, styles: LayoutStyles): str
   return [`${outcome}${children}`];
 }
 
-function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles, includeTicket = true): string {
-  const rail = workflow.steps
+function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay | undefined, styles: LayoutStyles): string {
+  return workflow.steps
     .map((step, index) => {
       const short = index === workflow.activeIndex ? activeStepShort(workflow, mode) : step.short;
       const styledShort = index === workflow.activeIndex ? styles.accent(short) : styles.muted(short);
       return `${styledWorkflowMarker(workflow, index, styles)} ${styledShort}`;
     })
     .join(styles.border("─"));
-  return includeTicket && workflow.ticketId ? `${rail} ${styles.border("·")} ${styles.muted(workflow.ticketId)}` : rail;
 }
 
 function renderStatusEvidenceField(field: StatusEvidenceField, width: number, styles: LayoutStyles): string[] {
@@ -1507,13 +1515,14 @@ const COCKPIT_ROW_LABELS: Record<CockpitTier, string> = {
   archived: "ARCHIVED",
 };
 
-function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier, repo = false): string {
+function sectionHeader(title: string, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier, repo = false, bold = false): string {
   const tone = repo ? styles.text : cockpitTone(tier, styles);
   const disclosureTone = repo ? styles.accent : tone;
   const prefix = collapsed === undefined
     ? tone("──")
     : `${selected ? styles.accent("▌") : tone("─")}${disclosureTone(collapsed ? "▸" : "▾")}`;
-  return twoColumn(`${prefix}${tone(` ${title} `)}`, right, width);
+  const label = tone(` ${title} `);
+  return twoColumn(`${prefix}${bold ? `\u001b[1m${label}\u001b[22m` : label}`, right, width);
 }
 
 function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], styles: LayoutStyles): string {
@@ -1529,6 +1538,7 @@ interface SessionRowOptions {
   childLast: boolean;
   gutterColumn: boolean;
   titleFirst?: boolean;
+  workflowCell?: FleetWorkflowCell;
 }
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
@@ -1563,10 +1573,11 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
-  const badge = `${renderGroupBadge(session.group, badgeBudget, styles)} `;
+  const showGroup = !options.board || options.terminalWidth < 100;
+  const badge = showGroup ? `${renderGroupBadge(session.group, badgeBudget, styles)} ` : "";
   const adornments = `${badge}${repoCount}`;
   const rightWidthBase = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(adornments));
-  let right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth);
+  let right = rowRightAdornment(session, styles, options.board, options.repoMode, rightWidthBase, options.terminalWidth, options.workflowCell);
   if (options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH && session.section === "active" && !activeWorkflowMode(session)
     && rightWidthBase - displayWidth(right) - 1 < Math.min(18, displayWidth(session.title))) {
     right = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
@@ -1575,7 +1586,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const minimumTitle = Math.min(8, Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - 4));
   const availableAdornments = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - minimumTitle - rightSpace);
   const fittedBadgeWidth = Math.min(badgeBudget, Math.max(0, availableAdornments - 1));
-  const fittedBadge = fittedBadgeWidth >= 3 ? `${renderGroupBadge(session.group, fittedBadgeWidth, styles)} ` : "";
+  const fittedBadge = showGroup && fittedBadgeWidth >= 3 ? `${renderGroupBadge(session.group, fittedBadgeWidth, styles)} ` : "";
   const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableAdornments ? repoCount : "";
   const fittedAdornments = `${fittedBadge}${fittedCount}`;
   const titleSpace = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);

@@ -266,13 +266,17 @@ test("parent cards show the chosen group once and keep actual repo identity sepa
           const target = layout.rowTargets[index];
           return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === parent.id;
         }).map(stripAnsi).join("\n");
-        if (grouping === "stage") {
-          assert.match(card, width <= 60 ? /\[My pr…\] Task/ : /\[My project\] Task/, `${width} ${grouping}: ${card}`);
+        if (grouping === "stage" && width >= 100) {
+          assert.doesNotMatch(card, /\[My project\]/);
+          assert.match(layout.lines.map(stripAnsi).join("\n"), /My project/);
+        } else if (grouping === "stage") {
+          assert.match(card, /\[My pr…\] Task/, `${width} ${grouping}: ${card}`);
         } else {
           assert.match(card, /●(?: ▢1)? Task[\s\S]*\[My project\]/, `${width} ${grouping}: ${card}`);
           assert.doesNotMatch(card.split("\n")[0] ?? "", /\[My project\]|\bEX\b/);
         }
-        assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length, 1, card);
+        assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length ?? 0,
+          grouping === "stage" && width >= 100 ? 0 : 1, card);
       }
     }
   }
@@ -465,7 +469,7 @@ test("tree gutters remain truthful after clipping and on the workflow board", ()
   const board = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "child", grouping: "stage", width: 120, expandedBoardParentIds: new Set(["parent"]),
   })).lines.map(stripAnsi);
-  assert.match(board.find((line) => line.includes("Parent")) ?? "", /│ ▾\s+● \[[^\]]+\] Parent/);
+  assert.match(board.find((line) => line.includes("Parent")) ?? "", /│ ▾\s+● Parent/);
   assert.match(board.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
 });
 
@@ -564,7 +568,7 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
   assert.deepEqual(wide.sections.map((section) => section.key), ["execute"]);
   assert.equal(wide.sections[0]?.title, "EXECUTE");
   const wideText = renderSessions(wide).lines.map(stripAnsi).join("\n");
-  assert.match(wideText, /agents\s+·1/);
+  assert.match(wideText, /   agents\s+│/);
   assert.match(wideText, /focused-work.*FOC/);
   assert.doesNotMatch(wideText, /FOC · agents/);
   assert.doesNotMatch(wideText, /── FOCUS/);
@@ -609,10 +613,11 @@ test("stopped focus snapshots render as ordinary Execute sessions", () => {
   const boardText = renderSessions(board).lines.map(stripAnsi).join("\n");
   const boardCard = boardText.split("\n").find((line) => line.includes("focus")) ?? "";
   assert.match(boardText, /EXECUTE/);
-  assert.match(boardText, /agents\s+·1/);
-  assert.match(boardCard, /\[agents\] focus/);
+  assert.match(boardText, /   agents\s+│/);
+  assert.match(boardCard, /- focus/);
+  assert.doesNotMatch(boardCard, /\[agents\]/);
   assert.doesNotMatch(boardCard, /FOC/);
-  assert.match(boardCard, /\bEX\b/);
+  assert.match(boardCard, /✓\s+◉\s+·\s+·\s+·/);
   assert.doesNotMatch(boardText, /mode\s+Focus/);
 });
 
@@ -663,8 +668,11 @@ test("board card markers are positional for direct, complete, terminal, and repl
     const model = buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow }], selectedId: "a", width: 110, grouping: "stage" });
     assert.equal(model.sections[0]?.key, workflow.steps[item.activeIndex]?.id);
     const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-    const activeMarker = item.expected[item.activeIndex];
-    assert.match(text, new RegExp(`${activeMarker}${workflow.steps[item.activeIndex]?.short}[\\s\\S]*${item.activity}`));
+    const layout = renderSessions(model);
+    const rowIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "a");
+    const row = stripAnsi(layout.lines[rowIndex]!);
+    assert.equal(row.match(/[✓◉·]/g)?.join(""), item.expected, row);
+    assert.match(text, new RegExp(item.activity));
   }
 
   const replaced = { ...WORKFLOW, activeIndex: 0, currentStepComplete: false, activity: { id: "start", label: "Inspecting" }, updatedAt: 2 };
@@ -879,10 +887,10 @@ test("stage grouping keeps canonical workflow trees in producer lanes and every 
   assert.equal(model.selected?.id, "x");
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /PLAN.*·1/);
-  assert.match(rendered, /EXECUTE.*·1/);
-  assert.match(rendered, /OTHER ACTIVE.*·1/);
-  assert.match(rendered, /experiments\s+·1/);
+  assert.match(rendered, /PLAN 1/);
+  assert.match(rendered, /EXECUTE 1/);
+  assert.match(rendered, /OTHER ACTIVE 1/);
+  assert.match(rendered, /   experiments\s+│/);
   assert.doesNotMatch(rendered, /NO WORKFLOW|without workflow/);
   assert.match(rendered, /1 backlog\/archived/);
   assert.match(rendered, /WORKFLOW\s+3 active sessions/);
@@ -902,14 +910,14 @@ test("board projection omits orphan and cyclic subagent rows from every lane", (
   assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions.map((row) => row.id))), ["parent"]);
 });
 
-test("board rows retain their group badge under the group heading", () => {
+test("board rows omit the group badge under the group heading", () => {
   const model = buildRenderModel({ sessions: [{ ...session("p", "agents", "running"), workflow: WORKFLOW }], grouping: "stage", width: 120 });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("[agents] p"));
+  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("● p"));
   const listCell = row ?? "";
-  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /agents\s+·1/);
-  assert.match(listCell, /● \[agents\] p/);
-  assert.doesNotMatch(listCell, /4\/7/);
-  assert.match(listCell, /\bEX\b/);
+  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /   agents\s+│/);
+  assert.match(listCell, /● p/);
+  assert.doesNotMatch(listCell, /4\/7|\[agents\]/);
+  assert.match(listCell, /✓\s+◉\s+·\s+·\s+·/);
 });
 
 test("board collapses descendant rows by default and reveals them through ephemeral expansion or filtering", () => {
@@ -955,7 +963,7 @@ test("board groups child rows by their top-level parent and counts parent cards 
   assert.deepEqual(lane?.groups.map((group) => [group.name, group.sessions.map((row) => row.id)]), [["api", ["parent", "child"]]]);
   assert.equal(lane?.sessionsTotal, 1);
   const layout = renderSessions(model);
-  assert.match(layout.lines.map(stripAnsi).join("\n"), /── EXECUTE\s+·1/);
+  assert.match(layout.lines.map(stripAnsi).join("\n"), /── EXECUTE 1/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 2);
 });
 
