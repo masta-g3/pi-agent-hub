@@ -4,7 +4,10 @@ import { revealCreated, type NewSessionDialogContext } from "./dialog.js";
 import { editTextInput, isEnterKey } from "./text-input.js";
 import { renderForm, truncate, type FormField } from "./layout.js";
 import { normalizeDetailOffset } from "./form-dialogs.js";
-import { createRepoPicker, moveRepoPickerDetail, moveRepoPickerSelection, renderRepoPicker, selectedRepoCwd, type RepoPickerState } from "./repo-picker.js";
+import {
+  createRepoPicker, moveRepoPickerDetail, moveRepoPickerSelection, openRepoPickerDir, renderRepoPicker, repoPickerParent,
+  selectedRepoCwd, toggleRepoPickerMode, type RepoPickerState,
+} from "./repo-picker.js";
 import { openFavoritesDialog, type FavoritesDialog } from "./session-favorites-dialog.js";
 import {
   addRepo, createNewForm, cycleCwdSuggestion, editNewForm, isRepoKey,
@@ -123,9 +126,9 @@ function moveDialogFocus(dialog: NewSessionDialog, delta: number): NewSessionDia
 
 function startRepoPicker(dialog: NewSessionDialog): NewSessionDialog | RepoPickerDialog {
   if (dialog.actionFocus || !isRepoKey(dialog.form.focus)) return dialog;
-  const choices = dialog.form.fields[dialog.form.focus].suggestions ?? [];
-  if (!choices.length) return dialog;
-  return { kind: "repoPicker", draft: dialog, picker: createRepoPicker(choices), target: dialog.form.focus };
+  const field = dialog.form.fields[dialog.form.focus];
+  const picker = createRepoPicker(field.suggestions ?? []);
+  return { kind: "repoPicker", draft: dialog, picker: picker.items.length ? picker : toggleRepoPickerMode(picker, field.value), target: dialog.form.focus };
 }
 
 function handleRepoPickerInput(dialog: RepoPickerDialog, data: string, ctx: NewSessionDialogContext): NewSessionDialog | RepoPickerDialog {
@@ -134,6 +137,11 @@ function handleRepoPickerInput(dialog: RepoPickerDialog, data: string, ctx: NewS
   if (matchesKey(data, Key.pageDown)) return { ...dialog, picker: moveRepoPickerDetail(dialog.picker, 2, ctx.viewport.width, ctx.viewport.height) };
   if (matchesKey(data, Key.down)) return { ...dialog, picker: { ...moveRepoPickerSelection(dialog.picker, 1), detailOffset: 0 } };
   if (matchesKey(data, Key.up)) return { ...dialog, picker: { ...moveRepoPickerSelection(dialog.picker, -1), detailOffset: 0 } };
+  if (matchesKey(data, Key.tab)) return { ...dialog, picker: toggleRepoPickerMode(dialog.picker, dialog.draft.form.fields[dialog.target].value) };
+  if (matchesKey(data, Key.right)) return { ...dialog, picker: openRepoPickerDir(dialog.picker) };
+  if (dialog.picker.mode === "browse") {
+    if (matchesKey(data, Key.left) || (matchesKey(data, Key.backspace) && !dialog.picker.filter.value)) return { ...dialog, picker: repoPickerParent(dialog.picker) };
+  }
   if (isEnterKey(data)) {
     const cwd = selectedRepoCwd(dialog.picker);
     return cwd ? withForm(dialog.draft, setRepoValue(dialog.draft.form, dialog.target, cwd)) : dialog;

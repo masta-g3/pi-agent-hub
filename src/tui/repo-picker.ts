@@ -1,5 +1,7 @@
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { isErrno } from "../core/atomic-json.js";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createTextInput, type TextInputState } from "./text-input.js";
 import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, wrapWords } from "./layout.js";
@@ -17,6 +19,10 @@ export interface RepoPickerState {
   selected: number;
   filter: TextInputState;
   detailOffset?: number;
+  mode: "recent" | "browse";
+  recent: RepoPickerItem[];
+  dir?: string;
+  error?: string;
 }
 
 const MAX_VISIBLE_ROWS = 12;
@@ -30,7 +36,41 @@ export function createRepoPicker(cwds: string[]): RepoPickerState {
     seen.add(cwd);
     items.push({ cwd, label: basename(cwd) || cwd, detail: compactPath(cwd) });
   }
-  return { items, selected: 0, filter: createTextInput() };
+  return { items, selected: 0, filter: createTextInput(), mode: "recent", recent: items };
+}
+
+/** Switches between recent repos and folder browsing; browsing starts at `start` when it is a folder. */
+export function toggleRepoPickerMode(state: RepoPickerState, start: string): RepoPickerState {
+  if (state.mode === "browse") return { ...state, mode: "recent", items: state.recent, selected: 0, filter: createTextInput(), detailOffset: 0, dir: undefined, error: undefined };
+  const path = expandHome(start.trim());
+  return browseRepoPicker(state, path && existsSync(path) && statSync(path).isDirectory() ? path : homedir());
+}
+
+export function openRepoPickerDir(state: RepoPickerState): RepoPickerState {
+  const cwd = selectedRepoCwd(state);
+  return cwd && existsSync(cwd) ? browseRepoPicker(state, cwd) : state;
+}
+
+export function repoPickerParent(state: RepoPickerState): RepoPickerState {
+  if (state.mode !== "browse" || !state.dir || dirname(state.dir) === state.dir) return state;
+  const parent = browseRepoPicker(state, dirname(state.dir));
+  return { ...parent, selected: Math.max(0, parent.items.findIndex((item) => item.cwd === state.dir)) };
+}
+
+function browseRepoPicker(state: RepoPickerState, dir: string): RepoPickerState {
+  const items: RepoPickerItem[] = dirname(dir) === dir ? [] : [{ cwd: dirname(dir), label: "../", detail: compactPath(dirname(dir)) }];
+  let error: string | undefined;
+  try {
+    const names = readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+    items.push(...names.map((name) => ({ cwd: join(dir, name), label: `${name}/`, detail: compactPath(join(dir, name)) })));
+  } catch (caught) {
+    if (!["EACCES", "EPERM", "ENOENT", "ENOTDIR"].some((code) => isErrno(caught, code))) throw caught;
+    error = `Cannot read ${compactPath(dir)}`;
+  }
+  return { ...state, mode: "browse", dir, items, selected: 0, filter: createTextInput(), detailOffset: 0, error };
 }
 
 export function moveRepoPickerSelection(state: RepoPickerState, delta: number): RepoPickerState {
@@ -64,11 +104,12 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   const rowLimit = height && height > 0 ? Math.max(1, height - (narrow ? 8 + pathLimit : 7)) : MAX_VISIBLE_ROWS;
   const rows = visibleWindow(indexes, selected, rowLimit);
   const lines = [
-    styles.accent("Recent repos"),
+    styles.accent(state.mode === "browse" ? truncate(`Browse ${compactPath(state.dir ?? "")}`, inner) : "Recent repos"),
     `search: ${renderCursorValue(state.filter.value, state.filter.cursor, inner - 8, "start")}`,
     "",
   ];
-  if (!indexes.length) lines.push(styles.muted("No repos match the current search."));
+  if (!indexes.length) lines.push(styles.muted(state.mode === "browse" ? "No folders match the current search." : "No repos match the current search."));
+  if (state.error) lines.push(styles.muted(state.error));
   else for (const index of rows) {
     const item = state.items[index]!;
     const active = index === selected;
@@ -85,11 +126,14 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   }
   if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.dim(pathLines[pathOffset + index] ?? "")));
   lines.push("");
+  const browse = state.mode === "browse";
   if (narrow) lines.push(
-    styles.muted("Type Search · ↑↓ Move · PgUp/PgDn Path"),
-    styles.muted("Enter Select · Esc Cancel"),
+    styles.muted(browse ? "Type Search · → Open · ← Up · ↑↓ Move" : "Type Search · ↑↓ Move · PgUp/PgDn Path"),
+    styles.muted(browse ? "Enter Select · Tab Recent · Esc Cancel" : "Enter Select · → Browse · Tab Browse · Esc Cancel"),
   );
-  else lines.push(styles.muted("type search · ↑↓ move · enter select · esc cancel"));
+  else lines.push(styles.muted(browse
+    ? "type search · → open · ← up · enter select · tab recent · esc cancel"
+    : "type search · ↑↓ move · → browse into · enter select · tab browse · esc cancel"));
   return [
     `${styles.border("╭")}${styles.border("─".repeat(inner))}${styles.border("╮")}`,
     ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
@@ -127,6 +171,10 @@ function visibleWindow(indexes: number[], selected: number | undefined, rowLimit
   const selectedPosition = Math.max(0, selected === undefined ? 0 : indexes.indexOf(selected));
   const start = Math.max(0, Math.min(selectedPosition - Math.floor(rowLimit / 2), indexes.length - rowLimit));
   return indexes.slice(start, start + rowLimit);
+}
+
+function expandHome(path: string): string {
+  return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path && resolve(path);
 }
 
 function compactPath(path: string): string {
