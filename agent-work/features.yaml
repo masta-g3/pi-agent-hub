@@ -1210,7 +1210,7 @@
   depends_on:
   - ui-polish-005
 - id: ui-polish-007
-  status: pending
+  status: done
   title: Board consistency
   subtitle: Board shares fleet workflow grid
   description: The workflow board uses the same workflow grid as the fleet, lane headers
@@ -1220,6 +1220,8 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-004
+  plan_file: agent-work/history/20261025_ui-polish-007_board_grid_consistency.md
+  completed_at: '2026-10-25'
 - id: ui-polish-008
   status: pending
   title: Help and actions
