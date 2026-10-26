@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SessionsController } from "../src/app/controller.js";
+import { SessionsView } from "../src/tui/sessions-view.js";
+import { createRepoPicker, renderRepoPicker } from "../src/tui/repo-picker.js";
+import { createThemeDialog, renderThemeDialog } from "../src/tui/theme-dialog.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { createCommandPalette, renderCommandPalette } from "../src/tui/command-palette-dialog.js";
 import { renderConversationPane } from "../src/tui/conversation.js";
@@ -48,6 +52,42 @@ const sessions = [
   session("backlog", { bucket: "backlog" }),
   ...Array.from({ length: 7 }, (_, index) => session(`archive${index}`, { bucket: "archived", bucketChangedAt: 100 + index })),
 ];
+
+for (const width of [40, 80, 120, 160]) {
+  test(`${width}-column repository picker paths use muted, not dim`, () => {
+    const lines = renderRepoPicker(createRepoPicker(["/tmp/api", "/tmp/docs"]), width, theme, 18);
+    decorationOnly(lines);
+    assert.ok(spans(lines.join("\n"), "muted").some(span => span.includes("/tmp/api")));
+  });
+
+  test(`${width}-column confirmation controls use muted, not dim`, () => {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [session("one")] }), () => {},
+      { terminalRows: () => 24, deleteSession: () => {} }, theme);
+    view.render(width);
+    view.handleInput("d");
+    const lines = view.render(width);
+    assert.match(stripAnsi(lines.join("\n")), /Esc Cancel/);
+    decorationOnly(lines);
+    assert.ok(spans(lines.join("\n"), "muted").some(span => span.includes("Esc Cancel")));
+  });
+
+  test(`${width}-column Help and resize hints use readable colors`, () => {
+    for (const height of [1, 2, 12, 300]) {
+      const view = new SessionsView(new SessionsController(), () => {}, { terminalRows: () => height }, theme);
+      view.handleInput("?");
+      const lines = view.render(width);
+      assert.match(stripAnsi(lines.join("\n")), /[Hh]elp/);
+      decorationOnly(lines);
+    }
+  });
+
+  test(`${width}-column theme picker overflow uses readable colors`, () => {
+    const dialog = createThemeDialog({ names: ["dark", "light", ...Array.from({ length: 20 }, (_, i) => `theme-${i}`)], setting: "theme-10", syncPi: true });
+    const lines = renderThemeDialog(dialog, width, 14, theme);
+    assert.match(stripAnsi(lines.join("\n")), /…/);
+    decorationOnly(lines);
+  });
+}
 
 for (const width of [80, 120, 160]) {
   for (const grouping of ["project", "stage"] as const) {

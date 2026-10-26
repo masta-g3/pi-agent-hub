@@ -2352,7 +2352,7 @@ function padVisibleLine(line: string, width: number): string {
 
 function limitRows(lines: string[], height: number | undefined, width: number, theme?: SessionsTheme): string[] {
   if (!height || height <= 0 || lines.length <= height) return lines;
-  const marker = theme ? styleToken(theme, "dim", `${glyphs.ellipsis} resize for full help`) : `${glyphs.ellipsis} resize for full help`;
+  const marker = theme ? styleToken(theme, "muted", `${glyphs.ellipsis} resize for full help`) : `${glyphs.ellipsis} resize for full help`;
   return [...lines.slice(0, Math.max(0, height - 1)), truncateVisible(marker, Math.max(1, width))];
 }
 

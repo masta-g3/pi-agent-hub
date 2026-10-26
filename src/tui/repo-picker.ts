@@ -118,14 +118,14 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
     const favorite = item.favorite ? glyphs.favorite : " ";
     const line = narrow
       ? `${marker} ${favorite} ${truncate(item.label, labelWidth)}`
-      : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.dim(truncate(item.detail, detailWidth))}`;
+      : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.muted(truncate(item.detail, detailWidth))}`;
     lines.push(active ? styles.accent(line) : line);
   }
   if (narrow && height && height > 0) {
     const itemCount = Math.max(1, rows.length);
     lines.push(...Array.from({ length: Math.max(0, rowLimit - itemCount) }, () => ""));
   }
-  if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.dim(pathLines[pathOffset + index] ?? "")));
+  if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.muted(pathLines[pathOffset + index] ?? "")));
   lines.push("");
   const browse = state.mode === "browse";
   if (narrow) lines.push(
@@ -187,7 +187,6 @@ function createStyles(theme: SessionsTheme) {
   return {
     accent: (text: string) => styleToken(theme, "accent", text),
     border: (text: string) => styleToken(theme, "border", text),
-    dim: (text: string) => styleToken(theme, "dim", text),
     muted: (text: string) => styleToken(theme, "muted", text),
   };
 }

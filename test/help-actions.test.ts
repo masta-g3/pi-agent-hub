@@ -39,6 +39,30 @@ for (const width of [30, 80, 120, 160]) {
   });
 }
 
+for (const width of [80, 120, 160]) {
+  test(`${width}-column Help keeps stable toggle labels regardless of backlog and bell state`, () => {
+    const frames: string[] = [];
+    for (const backlogShown of [false, true]) for (const bellOn of [false, true]) {
+      const controller = new SessionsController();
+      controller.setFilter(backlogShown ? "lifecycle:active,backlog" : "lifecycle:active");
+      const view = new SessionsView(controller, () => {}, { terminalRows: () => 300,
+        attentionDelivery: { attentionBellEnabled: () => bellOn, setAttentionBell: () => {} } }, darkTheme);
+      view.handleInput("?");
+      frames.push(stripAnsi(view.render(width).join("\n")));
+      const commands = buildDashboardCommands({ sessions: [], filter: controller.snapshot().filter, attentionBellEnabled: bellOn });
+      assert.equal(commands.find(command => command.id === "view:backlog")!.label, backlogShown ? "Hide backlog" : "Show backlog");
+      assert.equal(commands.find(command => command.id === "view:attention-bell")!.label, `Attention bell: ${bellOn ? "On" : "Off"}`);
+    }
+    assert.ok(frames.every(frame => frame === frames[0]));
+    assert.match(frames[0]!, /Show\/hide backlog/);
+    assert.match(frames[0]!, /Attention bell(?: · toggle the optional attention sound)?\s{2,}/);
+    assert.match(frames[0]!, /Show\/hide conversation/);
+    assert.match(frames[0]!, /Show\/hide workflow board/);
+    assert.match(frames[0]!, /Group fleet by status\/repo/);
+    assert.doesNotMatch(frames[0]!, /Hide backlog|Show backlog|Attention bell: (?:On|Off)|turn (?:on|off) the optional/);
+  });
+}
+
 for (const width of [30, 40, 60]) {
   test(`${width}-column Help preserves fitted catalog spacing and accent keys`, () => {
     const view = new SessionsView(new SessionsController(), () => {}, { terminalRows: () => 300 }, darkTheme);

@@ -126,8 +126,8 @@ export function renderThemeDialog(dialog: ThemeDialog, width: number, height: nu
   const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), rows.length - maxVisible));
   const visible = rows.slice(start, start + maxVisible);
   const itemRows = visible.map((row) => renderSelection(row, dialog, automatic, theme));
-  if (start > 0 && itemRows.length && visible[0] !== dialog.selected) itemRows[0] = theme ? styleToken(theme, "dim", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
-  if (start + maxVisible < rows.length && itemRows.length && visible[itemRows.length - 1] !== dialog.selected) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "dim", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
+  if (start > 0 && itemRows.length && visible[0] !== dialog.selected) itemRows[0] = theme ? styleToken(theme, "muted", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
+  if (start + maxVisible < rows.length && itemRows.length && visible[itemRows.length - 1] !== dialog.selected) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "muted", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
   const syncLabel = `${dialog.selected === "sync" ? glyphs.focus : " "} Sync to Pi`;
   const syncState = dialog.syncPi ? `[${glyphs.ready}] on` : "[ ] off";
   const sync = `${syncLabel}${" ".repeat(Math.max(1, innerWidth - stripAnsi(syncLabel).length - syncState.length))}${syncState}`;

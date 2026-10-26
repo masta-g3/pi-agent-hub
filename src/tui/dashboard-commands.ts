@@ -20,6 +20,8 @@ export interface DashboardCommand {
   group: DashboardCommandGroup;
   label: string;
   hint: string;
+  helpLabel?: string;
+  helpHint?: string;
   displayKey?: string;
   bindings: DashboardKeyBinding[];
   targetSessionId?: string;
@@ -151,7 +153,9 @@ export interface DashboardHelpSection {
 export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = []): DashboardHelpSection[] {
   const isPin = (spec: ActionSpec) => spec.name === "pin" || spec.name === "close-pin" || spec.name.startsWith("slot-") || spec.name.startsWith("size-");
   const reference = (spec: ActionSpec) => ({ label: spec.label, hint: spec.hint, displayKey: formatKey(spec.keys[0]!) });
-  const views = viewCommands({ sessions: [] });
+  const views = viewCommands({ sessions: [] }).map(command => ({
+    ...command, label: command.helpLabel ?? command.label, hint: command.helpHint ?? command.hint,
+  }));
   return [
     { label: "Session actions", commands: [
       ...actionSpecs.filter(spec => !isPin(spec)).map(reference),
@@ -461,14 +465,15 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   const bellOn = input.attentionBellEnabled === true;
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
-    makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
+    makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", helpLabel: "Show/hide conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
     makeCommand({ id: "view:theme", group: "views", label: `Theme${glyphs.ellipsis}`, hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
-    makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),
+    makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", helpLabel: "Show/hide workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),
     makeCommand({
       id: "view:fleet-grouping",
       group: "views",
       label: input.fleetGrouping === "repo" ? "Group fleet by status" : "Group fleet by repo",
+      helpLabel: "Group fleet by status/repo",
       hint: "toggle status-first and repo-first fleet grouping",
       displayKey: "v",
       bindings: [{ key: "v" }],
@@ -480,6 +485,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       id: "view:backlog",
       group: "views",
       label: parseDashboardFilter(input.filter).lifecycle.has("backlog") ? "Hide backlog" : "Show backlog",
+      helpLabel: "Show/hide backlog",
       hint: "toggle Backlog in the lifecycle filter without moving sessions",
       displayKey: "b",
       bindings: [{ key: "b" }],
@@ -504,6 +510,8 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       id: "view:attention-bell",
       group: "views",
       label: `Attention bell: ${bellOn ? "On" : "Off"}`,
+      helpLabel: "Attention bell",
+      helpHint: "toggle the optional attention sound",
       hint: `turn ${bellOn ? "off" : "on"} the optional attention sound`,
       enabled: bellEnabled,
       disabledReason: input.capabilities?.attentionBell === true ? undefined : "attention bell setting unavailable",

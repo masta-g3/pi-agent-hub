@@ -338,7 +338,7 @@ function confirmLine(token: "warning" | "error", text: string, theme?: SessionsT
 
 function hintLine(text: string, theme?: SessionsTheme): string {
   const line = `  ${text}`;
-  return theme ? styleToken(theme, "dim", line) : line;
+  return theme ? styleToken(theme, "muted", line) : line;
 }
 
 function deleteChoices(input: { action: string; busy: boolean; subagentCount: number; targetIsSubagent: boolean; worktree: boolean; canFinishWorktree: boolean; theme?: SessionsTheme }): string[] {

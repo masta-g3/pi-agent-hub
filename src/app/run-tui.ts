@@ -357,13 +357,15 @@ export async function runTui(): Promise<void> {
   let terminalAppearance = noColor() ? "dark" as const : await readDashboardAppearance();
   const themeCatalog = noColor() ? { options: [], diagnostics: [] } : await loadGlobalThemeCatalog();
   let themePreference = await effectiveDashboardThemePreference();
-  let dashboardTheme = await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
+  let dashboardTheme = noColor()
+    ? dashboardThemeForSetting(themeCatalog, "dark", terminalAppearance)
+    : await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
   const theme = dashboardTheme.theme;
   let currentTheme = theme;
   let themePreviewActive = false;
   let sidePanes: SidePaneLifecycle | undefined;
   const syncDashboardChrome = (nextTheme: SessionsTheme) => {
-    if (!process.env.TMUX) return;
+    if (!process.env.TMUX || noColor()) return;
     void configureDashboardStatusBar({
       name: DASHBOARD_SESSION,
       cwd,

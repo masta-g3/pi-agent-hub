@@ -1305,6 +1305,7 @@ function workflowGridHeader(workflow: WorkflowRuntimeSnapshot, gap: string): str
 interface FleetWorkflowCell {
   right: string;
   compatible: boolean;
+  gridWidth: number;
 }
 
 /** Positional markers under the section grid, or an explicit step label for other pipelines. */
@@ -1317,7 +1318,7 @@ function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: W
       ? workflow.steps.map((step, index) => pad(styledWorkflowMarker(workflow, index, styles), Math.max(2, displayWidth(step.short)))).join(gap)
       : railCompact(workflow, activeWorkflowMode(session), styles)
     : "";
-  return { right, compatible };
+  return { right, compatible, gridWidth: grid ? displayWidth(workflowGridHeader(grid, gap)) : 0 };
 }
 
 function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, repoInline = false): string {
@@ -1427,7 +1428,8 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
 function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
   const minimumTitle = Math.min(12, displayWidth(session.title));
   const fits = (tail: string) => Boolean(tail) && width - displayWidth(tail) - 1 >= minimumTitle;
-  const grid = options.workflowCell?.right ?? "";
+  const workflow = options.workflowCell?.right ?? "";
+  const grid = workflow + " ".repeat(Math.max(0, (options.workflowCell?.gridWidth ?? 0) - displayWidth(workflow)));
   const compact = session.workflow ? railCompact(session.workflow, activeWorkflowMode(session), styles) : "";
   // Selected short-window rows retain group metadata below; phones keep their title + progress shape.
   if (session.selected || options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH) return [grid, compact].find(fits) ?? "";

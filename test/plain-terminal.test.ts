@@ -70,8 +70,12 @@ test("NO_COLOR removes theme colors and keeps a reverse selected marker", () => 
     assert.ok(frames.some(line => line.includes('\\x1b[7m▌\\x1b[27m')));
     assert.equal(styleToken(darkTheme,'accent','hello'),'hello');
     assert.equal(styleBgToken(darkTheme,'selectedBg','hello'),'hello');
-    const theme = await effectiveDashboardTheme({options:[],diagnostics:[]},{syncPi:true},'dark',{NO_COLOR:'1',PI_CODING_AGENT_DIR:'/nonexistent'});
-    assert.deepEqual(theme.theme,darkTheme);
+    const catalog = {options:[{name:'light',theme:{...darkTheme,accent:'#abcdef'}}],diagnostics:[]};
+    const preference = {syncPi:false,theme:'light'};
+    const colored = await effectiveDashboardTheme(catalog,preference,'light',{NO_COLOR:''});
+    const plain = await effectiveDashboardTheme(catalog,preference,'light',{NO_COLOR:'1'});
+    assert.equal(plain.name,'light');
+    assert.deepEqual(plain,colored);
   `, { NO_COLOR: "1" });
 });
 

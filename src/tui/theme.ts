@@ -191,7 +191,6 @@ export async function effectiveDashboardTheme(
   appearance: TerminalAppearance,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DashboardThemeSelection> {
-  if (noColor(env)) return { setting: "dark", name: "dark", theme: darkTheme };
   const globalSetting = preference.syncPi || !preference.theme ? await readGlobalPiThemeSetting(env) : undefined;
   const setting = (preference.syncPi ? globalSetting : preference.theme ?? globalSetting) ?? "dark";
   const selection = dashboardThemeForSetting(catalog, setting, appearance);

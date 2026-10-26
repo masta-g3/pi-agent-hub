@@ -49,6 +49,32 @@ for (const width of [120, 160]) {
   }
 }
 
+for (const width of [120, 160]) {
+  for (const fleetGrouping of ["status", "repo"] as const) {
+    test(`mixed dense rows align group and age before the section grid at ${width} in ${fleetGrouping}`, () => {
+      const sessions = fleet(30);
+      sessions[2] = { ...sessions[2]!, workflow: undefined, group: "tools", lastActivityAt: NOW - 7 * 60_000 };
+      sessions[3] = { ...sessions[3]!, workflow: { ...workflow, activeIndex: 0, steps: [{ id: "other", short: "OT" }] } };
+      const layout = render(sessions, { width, fleetGrouping });
+      const withWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
+      const withoutWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s2")]!);
+      const otherWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s3")]!);
+      const header = layout.lines.map(stripAnsi).find(line => /PL\s+EX\s+RV/.test(line))!;
+      const ageEnd = withWorkflow.indexOf("23m") + 3;
+      assert.equal(withoutWorkflow.indexOf("7m") + 2, ageEnd);
+      assert.equal(otherWorkflow.indexOf("23m") + 3, ageEnd);
+      assert.match(otherWorkflow, /◉OT/);
+      assert.match(withoutWorkflow.slice(header.indexOf("PL"), layout.listStartX - 1 + layout.listWidth), /^\s*$/);
+      assert.equal(continuations(layout, "s2"), 0);
+      assert.ok(layout.lines.every(line => visibleWidth(line) <= width));
+
+      const noGrid = render(sessions.map(session => ({ ...session, workflow: undefined })), { width, fleetGrouping });
+      const noGridRow = stripAnsi(noGrid.lines[titleIndex(noGrid, "s2")]!);
+      assert.ok(noGridRow.indexOf("7m") + 2 > ageEnd);
+    });
+  }
+}
+
 test("eight parents retain richer rows when two-line neighbors fit", () => {
   const layout = render(fleet(8));
   assert.equal(continuations(layout, "s0"), 3);
