@@ -98,8 +98,8 @@ test("below 100 columns cards keep their previous lines", () => {
   assert.ok(!card.some((line) => line.includes("⎇") || line.includes("writing plan")));
 });
 
-/** List column zero sits after the left frame and the 17-cell tier navigator at 120+ columns. */
-const LIST_START = 19;
+/** List column zero sits immediately after the left frame. */
+const LIST_START = 1;
 
 function linesBetween(rendered: ReturnType<typeof render>, firstId: string, secondId: string): string[] {
   const targets = rendered.layout.rowTargets;

@@ -10,9 +10,8 @@ import type { ManagedSession, RuntimeSession } from "../src/core/types.js";
 import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
-  const board = stripAnsi(lines[1] ?? "").startsWith("│WORKFLOW");
-  const start = board ? 1 : 19;
-  const width = board ? 83 : 65;
+  const start = 1;
+  const width = 83;
   return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
     .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
@@ -354,7 +353,7 @@ test("committed filter stays above results and escape clears", () => {
   view.handleInput("o");
   view.handleInput("\r");
   const rendered = view.render(100).join("\n");
-  assert.match(stripAnsi(rendered), /FLEET\s+1\/2 sessions/);
+  assert.match(stripAnsi(rendered), /FLEET.*1\/2 sessions/);
   assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ Edit.*Esc Clear/);
   assert.doesNotMatch(stripAnsi(rendered), /filter:/);
   assert.match(rendered, /\? Help/);
@@ -432,7 +431,8 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
   assert.match(help, /Alt\+W Open next request/);
-  assert.match(help, /\]\s+Next request · select the next visible session that needs you · unavailable: no visible requests/);
+  assert.match(help, /Next request · select the next visible session that needs you\s+\]/);
+  assert.doesNotMatch(help, /unavailable:/);
   assert.match(help, /i Toggle/);
   assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
@@ -462,7 +462,7 @@ test("Help derives configured shortcuts from the command catalog", () => {
   view.handleInput("?");
 
   const help = stripAnsi(view.render(120).join("\n"));
-  assert.match(help, /Ctrl\+X\s+Summarize · send \/summary/);
+  assert.match(help, /Summarize · send \/summary\s+Ctrl\+X/);
 });
 
 test("t opens theme settings from an empty dashboard and Escape restores preview", () => {
@@ -1399,32 +1399,35 @@ function rowIndexFor(rendered: string[], title: string): number {
   return index;
 }
 
-test("tier navigator mouse click selects the exact first presentation owner", () => {
+function tierChipPosition(rendered: string[], label: string): { row: number; x: number } {
+  const row = rendered.findIndex(line => /^(?:│)?FLEET/.test(stripAnsi(line)));
+  const x = stripAnsi(rendered[row] ?? "").indexOf(label) + 1;
+  assert.ok(x > 0, `missing header chip ${label}`);
+  return { row, x };
+}
+
+test("tier chip mouse click selects each exact first owner and reveals collapsed tiers", () => {
   const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
   const active = { ...session("active", "active"), status: "running" as const };
   const archived = { ...session("archived", "archived"), status: "stopped" as const, bucket: "archived" as const, bucketChangedAt: 1 };
-  const controller = new SessionsController({ version: 1, sessions: [needs, active, archived] });
+  const health = { ...session("health", "health"), status: "error" as const };
+  const quiet = session("quiet", "quiet");
+  const controller = new SessionsController({ version: 1, sessions: [needs, health, active, quiet, archived] });
   const saved: SessionsViewState[] = [];
   const view = new SessionsView(controller, () => {}, {
     initialViewState: { grouping: "project", collapsedSections: ["archived"] },
     saveViewState: (state) => { saved.push(state); },
   });
 
-  let rendered = view.render(100);
-  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
-  assert.notEqual(activeNav, -1);
-  view.handleInput(mousePressAtLine(activeNav, 3));
-  assert.equal(controller.selected()?.id, "active");
-
-  rendered = view.render(100);
-  const archiveNav = rendered.findIndex((line) => /^│ARCHIVED\s+1/.test(stripAnsi(line)));
-  assert.notEqual(archiveNav, -1);
-  view.handleInput(mousePressAtLine(archiveNav, 3));
-  assert.equal(controller.selected()?.id, "archived");
+  for (const [label, id] of [["ACTIVE 1", "active"], ["HEALTH 1", "health"], ["QUIET 1", "quiet"], ["NEEDS YOU 1", "needs"], ["ARCHIVED 1", "archived"]]) {
+    const { row, x } = tierChipPosition(view.render(160), label!);
+    view.handleInput(mousePressAtLine(row, x));
+    assert.equal(controller.selected()?.id, id);
+  }
   assert.deepEqual(saved.at(-1), { grouping: "project" });
 });
 
-test("tier navigator and fleet hit maps do not overlap at the column boundary", () => {
+test("header chip, separator, border and fleet hit maps do not overlap", () => {
   const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
   const active = { ...session("active", "active"), status: "running" as const };
   const controller = new SessionsController({ version: 1, sessions: [needs, active] });
@@ -1432,9 +1435,16 @@ test("tier navigator and fleet hit maps do not overlap at the column boundary", 
   const rendered = view.render(100);
   const activeRow = rowIndexFor(rendered, "active");
 
-  view.handleInput(mousePressAtLine(activeRow, 18));
+  view.handleInput(mousePressAtLine(activeRow, 1));
   assert.equal(controller.selected()?.id, "needs");
-  view.handleInput(mousePressAtLine(activeRow, 19));
+  const { row, x } = tierChipPosition(rendered, "ACTIVE 1");
+  view.handleInput(mousePressAtLine(row, x - 1));
+  assert.equal(controller.selected()?.id, "needs");
+  view.handleInput(mouseReleaseAtLine(row, x));
+  assert.equal(controller.selected()?.id, "needs");
+  view.handleInput(mousePressAtLine(row, x + "ACTIVE 1".length - 1));
+  assert.equal(controller.selected()?.id, "active");
+  view.handleInput(mousePressAtLine(activeRow, 2));
   assert.equal(controller.selected()?.id, "active");
 });
 
@@ -1453,18 +1463,71 @@ test("workspace actions ignore the terminal outer border", () => {
   assert.deepEqual(switched, []);
 });
 
-test("tier navigator reaches an orphan subagent presentation owner", () => {
+test("tier chips reach an orphan subagent presentation owner", () => {
   const quiet = session("quiet", "quiet");
   const orphan = { ...session("orphan", "orphan"), status: "running" as const, kind: "subagent" as const, parentId: "missing", agentName: "scout", taskPreview: "Inspect orphan" };
   const controller = new SessionsController({ version: 1, sessions: [quiet, orphan] });
   const view = new SessionsView(controller, () => {});
   const rendered = view.render(100);
-  const activeNav = rendered.findIndex((line) => /^│ACTIVE\s+1/.test(stripAnsi(line)));
-  assert.notEqual(activeNav, -1);
+  const { row, x } = tierChipPosition(rendered, "ACTIVE 1");
 
-  view.handleInput(mousePressAtLine(activeNav, 3));
+  view.handleInput(mousePressAtLine(row, x));
 
   assert.equal(controller.selected()?.id, "orphan");
+});
+
+test("tier chip clicks reveal filtered folds without changing saved disclosure", () => {
+  const controller = new SessionsController({ version: 1, sessions: [
+    { ...session("active", "match active"), status: "running" as const }, session("quiet", "match quiet"),
+  ] });
+  const saved: SessionsViewState[] = [];
+  const view = new SessionsView(controller, () => {}, {
+    initialViewState: { grouping: "project", collapsedSections: ["active"] },
+    saveViewState: state => { saved.push(state); },
+  });
+  controller.setFilter("match");
+  view.render(120);
+  view.handleInput("k"); // ACTIVE header
+  view.handleInput("\r"); // Collapse filtered ACTIVE only.
+  assert.doesNotMatch(fleetText(view.render(120)), /match active/);
+  const { row, x } = tierChipPosition(view.render(120), "ACTIVE 1");
+  view.handleInput(mousePressAtLine(row, x));
+  assert.equal(controller.selected()?.id, "active");
+  assert.match(fleetText(view.render(120)), /match active/);
+  assert.ok(saved.every(state => JSON.stringify(state.collapsedSections) === JSON.stringify(["active"])));
+  controller.setFilter("");
+  assert.doesNotMatch(fleetText(view.render(120)), /match active/);
+});
+
+test("summary text outside Status and hidden chip coordinates never select or open", () => {
+  for (const mode of ["board", "repo", "pin"] as const) {
+    const controller = new SessionsController({ version: 1, sessions: [session("quiet", "quiet"), { ...session("active", "active"), status: "running" as const }] });
+    const opened: string[] = [];
+    const view = new SessionsView(controller, () => {}, {
+      initialViewState: { grouping: mode === "board" ? "stage" : "project", fleetGrouping: mode === "repo" ? "repo" : "status" },
+      switchInsideTmux: target => { opened.push(target); },
+      ...(mode === "pin" ? { sidePaneState: () => ({ slots: ["active"], capacity: 2, constrained: false, splitPercent: 50 }) } : {}),
+    });
+    const rendered = view.render(160);
+    const selected = controller.selected()?.id;
+    for (let x = 2; x < 160; x += 1) view.handleInput(mousePressAtLine(1, x));
+    assert.equal(controller.selected()?.id, selected, mode);
+    assert.deepEqual(opened, [], mode);
+    assert.match(stripAnsi(rendered[1]!), /sessions/);
+  }
+});
+
+test("phone chip targets use the frameless summary row and disappear after resizing", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("quiet", "quiet"), { ...session("active", "active"), status: "running" as const }] });
+  const view = new SessionsView(controller, () => {});
+  const rendered = view.render(60);
+  const { row, x } = tierChipPosition(rendered, "QUIET 1");
+  assert.equal(row, 0);
+  view.handleInput(mousePressAtLine(row, x));
+  assert.equal(controller.selected()?.id, "quiet");
+  view.render(30);
+  view.handleInput(mousePressAtLine(row, x));
+  assert.equal(controller.selected()?.id, "quiet");
 });
 
 test("filter bar is inert and filtered mouse rows still select exact sessions", () => {
@@ -1582,8 +1645,8 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▸ A\s+Archive…/);
-  assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
+  assert.match(workspace, /▌ Archive…\s+A/);
+  assert.doesNotMatch(workspace, /▌ Open\s+Enter/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -1646,8 +1709,8 @@ test("all non-attention tiers can collapse and retain counts", () => {
     saveViewState: (state) => saved.push(state),
   });
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ ACTIVE\s+·1/);
-  assert.match(collapsed, /▸ QUIET\s+·1/);
+  assert.match(collapsed, /▸ ACTIVE 1/);
+  assert.match(collapsed, /▸ QUIET 1/);
   assert.doesNotMatch(collapsed, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
@@ -1671,7 +1734,7 @@ test("filtered tier folds are interactive and do not persist", () => {
     for (const char of "unique-match") view.handleInput(char);
     view.handleInput("\r");
     assert.match(fleetText(view.render(120)), /unique-match/);
-    const header = view.render(120).findIndex((line) => stripAnsi(line).includes(tier.toUpperCase()));
+    const header = view.render(120).findIndex((line) => stripAnsi(line).includes(`─▾ ${tier.toUpperCase()} 1`));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
     assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
@@ -1968,8 +2031,8 @@ test("mouse section headers block stale actions and session rows restore exact w
   const rendered = view.render(120);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
-  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const headerIndex = rendered.findIndex((line) => /─▾ QUIET 2/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
   assert.notEqual(openIndex, -1, "missing workspace Open action");
   view.handleInput(mousePressAtLine(headerIndex));
@@ -1981,7 +2044,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const sectionSelected = view.render(120);
   view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
   const sessionSelected = view.render(120);
-  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const currentOpenIndex = sessionSelected.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(currentOpenIndex, 110));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
@@ -1993,8 +2056,8 @@ test("workspace More commands click opens the palette and stale action IDs stay 
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
   const rendered = view.render(120);
-  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
-  const actionsIndex = rendered.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
+  const actionsIndex = rendered.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
   assert.notEqual(openIndex, -1);
   assert.notEqual(actionsIndex, -1);
 
@@ -2004,7 +2067,7 @@ test("workspace More commands click opens the palette and stale action IDs stay 
   assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
 
   const current = view.render(120);
-  const currentActions = current.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  const currentActions = current.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(currentActions, 110));
   assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });
@@ -4350,7 +4413,7 @@ test("palette and workspace Archive rows open the same target-bound chooser", ()
   view.handleInput("x");
 
   const wide = view.render(120);
-  const archiveRow = wide.findIndex((line) => /A\s+Archive…/.test(stripAnsi(line)));
+  const archiveRow = wide.findIndex((line) => /Archive…\s+A/.test(stripAnsi(line)));
   assert.notEqual(archiveRow, -1);
   assert.doesNotMatch(stripAnsi(wide.join("\n")), /Close session/);
   view.handleInput(mousePressAtLine(archiveRow, 110));

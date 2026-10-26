@@ -59,9 +59,8 @@ for (const width of [80, 160]) {
     view.handleInput("?");
     const text = stripAnsi(view.render(width).join("\n"));
     consistent(text, "Help");
-    assert.match(text, /Enter\s+Open/);
-    assert.equal((text.match(/Enter\s+Open ·/g) ?? []).length, 1);
-    assert.match(text, /Ctrl\+O\s+Custom/);
+    assert.equal((text.match(/Open(?: · [^\n│]*?)?\s+Enter/g) ?? []).length, 1);
+    assert.match(text, /Custom(?: · send \/custom)?\s+Ctrl\+O/);
     assert.doesNotMatch(text, /C-m|C-j|M-n|Alt\+N|R\/e/);
     assert.match(text, /subagent rows/);
   });

@@ -140,6 +140,28 @@ const actionSpecs: ActionSpec[] = [
   { name: "reorder-down", label: "Move down", hint: "reorder inside the current priority tie", keys: ["J", "Shift+Down"], available: reorderAvailability },
 ];
 
+export interface DashboardHelpSection {
+  label: string;
+  commands: readonly Pick<DashboardCommand, "label" | "hint" | "displayKey">[];
+  paletteNote?: boolean;
+}
+
+/** Static reference uses catalog base labels, never selected-target availability. */
+export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = []): DashboardHelpSection[] {
+  const isPin = (spec: ActionSpec) => spec.name === "pin" || spec.name === "close-pin" || spec.name.startsWith("slot-") || spec.name.startsWith("size-");
+  const reference = (spec: ActionSpec) => ({ label: spec.label, hint: spec.hint, displayKey: formatKey(spec.keys[0]!) });
+  const views = viewCommands({ sessions: [] });
+  return [
+    { label: "Session actions", commands: [
+      ...actionSpecs.filter(spec => !isPin(spec)).map(reference),
+      ...shortcuts.map(shortcut => ({ label: shortcut.label ?? shortcut.send, hint: `send ${shortcut.send}`, displayKey: formatKey(shortcut.key) })),
+    ] },
+    { label: "Pins", commands: [...actionSpecs.filter(isPin).map(reference), ...views.filter(command => command.id.startsWith("view:focus-slot-"))] },
+    { label: "Views", commands: views.filter(command => !command.id.startsWith("view:focus-slot-")) },
+    { label: "Filters", commands: filterCommands({ sessions: [] }), paletteNote: true },
+  ];
+}
+
 export function buildDashboardCommands(input: DashboardCommandInput): DashboardCommand[] {
   const commands: DashboardCommand[] = [];
   const selected = input.selectedId ? input.sessions.find((session) => session.id === input.selectedId) : undefined;

@@ -88,6 +88,8 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
+Press `?` for a static reference grouped into Session actions, Pins, Views, and Filters, followed by navigation, dialogs, and the status legend. Help uses base action names and primary keys even when no session is selected; it does not show availability. Keys stay aligned on the right. At 160+ columns, sections use two columns. Palette-only filters have no key and share the note `via : palette`. Use `↑` / `↓` or `PgUp` / `PgDn` to scroll, and `Esc` to return.
+
 ## Conversation
 
 Press `c` to read the selected live parent session below the fleet. Close pinned panes first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
@@ -162,13 +164,15 @@ Status view groups complete session trees into these sections:
 | QUIET | Other non-archived sessions |
 | ARCHIVED | Archived trees, newest-first |
 
+Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its first session and reveal the section without opening or marking it read. Zero counts are hidden; narrow headers show fewer tiers. Repo, board, and pinned summaries are not clickable.
+
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
 `NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 
-Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
+Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. Action rows put the label first and the key at the right. An accent `▌` and bold label identify the primary action, including in the pinned decision strip. **All actions** opens the `:` palette.
 
 At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Esc` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
 
