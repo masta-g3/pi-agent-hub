@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { sessionCascadeIds } from "../core/session-tree.js";
 import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
@@ -80,13 +81,13 @@ export function handleArchiveInput(dialog: ArchiveDialog, data: string, ctx: Con
     return undefined;
   }
   const expected = { piSessionId: dialog.piSessionId };
-  const done = closure === "done" ? "Archived · Done" : closure === "abandoned" ? "Archived · Abandoned" : "Archived";
+  const done = closure === "done" ? `Archived ${glyphs.pendingStep} Done` : closure === "abandoned" ? `Archived ${glyphs.pendingStep} Abandoned` : "Archived";
   ctx.runAction(
     () => ctx.actions.archiveSession
       ? ctx.actions.archiveSession(target!.id, closure, expected)
       : closure ? ctx.controller.closeSession(target!.id, closure, expected) : ctx.controller.moveSessionToBucket(target!.id, "archived", undefined, expected),
     "archiving session...",
-    () => ctx.flashMessage(`${done} → ${target!.title}`),
+    () => ctx.flashMessage(`${done} ${glyphs.right} ${target!.title}`),
   );
   return undefined;
 }
@@ -188,7 +189,7 @@ export function renderRestartDialog(dialog: RestartDialog, width: number, height
     confirmLine("warning", "r Restart selected", ctx.theme),
     confirmLine("warning", "n New conversation", ctx.theme),
     confirmLine("warning", "a Restart active", ctx.theme),
-    hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme),
+    hintLine(`Esc Cancel ${glyphs.pendingStep} PgUp/PgDn Read`, ctx.theme),
   ];
   return renderBoundedConfirmation("Restart session", body, controls, dialog, width, height, ctx.theme, Boolean(target && target.kind !== "subagent"), dialog.targetId, targetReviewKey(target, []));
 }
@@ -274,7 +275,7 @@ function renderDeleteDialog(dialog: ConfirmDialog, width: number, height: number
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
     ...(worktree ? [ctx.actions.finishWorktree ? "d keeps worktree and branch; D discards then archives; w merges then archives." : "d keeps worktree and branch; D discards then archives."] : []),
   ];
-  return renderBoundedConfirmation("Delete session", body, [...choices.filter(Boolean), hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme)], dialog, width, height, ctx.theme, Boolean(target) && !dialog.busy, dialog.targetId, targetReviewKey(target, subagents));
+  return renderBoundedConfirmation("Delete session", body, [...choices.filter(Boolean), hintLine(`Esc Cancel ${glyphs.pendingStep} PgUp/PgDn Read`, ctx.theme)], dialog, width, height, ctx.theme, Boolean(target) && !dialog.busy, dialog.targetId, targetReviewKey(target, subagents));
 }
 
 function renderFinishDialog(dialog: ConfirmDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext): ConfirmationRender {
@@ -286,13 +287,13 @@ function renderFinishDialog(dialog: ConfirmDialog, width: number, height: number
   const body = [
     target ? `target   ${target.title}` : "target   unavailable",
     `branch   ${branch}`,
-    `merge    ${branch} → ${base}`,
+    `merge    ${branch} ${glyphs.right} ${base}`,
     "cleanup  verify removal, report retained branch, archive parent record",
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
   ];
   const controls = [
     dialog.busy ? "finishing worktree..." : confirmLine("warning", "w Finish and merge", ctx.theme),
-    hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme),
+    hintLine(`Esc Cancel ${glyphs.pendingStep} PgUp/PgDn Read`, ctx.theme),
   ];
   return renderBoundedConfirmation("Finish worktree", body, controls, dialog, width, height, ctx.theme, eligible && !dialog.busy, dialog.targetId, targetReviewKey(target, subagentTargets(dialog.targetId, ctx)));
 }
@@ -331,7 +332,7 @@ function subagentTargets(parentId: string | undefined, ctx: ConfirmDialogContext
 }
 
 function confirmLine(token: "warning" | "error", text: string, theme?: SessionsTheme): string {
-  const line = `▶ ${text}`;
+  const line = `${glyphs.primary} ${text}`;
   return theme ? styleToken(theme, token, line) : line;
 }
 
@@ -355,7 +356,7 @@ function deleteChoices(input: { action: string; busy: boolean; subagentCount: nu
     "  keeps worktree and branch",
     confirmLine("error", "D Discard worktree and branch", input.theme),
     "  requires a clean worktree; does not merge",
-    ...(input.canFinishWorktree ? [confirmLine("warning", "w Finish instead — merge and remove", input.theme)] : []),
+    ...(input.canFinishWorktree ? [confirmLine("warning", `w Finish instead ${glyphs.dash} merge and remove`, input.theme)] : []),
   );
   return choices;
 }

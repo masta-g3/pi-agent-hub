@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { orderedSessionRows } from "../core/session-tree.js";
 import { sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
@@ -170,7 +171,7 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
   return renderForm({
     title: spec.title,
     fields: dialog.form.order.map((key) => dialog.purpose === "send" && key === "delivery"
-      ? { ...dialog.form.fields[key], readonly: true, value: `‹ ${dialog.form.fields[key].value} ›` }
+      ? { ...dialog.form.fields[key], readonly: true, value: `${glyphs.chevronLeft} ${dialog.form.fields[key].value} ${glyphs.chevronRight}` }
       : dialog.form.fields[key]),
     focus: dialog.form.focus,
     footer: spec.footer,
@@ -214,7 +215,7 @@ function submitSendForm(dialog: FormDialog, ctx: FormDialogContext): FormDialog 
       return ctx.actions.sendMessage(sendTarget, message, delivery);
     },
     "sending message...",
-    () => { ctx.flashMessage(`${delivery === "send" ? "sent" : delivery === "steer" ? "steer requested" : "queue requested"} → ${target.title}`); },
+    () => { ctx.flashMessage(`${delivery === "send" ? "sent" : delivery === "steer" ? "steer requested" : "queue requested"} ${glyphs.right} ${target.title}`); },
   );
   return undefined;
 }
@@ -308,26 +309,26 @@ function moveGroupChoices(ctx: FormDialogContext, currentGroup: string | undefin
 
 function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: string; footer: string; narrowFooter: string } {
   switch (dialog.purpose) {
-    case "fork": return { title: "Fork session", footer: "Tab Next · ←→ Edit · Enter Fork · Esc Cancel", narrowFooter: "Enter Fork · Esc Cancel" };
-    case "forkCompact": return { title: "Fork and compact", footer: "Tab Next · ←→ Edit · Enter Fork and compact · Esc Cancel", narrowFooter: "Enter Fork+Compact · Esc Cancel" };
+    case "fork": return { title: "Fork session", footer: `Tab Next ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Fork ${glyphs.pendingStep} Esc Cancel`, narrowFooter: `Enter Fork ${glyphs.pendingStep} Esc Cancel` };
+    case "forkCompact": return { title: "Fork and compact", footer: `Tab Next ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Fork and compact ${glyphs.pendingStep} Esc Cancel`, narrowFooter: `Enter Fork+Compact ${glyphs.pendingStep} Esc Cancel` };
     case "moveGroup": {
       const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
       return {
         title: "Move to group",
-        footer: choices.length ? "Ctrl+N/Ctrl+P Cycle · ←→ Edit · Enter Move · Esc Cancel" : "←→ Edit · Enter Move · Esc Cancel",
-        narrowFooter: "Enter Move · Esc Cancel",
+        footer: choices.length ? `Ctrl+N/Ctrl+P Cycle ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Move ${glyphs.pendingStep} Esc Cancel` : `${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Move ${glyphs.pendingStep} Esc Cancel`,
+        narrowFooter: `Enter Move ${glyphs.pendingStep} Esc Cancel`,
       };
     }
     case "send": {
       const action = dialog.form.focus === "delivery" ? "Change" : dialog.delivery === "send" ? "Send" : dialog.delivery === "steer" ? "Steer" : "Queue";
       return {
         title: `Send to ${formTarget(dialog, ctx)?.title ?? "session"}`,
-        footer: `${dialog.delivery === "send" ? "←→ Edit" : "Tab Field · ←→ Edit/change"} · Enter ${action} · Esc Cancel`,
-        narrowFooter: `${dialog.delivery === "send" ? "" : "Tab · "}Enter ${action} · Esc Cancel`,
+        footer: `${dialog.delivery === "send" ? `${glyphs.left}${glyphs.right} Edit` : `Tab Field ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Edit/change`} ${glyphs.pendingStep} Enter ${action} ${glyphs.pendingStep} Esc Cancel`,
+        narrowFooter: `${dialog.delivery === "send" ? "" : `Tab ${glyphs.pendingStep} `}Enter ${action} ${glyphs.pendingStep} Esc Cancel`,
       };
     }
-    case "renameSession": return { title: "Rename session", footer: "←→ Edit · Enter Rename · Esc Cancel", narrowFooter: "Enter Rename · Esc Cancel" };
-    case "renameGroup": return { title: "Rename group", footer: "←→ Edit · Enter Rename · Esc Cancel", narrowFooter: "Enter Rename · Esc Cancel" };
+    case "renameSession": return { title: "Rename session", footer: `${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Rename ${glyphs.pendingStep} Esc Cancel`, narrowFooter: `Enter Rename ${glyphs.pendingStep} Esc Cancel` };
+    case "renameGroup": return { title: "Rename group", footer: `${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Rename ${glyphs.pendingStep} Esc Cancel`, narrowFooter: `Enter Rename ${glyphs.pendingStep} Esc Cancel` };
   }
 }
 
@@ -348,7 +349,7 @@ export function normalizeDetailOffset(
 
 function moveGroupHint(count: number): string {
   if (count === 0) return "existing or new group label";
-  return `Ctrl+N/Ctrl+P Cycle ${count} existing ${count === 1 ? "group" : "groups"} · or type new`;
+  return `Ctrl+N/Ctrl+P Cycle ${count} existing ${count === 1 ? "group" : "groups"} ${glyphs.pendingStep} or type new`;
 }
 
 function setFieldError<K extends string>(state: FormState<K>, key: K, error: string): FormState<K> {

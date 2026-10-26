@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 
 export interface TextInputState {
@@ -17,7 +18,7 @@ export function isEnterKey(data: string): boolean {
   return matchesKey(data, Key.enter) || matchesKey(data, Key.return) || data === "\r";
 }
 
-export function renderTextInput(input: TextInputState, marker = "█"): string {
+export function renderTextInput(input: TextInputState, marker = glyphs.cursor): string {
   const chars = [...input.value];
   const cursor = Math.max(0, Math.min(input.cursor, chars.length));
   return `${chars.slice(0, cursor).join("")}${marker}${chars.slice(cursor).join("")}`;

@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
@@ -113,21 +114,21 @@ const slotActionSpecs: ActionSpec[] = [1, 2, 3, 4].map((slot) => ({
 
 const actionSpecs: ActionSpec[] = [
   { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
-  { name: "restart", label: "Restart choices…", hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
-  { name: "send", label: "Send text…", hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
-  { name: "rename", label: "Rename…", hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
+  { name: "restart", label: `Restart choices${glyphs.ellipsis}`, hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
+  { name: "send", label: `Send text${glyphs.ellipsis}`, hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
+  { name: "rename", label: `Rename${glyphs.ellipsis}`, hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
-  { name: "fork", label: "Fork…", hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
-  { name: "fork-compact", label: "Fork and compact…", hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
-  { name: "move-group", label: "Move group…", hint: "change this session's group", keys: ["g"], available: mainAvailability },
-  { name: "rename-group", label: "Rename group…", hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
-  { name: "archive", label: "Archive…", hint: "record done or abandoned, or archive only, without stopping Pi", keys: ["A"], available: archiveAvailability },
+  { name: "fork", label: `Fork${glyphs.ellipsis}`, hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
+  { name: "fork-compact", label: `Fork and compact${glyphs.ellipsis}`, hint: "fork, reset the name and inherited ticket/workflow metadata, then compact", keys: ["F"], available: forkAvailability },
+  { name: "move-group", label: `Move group${glyphs.ellipsis}`, hint: "change this session's group", keys: ["g"], available: mainAvailability },
+  { name: "rename-group", label: `Rename group${glyphs.ellipsis}`, hint: "rename this group for every session", keys: ["G"], available: mainAvailability },
+  { name: "archive", label: `Archive${glyphs.ellipsis}`, hint: "record done or abandoned, or archive only, without stopping Pi", keys: ["A"], available: archiveAvailability },
   { name: "backlog", label: "Backlog", hint: "move to Backlog without stopping Pi", keys: ["B"], available: backlogAvailability },
   { name: "restore", label: "Restore active", hint: "return this session to Active", keys: ["U"], available: restoreAvailability },
-  { name: "delete", label: "Delete…", hint: "remove the Hub session record", keys: ["d"], available: capability("deleteSession", "delete unavailable") },
-  { name: "finish-worktree", label: "Finish worktree…", hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },
-  { name: "skills", label: "Skills…", hint: "edit project skills", keys: ["s"], available: mainCapability("skills", "Skills catalog unavailable") },
-  { name: "mcp", label: "MCP…", hint: "edit project MCP servers", keys: ["m"], available: mainCapability("mcp", "MCP catalog unavailable") },
+  { name: "delete", label: `Delete${glyphs.ellipsis}`, hint: "remove the Hub session record", keys: ["d"], available: capability("deleteSession", "delete unavailable") },
+  { name: "finish-worktree", label: `Finish worktree${glyphs.ellipsis}`, hint: "finish or discard the Hub-owned worktree", keys: ["w"], available: worktreeAvailability },
+  { name: "skills", label: `Skills${glyphs.ellipsis}`, hint: "edit project skills", keys: ["s"], available: mainCapability("skills", "Skills catalog unavailable") },
+  { name: "mcp", label: `MCP${glyphs.ellipsis}`, hint: "edit project MCP servers", keys: ["m"], available: mainCapability("mcp", "MCP catalog unavailable") },
   { name: "pin", label: "Pin next free slot", footerLabel: "Next", hint: "show this live session in the lowest free slot", keys: ["P"], available: pinAvailability },
   ...slotActionSpecs,
   { name: "close-pin", label: "Close pin", footerLabel: "Close", hint: "close this session's pinned pane without stopping Pi", keys: ["x"], available: closePinAvailability },
@@ -173,8 +174,8 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
     for (const spec of actionSpecs) commands.push(actionCommand(spec, selected, input));
     for (const [index, shortcut] of (input.configuredShortcuts ?? []).entries()) commands.push(configuredCommand(shortcut, index, selected, input));
   } else {
-    commands.push(projectCommand("skills", "Skills…", "edit dashboard-project skills", "s", input.capabilities?.skills === true, "Skills catalog unavailable", input.interactionBlockedReason));
-    commands.push(projectCommand("mcp", "MCP…", "edit dashboard-project MCP servers", "m", input.capabilities?.mcp === true, "MCP catalog unavailable", input.interactionBlockedReason));
+    commands.push(projectCommand("skills", `Skills${glyphs.ellipsis}`, "edit dashboard-project skills", "s", input.capabilities?.skills === true, "Skills catalog unavailable", input.interactionBlockedReason));
+    commands.push(projectCommand("mcp", `MCP${glyphs.ellipsis}`, "edit dashboard-project MCP servers", "m", input.capabilities?.mcp === true, "MCP catalog unavailable", input.interactionBlockedReason));
   }
   for (const session of input.sessions) {
     const command = makeCommand({
@@ -286,19 +287,19 @@ export function pinnedDashboardFooter(width: number): string {
   const help = view.find((command) => command.id === "view:help")!;
   const item = (key: string, label: string) => `${key} ${label}`;
   if (width <= NARROW_LAYOUT_MAX_WIDTH) return [
-    ...(width >= 50 ? [item("1–4", "Slot")] : []),
+    ...(width >= 50 ? [item(`1${glyphs.range}4`, "Slot")] : []),
     item(close.keys[0]!, close.footerLabel!), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label),
-  ].join(" · ");
-  if (width < 80) return [item("1–4", "Slot"), item(close.keys[0]!, close.footerLabel!), "Ctrl+Q", palette.displayKey, help.displayKey].join(" · ");
-  const controls = [item("1–4", "Assign"), item("Alt+1–4", "Focus"), item(close.keys[0]!, close.footerLabel!), item("Ctrl+Q", "Return")];
-  if (width < 100) return [...controls, palette.displayKey, help.displayKey].join(" · ");
-  return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(" · ");
+  ].join(` ${glyphs.pendingStep} `);
+  if (width < 80) return [item(`1${glyphs.range}4`, "Slot"), item(close.keys[0]!, close.footerLabel!), "Ctrl+Q", palette.displayKey, help.displayKey].join(` ${glyphs.pendingStep} `);
+  const controls = [item(`1${glyphs.range}4`, "Assign"), item(`Alt+1${glyphs.range}4`, "Focus"), item(close.keys[0]!, close.footerLabel!), item("Ctrl+Q", "Return")];
+  if (width < 100) return [...controls, palette.displayKey, help.displayKey].join(` ${glyphs.pendingStep} `);
+  return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(` ${glyphs.pendingStep} `);
 }
 
 export function conversationDashboardFooter(): string {
   const commands = viewCommands({ sessions: [], conversation: true });
   return [["view:conversation", "Overview"], ["view:palette", "Actions"], ["view:help", "Help"]]
-    .map(([id, label]) => `${commands.find(command => command.id === id)!.displayKey} ${label}`).join(" · ");
+    .map(([id, label]) => `${commands.find(command => command.id === id)!.displayKey} ${label}`).join(` ${glyphs.pendingStep} `);
 }
 
 export function dashboardFooter(width: number, options: { coaching?: boolean; requestCount?: number; filter?: string } = {}): string {
@@ -322,8 +323,8 @@ export function dashboardFooter(width: number, options: { coaching?: boolean; re
       ? [openItem, item("Ctrl+Q", "Return"), compactCoaching ? ":" : palette]
       : [openItem, item("i", "Workspace"), palette, item("/", "Filter")];
     const next = item(nextRequest.displayKey!, "Next");
-    if (hasRequests && visibleWidth([...items, next, phoneHelp].join(" · ")) <= width) items.push(next);
-    return [...items, phoneHelp].join(" · ");
+    if (hasRequests && visibleWidth([...items, next, phoneHelp].join(` ${glyphs.pendingStep} `)) <= width) items.push(next);
+    return [...items, phoneHelp].join(` ${glyphs.pendingStep} `);
   }
   const filter = item("/", "Filter");
   const backlog = global.find((command) => command.id === "view:backlog")!;
@@ -336,14 +337,14 @@ export function dashboardFooter(width: number, options: { coaching?: boolean; re
     ...(hasRequests ? [item(nextRequest.displayKey!, nextRequest.label)] : [])];
   const items = options.coaching
     ? [...primary, item("Ctrl+Q", "Return"), palette, help]
-    : ["↑↓ Move", ...primary, ...(width >= 100 ? [newItem] : []), filter, backlogItem,
+    : [`${glyphs.up}${glyphs.down} Move`, ...primary, ...(width >= 100 ? [newItem] : []), filter, backlogItem,
       ...(width >= 100 ? [group, board] : []), palette, help];
-  for (const lowerPriority of [group, board, newItem, backlogItem, "↑↓ Move", filter, help, palette]) {
-    if (visibleWidth(items.join(" · ")) <= width - 2) break;
+  for (const lowerPriority of [group, board, newItem, backlogItem, `${glyphs.up}${glyphs.down} Move`, filter, help, palette]) {
+    if (visibleWidth(items.join(` ${glyphs.pendingStep} `)) <= width - 2) break;
     const index = items.indexOf(lowerPriority);
     if (index >= 0) items.splice(index, 1);
   }
-  return items.join(" · ");
+  return items.join(` ${glyphs.pendingStep} `);
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
@@ -432,7 +433,7 @@ function projectCommand(name: string, label: string, hint: string, key: string, 
 
 function filterCommands(input: DashboardCommandInput): DashboardCommand[] {
   const filters = [
-    filterCommand("filter:open", "Filter…", "edit the free-text fleet filter", "/", true),
+    filterCommand("filter:open", `Filter${glyphs.ellipsis}`, "edit the free-text fleet filter", "/", true),
     filterCommand("filter:clear", "Clear filter", "show the complete fleet", undefined, input.filter !== undefined, input.filter === undefined ? "no filter is active" : undefined),
     filterCommand("filter:lifecycle:active", "Lifecycle: Active", "show Active sessions"),
     filterCommand("filter:lifecycle:backlog", "Lifecycle: Backlog", "show Backlog sessions"),
@@ -462,7 +463,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
-    makeCommand({ id: "view:theme", group: "views", label: "Theme…", hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
+    makeCommand({ id: "view:theme", group: "views", label: `Theme${glyphs.ellipsis}`, hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),
     makeCommand({
       id: "view:fleet-grouping",
@@ -537,7 +538,7 @@ function makeCommand(command: Omit<DashboardCommand, "bindings" | "searchText"> 
 
 function sessionHint(session: RuntimeSession): string {
   const ticket = session.context?.ticket?.id ?? session.workflow?.ticketId;
-  return [ticket ? `#${ticket}` : undefined, session.group, session.status].filter(Boolean).join(" · ");
+  return [ticket ? `#${ticket}` : undefined, session.group, session.status].filter(Boolean).join(` ${glyphs.pendingStep} `);
 }
 
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {

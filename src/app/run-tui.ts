@@ -11,7 +11,7 @@ import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
 import { MOUSE_DISABLE, MOUSE_ENABLE } from "../tui/mouse.js";
 import type { NewFormContext } from "../tui/new-form.js";
-import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTheme, loadGlobalThemeCatalog, loadManagedSessionTheme, saveGlobalPiTheme, type SessionsTheme } from "../tui/theme.js";
+import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTheme, loadGlobalThemeCatalog, loadManagedSessionTheme, noColor, saveGlobalPiTheme, type SessionsTheme } from "../tui/theme.js";
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
@@ -354,8 +354,8 @@ export async function runTui(): Promise<void> {
   await cleanupRetiredSessionMetadata();
   const controller = new SessionsController();
   await controller.refresh();
-  let terminalAppearance = await readDashboardAppearance();
-  const themeCatalog = await loadGlobalThemeCatalog();
+  let terminalAppearance = noColor() ? "dark" as const : await readDashboardAppearance();
+  const themeCatalog = noColor() ? { options: [], diagnostics: [] } : await loadGlobalThemeCatalog();
   let themePreference = await effectiveDashboardThemePreference();
   let dashboardTheme = await effectiveDashboardTheme(themeCatalog, themePreference, terminalAppearance);
   const theme = dashboardTheme.theme;
@@ -755,7 +755,7 @@ export async function runTui(): Promise<void> {
     },
     terminalRows: () => terminal.rows,
   }, theme);
-  stopThemeLoop = startThemeRefreshLoop({
+  stopThemeLoop = noColor() ? undefined : startThemeRefreshLoop({
     initialTheme: theme,
     suspended: () => themePreviewActive,
     async load() {

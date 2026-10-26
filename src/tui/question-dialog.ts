@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AnswerInput, InteractionTarget, PendingQuestion } from "../core/session-interaction.js";
 import { createForm, editField, setValue, type FormState } from "./form.js";
@@ -95,17 +96,17 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
   dialog.rowTargets = [];
   dialog.footerItems = [];
   dialog.usable = width >= 40 && height >= 6;
-  if (!dialog.usable) return [truncateToWidth(`${dialog.title} · Resize to answer (40 × 6 minimum)`, width)];
+  if (!dialog.usable) return [truncateToWidth(`${dialog.title} ${glyphs.pendingStep} Resize to answer (40 ${glyphs.error} 6 minimum)`, width)];
   const question = dialog.request.params.questions[dialog.page];
   const position = `Question ${Math.min(dialog.page + 1, dialog.request.params.questions.length)} of ${dialog.request.params.questions.length}`;
-  const heading = `? ANSWER NEEDED · ${position}`;
+  const heading = `? ANSWER NEEDED ${glyphs.pendingStep} ${position}`;
   const rows: { text: string; target?: number | "submit" | "back"; field?: boolean }[] = [];
   if (question) {
     rows.push(...renderMarkdown(question.question, width, theme).map(text => ({ text })));
     if (dialog.custom) {
-      rows.push(...renderForm({ title: "Custom answer", fields: Object.values(dialog.custom.fields), focus: "answer", footer: "" }, width, theme).map(text => ({ text, field: text.includes("▎") })));
+      rows.push(...renderForm({ title: "Custom answer", fields: Object.values(dialog.custom.fields), focus: "answer", footer: "" }, width, theme).map(text => ({ text, field: text.includes(glyphs.focus) })));
     } else {
-      const choices = [...question.options.map((option, index) => ({ text: `${index === dialog.choice ? "▎" : " "} ${index + 1} ${question.multiSelect ? dialog.selected.has(index) ? "[✓] " : "[ ] " : ""}${option.label} — ${option.description}`, target: index })), { text: `${dialog.choice === question.options.length ? "▎" : " "} t Type something…`, target: question.options.length }];
+      const choices = [...question.options.map((option, index) => ({ text: `${index === dialog.choice ? glyphs.focus : " "} ${index + 1} ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label} ${glyphs.dash} ${option.description}`, target: index })), { text: `${dialog.choice === question.options.length ? glyphs.focus : " "} t Type something${glyphs.ellipsis}`, target: question.options.length }];
       const preview = question.options[dialog.choice]?.preview;
       if (preview && width >= 80) {
         const left = Math.floor(width / 2) - 1;
@@ -113,7 +114,7 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
         const wrapped = choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), left).map(text => ({ text, target: choice.target })));
         for (let i = 0; i < Math.max(wrapped.length, right.length); i++) {
           const text = wrapped[i]?.text ?? "";
-          rows.push({ text: `${text}${" ".repeat(Math.max(0, left - visibleWidth(text)))} │ ${right[i] ?? ""}`, target: wrapped[i]?.target });
+          rows.push({ text: `${text}${" ".repeat(Math.max(0, left - visibleWidth(text)))} ${glyphs.vertical} ${right[i] ?? ""}`, target: wrapped[i]?.target });
         }
       } else {
         rows.push(...choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), width).map(text => ({ text, target: choice.target }))));
@@ -121,7 +122,7 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
       }
     }
   }
-  const status = dialog.submitting ? "Submitting…" : dialog.uncertain ? "Delivery not confirmed; checking Pi before retrying" : !dialog.available ? "Question availability not confirmed; Open in Pi" : dialog.error;
+  const status = dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Delivery not confirmed; checking Pi before retrying" : !dialog.available ? "Question availability not confirmed; Open in Pi" : dialog.error;
   const capacity = height - (status ? 3 : 2);
   dialog.pageSize = Math.max(1, capacity - 1);
   dialog.scroll = Math.min(dialog.scroll, Math.max(0, rows.length - capacity));
@@ -132,8 +133,8 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
   }
   const visible = rows.slice(dialog.scroll, dialog.scroll + capacity);
   const final = dialog.page === dialog.request.params.questions.length - 1;
-  const actionHint = !focused ? "Tab Answer · c Hide" : dialog.custom ? `${final ? "Enter Send" : "Enter Next"} · Editing answer` : `${final ? "Enter Send" : "Enter Next"}${question?.multiSelect ? " · Numbers/Space Toggle" : ` · 1–${question?.options.length} Choose`} · t Type`;
-  const footer = fitFooter(`${actionHint} · Tab Focus · Esc Fleet · PgUp/PgDn Read · ← Previous question`, width);
+  const actionHint = !focused ? `Tab Answer ${glyphs.pendingStep} c Hide` : dialog.custom ? `${final ? "Enter Send" : "Enter Next"} ${glyphs.pendingStep} Editing answer` : `${final ? "Enter Send" : "Enter Next"}${question?.multiSelect ? ` ${glyphs.pendingStep} Numbers/Space Toggle` : ` ${glyphs.pendingStep} 1${glyphs.range}${question?.options.length} Choose`} ${glyphs.pendingStep} t Type`;
+  const footer = fitFooter(`${actionHint} ${glyphs.pendingStep} Tab Focus ${glyphs.pendingStep} Esc Fleet ${glyphs.pendingStep} PgUp/PgDn Read ${glyphs.pendingStep} ${glyphs.left} Previous question`, width);
   dialog.footerItems = footerItems(footer, width, 1).filter(item => item.key === "Enter" || item.key === "Esc");
   dialog.rowTargets = [undefined, ...visible.map(row => row.target), ...(status ? [undefined] : []), focused && !dialog.submitting && !dialog.uncertain && dialog.available ? final ? "submit" : "next" : undefined];
   const styled = (token: "accent" | "muted" | "error" | "warning", text: string) => theme ? styleToken(theme, token, text) : text;

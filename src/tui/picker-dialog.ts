@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { createTextInput, editTextInput, isEnterKey } from "./text-input.js";
@@ -25,7 +26,7 @@ export function createPickerDialog(purpose: "skills" | "mcp", items: PickerItem[
     target: target ?? ctx.actions.pickerTarget?.() ?? pickerTargetFromSelection(ctx),
     saveId: 0,
     picker: {
-      title: purpose === "skills" ? "Skills" : "MCP — [project]",
+      title: purpose === "skills" ? "Skills" : `MCP ${glyphs.dash} [project]`,
       items,
       selected: 0,
       ...(purpose === "skills" && poolDir !== undefined ? { poolDir, poolDirExtraCount: ctx.actions.skillPoolDirExtraCount?.() ?? 0 } : {}),

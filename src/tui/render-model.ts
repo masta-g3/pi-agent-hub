@@ -1,3 +1,4 @@
+import { glyphs, worktreeGlyph } from "./glyphs.js";
 import { basename, dirname, parse, resolve, sep } from "node:path";
 import { ARCHIVE_PRUNE_AFTER_MS, sessionClosure, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
@@ -74,7 +75,7 @@ export interface RenderSession {
   worktreeOwnedByHub?: boolean;
   worktreeCount?: number;
   worktreeLifecycle?: WorktreeLifecycleSnapshot;
-  worktreeMarker?: "⎇" | "⎇…" | "⎇!" | "⎇✓";
+  worktreeMarker?: string;
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
@@ -318,7 +319,7 @@ export function repoIdentities(
         }
         qualifier ??= dirname(key);
       }
-      identityByKey.set(key, { key, label: qualifier ? `${name} · ${qualifier}` : name });
+      identityByKey.set(key, { key, label: qualifier ? `${name} ${glyphs.pendingStep} ${qualifier}` : name });
     }
   }
   return new Map([...keysByOwner].map(([ownerId, key]) => [ownerId, identityByKey.get(key)!]));
@@ -1060,7 +1061,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     worktreeOwnedByHub: session.worktreeOwnedByHub,
     worktreeCount: worktrees.length || undefined,
     worktreeLifecycle: effectiveWorktreeLifecycle(session),
-    worktreeMarker: worktreeMarker(session),
+    worktreeMarker: worktreeGlyph(worktreeMarker(session)),
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),
@@ -1118,16 +1119,16 @@ function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"]
   return status;
 }
 
-export const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+export const SPINNER_FRAMES = glyphs.spinner;
 export const SPINNER_FRAME_MS = 250;
 
 /** Only the selected running row animates, and only when the render has a clock. */
 function symbolFor(status: RenderSession["displayStatus"], selected: boolean, now: number | undefined): string {
   switch (status) {
-    case "running": return !selected || now === undefined ? "●" : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
-    case "waiting": return "◐";
-    case "idle": return "○";
-    case "error": return "×";
+    case "running": return !selected || now === undefined ? glyphs.running : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
+    case "waiting": return glyphs.waiting;
+    case "idle": return glyphs.idle;
+    case "error": return glyphs.error;
     case "stopped": return "-";
   }
 }
