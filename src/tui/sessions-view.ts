@@ -107,7 +107,7 @@ export class SessionsView implements Component {
   private collapsedRepos = new Set<string>();
   private selectedRepo: string | undefined;
   private rowTargets: (SessionListTarget | undefined)[] = [];
-  private runningRowsVisible = false;
+  private selectedRowAnimating = false;
   private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
   private announcementRowTargets: (string | undefined)[] = [];
@@ -315,7 +315,7 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
-    this.runningRowsVisible = false;
+    this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
     this.confirmationReview = undefined;
@@ -444,8 +444,9 @@ export class SessionsView implements Component {
     if (this.conversationOpen) { model.showWorkspace = false; model.workspace = undefined; model.footer = ""; }
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
-    const runningIds = new Set(snapshot.sessions.filter((session) => session.status === "running" || session.status === "starting").map((session) => session.id));
-    this.runningRowsVisible = layout.rowTargets.some((target) => target?.kind === "session" && runningIds.has(target.id));
+    this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
+      && (selected?.status === "running" || selected?.status === "starting")
+      && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
     this.navigatorRowTargets = layout.navigatorRowTargets;
     this.workspaceRowTargets = layout.workspaceRowTargets;
     this.announcementRowTargets = layout.announcementRowTargets;
@@ -521,9 +522,9 @@ export class SessionsView implements Component {
     this.actions.requestRender?.();
   }
 
-  /** True while the last rendered fleet showed a running row, so the spinner needs frames. */
-  get hasVisibleRunningRows(): boolean {
-    return this.runningRowsVisible;
+  /** True while the selected running/starting row is on screen and needs spinner frames. */
+  get hasAnimatingSelectedRow(): boolean {
+    return this.selectedRowAnimating;
   }
 
   get conversationWorking(): boolean {
@@ -2300,7 +2301,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "  every lane nests project/group labels; Backlog/Archived stay summarized",
     "",
     heading("Status legend"),
-    "  ⠋ running/starting (animated, with run time)     ◐ waiting     ○ idle     × error     - stopped",
+    "  ● running (selected row animates)     ◐ waiting     ○ idle     × error     - stopped",
     "  ⎇ active worktree     ⎇… awaits merge     ⎇! cleanup/check needed     ⎇✓ cleanup verified",
     "  zero counts are hidden from tier and top summaries",
     "",

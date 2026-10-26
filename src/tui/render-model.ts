@@ -603,7 +603,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.selectedRepo && !input.releaseCueSelected;
   const mapped = visible.flatMap((session) => {
     const rendered = mappedById.get(session.id);
-    return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId }] : [];
+    return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId,
+      symbol: symbolFor(rendered.displayStatus, listSelected && rendered.id === selectedId, input.now) }] : [];
   });
   const archiveDisclosure = projection.archiveDisclosureVisible ? {
     expanded: input.archiveExpanded ?? false,
@@ -1023,7 +1024,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     status: session.status,
     statusEvidence: session.statusEvidence,
     displayStatus,
-    symbol: symbolFor(displayStatus, now),
+    symbol: symbolFor(displayStatus, selected, now),
     needsAttention: attention !== undefined,
     selected,
     error: session.error,
@@ -1115,10 +1116,10 @@ function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"]
 export const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 export const SPINNER_FRAME_MS = 250;
 
-/** Running rows animate only when the render has a clock. */
-function symbolFor(status: RenderSession["displayStatus"], now: number | undefined): string {
+/** Only the selected running row animates, and only when the render has a clock. */
+function symbolFor(status: RenderSession["displayStatus"], selected: boolean, now: number | undefined): string {
   switch (status) {
-    case "running": return now === undefined ? "●" : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
+    case "running": return !selected || now === undefined ? "●" : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
     case "waiting": return "◐";
     case "idle": return "○";
     case "error": return "×";

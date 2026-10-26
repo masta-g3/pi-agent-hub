@@ -1176,7 +1176,7 @@
   plan_file: agent-work/history/20261025_ui-polish-003_readable_color_roles.md
   completed_at: '2026-10-25'
 - id: ui-polish-004
-  status: pending
+  status: done
   title: Row hierarchy
   subtitle: Aligned titles with one state glyph
   description: Fleet rows show one state glyph, start every title in the same column,
@@ -1185,6 +1185,8 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-003
+  plan_file: agent-work/history/20261025_ui-polish-004_row_hierarchy.md
+  completed_at: '2026-10-25'
 - id: ui-polish-005
   status: pending
   title: Header tier chips
