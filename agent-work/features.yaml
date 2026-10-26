@@ -1254,7 +1254,7 @@
   plan_file: agent-work/history/20261025_ui-polish-009_dialog_conversation_polish.md
   completed_at: '2026-10-25'
 - id: ui-polish-010
-  status: pending
+  status: done
   title: Plain terminal support
   subtitle: NO_COLOR and ASCII glyph fallback
   description: The dashboard honors NO_COLOR while keeping selection visible and offers
@@ -1268,7 +1268,8 @@
   - ui-polish-007
   - ui-polish-008
   - ui-polish-009
-  plan_file: agent-work/plans/ui-polish-010.md
+  plan_file: agent-work/history/20261025_ui-polish-010_plain_terminal_support.md
+  completed_at: '2026-10-25'
 - id: test-isolation-001
   status: pending
   title: Test environment isolation

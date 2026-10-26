@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { basename } from "node:path";
 import { normalizeGroup } from "../core/registry.js";
 import type { SessionFavorite } from "../core/session-favorites.js";
@@ -216,8 +217,8 @@ function buildFields(repoValues: string[], group: string, suggestions: string[],
     {
       key: "worktree" as const,
       label: "worktree",
-      value: worktreeEnabled ? `[x] on${repoCount > 1 ? ` · ${repoCount} repos` : ""}` : "[ ] off",
-      hint: "Space Toggle · create an isolated Git branch",
+      value: worktreeEnabled ? `[x] on${repoCount > 1 ? ` ${glyphs.pendingStep} ${repoCount} repos` : ""}` : "[ ] off",
+      hint: `Space Toggle ${glyphs.pendingStep} create an isolated Git branch`,
       readonly: true,
     },
     ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch, hint: repos.length > 1 ? "same new branch in every repo" : "new local branch" }] : []),

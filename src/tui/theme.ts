@@ -191,6 +191,7 @@ export async function effectiveDashboardTheme(
   appearance: TerminalAppearance,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<DashboardThemeSelection> {
+  if (noColor(env)) return { setting: "dark", name: "dark", theme: darkTheme };
   const globalSetting = preference.syncPi || !preference.theme ? await readGlobalPiThemeSetting(env) : undefined;
   const setting = (preference.syncPi ? globalSetting : preference.theme ?? globalSetting) ?? "dark";
   const selection = dashboardThemeForSetting(catalog, setting, appearance);
@@ -238,13 +239,24 @@ export async function loadManagedSessionTheme(session: { activeTheme?: ActiveThe
   return (await loadActiveTheme(session.activeTheme, { cwd: session.cwd })) ?? loadSessionsTheme({ cwd: session.cwd });
 }
 
+export function noColor(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.NO_COLOR);
+}
+
+/** Reverse only the marker cell; the rest of the row stays on the terminal background. */
+export function selectionMarker(text: string): string {
+  return noColor() ? `\u001b[7m${text}\u001b[27m` : text;
+}
+
 export function styleToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
+  if (noColor()) return text;
   const value = theme[token];
   if (value === "" || text === "") return text;
   return `${ansi(value)}${text}${RESET}`;
 }
 
 export function styleBgToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
+  if (noColor()) return text;
   const value = theme[token];
   if (value === "" || text === "") return text;
   const bg = ansi(value, 48);

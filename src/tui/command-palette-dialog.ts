@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { MouseEvent } from "./mouse.js";
 import type { DashboardCommand, DashboardCommandGroup } from "./dashboard-commands.js";
@@ -166,17 +167,17 @@ export function renderCommandPalette(
 
   const compactFrame = safeHeight < 7;
   const searchIndex = compactFrame ? 0 : 1;
-  if (!compactFrame) lines[0] = styleToken(theme, "border", "─".repeat(safeWidth));
+  if (!compactFrame) lines[0] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
   lines[searchIndex] = searchLine;
   const searchRuleIndex = searchIndex + 1;
   if (safeHeight <= searchRuleIndex) return result();
-  lines[searchRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
+  lines[searchRuleIndex] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
 
   const helpIndex = safeHeight - 1;
   const contentStart = searchRuleIndex + 1;
   const helpRuleIndex = Math.max(contentStart, helpIndex - 1);
-  lines[helpRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
-  lines[helpIndex] = pad(truncate(styleToken(theme, "muted", narrow ? "Enter Run · Esc Back · PgUp/PgDn Details" : "↑↓/Ctrl+N/Ctrl+P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
+  lines[helpRuleIndex] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
+  lines[helpIndex] = pad(truncate(styleToken(theme, "muted", narrow ? `Enter Run ${glyphs.pendingStep} Esc Back ${glyphs.pendingStep} PgUp/PgDn Details` : `${glyphs.up}${glyphs.down}/Ctrl+N/Ctrl+P Navigate ${glyphs.pendingStep} Enter Run ${glyphs.pendingStep} Esc Close`), safeWidth), safeWidth);
   const available = Math.max(0, helpRuleIndex - contentStart);
   if (!available) return result();
 
@@ -188,7 +189,7 @@ export function renderCommandPalette(
     const maxOffset = Math.max(0, detailLines.length - detailPageSize);
     const offset = Math.max(0, Math.min(normalized.detailOffset ?? 0, maxOffset));
     normalized = { ...normalized, detailOffset: offset };
-    lines[detailStart - 1] = styleToken(theme, "border", "─".repeat(safeWidth));
+    lines[detailStart - 1] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
     detailLines.slice(offset, offset + detailPageSize).forEach((line, index) => {
       lines[detailStart + index] = pad(line, safeWidth);
     });
@@ -304,7 +305,7 @@ function windowRows(rows: readonly PaletteRow[], selectedRow: number, capacity: 
 }
 
 function renderItem(item: DashboardCommand, selected: boolean, width: number, theme: SessionsTheme): string {
-  const marker = selected ? "▸" : " ";
+  const marker = selected ? glyphs.collapsed : " ";
   const keyWidth = width < 60 ? 7 : 10;
   const key = truncate(item.displayKey ?? "", keyWidth - 1);
   const gutter = `${styleToken(theme, item.enabled ? "accent" : "muted", key)}${" ".repeat(Math.max(0, keyWidth - visibleWidth(key)))}`;

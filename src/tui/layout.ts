@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
@@ -6,7 +7,7 @@ import { ageLabel } from "./age.js";
 import { formatKey } from "./dashboard-shortcuts.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
-import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
+import { darkTheme, selectionMarker, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
 
 export const NARROW_LAYOUT_MAX_WIDTH = 60;
 export const MIN_LAYOUT_WIDTH = 30;
@@ -69,13 +70,13 @@ function wrapShell(shell: Shell, width: number, body: string[], height: number |
 
 function footerLines(shell: Shell, footer: string, styles: LayoutStyles): string[] {
   const line = styleFooter(fitFooter(footer, shell.bodyWidth), styles);
-  return shell.framed ? [styles.border("─".repeat(shell.bodyWidth)), line] : [line];
+  return shell.framed ? [styles.border(glyphs.horizontal.repeat(shell.bodyWidth)), line] : [line];
 }
 
 export function footerItems(footer: string, width: number, x: number): FooterItem[] {
   const items: FooterItem[] = [];
   let offset = 0;
-  for (const part of fitFooter(footer, width).split(" · ")) {
+  for (const part of fitFooter(footer, width).split(` ${glyphs.pendingStep} `)) {
     const key = part.split(" ")[0] ?? "";
     if (key === "Enter" || key === "Esc" || [...key].length === 1) items.push({ key, x: x + offset, width: displayWidth(part) });
     offset += displayWidth(part) + 3;
@@ -85,9 +86,9 @@ export function footerItems(footer: string, width: number, x: number): FooterIte
 
 /** Drops whole trailing footer items instead of cutting a label mid-word. */
 export function fitFooter(footer: string, width: number): string {
-  const items = footer.split(" · ");
-  while (items.length > 1 && displayWidth(items.join(" · ")) > width) items.pop();
-  return truncate(items.join(" · "), width);
+  const items = footer.split(` ${glyphs.pendingStep} `);
+  while (items.length > 1 && displayWidth(items.join(` ${glyphs.pendingStep} `)) > width) items.pop();
+  return truncate(items.join(` ${glyphs.pendingStep} `), width);
 }
 
 export function renderSessions(model: RenderModel, theme?: SessionsTheme): SessionsLayout {
@@ -178,7 +179,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const selected = Boolean(left.selectedOwnerId && meta?.ownerId === left.selectedOwnerId)
       || (!left.selectedOwnerId && i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex);
     const leftLine = selected ? styles.selected(padded) : padded;
-    const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
+    const workspaceLine = workspaceWidth ? `${styles.border(glyphs.vertical)}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
     body.push(`${leftLine}${workspaceLine}`);
   }
   body.push(...decision.lines);
@@ -225,18 +226,18 @@ function renderAttentionAnnouncement(
   const newest = active[0];
   if (!visible || !newest) return { lines: [], targets: [] };
   const tone = newest.kind === "blocked" ? styles.error : newest.kind === "ready" ? styles.success : styles.warning;
-  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? "✓" : "?";
+  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? glyphs.ready : "?";
   const label = active.length > 1 ? `${glyph} ${active.length} NEW` : `${glyph} ${newest.kind.toUpperCase()}`;
-  const identity = plainAttentionText(newest.ownerTitle ? `${newest.title} → ${newest.ownerTitle}` : newest.title);
+  const identity = plainAttentionText(newest.ownerTitle ? `${newest.title} ${glyphs.right} ${newest.ownerTitle}` : newest.title);
   const workspaceDuplicatesRequest = model.workspace?.session.id === newest.sessionId;
   const more = model.width >= 100 && active.length > 1 ? styles.muted(`+${active.length - 1} more`) : undefined;
-  const leftPrefix = [tone("┃"), tone(label)].join("  ");
+  const leftPrefix = [tone(glyphs.attentionBar), tone(label)].join("  ");
   const left = `${leftPrefix}  ${identity}`;
   const locate = `${styles.accent(":")} ${styles.muted("locate")}`;
   const fixedTail = [more, locate, model.width >= 160 ? styles.muted("6s") : undefined]
     .filter((part): part is string => Boolean(part)).join("  ");
   const request = model.width >= 100 && !model.pinMode && !workspaceDuplicatesRequest
-    ? `“${plainAttentionText(newest.text)}”`
+    ? `${glyphs.quoteLeft}${plainAttentionText(newest.text)}${glyphs.quoteRight}`
     : undefined;
   const requestBudget = request
     ? Math.max(0, width - displayWidth(leftPrefix) - Math.min(16, displayWidth(identity)) - displayWidth(fixedTail) - 3)
@@ -246,7 +247,7 @@ function renderAttentionAnnouncement(
   const commandId = `view:locate-attention:${encodeURIComponent(newest.sessionId)}:${encodeURIComponent(newest.requestId)}`;
   const content = pad(twoColumn(left, tail, width), width);
   if (model.pinMode) return { lines: [content], targets: [commandId] };
-  return { lines: [content, styles.border("─".repeat(width))], targets: [commandId, undefined] };
+  return { lines: [content, styles.border(glyphs.horizontal.repeat(width))], targets: [commandId, undefined] };
 }
 
 function plainAttentionText(value: string): string {
@@ -284,14 +285,14 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, shell: Shell, width: 
 // Footer strings stay plain in the render model for testability; keys get
 // accent, labels muted, separators border here.
 function styleFooter(footer: string, styles: LayoutStyles): string {
-  return footer.split("│").map((segment) =>
-    segment.split(" · ").map((part) => {
+  return footer.split(glyphs.vertical).map((segment) =>
+    segment.split(` ${glyphs.pendingStep} `).map((part) => {
       const match = /^(\s*)(\S+)((?: .*)?)$/.exec(part);
       if (!match) return part;
       const [, lead = "", key = "", label = ""] = match;
       return `${lead}${styles.accent(key)}${label ? styles.muted(label) : ""}`;
-    }).join(styles.border(" · ")),
-  ).join(styles.border("│"));
+    }).join(styles.border(` ${glyphs.pendingStep} `)),
+  ).join(styles.border(glyphs.vertical));
 }
 
 function bodyRowsFromHeight(height: number | undefined, stripLines: number, footerRows: number, inset: number): number | undefined {
@@ -346,7 +347,7 @@ function emptyLines(inner: number, styles: LayoutStyles): string[] {
     "",
     styles.accent("No managed Pi sessions yet."),
     "",
-    `${styles.accent("▶")} ${styles.accent("n")}  create a session here`,
+    `${styles.accent(glyphs.primary)} ${styles.accent("n")}  create a session here`,
     `  ${styles.accent("?")}  ${styles.muted("show help")}`,
     `  ${styles.accent("q")}  ${styles.muted("quit")}`,
     "",
@@ -358,7 +359,7 @@ function noBoardLines(inner: number, model: RenderModel, styles: LayoutStyles): 
     "",
     styles.accent("No Active sessions."),
     "",
-    `${styles.accent("▶")} ${styles.accent("S")}  return to project view`,
+    `${styles.accent(glyphs.primary)} ${styles.accent("S")}  return to project view`,
     boardHiddenSummary(model, inner, styles),
     "",
   ].map((line) => truncate(line, inner));
@@ -371,14 +372,14 @@ function renderFilterBar(model: RenderModel, width: number, styles: LayoutStyles
   const total = board ? model.boardTotalCardCount : model.summary.ownerTotal;
   const matching = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
   const hidden = total - matching;
-  const label = `▍ ${editor ? "FILTERING" : "FILTERED"} `;
+  const label = `${glyphs.filter} ${editor ? "FILTERING" : "FILTERED"} `;
   const tone = model.noMatches ? styles.warning : styles.accent;
   const hiddenLabel = `${hidden} hidden`;
   const hints = editor
-    ? ["Enter Apply · Esc Cancel", "Enter · Esc Cancel", "Esc Cancel"]
+    ? [`Enter Apply ${glyphs.pendingStep} Esc Cancel`, `Enter ${glyphs.pendingStep} Esc Cancel`, "Esc Cancel"]
     : model.empty
-      ? [`${hiddenLabel} · Esc Clear`, "Esc Clear"]
-      : [`${hiddenLabel} · / Edit · Esc Clear`, `${hiddenLabel} · Esc Clear`, "Esc Clear"];
+      ? [`${hiddenLabel} ${glyphs.pendingStep} Esc Clear`, "Esc Clear"]
+      : [`${hiddenLabel} ${glyphs.pendingStep} / Edit ${glyphs.pendingStep} Esc Clear`, `${hiddenLabel} ${glyphs.pendingStep} Esc Clear`, "Esc Clear"];
   const hint = hints.find((candidate) => displayWidth(label) + displayWidth(candidate) + 6 <= width) ?? hints[hints.length - 1]!;
   const fieldWidth = Math.max(1, width - displayWidth(label) - displayWidth(hint) - 2);
   const query = editor
@@ -408,7 +409,7 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
     ...(pinCount ? [styles.muted(model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`)] : []),
     ...(model.pinSummary?.constrained ? [styles.warning("constrained")] : []),
   ];
-  const separator = styles.border(" · ");
+  const separator = styles.border(` ${glyphs.pendingStep} `);
   const parts = () => [...entries.map((entry) => cockpitTone(entry.tier, styles)(`${entry.label} ${entry.ownerCount}`)), ...signals];
   const fits = () => displayWidth("FLEET") + 1 + displayWidth(parts().join(separator)) <= width;
   for (const tier of ["quiet", "archived", "active", "health", "needs-you"] as const) {
@@ -456,7 +457,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     [required, ...(constrained ? [constrained] : []), ...(needs ? [needs] : [])],
     [required, ...(needs ? [needs] : [])],
     [required],
-  ].map((parts) => parts.join(styles.border(" · ")));
+  ].map((parts) => parts.join(styles.border(` ${glyphs.pendingStep} `)));
   return renderModeHeader(mode, candidates, width, styles);
 }
 
@@ -596,8 +597,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   let releaseCueRendered = false;
   const pushReleaseCue = () => {
     if (!releaseCue || releaseCueRendered) return;
-    const prefix = releaseCue.selected ? `${styles.accent("▌")} ` : "  ";
-    const detail = model.width >= 160 ? " · ? Explain · : Find actions · Enter Dismiss" : model.width >= 100 ? " · ? Explain · : Find actions" : "";
+    const prefix = releaseCue.selected ? `${styles.accent(glyphs.selected)} ` : "  ";
+    const detail = model.width >= 160 ? ` ${glyphs.pendingStep} ? Explain ${glyphs.pendingStep} : Find actions ${glyphs.pendingStep} Enter Dismiss` : model.width >= 100 ? ` ${glyphs.pendingStep} ? Explain ${glyphs.pendingStep} : Find actions` : "";
     const copy = `${styles.accent(releaseCue.label)}  ${styles.muted(releaseCue.text)}${styles.muted(detail)}`;
     if (lines.length) pushLine("");
     if (releaseCue.selected) {
@@ -620,10 +621,10 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       : section.repoKey
         ? [
           styles.muted(section.sessionsVisible !== undefined && section.sessionsVisible !== section.sessionsTotal
-            ? `${section.sessionsVisible}/${section.sessionsTotal}` : `·${section.sessionsTotal}`),
+            ? `${section.sessionsVisible}/${section.sessionsTotal}` : `${glyphs.pendingStep}${section.sessionsTotal}`),
           ...(section.ownerAttentionCount ? [styles.warning(`${section.ownerAttentionCount} needs you`)] : []),
           ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
-        ].join(styles.border(" · "))
+        ].join(styles.border(` ${glyphs.pendingStep} `))
         : section.hiddenChildRequestCount ? styles.warning(`?${section.hiddenChildRequestCount} child`) : "";
     if (gridWorkflow) {
       const headingWidth = board ? displayWidth(headingTitle) + 4 : section.cockpitTier ? displayWidth(headingTitle) + 3 : Math.min(20, displayWidth(headingTitle) + 4);
@@ -674,8 +675,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         selectedIndex = lines.length;
         selectedEndIndex = lines.length;
       }
-      const label = section.archiveDisclosure.expanded ? "⌃ show fewer" : `… ${section.archiveDisclosure.hiddenParents} older archived`;
-      const prefix = section.archiveDisclosure.selected ? `${styles.accent("▌")} ` : "  ";
+      const label = section.archiveDisclosure.expanded ? `${glyphs.fewer} show fewer` : `${glyphs.ellipsis} ${section.archiveDisclosure.hiddenParents} older archived`;
+      const prefix = section.archiveDisclosure.selected ? `${styles.accent(glyphs.selected)} ` : "  ";
       pushLine(`${prefix}${styles.muted(truncate(label, Math.max(0, width - 2)))}`, { kind: "archive-disclosure" });
       contextIndexes.set(lines.length - 1, [sectionHeadingIndex]);
     }
@@ -684,9 +685,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   if (model.guidance.coach && model.empty) {
     pushLine("");
     priorityIndexes.push(lines.length);
-    pushLine(`${styles.accent("▶")} ${styles.accent("n")}  create the first managed Pi session`);
+    pushLine(`${styles.accent(glyphs.primary)} ${styles.accent("n")}  create the first managed Pi session`);
     priorityIndexes.push(lines.length);
-    pushLine(`${styles.accent("Enter")} Open · ${styles.accent("Ctrl+Q")} Return · ${styles.accent("?")} Keys · ${styles.accent(":")} Actions`);
+    pushLine(`${styles.accent("Enter")} Open ${glyphs.pendingStep} ${styles.accent("Ctrl+Q")} Return ${glyphs.pendingStep} ${styles.accent("?")} Keys ${glyphs.pendingStep} ${styles.accent(":")} Actions`);
   }
   if (board) {
     pushLine("");
@@ -711,12 +712,12 @@ function decorateAttentionSectionCap(
   styles: LayoutStyles,
 ): string {
   if (meta?.tier !== "needs-you" || !meta.sectionOwnerIds?.some((id) => (visibleLinesByOwner.get(id) ?? 0) > 1)) return line;
-  return replaceVisibleColumn(line, 1, styles.warning("│"));
+  return replaceVisibleColumn(line, 1, styles.warning(glyphs.vertical));
 }
 
 function decorateTreeGutter(line: string, meta: SessionLineMeta | undefined, styles: LayoutStyles): string {
   if (!meta?.richTree) return line;
-  const glyph = meta.treeEnd ? "└" : "│";
+  const glyph = meta.treeEnd ? glyphs.treeEnd : glyphs.vertical;
   const styled = meta.tier === "needs-you" ? styles.warning(glyph) : styles.border(glyph);
   return replaceVisibleColumn(line, 1, styled);
 }
@@ -740,8 +741,8 @@ function replaceVisibleColumn(value: string, column: number, replacement: string
 }
 
 function noMatchListLines(width: number, model: RenderModel, styles: LayoutStyles): string[] {
-  const controls = model.filterEditing ? "Enter Apply · Esc Cancel" : "/ Edit · Esc Clear";
-  return [styles.warning("No sessions match."), "", `${styles.warning("▶")} ${controls}`, ""]
+  const controls = model.filterEditing ? `Enter Apply ${glyphs.pendingStep} Esc Cancel` : `/ Edit ${glyphs.pendingStep} Esc Clear`;
+  return [styles.warning("No sessions match."), "", `${styles.warning(glyphs.primary)} ${controls}`, ""]
     .map((line) => truncate(line, width));
 }
 
@@ -750,7 +751,7 @@ function boardHiddenSummary(model: RenderModel, width: number, styles: LayoutSty
     model.boardHidden.nonActive ? `${model.boardHidden.nonActive} backlog/archived` : "",
     "S Fleet",
   ].filter(Boolean);
-  return styles.muted(truncate(parts.join(" · "), width));
+  return styles.muted(truncate(parts.join(` ${glyphs.pendingStep} `), width));
 }
 
 interface ListWindow {
@@ -894,9 +895,9 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
   const afterRows = shownAfter.flatMap((index) => rowsForTitle(index));
   const sourceRows = [...beforeSourceRows, ...selectedRows, ...afterRows];
   const lines = [
-    ...(beforeIndicator ? [styles.muted(`↑ ${hiddenBefore} more`)] : []),
+    ...(beforeIndicator ? [styles.muted(`${glyphs.up} ${hiddenBefore} more`)] : []),
     ...sourceRows.map((index) => list.lines[index] ?? ""),
-    ...(afterIndicator ? [styles.muted(`↓ ${hiddenAfter} more`)] : []),
+    ...(afterIndicator ? [styles.muted(`${glyphs.down} ${hiddenAfter} more`)] : []),
   ];
   const targets = [
     ...(beforeIndicator ? [undefined] : []),
@@ -933,8 +934,8 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
   const beforeCount = list.targets.slice(0, headerIndex).filter((target) => target?.kind === "session").length;
   const afterCount = list.targets.slice(footerIndex + 1).filter((target) => target?.kind === "session").length;
   const indicators = [
-    ...(beforeCount ? [{ side: "before" as const, line: styles.muted(`↑ ${beforeCount} more`) }] : []),
-    ...(afterCount ? [{ side: "after" as const, line: styles.muted(`↓ ${afterCount} more`) }] : []),
+    ...(beforeCount ? [{ side: "before" as const, line: styles.muted(`${glyphs.up} ${beforeCount} more`) }] : []),
+    ...(afterCount ? [{ side: "after" as const, line: styles.muted(`${glyphs.down} ${afterCount} more`) }] : []),
   ];
   const detailIndexes = Array.from(
     { length: Math.max(0, footerIndex - headerIndex - (preserveFooter ? 1 : 0)) },
@@ -983,19 +984,15 @@ function windowSelectedCard(list: SessionListContent, capacity: number, styles: 
   };
 }
 
-const CARD = {
-  stepDone: "✓", stepActive: "◉", stepPending: "·",
-} as const;
-
-export function workflowStepMarker(workflow: WorkflowRuntimeSnapshot, index: number): "✓" | "◉" | "·" {
+export function workflowStepMarker(workflow: WorkflowRuntimeSnapshot, index: number): string {
   const done = index < workflow.activeIndex
     || (index === workflow.activeIndex && workflow.currentStepComplete === true);
-  return done ? CARD.stepDone : index === workflow.activeIndex ? CARD.stepActive : CARD.stepPending;
+  return done ? glyphs.ready : index === workflow.activeIndex ? glyphs.activeStep : glyphs.pendingStep;
 }
 
 function styledWorkflowMarker(workflow: WorkflowRuntimeSnapshot, index: number, styles: LayoutStyles): string {
   const marker = workflowStepMarker(workflow, index);
-  return styles[marker === CARD.stepDone ? "success" : marker === CARD.stepActive ? "accent" : "dim"](marker);
+  return styles[marker === glyphs.ready ? "success" : marker === glyphs.activeStep ? "accent" : "dim"](marker);
 }
 
 function adaptiveCardLines(
@@ -1010,7 +1007,7 @@ function adaptiveCardLines(
     if (terminalWidth < 100) return [];
     const lines: { line: string; priority: number }[] = [];
     const context = session.ticketId
-      ? `#${session.ticketId}${session.ticketSubtitle ? ` · ${session.ticketSubtitle}` : ""}`
+      ? `#${session.ticketId}${session.ticketSubtitle ? ` ${glyphs.pendingStep} ${session.ticketSubtitle}` : ""}`
       : session.ticketSubtitle;
     if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
     const activityText = activityLabel(session.workflow?.activity);
@@ -1018,7 +1015,7 @@ function adaptiveCardLines(
     if (phase) lines.push({ line: styles.muted(truncate(phase, width)), priority: 0 });
     const progress = planProgressBar(session.plan, styles);
     const recap = activityText && progress
-      ? `${styles.accent(truncate(activityText, Math.max(0, width - displayWidth(progress) - 3)))}${styles.border(" · ")}${progress}`
+      ? `${styles.accent(truncate(activityText, Math.max(0, width - displayWidth(progress) - 3)))}${styles.border(` ${glyphs.pendingStep} `)}${progress}`
       : activityText ? styles.accent(truncate(activityText, width)) : truncate(progress, width);
     if (recap) lines.push({ line: recap, priority: 0 });
     return lines;
@@ -1027,7 +1024,7 @@ function adaptiveCardLines(
   const lines: { line: string; priority: number }[] = [];
   const summary = session.attention?.text ?? session.ticketSubtitle ?? session.ticketDescription;
   if (summary) {
-    const text = session.attention ? `“${summary}”` : summary;
+    const text = session.attention ? `${glyphs.quoteLeft}${summary}${glyphs.quoteRight}` : summary;
     lines.push({ line: styles.muted(truncate(text, width)), priority: 0 });
   }
   if (terminalWidth < 100) return lines;
@@ -1036,12 +1033,12 @@ function adaptiveCardLines(
   const live = session.status !== "stopped" && session.workflow?.currentStepComplete !== true;
   const activityText = live ? activityLabel(session.workflow?.activity) : "";
   const phase = live ? planPhaseLabel(executePlan(session)) : "";
-  const now = [activityText && styles.accent(activityText), phase && styles.muted(phase)].filter(Boolean).join(styles.border(" · "));
+  const now = [activityText && styles.accent(activityText), phase && styles.muted(phase)].filter(Boolean).join(styles.border(` ${glyphs.pendingStep} `));
   if (now) lines.push({ line: truncate(now, width), priority: 2 });
 
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories
     ?.find((item) => item.role === "primary" && item.state !== "cleaned")?.branch;
-  const branch = branchName ? `${styles.muted("⎇")} ${styles.muted(branchName)}` : "";
+  const branch = branchName ? `${styles.muted(glyphs.worktree)} ${styles.muted(branchName)}` : "";
   const repo = [repoNameSignal(session, styles, repoMode), branch].filter(Boolean).join(" ");
   if (repo) lines.push({ line: truncate(repo, width), priority: 1 });
   return lines;
@@ -1050,7 +1047,7 @@ function adaptiveCardLines(
 /** Repo grouping names the repo in its header, and groups usually name the repo; only a differing name earns the slot. */
 function repoNameSignal(session: RenderSession, styles: LayoutStyles, repoMode: boolean): string {
   if (repoMode || sameName(session.repoLabel, session.group)) return "";
-  return `${styles.accent("◈")} ${styles.muted(session.repoLabel)}`;
+  return `${styles.accent(glyphs.repo)} ${styles.muted(session.repoLabel)}`;
 }
 
 function sameName(left: string, right: string): boolean {
@@ -1067,7 +1064,7 @@ function executePlan(session: RenderSession): RenderSession["plan"] {
 }
 
 function planPhaseLabel(plan: RenderSession["plan"]): string {
-  return plan?.phase ? `Phase ${plan.phase.index}/${plan.phase.count} · ${plan.phase.title}` : "";
+  return plan?.phase ? `Phase ${plan.phase.index}/${plan.phase.count} ${glyphs.pendingStep} ${plan.phase.title}` : "";
 }
 
 function planTaskCount(plan: RenderSession["plan"]): { completed: number; total: number } | undefined {
@@ -1086,7 +1083,7 @@ function planProgressBar(plan: RenderSession["plan"], styles: LayoutStyles): str
   if (!count) return "";
   const { completed, total } = count;
   const filled = Math.max(0, Math.min(8, Math.round((completed / total) * 8)));
-  return `${styles.accent("■".repeat(filled))}${styles.muted("□".repeat(8 - filled))} ${completed}/${total} tasks`;
+  return `${styles.accent(glyphs.progressFilled.repeat(filled))}${styles.muted(glyphs.progressEmpty.repeat(8 - filled))} ${completed}/${total} tasks`;
 }
 
 function workspacePlanLines(session: RenderSession, width: number, styles: LayoutStyles): string[] {
@@ -1120,24 +1117,24 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
   const meta = [
     session.ticketId ? `#${session.ticketId}` : undefined,
     session.repoLabel,
-    session.repoCount > 1 ? `⧉${session.repoCount}` : undefined,
-    session.worktreeBranch ? `${session.worktreeMarker ?? "⎇"} ${session.worktreeBranch}` : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
+    session.repoCount > 1 ? `${glyphs.repos}${session.repoCount}` : undefined,
+    session.worktreeBranch ? `${session.worktreeMarker ?? glyphs.worktree} ${session.worktreeBranch}` : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
     session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(` ${glyphs.pendingStep} `);
   const titleLines = pinned ? wrapWords(session.title, width, width) : [];
   const identity = block("identity", [
     ...(pinned ? [titleLines[0] ?? "", ...(titleLines.length > 1 ? [truncate(titleLines.slice(1).join(" "), width)] : [])] : [titleStatusRow(session, width, styles)]),
     ...(pinned ? [styles.muted(`Repo: ${session.repoLabel}`)] : meta ? [styles.muted(meta)] : []),
     ...(session.worktreeLifecycle ? [styles.muted(`Worktree owner: ${session.worktreeLifecycle.producer}`)] : []),
-    styles.border("─".repeat(width)),
+    styles.border(glyphs.horizontal.repeat(width)),
   ]);
 
   const closure = block("closure", workspaceClosureLine(session, styles));
   const attention = session.attention;
   const request = block("request", attention ? [
-    ...prefixedWorkspaceText(attentionGlyph(attention.kind, styles), `“${stripAnsi(attention.text)}”`, width),
-    ...(attention.recommendation ? prefixedWorkspaceText("→", stripAnsi(attention.recommendation), width).map((line) => styles.muted(line)) : []),
-    ...(attention.artifact ? [styles.muted(`▤ ${truncateValue(attention.artifact, Math.max(1, width - 2), "start")}`)] : []),
+    ...prefixedWorkspaceText(attentionGlyph(attention.kind, styles), `${glyphs.quoteLeft}${stripAnsi(attention.text)}${glyphs.quoteRight}`, width),
+    ...(attention.recommendation ? prefixedWorkspaceText(glyphs.right, stripAnsi(attention.recommendation), width).map((line) => styles.muted(line)) : []),
+    ...(attention.artifact ? [styles.muted(`${glyphs.artifact} ${truncateValue(attention.artifact, Math.max(1, width - 2), "start")}`)] : []),
   ] : []);
   const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
@@ -1146,11 +1143,11 @@ function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRow
     ...workspaceWorkflowLine(workflowSession, styles),
     ...workspacePlanLines(session, width, styles),
   ]);
-  const guidanceText = [session.error ? `Error · ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(" · ");
+  const guidanceText = [session.error ? `Error ${glyphs.pendingStep} ${stripAnsi(session.error)}` : undefined, workspace.guidance].filter(Boolean).join(` ${glyphs.pendingStep} `);
   const lifecycleLines = session.worktreeLifecycle?.repositories?.flatMap((item) => {
     const state = item.state === "cleaned" ? `cleaned${item.outcome ? ` (${item.outcome})` : ""}` : item.state.replace(/-/gu, " ");
-    const verification = item.verifiedAt ? ` · verified ${ageLabel(Math.max(0, now - item.verifiedAt), "now")} ago` : "";
-    return wrapWords(`${item.role}: ${state} · ${item.branch}${verification} · ${item.worktreePath} → ${item.sourcePath}${item.branchDeleted === false ? " · branch retained" : ""}${item.issue ? ` · ${item.issue}` : ""}`, width, width);
+    const verification = item.verifiedAt ? ` ${glyphs.pendingStep} verified ${ageLabel(Math.max(0, now - item.verifiedAt), "now")} ago` : "";
+    return wrapWords(`${item.role}: ${state} ${glyphs.pendingStep} ${item.branch}${verification} ${glyphs.pendingStep} ${item.worktreePath} ${glyphs.right} ${item.sourcePath}${item.branchDeleted === false ? ` ${glyphs.pendingStep} branch retained` : ""}${item.issue ? ` ${glyphs.pendingStep} ${item.issue}` : ""}`, width, width);
   }) ?? [];
   const guidance = block("guidance", [...(guidanceText ? wrapWords(guidanceText, width, width) : []), ...lifecycleLines]);
   const hasBody = [closure, request, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
@@ -1185,7 +1182,7 @@ function workspaceWorkflowLine(session: RenderSession, styles: LayoutStyles): st
   if (!workflow || !step) return [];
   const mode = activeWorkflowMode(session);
   const label = mode?.label?.trim() || mode?.short.trim() || step.label?.trim() || step.short;
-  return [`${styles.accent(label)}${styles.muted(` · step ${workflow.activeIndex + 1} of ${workflow.steps.length}`)}`];
+  return [`${styles.accent(label)}${styles.muted(` ${glyphs.pendingStep} step ${workflow.activeIndex + 1} of ${workflow.steps.length}`)}`];
 }
 
 function workspaceActionBlock(
@@ -1199,14 +1196,14 @@ function workspaceActionBlock(
   if (!commands.some((command) => command.id === workspace.evidenceCommand.id)) commands.push(workspace.evidenceCommand);
   if (!commands.some((command) => command.id === workspace.moreCommand.id)) commands.push(workspace.moreCommand);
   const primaryId = workspace.actions[0]?.id ?? workspace.moreCommand.id;
-  const lines = includeSeparator ? [styles.border("─".repeat(width))] : [];
+  const lines = includeSeparator ? [styles.border(glyphs.horizontal.repeat(width))] : [];
   const targets: (string | undefined)[] = lines.map(() => undefined);
   for (const command of commands) {
     const primary = command.id === primaryId;
     const key = formatKey(command.displayKey ?? "");
     const label = command.id === workspace.evidenceCommand.id && workspace.evidenceVisible ? "Hide details"
       : command.id === workspace.moreCommand.id ? "All actions" : command.label;
-    const prefix = primary ? `${styles.accent("▌")} ` : "  ";
+    const prefix = primary ? `${styles.accent(glyphs.selected)} ` : "  ";
     const fittedLabel = truncate(label, Math.max(0, width - 3 - displayWidth(key)));
     const labelText = primary ? styles.strong(fittedLabel) : fittedLabel;
     const gap = " ".repeat(Math.max(1, width - 2 - displayWidth(fittedLabel) - displayWidth(key)));
@@ -1226,7 +1223,7 @@ function workspaceEvidenceLines(workspace: RenderWorkspace, width: number, now: 
     return true;
   });
   return [
-    styles.border("─".repeat(width)),
+    styles.border(glyphs.horizontal.repeat(width)),
     styles.muted("LIVE DETAILS"),
     ...fields.flatMap((field) => renderStatusEvidenceField(field, width, styles)),
   ];
@@ -1275,7 +1272,7 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
 function workspaceFooter(workspace: RenderWorkspace): string {
   const evidenceKey = workspace.evidenceCommand.displayKey ?? "i";
   const moreKey = workspace.moreCommand.displayKey ?? ":";
-  return `Esc Back · ${evidenceKey} Details · ${moreKey} Actions`;
+  return `Esc Back ${glyphs.pendingStep} ${evidenceKey} Details ${glyphs.pendingStep} ${moreKey} Actions`;
 }
 
 function titleStatusRow(session: RenderSession, width: number, styles: LayoutStyles): string {
@@ -1329,12 +1326,12 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
   const taskCount = planTaskCount(executePlan(session));
   const optionalSignals = [
-    session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "",
+    session.runningSubagentCount ? styles.success(`${glyphs.subagents}${session.runningSubagentCount}`) : "",
     mode && compatible ? styles.accent(mode.short) : "",
     taskCount ? styles.muted(`${taskCount.completed}/${taskCount.total} tasks`) : "",
     // Status grouping already names the tier in the section heading.
     repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]) : "",
-    session.repoCount > 1 ? styles.muted(`⧉ ${session.repoCount}`) : "",
+    session.repoCount > 1 ? styles.muted(`${glyphs.repos} ${session.repoCount}`) : "",
   ].filter(Boolean);
   const leftWidth = Math.max(0, width - (right ? displayWidth(right) + 1 : 0));
   const minimumGroup = Math.min(8, Math.max(0, leftWidth - (hidden ? displayWidth(hidden) + 1 : 0)));
@@ -1353,7 +1350,7 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
   const group = groupWidth >= 3 ? renderGroupBadge(session.group, Math.min(24, groupWidth), styles) : "";
   let left = truncate([group, signals].filter(Boolean).join(" "), leftWidth);
   const age = rowAge(session);
-  if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.muted(` · ${age}`);
+  if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.muted(` ${glyphs.pendingStep} ${age}`);
   return right ? twoColumn(left, right, width) : left;
 }
 
@@ -1364,7 +1361,7 @@ function rowAge(session: RenderSession): string | undefined {
 
 function pinGlyph(session: RenderSession, styles: LayoutStyles): string {
   if (!session.pinned) return "";
-  return `${session.pinFocused ? styles.accent(`▣${session.pinSlot}`) : styles.muted(`▢${session.pinSlot}`)} `;
+  return `${session.pinFocused ? styles.accent(`${glyphs.pinned}${session.pinSlot}`) : styles.muted(`${glyphs.pin}${session.pinSlot}`)} `;
 }
 
 function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: boolean, repoMode: boolean, width: number, terminalWidth: number, cell?: FleetWorkflowCell): string {
@@ -1373,9 +1370,9 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const minimumTitle = board && terminalWidth <= NARROW_LAYOUT_MAX_WIDTH && !mode
     ? Math.max(8, Math.min(18, displayWidth(session.title))) : 8;
   const fits = (right: string): boolean => Boolean(right) && width - displayWidth(right) - 1 >= minimumTitle;
-  const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(" · "));
+  const join = (parts: string[]) => parts.filter(Boolean).join(styles.border(` ${glyphs.pendingStep} `));
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-  const running = session.runningSubagentCount ? styles.success(`⚙︎${session.runningSubagentCount}`) : "";
+  const running = session.runningSubagentCount ? styles.success(`${glyphs.subagents}${session.runningSubagentCount}`) : "";
   const compact = session.workflow ? railCompact(session.workflow, mode, styles) : "";
   const workflow = board ? cell?.right ?? ""
     : session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles) : compact;
@@ -1438,7 +1435,7 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
   const age = rowAge(session) ?? "";
   const metadata = (group: boolean, withAge: boolean) => styles.muted([
     ...(group ? [session.group] : []), ...(withAge && age ? [age] : []),
-  ].join(" · "));
+  ].join(` ${glyphs.pendingStep} `));
   return [
     [hidden, metadata(true, true), grid],
     [hidden, metadata(false, true), grid],
@@ -1451,8 +1448,8 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
 }
 
 function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
-  if (session.closure === "done") return styles.success("✓");
-  if (session.closure === "abandoned") return styles.muted("⊘");
+  if (session.closure === "done") return styles.success(glyphs.ready);
+  if (session.closure === "abandoned") return styles.muted(glyphs.abandoned);
   const workflow = session.workflow;
   const step = workflow?.steps[workflow.activeIndex];
   return workflow && step ? `${styles.muted(step.short)} ${styledWorkflowMarker(workflow, workflow.activeIndex, styles)}` : "";
@@ -1460,9 +1457,9 @@ function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
 
 function workspaceClosureLine(session: RenderSession, styles: LayoutStyles): string[] {
   if (!session.closure) return [];
-  const outcome = session.closure === "done" ? styles.success("✓ Closed · Done") : styles.muted("⊘ Closed · Abandoned");
+  const outcome = session.closure === "done" ? styles.success(`${glyphs.ready} Closed ${glyphs.pendingStep} Done`) : styles.muted(`${glyphs.abandoned} Closed ${glyphs.pendingStep} Abandoned`);
   // Closing never stops children, so keep live descendants visible beside the outcome.
-  const children = session.runningSubagentCount ? `${styles.dim(" · ")}${styles.success(`⚙︎${session.runningSubagentCount}`)} running` : "";
+  const children = session.runningSubagentCount ? `${styles.dim(` ${glyphs.pendingStep} `)}${styles.success(`${glyphs.subagents}${session.runningSubagentCount}`)} running` : "";
   return [`${outcome}${children}`];
 }
 
@@ -1473,14 +1470,14 @@ function railFull(workflow: WorkflowRuntimeSnapshot, mode: WorkflowModeDisplay |
       const styledShort = index === workflow.activeIndex ? styles.accent(short) : styles.muted(short);
       return `${styledWorkflowMarker(workflow, index, styles)} ${styledShort}`;
     })
-    .join(styles.border("─"));
+    .join(styles.border(glyphs.horizontal));
 }
 
 function renderStatusEvidenceField(field: StatusEvidenceField, width: number, styles: LayoutStyles): string[] {
   const label = field.label === "heartbeat" ? "beat" : field.label === "workflow" ? "flow" : field.label;
   if (field.kind === "result") {
     const tier = field.tier.toUpperCase().replace("-", " ");
-    const value = `${styles.status(field.status, field.status)} · ${cockpitTone(field.tier, styles)(tier)} · ${field.reason}`;
+    const value = `${styles.status(field.status, field.status)} ${glyphs.pendingStep} ${cockpitTone(field.tier, styles)(tier)} ${glyphs.pendingStep} ${field.reason}`;
     return workField(label, value, width, styles, `${styles.accent(field.marker)} `);
   }
   const marker = field.tone === "success" ? styles.success(field.marker) : field.tone === "error" ? styles.error(field.marker) : styles.muted(field.marker);
@@ -1564,14 +1561,14 @@ function sectionHeader(title: string, right: string, width: number, styles: Layo
   const tone = repo ? styles.text : cockpitTone(tier, styles);
   const disclosureTone = repo ? styles.accent : tone;
   const prefix = collapsed === undefined
-    ? tone("──")
-    : `${selected ? styles.accent("▌") : tone("─")}${disclosureTone(collapsed ? "▸" : "▾")}`;
+    ? tone(`${glyphs.horizontal}${glyphs.horizontal}`)
+    : `${selected ? styles.accent(glyphs.selected) : tone(glyphs.horizontal)}${disclosureTone(collapsed ? glyphs.collapsed : glyphs.expanded)}`;
   const label = tone(` ${title} `);
   return twoColumn(`${prefix}${bold ? `\u001b[1m${label}\u001b[22m` : label}`, right, width);
 }
 
 function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], styles: LayoutStyles): string {
-  if (kind === "ready") return styles.success("✓");
+  if (kind === "ready") return styles.success(glyphs.ready);
   if (kind === "question") return styles.warning("?");
   return styles.error("!");
 }
@@ -1588,14 +1585,14 @@ interface SessionRowOptions {
 }
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
-  const selection = session.selected ? styles.accent("▌") : " ";
+  const selection = session.selected ? selectionMarker(styles.accent(glyphs.selected)) : " ";
   const state = session.attention ? attentionGlyph(session.attention.kind, styles)
     : session.section === "active" ? styles.status(session.displayStatus, session.symbol)
     : styles.muted(session.symbol);
   const sidePaneMarker = pinGlyph(session, styles);
 
   if (session.kind === "subagent") {
-    const branch = session.depth > 1 ? "│└" : options.childLast ? "└─" : "├─";
+    const branch = session.depth > 1 ? `${glyphs.vertical}${glyphs.treeEnd}` : options.childLast ? `${glyphs.treeEnd}${glyphs.horizontal}` : `${glyphs.treeBranch}${glyphs.horizontal}`;
     const prefix = `${selection}${options.gutterColumn ? "  " : " "}${styles.dim(branch)} ${state} ${sidePaneMarker}`;
     const available = Math.max(0, width - displayWidth(prefix));
     const task = session.taskPreview?.trim() ?? "";
@@ -1608,7 +1605,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   }
 
   const disclosure = session.boardDescendantCount
-    ? styles.accent(session.boardExpanded ? "▾" : "▸")
+    ? styles.accent(session.boardExpanded ? glyphs.expanded : glyphs.collapsed)
     : " ";
   const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${state} ${sidePaneMarker}`;
   const worktree = session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : "";
@@ -1620,7 +1617,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     const left = `${prefix}${styles.strong(truncate(session.title, titleSpace - displayWidth(fresh)))}${worktree}${fresh}`;
     return right ? twoColumn(left, right, width) : truncate(left, width);
   }
-  const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ⧉ ${session.repoCount}`) : "";
+  const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ${glyphs.repos} ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
   const showGroup = !options.board || options.terminalWidth < 100;
   const badge = showGroup ? `${renderGroupBadge(session.group, badgeBudget, styles)} ` : "";
@@ -1655,7 +1652,7 @@ function freshBadge(session: RenderSession, titleSpace: number, styles: LayoutSt
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
-  if (marker === "⎇…" || marker === "⎇!") return styles.warning(marker);
+  if (marker === glyphs.worktreePending || marker === glyphs.worktreeWarning) return styles.warning(marker);
   return styles.muted(marker);
 }
 
@@ -1704,10 +1701,10 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     const focused = field.key === spec.focus;
     const stacked = narrow && (!field.readonly || Boolean(field.frame));
     const valueWidth = stacked ? Math.max(0, inner - 2) : inner - labelWidth - 4;
-    const caret = focused ? styles.accent("▎") : " ";
+    const caret = focused ? styles.accent(glyphs.focus) : " ";
     const label = focused ? field.label : styles.muted(field.label);
     const prefix = field.frame ? "[ " : "";
-    const suffix = field.frame === "picker" ? " ▾ ]" : field.frame ? " ]" : "";
+    const suffix = field.frame === "picker" ? ` ${glyphs.expanded} ]` : field.frame ? " ]" : "";
     const contentWidth = Math.max(0, valueWidth - prefix.length - suffix.length);
     const focusedValue = field.readonly
       ? truncateValue(field.value, contentWidth, field.truncate)
@@ -1757,14 +1754,14 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     : Array.from({ length: Math.max(0, contentRows - visibleFields.length - visibleDetail.length) }, () => "");
   const body: string[] = [
     styles.accent(spec.title),
-    styles.border("─".repeat(inner)),
+    styles.border(glyphs.horizontal.repeat(inner)),
     "",
     ...visibleFields,
     ...fieldPadding,
     ...visibleDetail,
-    styles.border("─".repeat(inner)),
+    styles.border(glyphs.horizontal.repeat(inner)),
   ];
-  const footer = narrow && displayWidth(spec.footer) > inner ? (spec.narrowFooter ?? "Enter Confirm · Esc Cancel") : spec.footer;
+  const footer = narrow && displayWidth(spec.footer) > inner ? (spec.narrowFooter ?? `Enter Confirm ${glyphs.pendingStep} Esc Cancel`) : spec.footer;
   body.push(truncate(styles.muted(footer), inner));
   return frame(width, body, styles, { border: "dialog-title" });
 }
@@ -1803,11 +1800,11 @@ function windowFormBlocks(blocks: string[][], focusIndex: number, rowLimit: numb
 }
 
 export function inputCursor(now: number): string {
-  const marker = Math.floor(now / 1_000) % 2 === 0 ? "█" : "▌";
+  const marker = Math.floor(now / 1_000) % 2 === 0 ? glyphs.cursor : glyphs.selected;
   return `\u001b[5m${marker}\u001b[25m`;
 }
 
-export function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined, marker = "█"): string {
+export function renderCursorValue(value: string, cursor: number | undefined, width: number, mode: "end" | "start" | undefined, marker = glyphs.cursor): string {
   if (width <= 0) return "";
   const chars = [...value];
   const pos = Math.max(0, Math.min(cursor ?? chars.length, chars.length));
@@ -1816,10 +1813,13 @@ export function renderCursorValue(value: string, cursor: number | undefined, wid
   if (mode === "start" || displayWidth(chars.slice(0, pos).join("")) >= width - 1) {
     let start = pos;
     let before = "";
-    while (start > 0 && displayWidth(chars[start - 1]! + before) <= width - 2) {
+    const markerWidth = displayWidth(marker);
+    const prefixWidth = displayWidth(glyphs.ellipsis);
+    while (start > 0 && displayWidth(chars[start - 1]! + before) <= width - markerWidth - prefixWidth) {
       before = chars[--start]! + before;
     }
-    let result = `${start > 0 ? "…" : ""}${before}${marker}`;
+    const prefix = start > 0 && width >= prefixWidth + markerWidth ? glyphs.ellipsis : "";
+    let result = `${prefix}${before}${marker}`;
     for (const char of chars.slice(pos)) {
       if (displayWidth(result + char) > width) break;
       result += char;
@@ -1833,16 +1833,17 @@ function truncateValue(value: string, width: number, mode: "end" | "start" | und
   if (width <= 0) return "";
   if (displayWidth(value) <= width) return value;
   if (mode !== "start") return truncate(value, width);
-  if (width <= 1) return "";
+  const prefixWidth = displayWidth(glyphs.ellipsis);
+  if (width <= prefixWidth) return "";
   const visible = stripAnsi(value);
-  const tail = sliceByColumn(visible, displayWidth(visible) - width + 1, width - 1, true);
-  return `…${tail}`;
+  const tail = sliceByColumn(visible, displayWidth(visible) - width + prefixWidth, width - prefixWidth, true);
+  return `${glyphs.ellipsis}${tail}`;
 }
 
 export function renderDialog(title: string, rows: string[], width: number, theme?: SessionsTheme): string[] {
   const styles = theme ? createStyles(theme) : plainStyles();
   const inner = Math.max(20, Math.min(Math.max(20, width - 2), 86));
-  const body = [styles.accent(title), styles.border("─".repeat(Math.min(inner, Math.max(0, displayWidth(title) + 8)))), ...rows];
+  const body = [styles.accent(title), styles.border(glyphs.horizontal.repeat(Math.min(inner, Math.max(0, displayWidth(title) + 8)))), ...rows];
   return frame(width, body, styles, { border: "dialog-title" });
 }
 
@@ -1860,10 +1861,10 @@ function frame(width: number, body: string[], styles: LayoutStyles, options: Fra
     ? width - 2
     : Math.max(20, Math.min(Math.max(20, width - 2), 86));
   const top = options.border === "dashboard-title"
-    ? `${styles.border("╭")} ${styles.accent(options.title ?? "")} ${styles.border("─".repeat(Math.max(0, inner - displayWidth(options.title ?? "") - 2)))}${styles.border("╮")}`
-    : `${styles.border("╭")}${styles.border("─".repeat(inner))}${styles.border("╮")}`;
-  const bottom = `${styles.border("╰")}${styles.border("─".repeat(inner))}${styles.border("╯")}`;
-  const lines = [top, ...body.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`), bottom];
+    ? `${styles.border(glyphs.topLeft)} ${styles.accent(options.title ?? "")} ${styles.border(glyphs.horizontal.repeat(Math.max(0, inner - displayWidth(options.title ?? "") - 2)))}${styles.border(glyphs.topRight)}`
+    : `${styles.border(glyphs.topLeft)}${styles.border(glyphs.horizontal.repeat(inner))}${styles.border(glyphs.topRight)}`;
+  const bottom = `${styles.border(glyphs.bottomLeft)}${styles.border(glyphs.horizontal.repeat(inner))}${styles.border(glyphs.bottomRight)}`;
+  const lines = [top, ...body.map((line) => `${styles.border(glyphs.vertical)}${pad(line, inner)}${styles.border(glyphs.vertical)}`), bottom];
   return options.border === "dashboard-title" ? lines.map((line) => truncate(line, width)) : lines;
 }
 
@@ -1883,7 +1884,7 @@ function pad(value: string, width: number): string {
 
 export function truncate(value: string, width: number): string {
   if (width <= 1) return "";
-  return truncateToWidth(value, width, "…");
+  return truncateToWidth(value, width, glyphs.ellipsis);
 }
 
 function displayWidth(value: string): number {

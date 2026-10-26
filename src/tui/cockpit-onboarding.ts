@@ -1,7 +1,8 @@
+import { glyphs } from "./glyphs.js";
 export const COCKPIT_RELEASE_CUE = {
   id: "cockpit-daily-loop-v1",
   label: "NEW DAILY LOOP",
-  text: "NEEDS YOU is explicit · Enter Open · Ctrl+Q Return",
+  text: `NEEDS YOU is explicit ${glyphs.pendingStep} Enter Open ${glyphs.pendingStep} Ctrl+Q Return`,
 } as const;
 
 export type CockpitOnboardingState =

@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionFavorite } from "../core/session-favorites.js";
 import { revealCreated, type NewSessionDialogContext } from "./dialog.js";
@@ -159,32 +160,32 @@ function newFormFields(dialog: NewSessionDialog, width = 88): FormField[] {
   const directories = form.order.filter(isRepoKey).map((key) => form.fields[key]);
   const values = directories.map((field) => field.value.trim()).filter(Boolean);
   const edited = dialog.favorite && JSON.stringify(values) !== JSON.stringify(dialog.favorite.cwds);
-  const favoriteLabel = dialog.favorite ? `${dialog.favorite.name}${edited ? " · edited" : ""}` : "Choose…";
+  const favoriteLabel = dialog.favorite ? `${dialog.favorite.name}${edited ? ` ${glyphs.pendingStep} edited` : ""}` : `Choose${glyphs.ellipsis}`;
   const valueWidth = Math.max(0, Math.min(width - 2, 86) - 19);
   const mode = form.worktreeEnabled ? `branch: ${form.fields.branch?.value || "required"}` : "worktree off";
   const modeWidth = Math.min(visibleWidth(mode), Math.max(12, valueWidth - 7));
-  const options = `${truncate(form.fields.group.value, Math.max(1, valueWidth - modeWidth - 3))} · ${truncate(mode, modeWidth)}`;
+  const options = `${truncate(form.fields.group.value, Math.max(1, valueWidth - modeWidth - 3))} ${glyphs.pendingStep} ${truncate(mode, modeWidth)}`;
   return [
-    { ...action("favorite", "Favorite", favoriteLabel, "Enter Choose · Ctrl+F Favorites"), frame: "picker" },
+    { ...action("favorite", "Favorite", favoriteLabel, `Enter Choose ${glyphs.pendingStep} Ctrl+F Favorites`), frame: "picker" },
     ...directories.map((field) => ({ ...field, frame: "input" as const })),
-    action("add", "+ Add directory", "", "Enter Add · Ctrl+R"),
-    action("options", `${dialog.optionsExpanded ? "▾" : "▸"} Options`, options, "Space Expand/collapse · Ctrl+G Group · Ctrl+T Worktree · Ctrl+L Branch"),
+    action("add", "+ Add directory", "", `Enter Add ${glyphs.pendingStep} Ctrl+R`),
+    action("options", `${dialog.optionsExpanded ? glyphs.expanded : glyphs.collapsed} Options`, options, `Space Expand/collapse ${glyphs.pendingStep} Ctrl+G Group ${glyphs.pendingStep} Ctrl+T Worktree ${glyphs.pendingStep} Ctrl+L Branch`),
     ...(dialog.optionsExpanded ? form.order.filter((key) => !isRepoKey(key)).map((key) => ({ ...form.fields[key], frame: key === "worktree" ? undefined : "input" as const })) : []),
-    { ...action("save", "Save favorite…", "", "Enter Name this set · Ctrl+S"), section: "Actions" },
+    { ...action("save", `Save favorite${glyphs.ellipsis}`, "", `Enter Name this set ${glyphs.pendingStep} Ctrl+S`), section: "Actions" },
     { ...action("create", "", "[ Create session ]"), primary: validateNewForm(form).ok },
     action("cancel", "", "Cancel"),
   ];
 }
 
 function newFormFooter(dialog: NewSessionDialog): string {
-  if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
-  if (isRepoKey(dialog.form.focus)) return "Enter Create · Ctrl+O Choose directory · Esc Cancel";
-  if (dialog.form.focus === "worktree") return "Enter/Space Toggle · Ctrl+Y Create · Esc Cancel";
-  return "Enter Create · Esc Cancel";
+  if (dialog.actionFocus) return `Enter Select ${glyphs.pendingStep} Ctrl+Y Create ${glyphs.pendingStep} Esc Cancel`;
+  if (isRepoKey(dialog.form.focus)) return `Enter Create ${glyphs.pendingStep} Ctrl+O Choose directory ${glyphs.pendingStep} Esc Cancel`;
+  if (dialog.form.focus === "worktree") return `Enter/Space Toggle ${glyphs.pendingStep} Ctrl+Y Create ${glyphs.pendingStep} Esc Cancel`;
+  return `Enter Create ${glyphs.pendingStep} Esc Cancel`;
 }
 
 function newFormNarrowFooter(dialog: NewSessionDialog): string {
-  if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
-  if (dialog.form.focus === "worktree") return "Enter Toggle · Ctrl+Y Create · Esc Cancel";
-  return "Enter Create · Esc Cancel";
+  if (dialog.actionFocus) return `Enter Select ${glyphs.pendingStep} Ctrl+Y Create ${glyphs.pendingStep} Esc Cancel`;
+  if (dialog.form.focus === "worktree") return `Enter Toggle ${glyphs.pendingStep} Ctrl+Y Create ${glyphs.pendingStep} Esc Cancel`;
+  return `Enter Create ${glyphs.pendingStep} Esc Cancel`;
 }

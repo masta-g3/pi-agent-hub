@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { NARROW_LAYOUT_MAX_WIDTH, renderDialog, wrapWords } from "./layout.js";
 import { errorMessage, isPromise, type DialogContext, type SessionsViewActions } from "./dialog.js";
@@ -125,16 +126,16 @@ export function renderThemeDialog(dialog: ThemeDialog, width: number, height: nu
   const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxVisible / 2), rows.length - maxVisible));
   const visible = rows.slice(start, start + maxVisible);
   const itemRows = visible.map((row) => renderSelection(row, dialog, automatic, theme));
-  if (start > 0 && itemRows.length && visible[0] !== dialog.selected) itemRows[0] = theme ? styleToken(theme, "dim", "  …") : "  …";
-  if (start + maxVisible < rows.length && itemRows.length && visible[itemRows.length - 1] !== dialog.selected) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "dim", "  …") : "  …";
-  const syncLabel = `${dialog.selected === "sync" ? "▎" : " "} Sync to Pi`;
-  const syncState = dialog.syncPi ? "[✓] on" : "[ ] off";
+  if (start > 0 && itemRows.length && visible[0] !== dialog.selected) itemRows[0] = theme ? styleToken(theme, "dim", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
+  if (start + maxVisible < rows.length && itemRows.length && visible[itemRows.length - 1] !== dialog.selected) itemRows[itemRows.length - 1] = theme ? styleToken(theme, "dim", `  ${glyphs.ellipsis}`) : `  ${glyphs.ellipsis}`;
+  const syncLabel = `${dialog.selected === "sync" ? glyphs.focus : " "} Sync to Pi`;
+  const syncState = dialog.syncPi ? `[${glyphs.ready}] on` : "[ ] off";
   const sync = `${syncLabel}${" ".repeat(Math.max(1, innerWidth - stripAnsi(syncLabel).length - syncState.length))}${syncState}`;
   const footers = dialog.pending
     ? ["Saving theme..."]
     : narrow
-      ? ["↑↓ Move · ←→ Choice · Space Sync", "Enter Save · Esc Cancel"]
-      : ["↑↓ Move · ←→ Automatic choice · Space Sync · Enter Apply · Esc Cancel"];
+      ? [`${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Choice ${glyphs.pendingStep} Space Sync`, `Enter Save ${glyphs.pendingStep} Esc Cancel`]
+      : [`${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.left}${glyphs.right} Automatic choice ${glyphs.pendingStep} Space Sync ${glyphs.pendingStep} Enter Apply ${glyphs.pendingStep} Esc Cancel`];
   const errors = visibleErrors.map((line) => theme ? styleToken(theme, "error", line) : line);
   return renderDialog("Theme", [...itemRows, "", selected(theme, dialog.selected === "sync", sync), ...errors, ...footers], width, theme);
 }
@@ -150,11 +151,11 @@ function moveThemeDetail(dialog: ThemeDialog, delta: number, ctx: ThemeDialogCon
 
 function renderSelection(row: ThemeDialogSelection, dialog: ThemeDialog, automatic: ReturnType<typeof parseAutomaticTheme>, theme?: SessionsTheme): string {
   if (row === "sync") return "";
-  if (row === "automatic") return selected(theme, dialog.selected === row, `${dialog.selected === row ? "▎" : " "} ${automatic ? "[✓]" : "[ ]"} Automatic`);
-  if (row === "automaticLight") return selected(theme, dialog.selected === row, `${dialog.selected === row ? "▎" : " "}     Light theme  ${automatic?.lightTheme ?? "light"}`);
-  if (row === "automaticDark") return selected(theme, dialog.selected === row, `${dialog.selected === row ? "▎" : " "}     Dark theme   ${automatic?.darkTheme ?? "dark"}`);
+  if (row === "automatic") return selected(theme, dialog.selected === row, `${dialog.selected === row ? glyphs.focus : " "} ${automatic ? `[${glyphs.ready}]` : "[ ]"} Automatic`);
+  if (row === "automaticLight") return selected(theme, dialog.selected === row, `${dialog.selected === row ? glyphs.focus : " "}     Light theme  ${automatic?.lightTheme ?? "light"}`);
+  if (row === "automaticDark") return selected(theme, dialog.selected === row, `${dialog.selected === row ? glyphs.focus : " "}     Dark theme   ${automatic?.darkTheme ?? "dark"}`);
   const name = row.slice("theme:".length);
-  return selected(theme, dialog.selected === row, `${dialog.selected === row ? "▎" : " "} ${!automatic && dialog.setting === name ? "[✓]" : "[ ]"} ${name}`);
+  return selected(theme, dialog.selected === row, `${dialog.selected === row ? glyphs.focus : " "} ${!automatic && dialog.setting === name ? `[${glyphs.ready}]` : "[ ]"} ${name}`);
 }
 
 function selected(theme: SessionsTheme | undefined, active: boolean, text: string): string {
