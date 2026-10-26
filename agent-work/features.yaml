@@ -1140,3 +1140,107 @@
   created_at: '2026-10-20'
   plan_file: agent-work/history/20261022_dashboard-scanability-012_taller_fleet_cards.md
   completed_at: '2026-10-22'
+- id: ui-polish-001
+  status: pending
+  title: Footer cursor fixes
+  subtitle: Correct footer labels and start cursor
+  description: The footer labels Enter correctly at every width, shows Next request
+    when requests exist, labels Show backlog clearly, and the cursor starts on the
+    first rendered row.
+  priority: 1
+  created_at: '2026-10-25'
+  references:
+  - agent-work/ui-review/critique.md
+- id: ui-polish-002
+  status: pending
+  title: Key notation consistency
+  subtitle: One notation, one name per concept
+  description: All dashboard surfaces format keys one way and use one user-facing
+    name per concept, such as sessions instead of trees.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-001
+- id: ui-polish-003
+  status: pending
+  title: Readable color roles
+  subtitle: Information never drawn in low-contrast dim
+  description: Ages, footer labels and other information use readable tokens, dim
+    is reserved for decoration, and unavailable palette actions look disabled rather
+    than erroneous.
+  priority: 1
+  created_at: '2026-10-25'
+- id: ui-polish-004
+  status: pending
+  title: Row hierarchy
+  subtitle: Aligned titles with one state glyph
+  description: Fleet rows show one state glyph, start every title in the same column,
+    make the title the strongest text, and animate only the selected running row.
+  priority: 1
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-003
+- id: ui-polish-005
+  status: pending
+  title: Header tier chips
+  subtitle: Clickable tier counts replace navigator
+  description: The mouse-only tier navigator column is removed and the header summary
+    becomes clickable tier chips, with counts beside each tier label.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-004
+- id: ui-polish-006
+  status: pending
+  title: Dense one-line rows
+  subtitle: Adaptive single-line rung before scrolling
+  description: When fleet cards would not fit, Active parents fall back to one line
+    with state, title, group, age and workflow grid before the list scrolls.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-005
+- id: ui-polish-007
+  status: pending
+  title: Board consistency
+  subtitle: Board shares fleet workflow grid
+  description: The workflow board uses the same workflow grid as the fleet, lane headers
+    are the strongest heading, and cards under a group heading do not repeat the group
+    badge.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-004
+- id: ui-polish-008
+  status: pending
+  title: Help and actions
+  subtitle: Grouped help and label-first action rows
+  description: Help is a grouped static reference without per-selection availability,
+    and workspace actions show the label first, the key right-aligned, and a clear
+    primary row.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-002
+  - ui-polish-004
+- id: ui-polish-009
+  status: pending
+  title: Dialog conversation polish
+  subtitle: Clear primary buttons and docked answers
+  description: The new-session dialog shows an enabled primary button and one hint
+    line, and the conversation docks the answer card under the latest message with
+    lighter speaker rules.
+  priority: 2
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-002
+- id: ui-polish-010
+  status: pending
+  title: Plain terminal support
+  subtitle: NO_COLOR and ASCII glyph fallback
+  description: The dashboard honors NO_COLOR while keeping selection visible and offers
+    an ASCII glyph set for terminals with inconsistent symbol widths.
+  priority: 3
+  created_at: '2026-10-25'
+  depends_on:
+  - ui-polish-004
