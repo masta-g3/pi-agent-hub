@@ -1223,6 +1223,7 @@
   depends_on:
   - ui-polish-002
   - ui-polish-004
+  plan_file: agent-work/plans/ui-polish-008.md
 - id: ui-polish-009
   status: pending
   title: Dialog conversation polish
