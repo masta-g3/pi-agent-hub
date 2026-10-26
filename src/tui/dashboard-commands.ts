@@ -5,7 +5,7 @@ import { matchesFilter } from "../core/session-tree.js";
 import { sessionClosure } from "../core/session-bucket.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
-import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
+import { formatKey, matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 import { NARROW_LAYOUT_MAX_WIDTH } from "./layout.js";
 
 export type DashboardCommandGroup = "actions" | "sessions" | "filters" | "views";
@@ -298,7 +298,7 @@ export function dashboardFooter(width: number, options: { coaching?: boolean; re
     const phoneHelp = compactCoaching ? "?" : help;
     const items = options.coaching
       ? [openItem, item("Ctrl+Q", "Return"), compactCoaching ? ":" : palette]
-      : [openItem, item("i", "Info"), palette, item("/", "Filter")];
+      : [openItem, item("i", "Workspace"), palette, item("/", "Filter")];
     const next = item(nextRequest.displayKey!, "Next");
     if (hasRequests && visibleWidth([...items, next, phoneHelp].join(" · ")) <= width) items.push(next);
     return [...items, phoneHelp].join(" · ");
@@ -510,7 +510,7 @@ function filterCommand(id: string, label: string, hint: string, key?: string, is
 
 function makeCommand(command: Omit<DashboardCommand, "bindings" | "searchText"> & Partial<Pick<DashboardCommand, "bindings" | "searchText">>): DashboardCommand {
   const disabledReason = command.enabled ? undefined : command.disabledReason ?? "command unavailable";
-  return { ...command, bindings: command.bindings ?? [], disabledReason, searchText: (command.searchText ?? `${command.label} ${command.hint}`).toLowerCase() };
+  return { ...command, displayKey: command.displayKey === undefined ? undefined : formatKey(command.displayKey), bindings: command.bindings ?? [], disabledReason, searchText: (command.searchText ?? `${command.label} ${command.hint}`).toLowerCase() };
 }
 
 function sessionHint(session: RuntimeSession): string {

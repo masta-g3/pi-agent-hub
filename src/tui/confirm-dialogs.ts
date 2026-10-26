@@ -185,10 +185,10 @@ export function renderRestartDialog(dialog: RestartDialog, width: number, height
     "a restarts every Active session.",
   ];
   const controls = [
-    confirmLine("warning", "r restart selected", ctx.theme),
-    confirmLine("warning", "n new conversation", ctx.theme),
-    confirmLine("warning", "a restart active", ctx.theme),
-    hintLine("Esc cancel · PgUp/PgDn read", ctx.theme),
+    confirmLine("warning", "r Restart selected", ctx.theme),
+    confirmLine("warning", "n New conversation", ctx.theme),
+    confirmLine("warning", "a Restart active", ctx.theme),
+    hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme),
   ];
   return renderBoundedConfirmation("Restart session", body, controls, dialog, width, height, ctx.theme, Boolean(target && target.kind !== "subagent"), dialog.targetId, targetReviewKey(target, []));
 }
@@ -264,7 +264,7 @@ function runConfirmAction(dialog: ConfirmDialog, action: ((id: string) => void |
 function renderDeleteDialog(dialog: ConfirmDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext): ConfirmationRender {
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
   const subagents = subagentTargets(target?.id, ctx);
-  const action = dialog.busy === "subagents" ? "closing subagents..." : dialog.busy === "finish" ? "finishing worktree..." : dialog.busy === "worktree" ? "discarding worktree..." : dialog.busy ? "deleting..." : "d delete session";
+  const action = dialog.busy === "subagents" ? "closing subagents..." : dialog.busy === "finish" ? "finishing worktree..." : dialog.busy === "worktree" ? "discarding worktree..." : dialog.busy ? "deleting..." : "d Delete session";
   const worktree = Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
   const choices = deleteChoices({ action, busy: Boolean(dialog.busy), subagentCount: subagents.length, targetIsSubagent: target?.kind === "subagent", worktree, canFinishWorktree: worktree && Boolean(ctx.actions.finishWorktree), theme: ctx.theme });
   const body = [
@@ -274,7 +274,7 @@ function renderDeleteDialog(dialog: ConfirmDialog, width: number, height: number
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
     ...(worktree ? [ctx.actions.finishWorktree ? "d keeps worktree and branch; D discards then archives; w merges then archives." : "d keeps worktree and branch; D discards then archives."] : []),
   ];
-  return renderBoundedConfirmation("Delete session", body, [...choices.filter(Boolean), hintLine("Esc cancel · PgUp/PgDn read", ctx.theme)], dialog, width, height, ctx.theme, Boolean(target) && !dialog.busy, dialog.targetId, targetReviewKey(target, subagents));
+  return renderBoundedConfirmation("Delete session", body, [...choices.filter(Boolean), hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme)], dialog, width, height, ctx.theme, Boolean(target) && !dialog.busy, dialog.targetId, targetReviewKey(target, subagents));
 }
 
 function renderFinishDialog(dialog: ConfirmDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext): ConfirmationRender {
@@ -291,8 +291,8 @@ function renderFinishDialog(dialog: ConfirmDialog, width: number, height: number
     ...(ctx.message() ? [`Error: ${ctx.message()}`] : []),
   ];
   const controls = [
-    dialog.busy ? "finishing worktree..." : confirmLine("warning", "w finish and merge", ctx.theme),
-    hintLine("Esc cancel · PgUp/PgDn read", ctx.theme),
+    dialog.busy ? "finishing worktree..." : confirmLine("warning", "w Finish and merge", ctx.theme),
+    hintLine("Esc Cancel · PgUp/PgDn Read", ctx.theme),
   ];
   return renderBoundedConfirmation("Finish worktree", body, controls, dialog, width, height, ctx.theme, eligible && !dialog.busy, dialog.targetId, targetReviewKey(target, subagentTargets(dialog.targetId, ctx)));
 }
@@ -308,7 +308,7 @@ function renderBoundedConfirmation(title: string, bodyRows: string[], controls: 
   const start = state.contentKey === contentKey ? Math.min(state.scroll, Math.max(0, body.length - pageSize)) : 0;
   const review: ConfirmationReview = { targetId, targetKey, contentKey, start, end: Math.min(body.length, start + pageSize), total: body.length, pageSize, actionable: eligible };
   if (height < 6 || available < controlLines.length + 1) {
-    const rows = ["Resize to review this action safely.", hintLine("Esc cancel", theme)];
+    const rows = ["Resize to review this action safely.", hintLine("Esc Cancel", theme)];
     return { lines: height < 6 ? rows.slice(0, Math.max(0, height)) : renderDialog(title, rows, width, theme).slice(0, height), review: { ...review, actionable: false, end: start } };
   }
   const visibleBody = Array.from({ length: pageSize }, (_, index) => body[start + index] ?? "");
@@ -344,18 +344,18 @@ function deleteChoices(input: { action: string; busy: boolean; subagentCount: nu
   if (input.busy) return [input.action];
   const choices = [];
   if (input.subagentCount && !input.targetIsSubagent) {
-    choices.push(`This session has ${input.subagentCount} ${input.subagentCount === 1 ? "subagent" : "subagents"}.`, "", confirmLine("warning", "s close subagents only", input.theme));
+    choices.push(`This session has ${input.subagentCount} ${input.subagentCount === 1 ? "subagent" : "subagents"}.`, "", confirmLine("warning", "s Close subagents only", input.theme));
   }
   if (!input.worktree) {
-    choices.push(confirmLine("error", input.subagentCount && !input.targetIsSubagent ? "d delete session + subagents" : input.action, input.theme));
+    choices.push(confirmLine("error", input.subagentCount && !input.targetIsSubagent ? "d Delete session + subagents" : input.action, input.theme));
     return choices;
   }
   choices.push(
-    confirmLine("warning", input.subagentCount && !input.targetIsSubagent ? "d forget dashboard row + subagents only" : "d forget dashboard row only", input.theme),
+    confirmLine("warning", input.subagentCount && !input.targetIsSubagent ? "d Forget dashboard row + subagents only" : "d Forget dashboard row only", input.theme),
     "  keeps worktree and branch",
-    confirmLine("error", "D discard worktree and branch", input.theme),
+    confirmLine("error", "D Discard worktree and branch", input.theme),
     "  requires a clean worktree; does not merge",
-    ...(input.canFinishWorktree ? [confirmLine("warning", "w finish instead — merge and remove", input.theme)] : []),
+    ...(input.canFinishWorktree ? [confirmLine("warning", "w Finish instead — merge and remove", input.theme)] : []),
   );
   return choices;
 }
