@@ -2157,9 +2157,11 @@ test("mouse hit map follows scrolled list window", () => {
 
 test("mouse clicks on list scroll indicators are ignored", () => {
   const opened: string[] = [];
-  const controller = new SessionsController({ version: 1, sessions: manyViewSessions(20) });
+  const sessions: RuntimeSession[] = manyViewSessions(20);
+  sessions[0]!.context = { version: 1, updatedAt: 1, ticket: { id: "dense-001", subtitle: "Selected card context" } };
+  const controller = new SessionsController({ version: 1, sessions });
   const view = new SessionsView(controller, () => {}, {
-    terminalRows: () => 16,
+    terminalRows: () => 9,
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
