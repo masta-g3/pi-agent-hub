@@ -635,15 +635,15 @@ export class SessionsView implements Component {
     if (this.conversationFocus !== "fleet" && this.conversationFocus !== "content" && this.conversationFocus !== "question" && !this.conversationActions.some(command => command.id === this.conversationFocus)) this.conversationFocus = "content";
     const title = `CONVERSATION · ${selected ? `${selected.title} [${selected.group}]` : "Select a session"}`;
     if (this.inlineQuestion) {
-      const transcriptHeight = height >= 12 ? Math.max(3, height - 12) : 0;
-      this.conversationTranscriptEndY = 1 + transcriptHeight + (transcriptHeight ? 1 : 0);
+      const transcriptLimit = height >= 12 ? Math.max(3, height - 12) : 0;
+      const transcript = target && transcriptLimit ? this.conversationReader.render(width, transcriptLimit, this.theme, this.inlineQuestion.request.toolCallId) : [];
+      this.conversationTranscriptEndY = 1 + transcript.length + (transcript.length ? 1 : 0);
       const answerHeight = height - this.conversationTranscriptEndY;
-      const transcript = target && transcriptHeight ? this.conversationReader.render(width, transcriptHeight, this.theme, this.inlineQuestion.request.toolCallId) : [];
       const heading = renderConversationHeading(title, width, this.theme);
       const separator = this.theme ? styleToken(this.theme, "border", "─".repeat(width)) : "─".repeat(width);
       const answer = renderQuestionDialog(this.inlineQuestion, width, answerHeight, this.theme, this.conversationFocus === "question");
       this.conversationActionRows = [];
-      return [...fleet, truncateToWidth(heading, width), ...Array.from({ length: transcriptHeight }, (_, index) => transcript[index] ?? ""), ...(transcriptHeight ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
+      return [...fleet, truncateToWidth(heading, width), ...transcript, ...(transcript.length ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
     }
     const actionHeight = Math.min(2, this.conversationActions.length);
     const actions = this.conversationActions.slice(0, actionHeight);
@@ -684,10 +684,13 @@ export class SessionsView implements Component {
     if (event.kind === "wheel") { dialog.scroll = Math.max(0, dialog.scroll + event.delta * 3); return; }
     if (!dialog.usable || dialog.submitting) return;
     const target = dialog.rowTargets[event.y - 1];
-    if (target === "back") { this.handleQuestion("\x1b"); return; }
+    const footerItem = event.y === dialog.rowTargets.length
+      ? dialog.footerItems.find(item => event.x >= item.x && event.x < item.x + item.width)
+      : undefined;
+    if (target === "back" || footerItem?.key === "Esc") { this.handleQuestion("\x1b"); return; }
     if (!dialog.available || dialog.uncertain) return;
     if (typeof target === "number") this.handleQuestion(target < dialog.request.params.questions[dialog.page]!.options.length ? String(target + 1) : "t");
-    else if (target === "next" || target === "submit") this.handleQuestion("\r");
+    else if ((target === "next" || target === "submit") && footerItem?.key === "Enter") this.handleQuestion("\r");
 
   }
 

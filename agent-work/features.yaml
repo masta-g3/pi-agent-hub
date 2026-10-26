@@ -1239,7 +1239,7 @@
   plan_file: agent-work/history/20261025_ui-polish-008_help_action_rows.md
   completed_at: '2026-10-25'
 - id: ui-polish-009
-  status: pending
+  status: done
   title: Dialog conversation polish
   subtitle: Clear primary buttons and docked answers
   description: The new-session dialog shows an enabled primary button and one hint
@@ -1249,7 +1249,8 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-002
-  plan_file: agent-work/plans/ui-polish-009.md
+  plan_file: agent-work/history/20261025_ui-polish-009_dialog_conversation_polish.md
+  completed_at: '2026-10-25'
 - id: ui-polish-010
   status: pending
   title: Plain terminal support
