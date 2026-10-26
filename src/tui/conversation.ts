@@ -118,11 +118,7 @@ export class ConversationReader {
     this.lines = this.items.filter(item => !inlineToolCallId || item.role !== "question" || item.toolCallId !== inlineToolCallId).flatMap(item => [labels[item.role], ...renderMarkdown(item.text, bodyWidth, theme), ...(item.truncated && !item.text.includes("Content shortened — Open in Pi") ? ["Content shortened — Open in Pi"] : []), ""]
       .map((text, offset) => {
         let line = text ? truncateToWidth(`  ${text}`, width) : "";
-        if (offset === 0) {
-          const label = `${line} `;
-          line = truncateToWidth(label + "─".repeat(Math.max(0, width - visibleWidth(label))), width);
-          if (theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
-        }
+        if (offset === 0 && theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
         return { id: item.id, offset, text: line };
       }));
     if (this.following) {

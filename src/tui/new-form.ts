@@ -230,7 +230,7 @@ function repoField(index: number, value: string, suggestions: string[]): Field {
     key: `repo:${index}`,
     label: index === 0 ? "Primary" : "Additional",
     value,
-    hint: index === 0 ? "Project Skills/MCP use this directory · Ctrl+O Choose" : "Ctrl+O Choose · Ctrl+X Remove",
+    hint: index === 0 ? "Project Skills/MCP use this directory" : "Ctrl+X Remove",
     suggestions,
     cycleIndex: matchSuggestionIndex(value, suggestions),
     truncate: "start",

@@ -171,20 +171,20 @@ function newFormFields(dialog: NewSessionDialog, width = 88): FormField[] {
     action("options", `${dialog.optionsExpanded ? "▾" : "▸"} Options`, options, "Space Expand/collapse · Ctrl+G Group · Ctrl+T Worktree · Ctrl+L Branch"),
     ...(dialog.optionsExpanded ? form.order.filter((key) => !isRepoKey(key)).map((key) => ({ ...form.fields[key], frame: key === "worktree" ? undefined : "input" as const })) : []),
     { ...action("save", "Save favorite…", "", "Enter Name this set · Ctrl+S"), section: "Actions" },
-    action("create", "", "[ Create session ]"),
+    { ...action("create", "", "[ Create session ]"), primary: validateNewForm(form).ok },
     action("cancel", "", "Cancel"),
   ];
 }
 
 function newFormFooter(dialog: NewSessionDialog): string {
   if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
-  if (isRepoKey(dialog.form.focus)) return "Enter Create · Ctrl+Y Create · Esc Cancel · Ctrl+O Choose directory";
+  if (isRepoKey(dialog.form.focus)) return "Enter Create · Ctrl+O Choose directory · Esc Cancel";
   if (dialog.form.focus === "worktree") return "Enter/Space Toggle · Ctrl+Y Create · Esc Cancel";
-  return "Enter Create · Ctrl+Y Create · Esc Cancel";
+  return "Enter Create · Esc Cancel";
 }
 
 function newFormNarrowFooter(dialog: NewSessionDialog): string {
   if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
   if (dialog.form.focus === "worktree") return "Enter Toggle · Ctrl+Y Create · Esc Cancel";
-  return "Enter Create · Ctrl+Y Create · Esc Cancel";
+  return "Enter Create · Esc Cancel";
 }
