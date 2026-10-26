@@ -95,7 +95,7 @@ function savedSkillPoolDialog(pending: PickerDialog, items: PickerItem[], dir: s
       poolDirExtraCount: ctx.actions.skillPoolDirExtraCount?.() ?? 0,
       poolInput: undefined,
       poolPending: false,
-      poolMessage: "skill pool saved; press enter to apply selected skills",
+      poolMessage: "skill pool saved; press Enter to apply selected skills",
       poolError: undefined,
       detailOffset: 0,
     },

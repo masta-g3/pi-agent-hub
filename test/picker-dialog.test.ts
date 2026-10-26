@@ -43,6 +43,6 @@ test("skills picker applies synchronous skill pool saves", () => {
   assert.equal(dialog.picker.poolPending, false);
   assert.equal(dialog.picker.poolInput, undefined);
   assert.equal(dialog.picker.poolDir, "/tmp/new-skills");
-  assert.equal(dialog.picker.poolMessage, "skill pool saved; press enter to apply selected skills");
+  assert.equal(dialog.picker.poolMessage, "skill pool saved; press Enter to apply selected skills");
   assert.deepEqual(dialog.picker.items, [{ name: "new-skill", enabled: false }]);
 });
