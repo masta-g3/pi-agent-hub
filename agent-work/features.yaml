@@ -1141,7 +1141,7 @@
   plan_file: agent-work/history/20261022_dashboard-scanability-012_taller_fleet_cards.md
   completed_at: '2026-10-22'
 - id: ui-polish-001
-  status: pending
+  status: done
   title: Footer cursor fixes
   subtitle: Correct footer labels and start cursor
   description: The footer labels Enter correctly at every width, shows Next request
@@ -1151,6 +1151,8 @@
   created_at: '2026-10-25'
   references:
   - agent-work/ui-review/critique.md
+  plan_file: agent-work/history/20261025_ui-polish-001_footer_cursor_fixes.md
+  completed_at: '2026-10-25'
 - id: ui-polish-002
   status: pending
   title: Key notation consistency
@@ -1253,3 +1255,15 @@
   - ui-polish-007
   - ui-polish-008
   - ui-polish-009
+- id: test-isolation-001
+  status: pending
+  title: Test environment isolation
+  subtitle: Isolate tests from live agent state
+  description: Tests clear inherited Hub/subagent routing variables so full-suite
+    runs inside managed agents finish without touching live Hub state; inherited child
+    guards caused two ui-polish-001 timeouts.
+  priority: 2
+  created_at: '2026-10-25'
+  discovered_from: ui-polish-001
+  references:
+  - agent-work/history/20261025_ui-polish-001_footer_cursor_fixes.md
