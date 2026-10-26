@@ -1223,7 +1223,7 @@
   plan_file: agent-work/history/20261025_ui-polish-007_board_grid_consistency.md
   completed_at: '2026-10-25'
 - id: ui-polish-008
-  status: pending
+  status: done
   title: Help and actions
   subtitle: Grouped help and label-first action rows
   description: Help is a grouped static reference without per-selection availability,
@@ -1234,7 +1234,8 @@
   depends_on:
   - ui-polish-002
   - ui-polish-004
-  plan_file: agent-work/plans/ui-polish-008.md
+  plan_file: agent-work/history/20261025_ui-polish-008_help_action_rows.md
+  completed_at: '2026-10-25'
 - id: ui-polish-009
   status: pending
   title: Dialog conversation polish

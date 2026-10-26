@@ -818,7 +818,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
     assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
     assert.match(text, /⠋ running/, `${width}`);
     assert.match(text, /Commit · step 5 of 5/, `${width}`);
-    assert.match(text, /▸ U\s+Reopen/, `${width}`);
+    assert.match(text, /▌ Reopen\s+U/, `${width}`);
     assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
   }
   const abandoned = archivedRow("gone", "Gone work", { closure: "abandoned" });
@@ -829,7 +829,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
   for (const height of [8, 10, 12]) {
     const short = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width: 100, height, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(short, /✓ Closed · Done/, `height ${height}`);
-    assert.match(short, /▸ U\s+Reopen/, `height ${height}`);
+    assert.match(short, /▌ Reopen\s+U/, `height ${height}`);
   }
 });
 
@@ -1113,7 +1113,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
   assert.match(threeText, /api\s+● running/);
   assert.match(threeText, /Adaptive cockpit/);
   assert.doesNotMatch(threeText, /no explicit request|running · ACTIVE/);
-  assert.match(threeText, /▸ Enter\s+Open/);
+  assert.match(threeText, /▌ Open\s+Enter/);
   assert.doesNotMatch(threeText, /Open · : Actions/);
   assert.deepEqual(three.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
   assert.equal(three.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "api").length, 1);
@@ -1124,7 +1124,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
 
   const twoText = renderAt(9).lines.map(stripAnsi).join("\n");
   assert.doesNotMatch(twoText, /no explicit request|running · ACTIVE/);
-  assert.match(twoText, /api\s+● running[\s\S]*▸ Enter\s+Open/);
+  assert.match(twoText, /api\s+● running[\s\S]*▌ Open\s+Enter/);
   const one = renderAt(8);
   assert.doesNotMatch(one.lines.map(stripAnsi).join("\n"), /no explicit request|running · ACTIVE/);
   assert.deepEqual(one.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
@@ -2127,13 +2127,13 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
-    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▸ Enter", "LIVE DETAILS"].map((label) => text.indexOf(label));
+    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▌ Open in Pi", "LIVE DETAILS"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
     assert.doesNotMatch(text, /Ship once notarization/, `${width}: description must not trail a complete subtitle`);
-    assert.match(text, /i\s+Hide details/);
-    assert.match(text, /:\s+Actions/);
+    assert.match(text, /Hide details\s+i/);
+    assert.match(text, /All actions\s+:/);
     assert.ok(layout.workspaceRowTargets.filter(Boolean).length >= 3);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
@@ -2212,12 +2212,12 @@ test("workspace height pruning preserves primary action and requested evidence t
     const layout = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 60, height, workspaceEvidenceVisible: true }));
     assert.equal(layout.lines.length, height);
     const text = layout.lines.map(stripAnsi).join("\n");
-    assert.match(text, /▸ Enter\s+Open/);
+    assert.match(text, /▌ Open\s+Enter/);
     assert.match(text, /live evidence unavailable/);
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
     for (const [index, target] of layout.workspaceRowTargets.entries()) {
-      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|Actions/);
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|All actions/);
     }
   }
 });

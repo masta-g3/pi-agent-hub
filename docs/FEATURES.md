@@ -88,6 +88,8 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
+Press `?` for a static reference grouped into Session actions, Pins, Views, and Filters, followed by navigation, dialogs, and the status legend. Help uses base action names and primary keys even when no session is selected; it does not show availability. Keys stay aligned on the right. At 160+ columns, sections use two columns. Palette-only filters have no key and share the note `via : palette`. Use `↑` / `↓` or `PgUp` / `PgDn` to scroll, and `Esc` to return.
+
 ## Conversation
 
 Press `c` to read the selected live parent session below the fleet. Close pinned panes first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
@@ -168,7 +170,7 @@ A waiting session alone does not enter `NEEDS YOU`. A running child can put its 
 
 ### Action workspace
 
-Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
+Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. Action rows put the label first and the key at the right. An accent `▌` and bold label identify the primary action, including in the pinned decision strip. **All actions** opens the `:` palette.
 
 At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Esc` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
 
