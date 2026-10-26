@@ -1151,6 +1151,7 @@
   created_at: '2026-10-25'
   references:
   - agent-work/ui-review/critique.md
+  plan_file: agent-work/plans/ui-polish-001.md
 - id: ui-polish-002
   status: pending
   title: Key notation consistency
