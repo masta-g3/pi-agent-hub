@@ -111,6 +111,8 @@ export interface RenderSection {
   cockpitTier?: CockpitTier;
   repoKey?: string;
   title: string;
+  /** Canonical board vocabulary selected by the producer-lane projection. */
+  gridWorkflow?: WorkflowRuntimeSnapshot;
   statusCounts: StatusCounts;
   sessionsTotal: number;
   sessionsVisible?: number;
@@ -710,6 +712,7 @@ export interface BoardLaneRow {
 }
 
 interface BoardProjection<T> {
+  workflow?: WorkflowRuntimeSnapshot;
   rows: T[];
   lanes: { key: string; title: string; rows: T[]; parentCount: number }[];
   hidden: BoardHiddenCounts;
@@ -779,6 +782,7 @@ function projectBoardRows<T extends BoardLaneRow>(activeRows: T[], allRows: T[])
   const allParents = allRows.filter((row) => row.kind !== "subagent");
   const activeParentIds = new Set(activeParents.map((row) => row.id));
   return {
+    workflow: vocabularyOwner?.workflow,
     rows: lanes.flatMap((lane) => lane.rows),
     lanes,
     hidden: {
@@ -830,6 +834,7 @@ function lanesForBoard(sessions: RenderSession[], projection: BoardProjection<Ru
     return {
       key: lane.key,
       title: lane.title,
+      gridWorkflow: projection.workflow,
       statusCounts: countRenderSessions(rows),
       sessionsTotal: lane.parentCount,
       hiddenChildRequestCount: 0,

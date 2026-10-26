@@ -432,7 +432,8 @@ test("help overlay opens and closes", () => {
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
   assert.match(help, /Alt\+W Open next request/);
-  assert.match(help, /\]\s+Next request · select the next visible session that needs you · unavailable: no visible requests/);
+  assert.match(help, /Next request · select the next visible session that needs you\s+\]/);
+  assert.doesNotMatch(help, /unavailable:/);
   assert.match(help, /i Toggle/);
   assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
@@ -462,7 +463,7 @@ test("Help derives configured shortcuts from the command catalog", () => {
   view.handleInput("?");
 
   const help = stripAnsi(view.render(120).join("\n"));
-  assert.match(help, /Ctrl\+X\s+Summarize · send \/summary/);
+  assert.match(help, /Summarize · send \/summary\s+Ctrl\+X/);
 });
 
 test("t opens theme settings from an empty dashboard and Escape restores preview", () => {
@@ -903,7 +904,7 @@ test("Space expands and collapses the selected board parent tree", () => {
   assert.match(fleetText(view.render(120)), /api/);
 
   view.handleInput(" ");
-  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api/);
   assert.match(fleetText(view.render(120)), /worker/);
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -989,7 +990,7 @@ test("left and right arrows collapse and expand the selected board tree", () => 
 
   view.handleInput("S");
   view.handleInput("\u001b[C");
-  assert.match(fleetText(view.render(120)), /▾\s+○ \[default\] api[\s\S]*worker/);
+  assert.match(fleetText(view.render(120)), /▾\s+○ api[\s\S]*worker/);
 
   view.handleInput("j");
   assert.equal(controller.snapshot().selectedId, "child");
@@ -1582,8 +1583,8 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▸ A\s+Archive…/);
-  assert.doesNotMatch(workspace, /▸ Enter\s+Open/);
+  assert.match(workspace, /▌ Archive…\s+A/);
+  assert.doesNotMatch(workspace, /▌ Open\s+Enter/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -1969,7 +1970,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const before = controller.snapshot().selectedId;
 
   const headerIndex = rendered.findIndex((line) => stripAnsi(line).includes("QUIET"));
-  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
   assert.notEqual(openIndex, -1, "missing workspace Open action");
   view.handleInput(mousePressAtLine(headerIndex));
@@ -1981,7 +1982,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const sectionSelected = view.render(120);
   view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
   const sessionSelected = view.render(120);
-  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
+  const currentOpenIndex = sessionSelected.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(currentOpenIndex, 110));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
@@ -1993,8 +1994,8 @@ test("workspace More commands click opens the palette and stale action IDs stay 
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
   const rendered = view.render(120);
-  const openIndex = rendered.findIndex((line) => /Enter\s+Open/.test(stripAnsi(line)));
-  const actionsIndex = rendered.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
+  const actionsIndex = rendered.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
   assert.notEqual(openIndex, -1);
   assert.notEqual(actionsIndex, -1);
 
@@ -2004,7 +2005,7 @@ test("workspace More commands click opens the palette and stale action IDs stay 
   assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
 
   const current = view.render(120);
-  const currentActions = current.findIndex((line) => /:\s+Actions/.test(stripAnsi(line)));
+  const currentActions = current.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(currentActions, 110));
   assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });
@@ -4350,7 +4351,7 @@ test("palette and workspace Archive rows open the same target-bound chooser", ()
   view.handleInput("x");
 
   const wide = view.render(120);
-  const archiveRow = wide.findIndex((line) => /A\s+Archive…/.test(stripAnsi(line)));
+  const archiveRow = wide.findIndex((line) => /Archive…\s+A/.test(stripAnsi(line)));
   assert.notEqual(archiveRow, -1);
   assert.doesNotMatch(stripAnsi(wide.join("\n")), /Close session/);
   view.handleInput(mousePressAtLine(archiveRow, 110));
