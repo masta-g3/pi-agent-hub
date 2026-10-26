@@ -1,10 +1,11 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
 import { sessionClosure } from "../core/session-bucket.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
-import { matchesDashboardShortcut } from "./dashboard-shortcuts.js";
+import { formatKey, matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 import { NARROW_LAYOUT_MAX_WIDTH } from "./layout.js";
 
 export type DashboardCommandGroup = "actions" | "sessions" | "filters" | "views";
@@ -278,8 +279,8 @@ export function conversationDashboardFooter(): string {
     .map(([id, label]) => `${commands.find(command => command.id === id)!.displayKey} ${label}`).join(" · ");
 }
 
-export function dashboardFooter(width: number, options: { coaching?: boolean } = {}): string {
-  const global = viewCommands({ sessions: [], capabilities: { theme: true } });
+export function dashboardFooter(width: number, options: { coaching?: boolean; requestCount?: number; filter?: string } = {}): string {
+  const global = viewCommands({ sessions: [], filter: options.filter, capabilities: { theme: true } });
   const open = actionSpecs.find((spec) => spec.name === "open")!;
   const item = (key: string, label: string) => `${key} ${label}`;
   const fromView = (id: string, label: string) => {
@@ -288,16 +289,39 @@ export function dashboardFooter(width: number, options: { coaching?: boolean } =
   };
   const palette = fromView("view:palette", "Actions");
   const help = fromView("view:help", "Help");
-  if (options.coaching) {
-    if (width < 60) return [item("Enter", "Open"), item("Ctrl+Q", "Return"), ":", "?"].join(" · ");
-    return [item("Enter", "Open"), item("Ctrl+Q", "Return"), palette, help].join(" · ");
-  }
-  const openItem = item(open.keys[0]!, width < 120 ? "Workspace" : open.label);
+  const openItem = item(open.keys[0]!, open.label);
+  const hasRequests = (options.requestCount ?? 0) > 0;
+  const nextRequest = global.find((command) => command.id === "view:next-request")!;
   // Phone-width items are tap targets, ordered so trailing ones drop first.
-  if (width <= NARROW_LAYOUT_MAX_WIDTH) return [item(open.keys[0]!, open.label), item("i", "Info"), palette, item("/", "Filter"), help].join(" · ");
+  if (width <= NARROW_LAYOUT_MAX_WIDTH) {
+    const compactCoaching = options.coaching && width < 60;
+    const phoneHelp = compactCoaching ? "?" : help;
+    const items = options.coaching
+      ? [openItem, item("Ctrl+Q", "Return"), compactCoaching ? ":" : palette]
+      : [openItem, item("i", "Workspace"), palette, item("/", "Filter")];
+    const next = item(nextRequest.displayKey!, "Next");
+    if (hasRequests && visibleWidth([...items, next, phoneHelp].join(" · ")) <= width) items.push(next);
+    return [...items, phoneHelp].join(" · ");
+  }
   const filter = item("/", "Filter");
-  if (width < 100) return ["↑↓ Move", openItem, filter, item("b", "Backlog"), palette, help].join(" · ");
-  return ["↑↓ Move", openItem, fromView("action:new", "New"), filter, item("b", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"), palette, help].join(" · ");
+  const backlog = global.find((command) => command.id === "view:backlog")!;
+  const backlogItem = item(backlog.displayKey!, backlog.label);
+  const newItem = fromView("action:new", "New");
+  const group = fromView("view:fleet-grouping", "Group");
+  const board = fromView("view:grouping", "Board");
+  const primary = [openItem,
+    ...(width < 120 ? [item("i", "Workspace")] : []),
+    ...(hasRequests ? [item(nextRequest.displayKey!, nextRequest.label)] : [])];
+  const items = options.coaching
+    ? [...primary, item("Ctrl+Q", "Return"), palette, help]
+    : ["↑↓ Move", ...primary, ...(width >= 100 ? [newItem] : []), filter, backlogItem,
+      ...(width >= 100 ? [group, board] : []), palette, help];
+  for (const lowerPriority of [group, board, newItem, backlogItem, "↑↓ Move", filter, help, palette]) {
+    if (visibleWidth(items.join(" · ")) <= width - 2) break;
+    const index = items.indexOf(lowerPriority);
+    if (index >= 0) items.splice(index, 1);
+  }
+  return items.join(" · ");
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
@@ -432,7 +456,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
     makeCommand({
       id: "view:backlog",
       group: "views",
-      label: parseDashboardFilter(input.filter).lifecycle.has("backlog") ? "Hide Backlog" : "Show Backlog",
+      label: parseDashboardFilter(input.filter).lifecycle.has("backlog") ? "Hide backlog" : "Show backlog",
       hint: "toggle Backlog in the lifecycle filter without moving sessions",
       displayKey: "b",
       bindings: [{ key: "b" }],
@@ -486,7 +510,7 @@ function filterCommand(id: string, label: string, hint: string, key?: string, is
 
 function makeCommand(command: Omit<DashboardCommand, "bindings" | "searchText"> & Partial<Pick<DashboardCommand, "bindings" | "searchText">>): DashboardCommand {
   const disabledReason = command.enabled ? undefined : command.disabledReason ?? "command unavailable";
-  return { ...command, bindings: command.bindings ?? [], disabledReason, searchText: (command.searchText ?? `${command.label} ${command.hint}`).toLowerCase() };
+  return { ...command, displayKey: command.displayKey === undefined ? undefined : formatKey(command.displayKey), bindings: command.bindings ?? [], disabledReason, searchText: (command.searchText ?? `${command.label} ${command.hint}`).toLowerCase() };
 }
 
 function sessionHint(session: RuntimeSession): string {

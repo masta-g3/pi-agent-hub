@@ -308,13 +308,13 @@ function moveGroupChoices(ctx: FormDialogContext, currentGroup: string | undefin
 
 function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: string; footer: string; narrowFooter: string } {
   switch (dialog.purpose) {
-    case "fork": return { title: "Fork session", footer: "tab next · ←→ edit · enter fork · esc cancel", narrowFooter: "Enter Fork · Esc Cancel" };
-    case "forkCompact": return { title: "Fork and compact", footer: "tab next · ←→ edit · enter fork and compact · esc cancel", narrowFooter: "Enter Fork+Compact · Esc Cancel" };
+    case "fork": return { title: "Fork session", footer: "Tab Next · ←→ Edit · Enter Fork · Esc Cancel", narrowFooter: "Enter Fork · Esc Cancel" };
+    case "forkCompact": return { title: "Fork and compact", footer: "Tab Next · ←→ Edit · Enter Fork and compact · Esc Cancel", narrowFooter: "Enter Fork+Compact · Esc Cancel" };
     case "moveGroup": {
       const choices = moveGroupChoices(ctx, formTarget(dialog, ctx)?.group);
       return {
         title: "Move to group",
-        footer: choices.length ? "ctrl-n/p cycle · ←→ edit · enter move · esc cancel" : "←→ edit · enter move · esc cancel",
+        footer: choices.length ? "Ctrl+N/Ctrl+P Cycle · ←→ Edit · Enter Move · Esc Cancel" : "←→ Edit · Enter Move · Esc Cancel",
         narrowFooter: "Enter Move · Esc Cancel",
       };
     }
@@ -322,12 +322,12 @@ function formRenderSpec(dialog: FormDialog, ctx: FormDialogContext): { title: st
       const action = dialog.form.focus === "delivery" ? "Change" : dialog.delivery === "send" ? "Send" : dialog.delivery === "steer" ? "Steer" : "Queue";
       return {
         title: `Send to ${formTarget(dialog, ctx)?.title ?? "session"}`,
-        footer: `${dialog.delivery === "send" ? "←→ edit" : "tab field · ←→ edit/change"} · enter ${action.toLowerCase()} · esc cancel`,
+        footer: `${dialog.delivery === "send" ? "←→ Edit" : "Tab Field · ←→ Edit/change"} · Enter ${action} · Esc Cancel`,
         narrowFooter: `${dialog.delivery === "send" ? "" : "Tab · "}Enter ${action} · Esc Cancel`,
       };
     }
-    case "renameSession": return { title: "Rename session", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "Enter Rename · Esc Cancel" };
-    case "renameGroup": return { title: "Rename group", footer: "←→ edit · enter rename · esc cancel", narrowFooter: "Enter Rename · Esc Cancel" };
+    case "renameSession": return { title: "Rename session", footer: "←→ Edit · Enter Rename · Esc Cancel", narrowFooter: "Enter Rename · Esc Cancel" };
+    case "renameGroup": return { title: "Rename group", footer: "←→ Edit · Enter Rename · Esc Cancel", narrowFooter: "Enter Rename · Esc Cancel" };
   }
 }
 
@@ -348,7 +348,7 @@ export function normalizeDetailOffset(
 
 function moveGroupHint(count: number): string {
   if (count === 0) return "existing or new group label";
-  return `ctrl-n/p cycle ${count} existing ${count === 1 ? "group" : "groups"} · or type new`;
+  return `Ctrl+N/Ctrl+P Cycle ${count} existing ${count === 1 ? "group" : "groups"} · or type new`;
 }
 
 function setFieldError<K extends string>(state: FormState<K>, key: K, error: string): FormState<K> {

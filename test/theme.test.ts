@@ -262,7 +262,8 @@ test("renderSessions paints the selected row background across the list column",
   const plain = renderSessions(buildRenderModel({ sessions: [session()], width: 80, selectedId: "s1" })).lines;
   const plainSelected = plain.find((line) => line.includes("▌"));
   assert.ok(plainSelected, "plain selected row not found");
-  assert.doesNotMatch(plainSelected, /\[/);
+  assert.match(plainSelected, /\u001b\[1mapi\u001b\[22m/);
+  assert.doesNotMatch(plainSelected.replace(/\u001b\[(?:1|22)m/g, ""), /\u001b\[/);
 });
 
 test("footer keys are styled without changing visible text", () => {
