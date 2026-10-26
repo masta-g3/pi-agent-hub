@@ -48,29 +48,33 @@ test("producer-neutral entries carry completion through heartbeat, lanes, and ca
       workflow: heartbeat.workflow,
     };
     const model = buildRenderModel({ sessions: [session], selectedId: session.id, grouping: "stage", width: 100 });
-    return { heartbeat, model, text: renderSessions(model).lines.map(stripAnsi).join("\n") };
+    const layout = renderSessions(model);
+    const rowIndex = layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === session.id);
+    const card = stripAnsi(layout.lines[rowIndex]!);
+    return { heartbeat, model, markers: card.match(/[✓◉·]/g)?.join(""), text: layout.lines.map(stripAnsi).join("\n") };
   };
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
     await handlers.get("session_start")?.({}, ctx);
     const cases = [
-      ["check", false, "Checking changes", "◉CK", "check"],
-      ["check", true, "Check complete", "✓CK", "check"],
-      ["polish", false, "Polishing result", "◉PO", "polish"],
-      ["ship", true, "Ship complete", "✓SH", "ship"],
+      ["check", false, "Checking changes", "✓✓◉··", "check"],
+      ["check", true, "Check complete", "✓✓✓··", "check"],
+      ["polish", false, "Polishing result", "✓✓✓◉·", "polish"],
+      ["ship", true, "Ship complete", "✓✓✓✓✓", "ship"],
     ] as const;
     for (const [step, complete, label, marker, lane] of cases) {
       const result = await publish(step, complete, label, branch.length + 1);
       assert.equal(result.heartbeat.workflow?.currentStepComplete, complete);
       assert.equal(result.model.sections[0]?.key, lane);
-      assert.match(result.text, new RegExp(`${marker}[\\s\\S]*${label}`));
+      assert.equal(result.markers, marker);
+      assert.match(result.text, new RegExp(label));
     }
 
     const replacement = await publish("draft", false, "Starting next workflow", branch.length + 1);
     assert.equal(replacement.model.sections[0]?.key, "draft");
-    assert.match(replacement.text, /◉DR[\s\S]*Starting next workflow/);
-    assert.doesNotMatch(replacement.text, /✓SH/);
+    assert.equal(replacement.markers, "◉····");
+    assert.match(replacement.text, /Starting next workflow/);
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     if (previousId === undefined) delete process.env[SESSION_ID_ENV]; else process.env[SESSION_ID_ENV] = previousId;
