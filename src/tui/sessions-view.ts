@@ -23,7 +23,7 @@ import {
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
@@ -110,11 +110,11 @@ export class SessionsView implements Component {
   private selectedRepo: string | undefined;
   private rowTargets: (SessionListTarget | undefined)[] = [];
   private selectedRowAnimating = false;
-  private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
+  private tierChipRow: number | undefined;
+  private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
   private announcementRowTargets: (string | undefined)[] = [];
   private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
-  private navigatorWidth = 0;
   private listStartX = 2;
   private workspaceStartX: number | undefined;
   private footerRow: number | undefined;
@@ -320,6 +320,8 @@ export class SessionsView implements Component {
     this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
+    this.tierChipRow = undefined;
+    this.tierChips = [];
     this.confirmationReview = undefined;
     this.clearExpiredFlash();
     this.lastWidth = width;
@@ -338,10 +340,8 @@ export class SessionsView implements Component {
       this.conversationActions = [];
       if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
       this.rowTargets = [];
-      this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
       this.announcementRowTargets = [];
-      this.navigatorWidth = 0;
       this.listStartX = 2;
       this.workspaceStartX = undefined;
       this.listWidth = 0;
@@ -349,7 +349,6 @@ export class SessionsView implements Component {
     }
     if (this.dialog || this.pendingRestart) {
       this.rowTargets = [];
-      this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
       this.announcementRowTargets = [];
     }
@@ -449,10 +448,10 @@ export class SessionsView implements Component {
     this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
       && (selected?.status === "running" || selected?.status === "starting")
       && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
-    this.navigatorRowTargets = layout.navigatorRowTargets;
+    this.tierChipRow = layout.tierChipRow;
+    this.tierChips = layout.tierChips;
     this.workspaceRowTargets = layout.workspaceRowTargets;
     this.announcementRowTargets = layout.announcementRowTargets;
-    this.navigatorWidth = layout.navigatorWidth;
     this.listStartX = layout.listStartX;
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
@@ -1406,12 +1405,12 @@ export class SessionsView implements Component {
       this.executeDashboardCommand(announcementTarget);
       return;
     }
-    const navigatorTarget = this.navigatorWidth && event.x >= 2 && event.x < 2 + this.navigatorWidth
-      ? this.navigatorRowTargets[event.y - 1]
+    const tierChip = event.kind === "press" && event.y - 1 === this.tierChipRow
+      ? this.tierChips.find((chip) => event.x >= chip.x && event.x < chip.x + chip.width)
       : undefined;
-    if (navigatorTarget) {
+    if (tierChip) {
       this.lastMouseClick = undefined;
-      this.jumpToCockpitTier(navigatorTarget.tier);
+      this.jumpToCockpitTier(tierChip.tier);
       return;
     }
     const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX && event.x < this.lastWidth
@@ -2287,7 +2286,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: 
     "  P Pin/focus selected     x Close selected pin     +/- Resize split",
     "  Alt+←/→/↑/↓ Move spatially     Ctrl+Q Return to cockpit",
     "  subagent rows: ←/→ Collapse/expand selected · Shift+←/→ All",
-    "  mouse click select · tier navigator jumps at 100+ · double-click open/switch · wheel move",
+    "  mouse click select · header tier chips jump · double-click open/switch · wheel move",
     "",
     heading("Choice dialogs"),
     "  Restart: r Selected     n New conversation     a All     Esc Cancel",

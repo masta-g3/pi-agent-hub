@@ -1189,7 +1189,7 @@
   plan_file: agent-work/history/20261025_ui-polish-004_row_hierarchy.md
   completed_at: '2026-10-25'
 - id: ui-polish-005
-  status: pending
+  status: done
   title: Header tier chips
   subtitle: Clickable tier counts replace navigator
   description: The mouse-only tier navigator column is removed and the header summary
@@ -1199,7 +1199,8 @@
   depends_on:
   - ui-polish-004
   - ui-polish-002
-  plan_file: agent-work/plans/ui-polish-005.md
+  plan_file: agent-work/history/20261025_ui-polish-005_header_tier_chips.md
+  completed_at: '2026-10-25'
 - id: ui-polish-006
   status: pending
   title: Dense one-line rows
