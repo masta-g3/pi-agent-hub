@@ -1735,7 +1735,7 @@ test("verified cleaned worktree markers are muted", () => {
   };
   const rendered = renderSessions(buildRenderModel({ sessions: [item], width: 120 }), theme).lines.join("\n");
 
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇✓")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇✓")));
   assert.ok(!rendered.includes(styleToken(theme, "success", "⎇✓")));
 });
 
@@ -1755,7 +1755,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const plain = stripAnsi(rendered);
   assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ◈ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇ ")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });
