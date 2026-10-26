@@ -3,6 +3,7 @@ import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
 import { ageLabel } from "./age.js";
+import { formatKey } from "./dashboard-shortcuts.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
@@ -1185,11 +1186,14 @@ function workspaceActionBlock(
   const targets: (string | undefined)[] = lines.map(() => undefined);
   for (const command of commands) {
     const primary = command.id === primaryId;
-    const key = command.displayKey ?? "";
-    const label = command.id === workspace.evidenceCommand.id && workspace.evidenceVisible ? "Hide details" : command.label;
-    const prefix = primary ? `${styles.accent("▸")} ` : "  ";
-    const keyText = primary ? styles.accent(pad(key, 7)) : pad(key, 7);
-    lines.push(`${prefix}${keyText}${label}`);
+    const key = formatKey(command.displayKey ?? "");
+    const label = command.id === workspace.evidenceCommand.id && workspace.evidenceVisible ? "Hide details"
+      : command.id === workspace.moreCommand.id ? "All actions" : command.label;
+    const prefix = primary ? `${styles.accent("▌")} ` : "  ";
+    const fittedLabel = truncate(label, Math.max(0, width - 3 - displayWidth(key)));
+    const labelText = primary ? styles.strong(fittedLabel) : fittedLabel;
+    const gap = " ".repeat(Math.max(1, width - 2 - displayWidth(fittedLabel) - displayWidth(key)));
+    lines.push(`${prefix}${labelText}${gap}${styles.accent(key)}`);
     targets.push(command.id);
   }
   return block("actions", lines, targets);
