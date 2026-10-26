@@ -165,26 +165,26 @@ function newFormFields(dialog: NewSessionDialog, width = 88): FormField[] {
   const modeWidth = Math.min(visibleWidth(mode), Math.max(12, valueWidth - 7));
   const options = `${truncate(form.fields.group.value, Math.max(1, valueWidth - modeWidth - 3))} · ${truncate(mode, modeWidth)}`;
   return [
-    { ...action("favorite", "Favorite", favoriteLabel, "enter choose · ctrl-f favorites"), frame: "picker" },
+    { ...action("favorite", "Favorite", favoriteLabel, "Enter Choose · Ctrl+F Favorites"), frame: "picker" },
     ...directories.map((field) => ({ ...field, frame: "input" as const })),
-    action("add", "+ Add directory", "", "enter add · ctrl-r"),
-    action("options", `${dialog.optionsExpanded ? "▾" : "▸"} Options`, options, "space expand/collapse · ctrl-g group · ctrl-t worktree · ctrl-l branch"),
+    action("add", "+ Add directory", "", "Enter Add · Ctrl+R"),
+    action("options", `${dialog.optionsExpanded ? "▾" : "▸"} Options`, options, "Space Expand/collapse · Ctrl+G Group · Ctrl+T Worktree · Ctrl+L Branch"),
     ...(dialog.optionsExpanded ? form.order.filter((key) => !isRepoKey(key)).map((key) => ({ ...form.fields[key], frame: key === "worktree" ? undefined : "input" as const })) : []),
-    { ...action("save", "Save favorite…", "", "enter name this set · ctrl-s"), section: "Actions" },
+    { ...action("save", "Save favorite…", "", "Enter Name this set · Ctrl+S"), section: "Actions" },
     action("create", "", "[ Create session ]"),
     action("cancel", "", "Cancel"),
   ];
 }
 
 function newFormFooter(dialog: NewSessionDialog): string {
-  if (dialog.actionFocus) return "enter select · ^Y create · esc cancel";
-  if (isRepoKey(dialog.form.focus)) return "enter create · ^Y create · esc cancel · ctrl-o choose directory";
-  if (dialog.form.focus === "worktree") return "enter/space toggle · ^Y create · esc cancel";
-  return "enter create · ^Y create · esc cancel";
+  if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
+  if (isRepoKey(dialog.form.focus)) return "Enter Create · Ctrl+Y Create · Esc Cancel · Ctrl+O Choose directory";
+  if (dialog.form.focus === "worktree") return "Enter/Space Toggle · Ctrl+Y Create · Esc Cancel";
+  return "Enter Create · Ctrl+Y Create · Esc Cancel";
 }
 
 function newFormNarrowFooter(dialog: NewSessionDialog): string {
-  if (dialog.actionFocus) return "Enter Select · ^Y Create · Esc Cancel";
-  if (dialog.form.focus === "worktree") return "Enter Toggle · ^Y Create · Esc Cancel";
-  return "Enter Create · ^Y Create · Esc Cancel";
+  if (dialog.actionFocus) return "Enter Select · Ctrl+Y Create · Esc Cancel";
+  if (dialog.form.focus === "worktree") return "Enter Toggle · Ctrl+Y Create · Esc Cancel";
+  return "Enter Create · Ctrl+Y Create · Esc Cancel";
 }

@@ -132,8 +132,8 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
     styles.muted(browse ? "Enter Select · Tab Recent · Esc Cancel" : "Enter Select · → Browse · Tab Browse · Esc Cancel"),
   );
   else lines.push(styles.muted(browse
-    ? "type search · → open · ← up · enter select · tab recent · esc cancel"
-    : "type search · ↑↓ move · → browse into · enter select · tab browse · esc cancel"));
+    ? "Type search · → Open · ← Up · Enter Select · Tab Recent · Esc Cancel"
+    : "Type search · ↑↓ Move · → Browse into · Enter Select · Tab Browse · Esc Cancel"));
   return [
     `${styles.border("╭")}${styles.border("─".repeat(inner))}${styles.border("╮")}`,
     ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),

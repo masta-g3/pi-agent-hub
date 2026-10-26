@@ -52,9 +52,9 @@ Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agent
 | `c` | Show or hide the selected live session's Conversation panel |
 | `i` | Show task context, actions, and live status details |
 | `v` / `S` | Switch Status/Repo view / visit the workflow board |
-| `←` / `→` | Collapse / expand a subagent tree; add Shift for all trees |
+| `←` / `→` | Collapse / expand a subagent tree; use `Shift+←` / `Shift+→` for all trees |
 | `r` / `R` | Restart choices / rename |
-| `f` / `Shift+F` | Fork / fork and compact |
+| `f` / `F` | Fork / fork and compact |
 | `g` / `G` | Move a session to a group / rename its group |
 | `A` / `B` / `U` | Archive as Done, Abandoned, or archive only / move to Backlog / restore or reopen |
 | `s` / `m` | Pick project skills / MCP servers |
@@ -140,7 +140,7 @@ pi-hub config unset worktree-default
 
 `add --add-cwd` creates a symlink workspace for multiple repos. Skills and MCP stay attached to the primary repo.
 
-For an isolated branch, enable Worktree with `Ctrl+T` in the new-session form and enter a branch name. Press `w` to finish a clean worktree session, merge its branch into the recorded base branch, and remove its worktrees. Use `d`, then `Shift+D`, to discard clean worktrees and branches without merging. Both require clean worktrees; finish also requires clean base repos.
+For an isolated branch, enable Worktree with `Ctrl+T` in the new-session form and enter a branch name. Press `w` to finish a clean worktree session, merge its branch into the recorded base branch, and remove its worktrees. Use `d`, then `D`, to discard clean worktrees and branches without merging. Both require clean worktrees; finish also requires clean base repos.
 
 Normal `delete` stops the session and removes Hub records and its symlink workspace. It keeps Pi conversation files, source repos, and hub-owned worktree directories. Archive and Backlog do not stop Pi; archiving also closes the session's pin. See [Worktree model](docs/FEATURES.md#worktree-model) for the full safety rules.
 
