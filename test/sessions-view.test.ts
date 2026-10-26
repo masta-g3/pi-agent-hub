@@ -3282,7 +3282,7 @@ test("p opens a send form and submits message to selected live session", async (
 });
 
 test("send form keeps input, recipient and controls visible in narrow themed layouts", async () => {
-  const theme = { ...darkTheme, dim: "#010203", border: "#040506" };
+  const theme = { ...darkTheme, muted: "#010203", border: "#040506" };
   for (const width of [40, 50, 80, 120]) {
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
       ...messageActions,
