@@ -389,10 +389,10 @@ function renderFilterBar(model: RenderModel, width: number, styles: LayoutStyles
   const tone = model.noMatches ? styles.warning : styles.accent;
   const hiddenLabel = `${hidden} hidden`;
   const hints = editor
-    ? ["Enter apply · Esc cancel", "Enter · Esc cancel", "Esc cancel"]
+    ? ["Enter Apply · Esc Cancel", "Enter · Esc Cancel", "Esc Cancel"]
     : model.empty
-      ? [`${hiddenLabel} · Esc clear`, "Esc clear"]
-      : [`${hiddenLabel} · / edit · Esc clear`, `${hiddenLabel} · Esc clear`, "Esc clear"];
+      ? [`${hiddenLabel} · Esc Clear`, "Esc Clear"]
+      : [`${hiddenLabel} · / Edit · Esc Clear`, `${hiddenLabel} · Esc Clear`, "Esc Clear"];
   const hint = hints.find((candidate) => displayWidth(label) + displayWidth(candidate) + 6 <= width) ?? hints[hints.length - 1]!;
   const fieldWidth = Math.max(1, width - displayWidth(label) - displayWidth(hint) - 2);
   const query = editor
@@ -409,8 +409,8 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
   const visibleTrees = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
   const totalTrees = board ? model.boardTotalCardCount : model.summary.ownerTotal;
   const countLabel = model.filter !== undefined
-    ? `${visibleTrees}/${totalTrees}${board ? " Active" : ""} trees`
-    : `${visibleTrees}${board ? " Active" : ""} ${visibleTrees === 1 ? "tree" : "trees"}`;
+    ? `${visibleTrees}/${totalTrees}${board ? " active" : ""} sessions`
+    : `${visibleTrees}${board ? " active" : ""} ${visibleTrees === 1 ? "session" : "sessions"}`;
   const pinCount = model.pinSummary?.count ?? 0;
   const pinLabel = model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`;
   const constrained = model.pinSummary?.constrained ? styles.warning("constrained") : "";
@@ -585,7 +585,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   const pushReleaseCue = () => {
     if (!releaseCue || releaseCueRendered) return;
     const prefix = releaseCue.selected ? `${styles.accent("▌")} ` : "  ";
-    const detail = model.width >= 160 ? " · ? explains · : finds actions · Enter dismiss" : model.width >= 100 ? " · ? explains · : finds actions" : "";
+    const detail = model.width >= 160 ? " · ? Explain · : Find actions · Enter Dismiss" : model.width >= 100 ? " · ? Explain · : Find actions" : "";
     const copy = `${styles.accent(releaseCue.label)}  ${styles.muted(releaseCue.text)}${styles.muted(detail)}`;
     if (lines.length) pushLine("");
     if (releaseCue.selected) {
@@ -677,7 +677,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     priorityIndexes.push(lines.length);
     pushLine(`${styles.accent("▶")} ${styles.accent("n")}  create the first managed Pi session`);
     priorityIndexes.push(lines.length);
-    pushLine(`${styles.accent("Enter")} opens · ${styles.accent("Ctrl+Q")} returns · ${styles.accent("?")} keys · ${styles.accent(":")} actions`);
+    pushLine(`${styles.accent("Enter")} Open · ${styles.accent("Ctrl+Q")} Return · ${styles.accent("?")} Keys · ${styles.accent(":")} Actions`);
   }
   if (board) {
     pushLine("");
@@ -731,7 +731,7 @@ function replaceVisibleColumn(value: string, column: number, replacement: string
 }
 
 function noMatchListLines(width: number, model: RenderModel, styles: LayoutStyles): string[] {
-  const controls = model.filterEditing ? "Enter apply · Esc cancel" : "/ edit · Esc clear";
+  const controls = model.filterEditing ? "Enter Apply · Esc Cancel" : "/ Edit · Esc Clear";
   return [styles.warning("No sessions match."), "", `${styles.warning("▶")} ${controls}`, ""]
     .map((line) => truncate(line, width));
 }

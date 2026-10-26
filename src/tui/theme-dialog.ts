@@ -134,7 +134,7 @@ export function renderThemeDialog(dialog: ThemeDialog, width: number, height: nu
     ? ["Saving theme..."]
     : narrow
       ? ["↑↓ Move · ←→ Choice · Space Sync", "Enter Save · Esc Cancel"]
-      : ["↑↓ move · ←→ Automatic choice · space sync · enter apply · esc cancel"];
+      : ["↑↓ Move · ←→ Automatic choice · Space Sync · Enter Apply · Esc Cancel"];
   const errors = visibleErrors.map((line) => theme ? styleToken(theme, "error", line) : line);
   return renderDialog("Theme", [...itemRows, "", selected(theme, dialog.selected === "sync", sync), ...errors, ...footers], width, theme);
 }

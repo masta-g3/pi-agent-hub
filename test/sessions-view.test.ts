@@ -354,8 +354,8 @@ test("committed filter stays above results and escape clears", () => {
   view.handleInput("o");
   view.handleInput("\r");
   const rendered = view.render(100).join("\n");
-  assert.match(stripAnsi(rendered), /FLEET\s+1\/2 trees/);
-  assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ edit.*Esc clear/);
+  assert.match(stripAnsi(rendered), /FLEET\s+1\/2 sessions/);
+  assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ Edit.*Esc Clear/);
   assert.doesNotMatch(stripAnsi(rendered), /filter:/);
   assert.match(rendered, /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
@@ -371,7 +371,7 @@ test("filter editor is visible with an empty draft and slash leaves narrow works
   assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FLEET/);
   view.handleInput("/");
   const lines = view.render(60).map(stripAnsi);
-  assert.match(lines[1]!, /FILTERING.*█.*Enter apply.*Esc cancel/);
+  assert.match(lines[1]!, /FILTERING.*█.*Enter Apply.*Esc Cancel/);
   assert.match(lines.join("\n"), /FLEET/);
   view.handleInput("\r");
   assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FILTERING|FILTERED/);
@@ -399,7 +399,7 @@ test("restored filter on an empty dashboard shows only valid clear recovery", ()
     initialViewState: { grouping: "project", filter: { text: "api", lifecycle: ["active", "backlog", "archived"] } },
   });
   const text = stripAnsi(view.render(80).join("\n"));
-  assert.match(text, /FILTERED\s+api.*0 hidden.*Esc clear/);
+  assert.match(text, /FILTERED\s+api.*0 hidden.*Esc Clear/);
   assert.doesNotMatch(text, /\/ edit/);
   view.handleInput("\u001b");
   assert.equal(controller.snapshot().filter, undefined);
@@ -431,24 +431,24 @@ test("help overlay opens and closes", () => {
   assert.doesNotMatch(help, /Alt\+Q/);
   assert.match(help, /Ctrl\+Q/);
   assert.match(help, /Alt\+R/);
-  assert.match(help, /Alt\+W open next request/);
+  assert.match(help, /Alt\+W Open next request/);
   assert.match(help, /\]\s+Next request · select the next visible session that needs you · unavailable: no visible requests/);
-  assert.match(help, /i toggle/);
+  assert.match(help, /i Toggle/);
   assert.match(help, /Actions · search actions, sessions, bounded context, and filters/);
   assert.match(help, /zero counts are hidden/);
-  assert.match(help, /P pin\/focus selected/);
-  assert.match(help, /x close selected pin/);
-  assert.match(help, /Alt\+arrows move spatially/);
+  assert.match(help, /P Pin\/focus selected/);
+  assert.match(help, /x Close selected pin/);
+  assert.match(help, /Alt\+←\/→\/↑\/↓ Move spatially/);
   assert.doesNotMatch(help, /1-4 assign|Focus panel/);
-  assert.match(help, /Enter\/double-click opens or switches directly at every width/);
+  assert.match(help, /Enter\/double-click Open or switch directly at every width/);
   assert.doesNotMatch(help, /Density|compact and all-card/);
   assert.match(help, /Theme… · preview and select the dashboard theme/);
   assert.match(help, /Status fleet: Needs you · Health · Active · Quiet/);
   assert.match(help, /only explicit producer attention enters Needs you/);
   assert.match(help, /Archived is flat and chronological/);
   assert.match(help, /Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE/);
-  assert.match(help, /subagent trees: ←\/→ collapse\/expand selected · Shift\+←\/→ all/);
-  assert.match(help, /subagent trees start collapsed; Space toggles one board tree/);
+  assert.match(help, /subagent rows: ←\/→ Collapse\/expand selected · Shift\+←\/→ All/);
+  assert.match(help, /subagent rows start collapsed; Space Toggle one board tree/);
   view.handleInput("\u001b");
   assert.doesNotMatch(view.render(80).join("\n"), /pi agent hub help/);
 });
@@ -462,7 +462,7 @@ test("Help derives configured shortcuts from the command catalog", () => {
   view.handleInput("?");
 
   const help = stripAnsi(view.render(120).join("\n"));
-  assert.match(help, /C-x\s+Summarize · send \/summary/);
+  assert.match(help, /Ctrl\+X\s+Summarize · send \/summary/);
 });
 
 test("t opens theme settings from an empty dashboard and Escape restores preview", () => {
@@ -738,7 +738,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
 
   view.render(120);
   view.handleInput("S");
-  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 Active trees/m);
+  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 active sessions/m);
   assert.equal(controller.snapshot().selectedId, "a");
 
   view.handleInput("j");
@@ -2543,7 +2543,7 @@ test("new form worktree row toggles with space", () => {
   view.handleInput(" ");
 
   assert.match(view.render(120).join("\n"), /▎ worktree\s+\[x\] on/);
-  assert.match(view.render(120).join("\n"), /space toggle/);
+  assert.match(view.render(120).join("\n"), /Space Toggle/);
 });
 
 test("new form worktree toggle submits a branch without a title input", () => {
@@ -2846,7 +2846,7 @@ test("delete dialog requires confirmation and escape cancels", () => {
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Delete session/);
   assert.match(rendered, /api/);
-  assert.match(rendered, /▶ d delete session/);
+  assert.match(rendered, /▶ d Delete session/);
   view.handleInput("\u001b");
   assert.equal(deleted, undefined);
   assert.doesNotMatch(view.render(100).join("\n"), /Delete session/);
@@ -2878,8 +2878,8 @@ test("delete dialog offers subagent-only cleanup for parent sessions", () => {
   view.handleInput("d");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /1 subagent/);
-  assert.match(rendered, /s\s+close subagents only/);
-  assert.match(rendered, /d\s+delete session \+ subagents/);
+  assert.match(rendered, /s\s+Close subagents only/);
+  assert.match(rendered, /d\s+Delete session \+ subagents/);
   view.handleInput("s");
 
   assert.equal(closed, "api");
@@ -2917,7 +2917,7 @@ test("delete dialog does not offer subagent-only cleanup for selected subagent",
   const rendered = view.render(100).join("\n");
 
   assert.match(rendered, /target\s+smoke/);
-  assert.doesNotMatch(rendered, /close subagents only/);
+  assert.doesNotMatch(rendered, /Close subagents only/);
 });
 
 test("delete dialog distinguishes forgetting and discarding worktree sessions", () => {
@@ -2940,10 +2940,10 @@ test("delete dialog distinguishes forgetting and discarding worktree sessions", 
   view.handleInput("d");
   const rendered = view.render(100).join("\n");
 
-  assert.match(rendered, /d\s+forget dashboard row only/);
+  assert.match(rendered, /d\s+Forget dashboard row only/);
   assert.match(rendered, /keeps worktree and branch/);
-  assert.match(rendered, /D\s+discard worktree and branch/);
-  assert.match(rendered, /w\s+finish instead/);
+  assert.match(rendered, /D\s+Discard worktree and branch/);
+  assert.match(rendered, /w\s+Finish instead/);
 
   view.handleInput("d");
   assert.equal(deleted, "api");
@@ -3019,7 +3019,7 @@ test("finish worktree dialog confirms with second w", () => {
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Finish worktree/);
   assert.match(rendered, /feature\/api → main/);
-  assert.match(rendered, /w finish and merge/);
+  assert.match(rendered, /w Finish and merge/);
   view.handleInput("w");
 
   assert.equal(finished, "api");
@@ -3121,7 +3121,7 @@ test("group dialog prepopulates and cycles visible existing groups", () => {
   let rendered = stripAnsi(view.render(120).join("\n"));
   assert.match(rendered, /Move to group/);
   assert.match(rendered, /group\s+docs█/);
-  assert.match(rendered, /ctrl-n\/p cycle 2 existing groups/);
+  assert.match(rendered, /Ctrl\+N\/Ctrl\+P Cycle 2 existing groups/);
 
   view.handleInput("\u000e");
   rendered = stripAnsi(view.render(120).join("\n"));
@@ -3320,7 +3320,7 @@ test("p opens a send form and submits message to selected live session", async (
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /Send to api/);
   assert.match(prompt, /▎ message\s+█/);
-  assert.match(prompt, /enter send · esc cancel/);
+  assert.match(prompt, /Enter Send · Esc Cancel/);
   assert.doesNotMatch(prompt, /FLEET|send to api:/);
   for (const char of "fix it") view.handleInput(char);
   view.handleInput("\r");
@@ -3348,7 +3348,7 @@ test("send form keeps input, recipient and controls visible in narrow themed lay
     assert.match(rendered, /message/);
     assert.match(rendered, /….*█/);
     assert.match(rendered, /enter send|Enter Send/);
-    assert.match(rendered, /esc cancel|Esc Cancel/);
+    assert.match(rendered, /Esc Cancel/);
     assert.match(rows.join("\n"), /\u001b\[38;2;1;2;3m/);
     assert.ok(rows.length <= 12);
     for (const row of rows) assert.ok(visibleWidth(row) <= width, row);
@@ -3776,7 +3776,7 @@ test("mcp picker does not edit skill pool", () => {
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /MCP/);
   assert.doesNotMatch(rendered, /pool:/);
-  assert.doesNotMatch(rendered, /Alt\+E edit pool/);
+  assert.doesNotMatch(rendered, /Alt\+E Edit pool/);
 });
 
 test("mcp picker toggles and applies with restart prompt", () => {
@@ -3828,9 +3828,9 @@ test("restart requires confirmation and supports new conversation", () => {
   view.handleInput("r");
   const rendered = view.render(100).join("\n");
   assert.match(rendered, /Restart session/);
-  assert.match(rendered, /▶ r restart selected/);
-  assert.match(rendered, /▶ n new conversation/);
-  assert.match(rendered, /▶ a restart active/);
+  assert.match(rendered, /▶ r Restart selected/);
+  assert.match(rendered, /▶ n New conversation/);
+  assert.match(rendered, /▶ a Restart active/);
   assert.deepEqual(restarted, []);
   view.handleInput("n");
   assert.deepEqual(fresh, ["api"]);
@@ -4555,8 +4555,8 @@ function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
 
 test("phone footer taps follow the same dashboard key paths", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 22, now: () => 0 });
-  tapFooterKey(view, view.render(44), "/");
-  assert.match(stripAnsi(view.render(44).join("\n")), /FILTERING/);
+  tapFooterKey(view, view.render(60), "/");
+  assert.match(stripAnsi(view.render(60).join("\n")), /FILTERING/);
   view.handleInput("\u001b");
 
   tapFooterKey(view, view.render(44), "i");
@@ -4566,11 +4566,12 @@ test("phone footer taps follow the same dashboard key paths", () => {
   assert.match(stripAnsi(view.render(44)[0] ?? ""), /^FLEET/);
 });
 
-test("phone Next footer tap selects the next request without opening or acknowledging", () => {
+test("phone coaching Next footer tap selects the next request without opening or acknowledging", () => {
   const events: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [requestSession("a", 30), requestSession("b", 20)] });
   const view = new SessionsView(controller, () => {}, {
     terminalRows: () => 22,
+    initialViewState: { grouping: "project", cockpitOnboarding: { cohort: "new", phase: "learning" } },
     switchInsideTmux: (id) => { events.push(`switch:${id}`); },
     acknowledgeSession: (id) => { events.push(`ack:${id}`); },
   });

@@ -87,7 +87,7 @@ test("footer backlog toggle uses the catalog label for the current filter", () =
 
 test("phone request hint keeps the existing tap-target order and only uses spare space", () => {
   assert.equal(dashboardFooter(44, { requestCount: 1 }), dashboardFooter(44));
-  assert.equal(dashboardFooter(60, { requestCount: 1 }), "Enter Open · i Info · : Actions · / Filter · ] Next · ? Help");
+  assert.equal(dashboardFooter(60, { requestCount: 1 }), "Enter Open · i Workspace · : Actions · / Filter · ? Help");
 });
 
 test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {

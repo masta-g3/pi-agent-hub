@@ -176,7 +176,7 @@ export function renderCommandPalette(
   const contentStart = searchRuleIndex + 1;
   const helpRuleIndex = Math.max(contentStart, helpIndex - 1);
   lines[helpRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
-  lines[helpIndex] = pad(truncate(styleToken(theme, "muted", narrow ? "Enter Run · Esc Back · PgUp/PgDn Details" : "↑↓/Ctrl+N/P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
+  lines[helpIndex] = pad(truncate(styleToken(theme, "muted", narrow ? "Enter Run · Esc Back · PgUp/PgDn Details" : "↑↓/Ctrl+N/Ctrl+P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
   const available = Math.max(0, helpRuleIndex - contentStart);
   if (!available) return result();
 

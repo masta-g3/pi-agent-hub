@@ -7,6 +7,7 @@ import type { SessionsController, SyncPiNameResult } from "../app/controller.js"
 import type { ManagedSession, RuntimeSession } from "../core/types.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
+import { formatKey } from "./dashboard-shortcuts.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
 import { buildDashboardCommands, commandForKey, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
 import {
@@ -1491,7 +1492,7 @@ export class SessionsView implements Component {
       const request = ++this.themeLoadRequest;
       this.busy = true;
       this.themeLoading = true;
-      this.message = "loading themes... · Esc cancel";
+      this.message = "loading themes... · Esc Cancel";
       void result.then((input) => {
         if (request !== this.themeLoadRequest) return;
         this.busy = false;
@@ -1662,7 +1663,7 @@ export class SessionsView implements Component {
         this.message = plan.message;
         return false;
       }
-      this.flashMessage(`switching: ${plan.command} · Ctrl+Q returns`);
+      this.flashMessage(`switching: ${plan.command} · Ctrl+Q Return`);
       try {
         const result = switchInsideTmux(selected.tmuxSession);
         if (isPromise(result)) return result.then((switched) => switched !== false).catch((error: unknown) => {
@@ -2257,7 +2258,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
   const commandLines = commands
     .filter((command) => command.group !== "sessions")
     .map((command) => {
-      const keys = command.bindings.map((binding) => binding.key).join("/") || ":";
+      const keys = formatKey(command.displayKey ?? ":");
       const unavailable = command.enabled ? "" : ` · unavailable: ${command.disabledReason}`;
       return `  ${padVisibleLine(keys, 12)} ${command.label} · ${command.hint}${unavailable}`;
     });
@@ -2268,36 +2269,36 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     ...commandLines,
     "",
     heading("Navigation"),
-    "  ↑↓/j/k move selection     Esc cancel/clear",
-    "  P pin/focus selected     x close selected pin     +/- resize split",
-    "  Alt+arrows move spatially     Ctrl+Q return to cockpit",
-    "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
+    "  ↑↓/j/k Move selection     Esc Cancel/clear",
+    "  P Pin/focus selected     x Close selected pin     +/- Resize split",
+    "  Alt+←/→/↑/↓ Move spatially     Ctrl+Q Return to cockpit",
+    "  subagent rows: ←/→ Collapse/expand selected · Shift+←/→ All",
     "  mouse click select · tier navigator jumps at 100+ · double-click open/switch · wheel move",
     "",
     heading("Choice dialogs"),
-    "  Restart: r selected     n new conversation     a all     Esc cancel",
-    "  Delete: d delete/forget     D discard worktree     s close subagents     w finish worktree",
-    "  Group picker: Ctrl+N/P cycles groups · palette: Ctrl+N/P moves selection",
+    "  Restart: r Selected     n New conversation     a All     Esc Cancel",
+    "  Delete: d Delete/forget     D Discard worktree     s Close subagents     w Finish worktree",
+    "  Group picker: Ctrl+N/Ctrl+P Cycle groups · palette: Ctrl+N/Ctrl+P Move selection",
     "",
     heading("New-session form"),
-    "  Tab/↑↓ move     Space toggles Worktree row     Ctrl+T toggles anywhere     Ctrl+O choose repo",
-    "  Ctrl+R add repo    Ctrl+X remove extra",
+    "  Tab/↑↓ Move     Space Toggle Worktree row     Ctrl+T Toggle anywhere     Ctrl+O Choose repo",
+    "  Ctrl+R Add repo    Ctrl+X Remove extra",
     "",
     heading("Pickers and themes"),
-    "  pickers: ←→/Tab switch columns; theme: live preview, Enter apply, Esc cancel",
+    "  pickers: ←→/Tab Switch columns; theme: live preview, Enter Apply, Esc Cancel",
     "",
     heading("Return from managed sessions and panels"),
-    "  Ctrl+Q pinned pane to cockpit     Alt+R rename session     Alt+W open next request",
+    "  Ctrl+Q Return to cockpit     Alt+R Rename session     Alt+W Open next request",
     "",
     heading("Sections and views"),
     "  Status fleet: Needs you · Health · Active · Quiet; groups appear on session rows",
-    "  v toggles flat repo sections; Enter/double-click folds the selected repo header",
+    "  v Toggle flat repo sections; Enter/double-click Fold the selected repo header",
     "  only explicit producer attention enters Needs you; Backlog stays labeled in Quiet when inactive",
-    "  Archived is flat and chronological; Enter/double-click reveals older rows",
+    "  Archived is flat and chronological; Enter/double-click Reveal older rows",
     "  Archived cascades auto-remove after 7d once every tmux session is gone",
-    "  S toggles the read-only producer workflow board",
+    "  S Toggle the read-only producer workflow board",
     "  Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE;",
-    "  subagent trees start collapsed; Space toggles one board tree; filters reveal matches",
+    "  subagent rows start collapsed; Space Toggle one board tree; filters reveal matches",
     "  every lane nests project/group labels; Backlog/Archived stay summarized",
     "",
     heading("Status legend"),
@@ -2307,9 +2308,9 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, commands: r
     "",
     heading("Action workspace"),
     "  selected session: request · task · workflow position · exceptional guidance · actions",
-    "  ▸ marks the primary action; i appends or hides live Details",
-    "  Enter/double-click opens or switches directly at every width",
-    "  with pins, Enter opens directly and i toggles details in the compact decision strip",
+    "  ▸ marks the primary action; i Append or hide live Details",
+    "  Enter/double-click Open or switch directly at every width",
+    "  with pins, Enter Open directly and i Toggle details in the compact decision strip",
   ];
   const inner = Math.max(MIN_RENDER_WIDTH, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
