@@ -485,9 +485,10 @@ test("tree gutter tones reuse warning and border theme tokens", () => {
 
   const active = { ...session("active", "app", "running", "Active"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "active-001", subtitle: "Active context" } } };
   const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 14 })).lines.map(stripAnsi);
-  assert.match(clipped.find((line) => line.includes("─│ NEEDS YOU 1")) ?? "", /─│ NEEDS YOU 1/);
-  assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│   \? Needs/);
-  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└   \? Needs/);
+  assert.match(clipped.find((line) => line.includes("── NEEDS YOU 1")) ?? "", /── NEEDS YOU 1/);
+  const denseNeeds = clipped.find((line) => line.includes("Needs")) ?? "";
+  assert.match(denseNeeds, /\? Needs/);
+  assert.doesNotMatch(denseNeeds, /[│└]   \? Needs/, "a one-line tree has no rich gutter");
 });
 
 test("mode labels survive every 40-column signal combination", () => {
@@ -1207,17 +1208,17 @@ test("height-bounded empty and no-match states fit terminal rows", () => {
 
 test("height-bounded list keeps a top selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s0", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(4).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(7).map((item) => item.id));
 });
 
 test("height-bounded list keeps a bottom selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s19", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(16).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(13).map((item) => item.id));
 });
 
 test("height-bounded list centers a middle selection among nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s10", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(8, 12).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(7, 14).map((item) => item.id));
 });
 
 test("height-bounded list handles exact and one-over capacity", () => {
@@ -1227,7 +1228,8 @@ test("height-bounded list handles exact and one-over capacity", () => {
   assert.deepEqual(renderedSessionIds(exact), manySessions(4).map((item) => item.id));
 
   const oneOver = renderSessions(buildRenderModel({ sessions: manySessions(5), selectedId: "s0", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(oneOver), manySessions(4).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(oneOver), manySessions(5).map((item) => item.id));
+  assert.equal(oneOver.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id !== "s0").length, 0);
 });
 
 test("height-bounded list derives its adaptive window from selection", () => {
@@ -1235,8 +1237,8 @@ test("height-bounded list derives its adaptive window from selection", () => {
   const first = renderSessions(buildRenderModel({ sessions, selectedId: "s10", width: 100, height: 15 }));
   const next = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 100, height: 15, listScrollTop: 99 }));
 
-  assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(8, 12).map((item) => item.id));
-  assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(10, 14).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(7, 14).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(8, 15).map((item) => item.id));
 });
 
 test("project view defaults to cockpit tiers with Backlog as row metadata", () => {

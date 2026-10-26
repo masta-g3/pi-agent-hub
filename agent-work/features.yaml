@@ -1202,7 +1202,7 @@
   plan_file: agent-work/history/20261025_ui-polish-005_header_tier_chips.md
   completed_at: '2026-10-25'
 - id: ui-polish-006
-  status: pending
+  status: done
   title: Dense one-line rows
   subtitle: Adaptive single-line rung before scrolling
   description: When fleet cards would not fit, Active parents fall back to one line
@@ -1211,6 +1211,8 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-005
+  plan_file: agent-work/history/20261025_ui-polish-006_dense_fleet_rows.md
+  completed_at: '2026-10-25'
 - id: ui-polish-007
   status: done
   title: Board consistency

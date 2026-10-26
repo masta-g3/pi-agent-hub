@@ -147,9 +147,17 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible ? (shell.framed ? 2 : 1) : 0, inset);
   // Card spacers are a luxury: drop them all once the fleet needs windowing.
   const spaced = renderSessionList(model, listWidth, styles, true);
-  const left = targetRows !== undefined && spaced.lines.length > targetRows
+  let left = targetRows !== undefined && spaced.lines.length > targetRows
     ? renderSessionList(model, listWidth, styles, false)
     : spaced;
+  if (model.grouping !== "stage" && model.width > NARROW_LAYOUT_MAX_WIDTH && targetRows !== undefined) {
+    const twoLineHeight = left.lines.reduce((count, _line, index) => {
+      const optional = (left.continuationPriorities.get(index) ?? -1) >= 0;
+      const selectedOwner = left.selectedOwnerId !== undefined && left.lineMeta[index]?.ownerId === left.selectedOwnerId;
+      return count + (optional && !selectedOwner ? 0 : 1);
+    }, 0);
+    if (twoLineHeight > targetRows) left = renderSessionList(model, listWidth, styles, false, true);
+  }
   const workspace = model.showWorkspace && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
@@ -507,7 +515,7 @@ interface SessionListContent {
   priorityIndexes?: number[];
 }
 
-function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean): SessionListContent {
+function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean, dense = false): SessionListContent {
   if (model.noMatches) {
     const lines = noMatchListLines(width, model, styles);
     return {
@@ -553,7 +561,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   };
   let gridWorkflow: WorkflowRuntimeSnapshot | undefined;
   const gridGap = model.width <= NARROW_LAYOUT_MAX_WIDTH ? " " : "  ";
-  const oneLineRows = !board && model.width < 100 && model.height !== undefined && model.height > 0 && model.height < SHORT_FLEET_HEIGHT;
+  const shortRows = !board && model.width < 100 && model.height !== undefined && model.height > 0 && model.height < SHORT_FLEET_HEIGHT;
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     const rowStyles = session.cockpitOwnerId === selectedOwnerId ? { ...styles, dim: styles.muted } : styles;
     if (session.selected) selectedIndex = lines.length;
@@ -564,19 +572,19 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const gutterColumn = model.width >= 100 && !model.pinMode;
     const titleFirst = !board && shape === "full-parent";
     const cell = titleFirst || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
-    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, workflowCell: board ? cell : undefined });
-    // Short windows move the workflow cell onto the title line so every row keeps its progress.
-    pushLine(oneLineRows && cell?.right ? twoColumn(row, cell.right, width) : row, { kind: "session", id: session.id }, session);
+    const oneLine = titleFirst && (shortRows || (dense && session.cockpitOwnerId !== selectedOwnerId));
+    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine, workflowCell: cell });
+    pushLine(row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (titleFirst && cell && (!oneLineRows || session.selected)) {
+    if (titleFirst && cell && (!oneLine || (shortRows && session.selected))) {
       const indent = gutterColumn ? "   " : "  ";
-      const metadataCell = oneLineRows ? { ...cell, right: "" } : cell;
+      const metadataCell = oneLine ? { ...cell, right: "" } : cell;
       // Without card lines, the metadata line is the only place a differing repo name can appear.
-      const repoInline = model.width < 100 || model.compactRows || oneLineRows;
+      const repoInline = model.width < 100 || model.compactRows || oneLine;
       pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, rowStyles, metadataCell, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
     }
-    if (shape === "full-parent" && !model.compactRows && !oneLineRows) {
+    if (shape === "full-parent" && !model.compactRows && !oneLine) {
       for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), rowStyles, board, model.width, model.fleetGrouping === "repo" && !board)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
@@ -1418,6 +1426,30 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   return hierarchy(workflow ? [workflow] : []).find(fits) ?? "";
 }
 
+/** Drop group, then age, before sacrificing the grid or the title's readable minimum. */
+function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
+  const minimumTitle = Math.min(12, displayWidth(session.title));
+  const fits = (tail: string) => Boolean(tail) && width - displayWidth(tail) - 1 >= minimumTitle;
+  const grid = options.workflowCell?.right ?? "";
+  const compact = session.workflow ? railCompact(session.workflow, activeWorkflowMode(session), styles) : "";
+  // Selected short-window rows retain group metadata below; phones keep their title + progress shape.
+  if (session.selected || options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH) return [grid, compact].find(fits) ?? "";
+  const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
+  const age = rowAge(session) ?? "";
+  const metadata = (group: boolean, withAge: boolean) => styles.muted([
+    ...(group ? [session.group] : []), ...(withAge && age ? [age] : []),
+  ].join(" · "));
+  return [
+    [hidden, metadata(true, true), grid],
+    [hidden, metadata(false, true), grid],
+    [hidden, grid],
+    [hidden, compact],
+    [hidden],
+    [grid],
+    [compact],
+  ].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
+}
+
 function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
   if (session.closure === "done") return styles.success("✓");
   if (session.closure === "abandoned") return styles.muted("⊘");
@@ -1551,6 +1583,7 @@ interface SessionRowOptions {
   childLast: boolean;
   gutterColumn: boolean;
   titleFirst?: boolean;
+  oneLine?: boolean;
   workflowCell?: FleetWorkflowCell;
 }
 
@@ -1581,8 +1614,11 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const worktree = session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : "";
   if (options.titleFirst) {
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
-    const fresh = freshBadge(session, available, styles);
-    return truncate(`${prefix}${styles.strong(truncate(session.title, available - displayWidth(fresh)))}${worktree}${fresh}`, width);
+    const right = options.oneLine ? fleetOneLineTail(session, available, styles, options) : "";
+    const titleSpace = available - (right ? displayWidth(right) + 1 : 0);
+    const fresh = freshBadge(session, titleSpace, styles);
+    const left = `${prefix}${styles.strong(truncate(session.title, titleSpace - displayWidth(fresh)))}${worktree}${fresh}`;
+    return right ? twoColumn(left, right, width) : truncate(left, width);
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ⧉ ${session.repoCount}`) : "";
   const badgeBudget = Math.min(options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH ? 8 : options.terminalWidth >= 100 ? 24 : 18, Math.max(8, Math.floor(width * 0.4)));
