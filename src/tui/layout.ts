@@ -21,8 +21,11 @@ export type SessionListTarget =
   | { kind: "repo-header"; repoKey: string }
   | { kind: "section-header"; section: "health" | "active" | "quiet" | "archived" };
 
-export interface TierNavigatorTarget {
+/** A tier chip's 1-based terminal column range on the summary row. */
+export interface TierChip {
   tier: CockpitTier;
+  x: number;
+  width: number;
 }
 
 /** A tappable footer control; `x` is the 1-based terminal column of its key. */
@@ -35,10 +38,10 @@ export interface FooterItem {
 export interface SessionsLayout {
   lines: string[];
   rowTargets: (SessionListTarget | undefined)[];
-  navigatorRowTargets: (TierNavigatorTarget | undefined)[];
+  tierChipRow?: number;
+  tierChips: TierChip[];
   workspaceRowTargets: (string | undefined)[];
   announcementRowTargets: (string | undefined)[];
-  navigatorWidth: number;
   listStartX: number;
   workspaceStartX?: number;
   listWidth: number;
@@ -95,10 +98,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const emptyLayout = (lines: string[]): SessionsLayout => ({
     lines,
     rowTargets: lines.map(() => undefined),
-    navigatorRowTargets: lines.map(() => undefined),
+    tierChips: [],
     workspaceRowTargets: lines.map(() => undefined),
     announcementRowTargets: lines.map(() => undefined),
-    navigatorWidth: 0,
     listStartX: 1 + inset,
     listWidth: 0,
     listScrollTop: 0,
@@ -128,11 +130,8 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceWidth = model.showWorkspace || (!model.pinMode && syntheticSelection && width >= 120)
     ? (width >= 160 ? 44 : 34)
     : 0;
-  const navigatorWidth = model.grouping === "project" && model.fleetGrouping === "status" && !model.pinMode && width >= 100 ? (width >= 120 ? 17 : 16) : 0;
-  const listWidth = bodyWidth
-    - workspaceWidth - (workspaceWidth ? 1 : 0)
-    - navigatorWidth - (navigatorWidth ? 1 : 0);
-  const listStartX = 1 + inset + navigatorWidth + (navigatorWidth ? 1 : 0);
+  const listWidth = bodyWidth - workspaceWidth - (workspaceWidth ? 1 : 0);
+  const listStartX = 1 + inset;
   const decisionRows = pinnedDecisionRows(model.height);
   const decision = model.pinMode && model.workspace
     ? renderPinnedDecisionStrip(model.workspace, bodyWidth, decisionRows, model.now, styles, width <= NARROW_LAYOUT_MAX_WIDTH)
@@ -155,9 +154,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const rows = targetRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
-  const navigator = renderTierNavigator(model, navigatorWidth, rows, styles);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
-  const body: string[] = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines];
+  const summary = renderHeaderSummary(model, bodyWidth, styles);
+  const body: string[] = [summary.line, ...filterLines, ...announcement.lines];
   const visibleLinesByOwner = new Map<string, number>();
   for (const meta of windowedLeft.lineMeta) {
     if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
@@ -171,15 +170,13 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const selected = Boolean(left.selectedOwnerId && meta?.ownerId === left.selectedOwnerId)
       || (!left.selectedOwnerId && i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex);
     const leftLine = selected ? styles.selected(padded) : padded;
-    const navLine = navigatorWidth ? `${pad(navigator.lines[i] ?? "", navigatorWidth)}${styles.border("│")}` : "";
     const workspaceLine = workspaceWidth ? `${styles.border("│")}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
-    body.push(`${navLine}${leftLine}${workspaceLine}`);
+    body.push(`${leftLine}${workspaceLine}`);
   }
   body.push(...decision.lines);
   if (footerVisible) body.push(...footerLines(shell, model.footer, styles));
   const lines = wrapShell(shell, width, body, model.height, styles);
   const rowTargets = lines.map(() => undefined as SessionListTarget | undefined);
-  const navigatorRowTargets = lines.map(() => undefined as TierNavigatorTarget | undefined);
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
   for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[inset + 1 + filterLines.length + i] = announcement.targets[i];
@@ -192,16 +189,15 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const lineIndex = listStart + i;
     if (lineIndex >= contentEnd) break;
     rowTargets[lineIndex] = windowedLeft.targets[i];
-    navigatorRowTargets[lineIndex] = navigator.targets[i];
     workspaceRowTargets[lineIndex] = workspace.targets[i];
   }
   return {
     lines,
     rowTargets,
-    navigatorRowTargets,
+    ...(summary.chips.length && inset < lines.length - inset ? { tierChipRow: inset } : {}),
+    tierChips: inset < lines.length - inset ? summary.chips.map((chip) => ({ ...chip, x: chip.x + inset + 1 })) : [],
     workspaceRowTargets,
     announcementRowTargets,
-    navigatorWidth,
     listStartX,
     ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 1 + inset } : {}),
     listWidth,
@@ -249,24 +245,6 @@ function plainAttentionText(value: string): string {
   return plainTerminalText(stripAnsi(value));
 }
 
-function renderTierNavigator(model: RenderModel, width: number, rows: number, styles: LayoutStyles): { lines: string[]; targets: (TierNavigatorTarget | undefined)[] } {
-  if (!width) return { lines: [], targets: [] };
-  const lines = [styles.muted("TIERS")];
-  const targets: (TierNavigatorTarget | undefined)[] = [undefined];
-  for (const entry of model.cockpitNavigation) {
-    const tone = cockpitTone(entry.tier, styles);
-    const label = entry.ownerCount ? tone(entry.label) : styles.muted(entry.label);
-    const count = styles.muted(String(entry.ownerCount));
-    const line = pad(twoColumn(label, count, width), width);
-    lines.push(entry.selected ? styles.selected(line) : line);
-    targets.push(entry.ownerCount && entry.firstOwnerId ? { tier: entry.tier } : undefined);
-  }
-  return {
-    lines: [...lines, ...Array.from({ length: Math.max(0, rows - lines.length) }, () => "")].slice(0, rows),
-    targets: [...targets, ...Array.from({ length: Math.max(0, rows - targets.length) }, () => undefined)].slice(0, rows),
-  };
-}
-
 function renderWorkspaceScreen(workspace: RenderWorkspace, shell: Shell, width: number, height: number | undefined, now: number, styles: LayoutStyles): SessionsLayout {
   const { bodyWidth, inset } = shell;
   const footerRows = shell.framed ? 2 : 1;
@@ -283,10 +261,9 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, shell: Shell, width: 
   return {
     lines,
     rowTargets: lines.map(() => undefined),
-    navigatorRowTargets: lines.map(() => undefined),
+    tierChips: [],
     workspaceRowTargets,
     announcementRowTargets: lines.map(() => undefined),
-    navigatorWidth: 0,
     listStartX: 1 + inset,
     workspaceStartX: 1 + inset,
     listWidth: 0,
@@ -402,16 +379,51 @@ function renderFilterBar(model: RenderModel, width: number, styles: LayoutStyles
   return twoColumn(`${tone(label)}${query}`, styles.muted(hint), width);
 }
 
+function sessionCountLabel(model: RenderModel): string {
+  const board = model.grouping === "stage";
+  const visible = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
+  const total = board ? model.boardTotalCardCount : model.summary.ownerTotal;
+  return model.filter !== undefined
+    ? `${visible}/${total}${board ? " active" : ""} sessions`
+    : `${visible}${board ? " active" : ""} ${visible === 1 ? "session" : "sessions"}`;
+}
+
+function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutStyles): { line: string; chips: TierChip[] } {
+  if (model.grouping !== "project" || model.fleetGrouping !== "status" || model.pinMode) {
+    return { line: renderTopSummary(model, width, styles), chips: [] };
+  }
+  let entries = model.cockpitNavigation.filter((entry) => entry.ownerCount > 0);
+  const count = styles.accent(sessionCountLabel(model));
+  const pinCount = model.pinSummary?.count ?? 0;
+  const signals = [
+    count,
+    ...(pinCount ? [styles.muted(model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`)] : []),
+    ...(model.pinSummary?.constrained ? [styles.warning("constrained")] : []),
+  ];
+  const separator = styles.border(" · ");
+  const parts = () => [...entries.map((entry) => cockpitTone(entry.tier, styles)(`${entry.label} ${entry.ownerCount}`)), ...signals];
+  const fits = () => displayWidth("FLEET") + 1 + displayWidth(parts().join(separator)) <= width;
+  for (const tier of ["quiet", "archived", "active", "health", "needs-you"] as const) {
+    if (fits()) break;
+    entries = entries.filter((entry) => entry.tier !== tier);
+  }
+  if (!fits()) return { line: renderTopSummary(model, width, styles), chips: [] };
+  const right = parts().join(separator);
+  let x = width - displayWidth(right);
+  const chips = entries.map((entry) => {
+    const chip = { tier: entry.tier, x, width: displayWidth(`${entry.label} ${entry.ownerCount}`) };
+    x += chip.width + 3;
+    return chip;
+  });
+  return { line: twoColumn(styles.accent("FLEET"), right, width), chips };
+}
+
 function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
   const board = model.grouping === "stage";
   const parentRows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))
     .filter((session) => session.kind !== "subagent");
   const mode = model.pinMode ? "PINNED FLEET" : board ? "WORKFLOW" : "FLEET";
-  const visibleTrees = board ? model.boardCardCount : model.summary.visibleOwnerTotal;
-  const totalTrees = board ? model.boardTotalCardCount : model.summary.ownerTotal;
-  const countLabel = model.filter !== undefined
-    ? `${visibleTrees}/${totalTrees}${board ? " active" : ""} sessions`
-    : `${visibleTrees}${board ? " active" : ""} ${visibleTrees === 1 ? "session" : "sessions"}`;
+  const countLabel = sessionCountLabel(model);
   const pinCount = model.pinSummary?.count ?? 0;
   const pinLabel = model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`;
   const constrained = model.pinSummary?.constrained ? styles.warning("constrained") : "";
@@ -594,7 +606,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     // Below 40 columns rows show their current step label instead of a shared grid.
     gridWorkflow = model.width < 40 ? undefined : board ? section.gridWorkflow : section.groups.flatMap((group) => group.sessions)
       .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow;
-    const headingTitle = board ? `${section.title} ${section.sessionsTotal}` : section.title;
+    const headingTitle = board || section.cockpitTier ? `${section.title} ${section.sessionsTotal}` : section.title;
     const headingRight = board
       ? ""
       : section.repoKey
@@ -604,13 +616,10 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
           ...(section.ownerAttentionCount ? [styles.warning(`${section.ownerAttentionCount} needs you`)] : []),
           ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
         ].join(styles.border(" · "))
-        : [
-          cockpitTone(section.cockpitTier, styles)(`·${section.sessionsTotal}`),
-          ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
-        ].join(styles.border(" · "));
+        : section.hiddenChildRequestCount ? styles.warning(`?${section.hiddenChildRequestCount} child`) : "";
     if (gridWorkflow) {
-      const headingWidth = board ? displayWidth(headingTitle) + 4 : Math.min(20, displayWidth(headingTitle) + 4);
-      const rightWidth = displayWidth(headingRight) + 2 + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
+      const headingWidth = board ? displayWidth(headingTitle) + 4 : section.cockpitTier ? displayWidth(headingTitle) + 3 : Math.min(20, displayWidth(headingTitle) + 4);
+      const rightWidth = (headingRight ? displayWidth(headingRight) + 2 : 0) + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
       if (headingWidth + 1 + rightWidth > width) gridWorkflow = undefined;
     }
     const sectionHeadingIndex = lines.length;
@@ -625,7 +634,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     const sectionOwnerIds = [...new Set(section.groups.flatMap((group) => group.sessions.map((session) => session.cockpitOwnerId)))];
     pushLine(
-      sectionHeader(headingTitle, gridWorkflow ? `${headingRight}  ${styles.muted(workflowGridHeader(gridWorkflow, gridGap))}` : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, board ? "active" : section.cockpitTier, section.repoKey !== undefined, board),
+      sectionHeader(headingTitle, gridWorkflow ? [headingRight, styles.muted(workflowGridHeader(gridWorkflow, gridGap))].filter(Boolean).join("  ") : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, board ? "active" : section.cockpitTier, section.repoKey !== undefined, board),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
