@@ -41,6 +41,48 @@ test("conversation appears below the fleet and exposes the pending question with
   assert.doesNotMatch(rows.join("\n"), /Review answers/);
 });
 
+test("answer card docks directly below a short two-message transcript", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [session] });
+  const view = new SessionsView(controller, () => {}, {
+    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
+    loadConversation: async () => ({ branchId: "branch", revision: "1", items: [
+      { id: "user", role: "user", text: "Please choose a drink." },
+      { id: "reply", role: "assistant", text: "The latest message." },
+    ] }), submitAnswer: async () => {}, terminalRows: () => 40,
+  });
+  view.render(120); view.handleInput("c"); await tick();
+  const rows = view.render(120).map(stripAnsi);
+  const latest = rows.findIndex(row => row.includes("The latest message."));
+  const answer = rows.findIndex(row => row.includes("ANSWER NEEDED"));
+  assert.ok(latest >= 0);
+  assert.ok(answer > latest && answer - latest <= 3, "only message spacing and the separator precede the answer");
+  assert.match(rows[answer - 1]!, /^─+$/);
+  assert.ok(rows.length <= 40);
+});
+
+test("long inline transcripts keep their scroll window and speaker while the answer stays visible", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [session] });
+  const view = new SessionsView(controller, () => {}, {
+    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
+    loadConversation: async () => ({ branchId: "branch", revision: "1", items: [
+      { id: "long", role: "assistant", text: Array.from({ length: 40 }, (_, index) => `History${index}`).join("\n\n") },
+    ] }), submitAnswer: async () => {}, terminalRows: () => 40,
+  });
+  view.render(120); view.handleInput("c"); await tick();
+  let rows = view.render(120).map(stripAnsi);
+  assert.ok(rows.some(row => row.includes("History39")));
+  assert.ok(rows.some(row => row === "  PI"), "clipped message still names its speaker");
+  assert.ok(rows.some(row => row.includes("ANSWER NEEDED")));
+  view.handleInput("\x1b"); view.handleInput("\t"); view.handleInput("\t");
+  view.handleInput("\x1b[H");
+  rows = view.render(120).map(stripAnsi);
+  assert.ok(rows.some(row => row.includes("History0")));
+  assert.ok(!rows.some(row => row.includes("History39")));
+  assert.ok(rows.some(row => row.includes("ANSWER NEEDED")));
+  view.handleInput("\x1b[6~");
+  assert.notDeepEqual(view.render(120).map(stripAnsi), rows, "Page Down changes transcript content");
+});
+
 test("number selects and the first Enter submits inline, without a review screen", async () => {
   const { view, writes } = await setup();
   view.handleInput("2");
@@ -94,13 +136,38 @@ test("mouse Send commits the selected inline option before dispatch", async () =
   assert.deepEqual(writes, [{ id: "panel-a", answers: [{ questionIndex: 0, kind: "option", optionIndex: 1 }] }]);
 });
 
+test("merged question hints keep Send and Escape mouse actions separate", async () => {
+  for (const width of [80, 120, 160]) {
+    const { view, writes } = await setup();
+    let rows = view.render(width).map(stripAnsi);
+    let footer = rows.findIndex(row => row.includes("Enter Send"));
+    const choose = rows[footer]!.indexOf("1–2 Choose");
+    assert.ok(choose >= 0);
+    view.handleInput(`\x1b[<0;${choose + 2};${footer + 1}M`);
+    assert.deepEqual(writes, [], "selection hints must not submit");
+    rows = view.render(width).map(stripAnsi);
+    footer = rows.findIndex(row => row.includes("Enter Send"));
+    const escape = rows[footer]!.indexOf("Esc Fleet");
+    assert.ok(escape >= 0);
+    view.handleInput(`\x1b[<0;${escape + 2};${footer + 1}M`);
+    assert.deepEqual(writes, [], "Escape hint must not submit");
+    assert.match(view.render(width).map(stripAnsi).join("\n"), /Tab Answer · c Hide/);
+    view.handleInput("\t");
+    rows = view.render(width).map(stripAnsi);
+    footer = rows.findIndex(row => row.includes("Enter Send"));
+    view.handleInput(`\x1b[<0;3;${footer + 1}M`); await tick();
+    assert.equal(writes.length, 1, "Send hint still submits");
+  }
+});
+
 test("visible fleet tier navigation remains clickable above the conversation", async () => {
   const { view, controller } = await setup(false, 28, "running");
   controller.selectSession("panel-a");
   const rows = view.render(120).map(stripAnsi);
-  const active = rows.findIndex(row => row.startsWith("│ACTIVE"));
-  assert.ok(active >= 0);
-  view.handleInput(`\x1b[<0;3;${active + 1}M`);
+  const header = rows.findIndex(row => row.startsWith("│FLEET"));
+  const x = rows[header]!.indexOf("ACTIVE 1") + 1;
+  assert.ok(header >= 0 && x > 0);
+  view.handleInput(`\x1b[<0;${x};${header + 1}M`);
   assert.equal(controller.selected()?.id, "panel-b");
 });
 

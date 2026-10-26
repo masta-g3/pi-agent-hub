@@ -70,7 +70,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `R` | Rename the selected live, unlinked session |
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session through the group-selection form |
-| `Shift+F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
+| `F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
 | `a` | Mark the selected waiting session read |
 | `y` | Copy the selected handoff's evidence path |
 | `A` / `B` / `U` | Archive (Done, Abandoned, or archive only) / move to Backlog / restore or reopen to Active |
@@ -78,7 +78,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `N` | Sync the Hub title from Pi's saved name |
 | `g` / `G` | Move a session to a group / rename its group |
 | `K` / `J` | Reorder tied Active/Backlog rows within their group in Status view |
-| `Shift+Up` / `Shift+Down` | Same as `K` / `J` |
+| `Shift+↑` / `Shift+↓` | Same as `K` / `J` |
 | `s` / `m` | Pick project skills / MCP servers |
 | `Alt+E` | Edit the skill pool path inside the skills picker |
 | `t` | Preview and configure the dashboard theme |
@@ -88,11 +88,13 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
+Press `?` for a static reference grouped into Session actions, Pins, Views, and Filters, followed by navigation, dialogs, and the status legend. Help uses base action names and primary keys even when no session is selected; it does not show availability. Keys stay aligned on the right. At 160+ columns, sections use two columns. Palette-only filters have no key and share the note `via : palette`. Use `↑` / `↓` or `PgUp` / `PgDn` to scroll, and `Esc` to return.
+
 ## Conversation
 
 Press `c` to read the selected live parent session below the fleet. Close pinned panes first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
 
-Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the fleet to focus the answer area. Number keys select options or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answers. `←` revisits a previous question when not editing text. `Escape` returns focus to the fleet without cancelling the question.
+Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the fleet to focus the answer area. Number keys select options or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answers. `←` revisits a previous question when not editing text. `Esc` returns focus to the fleet without cancelling the question.
 
 Direct answers require a [compatible question extension](CONFIG.md#inline-questions). If unavailable, use **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. Opening or hiding Conversation neither answers nor cancels a request.
 
@@ -100,9 +102,9 @@ Conversation shows completed text and question/answer exchanges, not tools, thin
 
 ## Send, steer, or queue
 
-Press `p` to open a message form for the selected live parent. Its title names the recipient. Enter sends from the message field; Escape cancels without sending.
+Press `p` to open a message form for the selected live parent. Its title names the recipient. `Enter` sends from the message field; `Esc` cancels without sending.
 
-When Pi is busy, delivery starts at **Steer now**: Pi uses the message before its next model call, after current tool calls finish. Press Tab to focus delivery, then ←/→, Space, or Enter to switch to **Queue for later**: Pi uses the message after the current run finishes. Tab back to the message field and press Enter to submit. Idle Pi shows only **Send**.
+When Pi is busy, delivery starts at **Steer now**: Pi uses the message before its next model call, after current tool calls finish. Press `Tab` to focus delivery, then `←`/`→`, `Space`, or `Enter` to switch to **Queue for later**: Pi uses the message after the current run finishes. `Tab` back to the message field and press `Enter` to submit. Idle Pi shows only **Send**.
 
 Messages go through Pi's exact-session bridge without changing its editor draft. Busy messages are literal text; idle Send expands Pi commands and prompt templates. Delivery confirmations report dispatch, not completion of the requested work. If Pi starts working after an idle form opens, reopen the form to choose Steer or Queue. If a delivery is not confirmed, check Pi before retrying.
 
@@ -120,7 +122,7 @@ Select a repo header and press `Enter`, or double-click it, to fold the section.
 
 ## Fork and compact
 
-`Shift+F` creates a child with the default fork name. Rules must confirm that the child's inherited ticket and workflow are cleared before Hub starts compaction. Hub reports success only after compaction finishes and the child still has no linked task. The source conversation and project files stay unchanged; the child retains compacted discussion context.
+`F` creates a child with the default fork name. Rules must confirm that the child's inherited ticket and workflow are cleared before Hub starts compaction. Hub reports success only after compaction finishes and the child still has no linked task. The source conversation and project files stay unchanged; the child retains compacted discussion context.
 
 Use matching updated Hub and Rules extensions. If Rules is missing, disabled, or cannot confirm the reset, Hub reports an error and does not start compaction. The child stays available for inspection. Enable or update Rules, then retry Fork and compact from the original session. Compaction errors and timeouts also leave the child available; a timeout does not mean compaction succeeded or stopped.
 
@@ -130,20 +132,20 @@ Normal `f` forks retain ticket ownership and do not request this reset.
 
 Press `:` to search built-in actions, configured shortcuts, current sessions, and named filters. Session search includes names, repos, groups, tasks, tickets, requests, and workflow context. It never searches raw pane output or Pi conversation content.
 
-Selecting a session result reveals and selects it in Hub. It does not open, restart, or mark it read. Press `Enter` afterward to open it. Disabled actions stay visible with a reason. `Escape` closes the palette without clearing the dashboard filter.
+Selecting a session result reveals and selects it in Hub. It does not open, restart, or mark it read. Press `Enter` afterward to open it. Disabled actions stay visible with a reason. `Esc` closes the palette without clearing the dashboard filter.
 
 ## Session filters
 
-Use `/` for a live text filter. The `FILTERING` bar above results shows input focus. `Enter` applies the draft and returns to navigation; an empty draft clears the filter. `Escape` cancels editing and restores the filter that was active before the edit.
+Use `/` for a live text filter. The `FILTERING` bar above results shows input focus. `Enter` applies the draft and returns to navigation; an empty draft clears the filter. `Esc` cancels editing and restores the filter that was active before the edit.
 
-Applied filters show a `FILTERED` bar, including filters restored on launch. When space allows, `N hidden` counts owner trees excluded by the filter, not folded or offscreen rows; the workflow board counts only Active trees. Use `/` to edit or `Escape` to clear from the normal dashboard. With no registered sessions, a restored filter offers only `Escape` to clear.
+Applied filters show a `FILTERED` bar, including filters restored on launch. When space allows, `N hidden` counts owner trees excluded by the filter, not folded or offscreen rows; the workflow board counts only Active trees. Use `/` to edit or `Esc` to clear from the normal dashboard. With no registered sessions, a restored filter offers only `Esc` to clear.
 
 Named filters share the same filter state. For example, `lifecycle:archived,backlog release` finds matching text in either lifecycle bucket. Lowercase `b` changes Backlog visibility; uppercase `B` moves the session to Backlog. Hub saves the text and lifecycle filter.
 
 ## Status vocabulary
 
 ```text
-⠋ running or starting (animated, with run time)
+● running or starting (only the selected row animates)
 ◐ waiting
 ○ idle/read
 × error
@@ -162,21 +164,23 @@ Status view groups complete session trees into these sections:
 | QUIET | Other non-archived sessions |
 | ARCHIVED | Archived trees, newest-first |
 
+Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its first session and reveal the section without opening or marking it read. Zero counts are hidden; narrow headers show fewer tiers. Repo, board, and pinned summaries are not clickable.
+
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. Worktree lifecycle stays in the existing marker position: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 
-Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. The `▸` marker identifies the primary action.
+Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. Action rows put the label first and the key at the right. An accent `▌` and bold label identify the primary action, including in the pinned decision strip. **All actions** opens the `:` palette.
 
-At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Escape` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
+At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Esc` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
 
 Press `i` to show or hide `LIVE DETAILS`: tmux presence, heartbeat, read state, and the evidence behind runtime status and dashboard placement. The CLI equivalent is `pi-hub explain <exact-id-or-unique-prefix>`. It observes the fleet without updating the registry. Neither view captures pane tails or conversation text.
 
 ### Requests and notifications
 
-Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only. A handoff can add a recommendation (`→`) and an evidence path or URL (`▤`) below the request; press `y` or choose **Copy path** to copy that path on macOS. On other systems, copy the visible path manually. Rules publishes `✓` and `!` only when the agent calls its `hand_off` tool. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
+Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only, in place of the runtime glyph. The action workspace still shows the runtime status. A handoff can add a recommendation (`→`) and an evidence path or URL (`▤`) below the request; press `y` or choose **Copy path** to copy that path on macOS. On other systems, copy the visible path manually. Rules publishes `✓` and `!` only when the agent calls its `hand_off` tool. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
 
 While you work inside a managed session, its bottom bar shows `⚑ N need you · alt+w next` when other sessions need you. `Alt+W` opens the top one, the same way `Enter` does from the dashboard.
 
@@ -194,13 +198,13 @@ Rules supplies Plan → Execute → Review → Reflect → Commit. Other produce
 
 Step checks show position, not an execution audit. Earlier positions are checked; the current position is active until the producer reports it complete. Later positions remain pending. A stopped session can retain its last workflow position.
 
-At wider sizes, board cards show activity and plan progress when available, with the reported phase above the task bar. At 100+ columns, Active fleet cards also show the live activity and plan phase while the current step is in progress, plus the repo name and worktree branch; short panes drop those lines from neighboring cards first. When the whole fleet fits, a blank line separates cards in a group. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
+At wider sizes, board cards show activity and plan progress when available, with the reported phase above the task bar. At 100+ columns, Active fleet cards also show the live activity and plan phase while the current step is in progress, plus the repo name and worktree branch; short panes drop those lines from neighboring cards first. At 61+ columns, if two-line fleet rows still do not fit, unselected Active parents use one line before scrolling; the selected tree keeps more detail when space permits. When the whole fleet fits, a blank line separates cards in a group. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
 
 Subagent trees start collapsed in both fleet and board. Use `←` / `→` for one tree, Shift with those arrows for all trees, or `Space` on the board. Filtering reveals matching child context without changing saved section preferences. Each visible child remains independently selectable.
 
 ## Dashboard themes
 
-Press `t` to choose a built-in or globally available Pi theme. Moving between fixed choices previews immediately. Automatic offers separate light/dark choices; use `←` / `→` to change them. `Space` toggles **Sync to Pi**, `Enter` applies, and `Escape` restores the opening theme.
+Press `t` to choose a built-in or globally available Pi theme. Moving between fixed choices previews immediately. Automatic offers separate light/dark choices; use `←` / `→` to change them. `Space` toggles **Sync to Pi**, `Enter` applies, and `Esc` restores the opening theme.
 
 Sync is on by default. Confirmation updates Pi's global default and applies it to current managed parent sessions. Turn sync off for a Hub-only theme. Opening differently themed sessions does not recolor the dashboard. See [Theme behavior](CONFIG.md#theme-behavior) for details.
 
@@ -235,7 +239,7 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 - Below 100 columns, Hub hides open pins and gives the dashboard the whole window. Pins keep running. Rows keep their `▢N` markers, and the header shows `N pins hidden`.
 - `Enter` or `Alt+1`–`Alt+4` opens a hidden pin full screen. Back on a desktop-size window, Hub restores the pin layout.
-- At 60 columns or less the dashboard drops its frame. The footer lists `Enter Open · i Info · : Actions · / Filter · ? Help` and drops whole items when space runs out. Tap a footer item to run its key. In the full-screen workspace, tap `Esc Back`.
+- At 60 columns or less the dashboard drops its frame. The footer lists `Enter Open · i Workspace · : Actions · / Filter · ? Help` and drops whole items when space runs out. During first-run coaching, visible requests can add `] Next` before Help if both fit. Tap a footer item to run its key. In the full-screen workspace, tap `Esc Back`.
 - Below 40 columns rows show the current workflow step instead of the step grid. The dashboard works down to 30 columns.
 - Below 100 columns and 20 rows, for example with the on-screen keyboard open, fleet sessions use one line. The selected session keeps its detail line. The workflow board is unchanged.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.
@@ -373,7 +377,7 @@ Hub tells managed agents which worktree maps to which source repo. Compatible su
 | --- | --- |
 | Normal `d` delete | Stop the session, remove Hub records and workspace; keep worktree files and branches |
 | `w` finish | Merge into recorded base branches, verify worktree cleanup, then retain a stopped Archived parent |
-| `d`, then `Shift+D` discard | Remove clean worktrees without merging, then retain a stopped Archived parent |
+| `d`, then `D` discard | Remove clean worktrees without merging, then retain a stopped Archived parent |
 
 Finish/discard checks Git cleanliness before stopping parent and child sessions. Both require clean worktrees; finish also requires clean base repos. Multi-repo operations process additional repos before the primary repo. Successful closeout removes obsolete child rows, workspaces, and heartbeats, but keeps the parent ID, title, conversation metadata, workflow, source roots, and per-repo merged/discarded evidence. A retained branch is reported separately from directory cleanup. Normal delete remains separate and never removes Pi conversation files or source repos.
 

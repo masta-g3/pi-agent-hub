@@ -88,9 +88,9 @@ test("rendering is ANSI-width safe and exposes the selected hint at all supporte
   }
 });
 
-test("palette footer documents Ctrl+N/P navigation", () => {
+test("palette footer documents Ctrl+N/Ctrl+P navigation", () => {
   const rendered = renderCommandPalette(createCommandPalette(), commands, 80, 12);
-  assert.match(rendered.lines.at(-1) ?? "", /Ctrl\+N\/P/);
+  assert.match(rendered.lines.at(-1) ?? "", /Ctrl\+N\/Ctrl\+P/);
 });
 
 test("short heights window around selection and retain its group context", () => {

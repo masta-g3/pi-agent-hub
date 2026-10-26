@@ -11,7 +11,7 @@ export function renderMarkdown(text: string, width: number, theme?: SessionsThem
   const token = (name: ThemeToken) => (value: string) => theme ? styleToken(theme, name, value) : value;
   const normal = token("text");
   const markdownTheme: MarkdownTheme = {
-    heading: token("accent"), link: normal, linkUrl: token("dim"), code: normal, codeBlock: normal,
+    heading: token("accent"), link: normal, linkUrl: token("muted"), code: normal, codeBlock: normal,
     codeBlockBorder: token("border"), quote: normal, quoteBorder: token("border"), hr: token("border"),
     listBullet: token("accent"), bold: normal, italic: normal, strikethrough: normal, underline: normal,
   };
@@ -118,11 +118,7 @@ export class ConversationReader {
     this.lines = this.items.filter(item => !inlineToolCallId || item.role !== "question" || item.toolCallId !== inlineToolCallId).flatMap(item => [labels[item.role], ...renderMarkdown(item.text, bodyWidth, theme), ...(item.truncated && !item.text.includes("Content shortened — Open in Pi") ? ["Content shortened — Open in Pi"] : []), ""]
       .map((text, offset) => {
         let line = text ? truncateToWidth(`  ${text}`, width) : "";
-        if (offset === 0) {
-          const label = `${line} `;
-          line = truncateToWidth(label + "─".repeat(Math.max(0, width - visibleWidth(label))), width);
-          if (theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
-        }
+        if (offset === 0 && theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
         return { id: item.id, offset, text: line };
       }));
     if (this.following) {
@@ -146,7 +142,7 @@ export class ConversationReader {
 export function renderConversationHeading(title: string, width: number, theme?: SessionsTheme): string {
   const label = `── ${truncateToWidth(cleanMarkdown(title), Math.max(0, width - 6))} `;
   const line = truncateToWidth(label + "─".repeat(Math.max(0, width - visibleWidth(label))), width);
-  return theme ? styleToken(theme, "dim", line) : line;
+  return theme ? styleToken(theme, "muted", line) : line;
 }
 
 /** Render the full-width transcript and its catalog actions. */
@@ -164,9 +160,9 @@ export function renderConversationPane(input: {
   }
   const content = [renderConversationHeading(input.title, input.width, theme),
     ...Array.from({ length: input.transcriptHeight }, (_, index) => transcript[index] ?? ""),
-    styled(input.status.startsWith("?") ? "warning" : "dim", cleanMarkdown(input.status)),
+    styled(input.status.startsWith("?") ? "warning" : "muted", cleanMarkdown(input.status)),
     ...input.actions.map((command, index) => styled(command.id === input.focusedAction ? "accent" : "text", `${command.id === input.focusedAction ? "▎" : index === 0 ? "▶" : " "} ${cleanMarkdown(command.label)}`)),
-    styled("dim", conversationDashboardFooter()),
+    styled("muted", conversationDashboardFooter()),
   ].slice(0, input.height);
   const actionRows: (string | undefined)[] = content.map(() => undefined);
   for (let index = 0; index < input.actions.length; index++) {
