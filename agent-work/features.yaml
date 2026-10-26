@@ -1154,7 +1154,7 @@
   plan_file: agent-work/history/20261025_ui-polish-001_footer_cursor_fixes.md
   completed_at: '2026-10-25'
 - id: ui-polish-002
-  status: pending
+  status: done
   title: Key notation consistency
   subtitle: One notation, one name per concept
   description: All dashboard surfaces format keys one way and use one user-facing
@@ -1163,7 +1163,8 @@
   created_at: '2026-10-25'
   depends_on:
   - ui-polish-001
-  plan_file: agent-work/plans/ui-polish-002.md
+  plan_file: agent-work/history/20261025_ui-polish-002_key_notation_consistency.md
+  completed_at: '2026-10-25'
 - id: ui-polish-003
   status: done
   title: Readable color roles

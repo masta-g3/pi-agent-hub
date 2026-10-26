@@ -253,7 +253,7 @@ function pickerViewport(dialog: FavoritesDialog, width: number, height: number):
   ];
   const footers = dialog.loading ? ["Loading… · Esc Cancel"] : !dialog.favorites
     ? ["Enter Retry · Esc Cancel"]
-    : ["^S Save · ^U Update · PgUp/PgDn Read", "^R Rename · ^X Remove", "↑↓ Select · Enter Apply · Esc Cancel"];
+    : ["Ctrl+S Save · Ctrl+U Update · PgUp/PgDn Read", "Ctrl+R Rename · Ctrl+X Remove", "↑↓ Select · Enter Apply · Esc Cancel"];
   const rowBudget = Math.max(3, height - 4);
   const preferredDetails = Math.min(2, detailRows.length);
   const listLimit = Math.max(1, Math.min(8, rowBudget - 1 - footers.length - preferredDetails));
