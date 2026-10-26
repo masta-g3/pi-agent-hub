@@ -200,7 +200,7 @@ function renderPoolLine(state: PickerState, width: number): string {
   const label = "pool: ";
   if (state.poolInput) return `${label}${renderCursorValue(state.poolInput.value, state.poolInput.cursor, Math.max(1, width - visibleWidth(label)), "start")}`;
   const extra = state.poolDirExtraCount && state.poolDirExtraCount > 0 ? ` (+${state.poolDirExtraCount})` : "";
-  const hint = "Alt+E edit";
+  const hint = "Alt+E Edit";
   const available = Math.max(0, width - visibleWidth(label) - visibleWidth(hint) - 1);
   const path = truncateToWidth(`${state.poolDir ?? ""}${extra}`, available, "…");
   const gap = " ".repeat(Math.max(1, width - visibleWidth(label) - visibleWidth(path) - visibleWidth(hint)));
@@ -208,14 +208,14 @@ function renderPoolLine(state: PickerState, width: number): string {
 }
 
 function compactFooter(state: PickerState): string[] {
-  if (state.poolInput) return ["Type Path", "←→ Edit  Enter Save/Reload  Esc Cancel"];
+  if (state.poolInput) return ["Type Path", "←→ Edit  Enter Save/reload  Esc Cancel"];
   return ["↑↓ Move ←→/Tab List PgUp/PgDn Detail", "Space Toggle  Enter Apply  Esc Cancel"];
 }
 
 function pickerFooter(state: PickerState): string {
-  if (state.poolInput) return "←→ edit · enter save/reload · esc cancel";
-  if (state.poolDir !== undefined) return "type search · ↑↓ move · ←→/Tab column · space toggle · Alt+E edit pool · enter apply · esc cancel";
-  return "type search · ↑↓ move · ←→/Tab column · space toggle · enter apply · esc cancel";
+  if (state.poolInput) return "←→ Edit · Enter Save/reload · Esc Cancel";
+  if (state.poolDir !== undefined) return "Type search · ↑↓ Move · ←→/Tab Column · Space Toggle · Alt+E Edit pool · Enter Apply · Esc Cancel";
+  return "Type search · ↑↓ Move · ←→/Tab Column · Space Toggle · Enter Apply · Esc Cancel";
 }
 
 function formatItem(state: PickerState, index: number | undefined): string {

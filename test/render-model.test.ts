@@ -80,7 +80,7 @@ test("empty coaching keeps its create and return actions at short heights", () =
   const text = stripAnsi(rendered.lines.join("\n"));
   assert.match(text, /NEEDS YOU/);
   assert.match(text, /create the first managed Pi session/);
-  assert.match(text, /Ctrl\+Q returns/);
+  assert.match(text, /Ctrl\+Q Return/);
   assert.equal(rendered.lines.length, 8);
 
   const roomier = stripAnsi(renderSessions(buildRenderModel({
@@ -202,7 +202,7 @@ test("repo fleet sections are alphabetical, flat, collapsible, and retain a sepa
   assert.equal(collapsed.sections[0]?.hiddenChildRequestCount, 1);
   const layout = renderSessions(collapsed);
   assert.ok(layout.rowTargets.some((target) => target?.kind === "repo-header" && target.repoKey === key));
-  assert.equal(layout.navigatorWidth, 0);
+  assert.deepEqual(layout.tierChips, []);
   const expandedText = renderSessions(model).lines.map(stripAnsi);
   assert.doesNotMatch(expandedText.find((line) => line.includes("child")) ?? "", /\[[^\]]+\]/);
 });
@@ -266,13 +266,17 @@ test("parent cards show the chosen group once and keep actual repo identity sepa
           const target = layout.rowTargets[index];
           return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === parent.id;
         }).map(stripAnsi).join("\n");
-        if (grouping === "stage") {
-          assert.match(card, width <= 60 ? /\[My pr…\] Task/ : /\[My project\] Task/, `${width} ${grouping}: ${card}`);
+        if (grouping === "stage" && width >= 100) {
+          assert.doesNotMatch(card, /\[My project\]/);
+          assert.match(layout.lines.map(stripAnsi).join("\n"), /My project/);
+        } else if (grouping === "stage") {
+          assert.match(card, /\[My pr…\] Task/, `${width} ${grouping}: ${card}`);
         } else {
           assert.match(card, /●(?: ▢1)? Task[\s\S]*\[My project\]/, `${width} ${grouping}: ${card}`);
           assert.doesNotMatch(card.split("\n")[0] ?? "", /\[My project\]|\bEX\b/);
         }
-        assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length, 1, card);
+        assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length ?? 0,
+          grouping === "stage" && width >= 100 ? 0 : 1, card);
       }
     }
   }
@@ -377,23 +381,23 @@ test("steady-state chrome names every mode and right-aligns primary owner signal
   const sessions = [needs, health, child];
 
   const project = renderSessions(buildRenderModel({ sessions, selectedId: "needs", width: 100 })).lines.map(stripAnsi);
-  assert.match(project[1] ?? "", /^│FLEET\s+2 trees · 1 needs you · 1 health\s*│$/);
+  assert.match(project[1] ?? "", /^│FLEET\s+NEEDS YOU 1 · HEALTH 1 · 2 sessions\s*│$/);
 
   const board = renderSessions(buildRenderModel({ sessions, selectedId: "needs", grouping: "stage", width: 100 })).lines.map(stripAnsi);
-  assert.match(board[1] ?? "", /^│WORKFLOW\s+2 Active trees · 1 needs you · 1 health\s*│$/);
+  assert.match(board[1] ?? "", /^│WORKFLOW\s+2 active sessions · 1 needs you · 1 health\s*│$/);
 
   const filteredBoard = renderSessions(buildRenderModel({ sessions, selectedId: "needs", grouping: "stage", width: 100, filter: "Needs" })).lines.map(stripAnsi);
-  assert.match(filteredBoard[1] ?? "", /^│WORKFLOW\s+1\/2 Active trees · 1 needs you\s*│$/);
+  assert.match(filteredBoard[1] ?? "", /^│WORKFLOW\s+1\/2 active sessions · 1 needs you\s*│$/);
 
   const allMatchedProject = renderSessions(buildRenderModel({ sessions: [needs, child], selectedId: "needs", width: 100, filter: "Needs" })).lines.map(stripAnsi);
-  assert.match(allMatchedProject[1] ?? "", /^│FLEET\s+1\/1 trees · 1 needs you\s*│$/);
+  assert.match(allMatchedProject[1] ?? "", /^│FLEET\s+NEEDS YOU 1 · 1\/1 sessions\s*│$/);
   assert.match(allMatchedProject.join("\n"), /FILTERED\s+Needs\s+0 hidden/);
   const allMatchedBoard = renderSessions(buildRenderModel({ sessions: [needs, child], selectedId: "needs", grouping: "stage", width: 100, filter: "Needs" })).lines.map(stripAnsi);
-  assert.match(allMatchedBoard[1] ?? "", /^│WORKFLOW\s+1\/1 Active trees · 1 needs you\s*│$/);
+  assert.match(allMatchedBoard[1] ?? "", /^│WORKFLOW\s+1\/1 active sessions · 1 needs you\s*│$/);
   assert.match(allMatchedBoard.join("\n"), /FILTERED\s+Needs\s+0 hidden/);
 
   const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "needs", width: 100, pinSlots: ["needs"], pinCapacity: 2 })).lines.map(stripAnsi);
-  assert.match(pinned[1] ?? "", /^│PINNED FLEET\s+2 trees · 1 pinned · 1 needs you · 1 health\s*│$/);
+  assert.match(pinned[1] ?? "", /^│PINNED FLEET\s+2 sessions · 1 pinned · 1 needs you · 1 health\s*│$/);
 
   const workspace = renderSessions(workspaceModel({ sessions, selectedId: "needs", width: 100 })).lines.map(stripAnsi);
   assert.match(workspace[1] ?? "", /^│Needs\s+◐ waiting│$/);
@@ -430,7 +434,7 @@ test("rich owner trees use truthful gutters without changing compact rows", () =
   assert.match(project.find((line) => line.includes("[app]")) ?? "", /\[app\]/);
   assert.match(project.find((line) => line.includes("Tree context")) ?? "", / │ Tree context/);
   assert.match(project.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
-  assert.match(project.find((line) => line.includes("Backlog")) ?? "", / ·\s+○ \[[^\]]+\] Backlog/);
+  assert.match(project.find((line) => line.includes("Backlog")) ?? "", /   ○ \[[^\]]+\] Backlog/);
 
   const narrow = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "parent", width: 60, expandedProjectParentIds: new Set(["parent"]),
@@ -465,7 +469,7 @@ test("tree gutters remain truthful after clipping and on the workflow board", ()
   const board = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "child", grouping: "stage", width: 120, expandedBoardParentIds: new Set(["parent"]),
   })).lines.map(stripAnsi);
-  assert.match(board.find((line) => line.includes("Parent")) ?? "", /│ ▾\s+● \[[^\]]+\] Parent/);
+  assert.match(board.find((line) => line.includes("Parent")) ?? "", /│ ▾\s+● Parent/);
   assert.match(board.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
 });
 
@@ -477,13 +481,13 @@ test("tree gutter tones reuse warning and border theme tokens", () => {
   const lines = renderSessions(buildRenderModel({ sessions: [needs, quiet], selectedId: "quiet", width: 120 }), theme).lines;
   assert.ok((lines.find((line) => stripAnsi(line).includes("Needs")) ?? "").includes(styleToken(theme, "warning", "│")));
   assert.ok((lines.find((line) => stripAnsi(line).includes("Quiet")) ?? "").includes(styleToken(theme, "border", "│")));
-  assert.match(lines.map(stripAnsi).find((line) => line.includes(" NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
+  assert.match(lines.map(stripAnsi).find((line) => line.includes("─│ NEEDS YOU 1")) ?? "", /─│ NEEDS YOU 1/);
 
   const active = { ...session("active", "app", "running", "Active"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "active-001", subtitle: "Active context" } } };
   const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 14 })).lines.map(stripAnsi);
-  assert.match(clipped.find((line) => line.includes(" NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
-  assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│ · \? ◐ Needs/);
-  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└ · \? ◐ Needs/);
+  assert.match(clipped.find((line) => line.includes("─│ NEEDS YOU 1")) ?? "", /─│ NEEDS YOU 1/);
+  assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│   \? Needs/);
+  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└   \? Needs/);
 });
 
 test("mode labels survive every 40-column signal combination", () => {
@@ -509,7 +513,7 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
   const worker = { ...session("worker", "app", "running", "Worker"), kind: "subagent" as const, parentId: "parent" };
   const collapsedLayout = renderSessions(buildRenderModel({ sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1 }));
   const collapsed = collapsedLayout.lines.map(stripAnsi);
-  assert.match(collapsed.find((line) => line.includes("ACTIVE")) ?? "", /·1 · \?1 child/);
+  assert.match(collapsed.find((line) => line.includes("─▾ ACTIVE 1")) ?? "", /ACTIVE 1\s+\?1 child/);
   const collapsedCard = collapsed.filter((_, index) => {
     const target = collapsedLayout.rowTargets[index];
     return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === "parent";
@@ -564,7 +568,7 @@ test("focused cards stay in Execute and preserve FOC without row group adornment
   assert.deepEqual(wide.sections.map((section) => section.key), ["execute"]);
   assert.equal(wide.sections[0]?.title, "EXECUTE");
   const wideText = renderSessions(wide).lines.map(stripAnsi).join("\n");
-  assert.match(wideText, /agents\s+·1/);
+  assert.match(wideText, /   agents\s+│/);
   assert.match(wideText, /focused-work.*FOC/);
   assert.doesNotMatch(wideText, /FOC · agents/);
   assert.doesNotMatch(wideText, /── FOCUS/);
@@ -609,10 +613,11 @@ test("stopped focus snapshots render as ordinary Execute sessions", () => {
   const boardText = renderSessions(board).lines.map(stripAnsi).join("\n");
   const boardCard = boardText.split("\n").find((line) => line.includes("focus")) ?? "";
   assert.match(boardText, /EXECUTE/);
-  assert.match(boardText, /agents\s+·1/);
-  assert.match(boardCard, /\[agents\] focus/);
+  assert.match(boardText, /   agents\s+│/);
+  assert.match(boardCard, /- focus/);
+  assert.doesNotMatch(boardCard, /\[agents\]/);
   assert.doesNotMatch(boardCard, /FOC/);
-  assert.match(boardCard, /\bEX\b/);
+  assert.match(boardCard, /✓\s+◉\s+·\s+·\s+·/);
   assert.doesNotMatch(boardText, /mode\s+Focus/);
 });
 
@@ -663,8 +668,11 @@ test("board card markers are positional for direct, complete, terminal, and repl
     const model = buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow }], selectedId: "a", width: 110, grouping: "stage" });
     assert.equal(model.sections[0]?.key, workflow.steps[item.activeIndex]?.id);
     const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-    const activeMarker = item.expected[item.activeIndex];
-    assert.match(text, new RegExp(`${activeMarker}${workflow.steps[item.activeIndex]?.short}[\\s\\S]*${item.activity}`));
+    const layout = renderSessions(model);
+    const rowIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "a");
+    const row = stripAnsi(layout.lines[rowIndex]!);
+    assert.equal(row.match(/[✓◉·]/g)?.join(""), item.expected, row);
+    assert.match(text, new RegExp(item.activity));
   }
 
   const replaced = { ...WORKFLOW, activeIndex: 0, currentStepComplete: false, activity: { id: "start", label: "Inspecting" }, updatedAt: 2 };
@@ -759,7 +767,7 @@ test("archived tails show one meaning: closure outcome, else compact producer st
   assert.match(rowText(lines, "Date-based paths"), /- .*Date-based paths\s+CM ✓ · 1h/);
   assert.match(rowText(lines, "Investigate publishing"), /Investigate publishing\s+3h/);
   assert.doesNotMatch(rowText(lines, "Investigate publishing"), /[✓◉⊘]/);
-  assert.match(rowText(lines, "Note templates"), /⠋ .*Note templates\s+✓ · now/);
+  assert.match(rowText(lines, "Note templates"), /● .*Note templates\s+✓ · now/);
   assert.doesNotMatch(rowText(lines, "Note templates"), /CM/);
   assert.match(rowText(lines, "Alternative planning approach"), /× .*Alternative planning approach\s+⊘ · 3d/);
   assert.doesNotMatch(rowText(lines, "Alternative planning approach"), /EX/);
@@ -810,7 +818,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
     assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
     assert.match(text, /⠋ running/, `${width}`);
     assert.match(text, /Commit · step 5 of 5/, `${width}`);
-    assert.match(text, /▸ U\s+Reopen/, `${width}`);
+    assert.match(text, /▌ Reopen\s+U/, `${width}`);
     assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
   }
   const abandoned = archivedRow("gone", "Gone work", { closure: "abandoned" });
@@ -821,7 +829,7 @@ test("closed workspace explains closure, last workflow, runtime and live childre
   for (const height of [8, 10, 12]) {
     const short = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width: 100, height, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(short, /✓ Closed · Done/, `height ${height}`);
-    assert.match(short, /▸ U\s+Reopen/, `height ${height}`);
+    assert.match(short, /▌ Reopen\s+U/, `height ${height}`);
   }
 });
 
@@ -879,13 +887,13 @@ test("stage grouping keeps canonical workflow trees in producer lanes and every 
   assert.equal(model.selected?.id, "x");
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /PLAN.*·1/);
-  assert.match(rendered, /EXECUTE.*·1/);
-  assert.match(rendered, /OTHER ACTIVE.*·1/);
-  assert.match(rendered, /experiments\s+·1/);
+  assert.match(rendered, /PLAN 1/);
+  assert.match(rendered, /EXECUTE 1/);
+  assert.match(rendered, /OTHER ACTIVE 1/);
+  assert.match(rendered, /   experiments\s+│/);
   assert.doesNotMatch(rendered, /NO WORKFLOW|without workflow/);
   assert.match(rendered, /1 backlog\/archived/);
-  assert.match(rendered, /WORKFLOW\s+3 Active trees/);
+  assert.match(rendered, /WORKFLOW\s+3 active sessions/);
 });
 
 test("board projection omits orphan and cyclic subagent rows from every lane", () => {
@@ -902,14 +910,14 @@ test("board projection omits orphan and cyclic subagent rows from every lane", (
   assert.deepEqual(model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions.map((row) => row.id))), ["parent"]);
 });
 
-test("board rows retain their group badge under the group heading", () => {
+test("board rows omit the group badge under the group heading", () => {
   const model = buildRenderModel({ sessions: [{ ...session("p", "agents", "running"), workflow: WORKFLOW }], grouping: "stage", width: 120 });
-  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("[agents] p"));
+  const row = renderSessions(model).lines.map(stripAnsi).find((line) => line.includes("● p"));
   const listCell = row ?? "";
-  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /agents\s+·1/);
-  assert.match(listCell, /● \[agents\] p/);
-  assert.doesNotMatch(listCell, /4\/7/);
-  assert.match(listCell, /\bEX\b/);
+  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /   agents\s+│/);
+  assert.match(listCell, /● p/);
+  assert.doesNotMatch(listCell, /4\/7|\[agents\]/);
+  assert.match(listCell, /✓\s+◉\s+·\s+·\s+·/);
 });
 
 test("board collapses descendant rows by default and reveals them through ephemeral expansion or filtering", () => {
@@ -955,7 +963,7 @@ test("board groups child rows by their top-level parent and counts parent cards 
   assert.deepEqual(lane?.groups.map((group) => [group.name, group.sessions.map((row) => row.id)]), [["api", ["parent", "child"]]]);
   assert.equal(lane?.sessionsTotal, 1);
   const layout = renderSessions(model);
-  assert.match(layout.lines.map(stripAnsi).join("\n"), /── EXECUTE\s+·1/);
+  assert.match(layout.lines.map(stripAnsi).join("\n"), /── EXECUTE 1/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 2);
 });
 
@@ -1061,7 +1069,7 @@ test("render model records named pin and focused identity", () => {
   assert.deepEqual([api?.pinSlot, api?.pinned, api?.pinFocused, docs?.pinSlot, docs?.pinned], [2, true, true, 1, true]);
   assert.deepEqual(model.pinSummary, { count: 2, constrained: false, hidden: false });
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(text, /PINNED FLEET\s+2 trees · 2 pinned/);
+  assert.match(text, /PINNED FLEET\s+2 sessions · 2 pinned/);
   assert.doesNotMatch(text, /PINNED ·/);
   assert.match(text, /● ▣2 api[\s\S]*\[default\]/);
   assert.match(text, /○ ▢1 docs[\s\S]*\[default\]/);
@@ -1071,7 +1079,7 @@ test("named pin summary reports constraint and unpinned rows gain title width", 
   const sessions = [session("api", "default", "running", "long-api-title"), session("docs", "default", "idle", "long-docs-title")];
   const pinned = renderSessions(buildRenderModel({ sessions, selectedId: "api", width: 60, pinSlots: ["api"], pinCapacity: 0, pinConstrained: true })).lines.map(stripAnsi).join("\n");
   const unpinned = renderSessions(buildRenderModel({ sessions, selectedId: "docs", width: 40 })).lines.map(stripAnsi).join("\n");
-  assert.match(pinned, /PINNED FLEET\s+2 trees · 1 pinned · constrained/);
+  assert.match(pinned, /PINNED FLEET\s+2 sessions · 1 pinned · constrained/);
   assert.match(pinned, /▢1 long-api/);
   assert.match(unpinned, /long-docs/);
   assert.doesNotMatch(unpinned, /[▢▣]/);
@@ -1105,7 +1113,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
   assert.match(threeText, /api\s+● running/);
   assert.match(threeText, /Adaptive cockpit/);
   assert.doesNotMatch(threeText, /no explicit request|running · ACTIVE/);
-  assert.match(threeText, /▸ Enter\s+Open/);
+  assert.match(threeText, /▌ Open\s+Enter/);
   assert.doesNotMatch(threeText, /Open · : Actions/);
   assert.deepEqual(three.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
   assert.equal(three.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "api").length, 1);
@@ -1116,7 +1124,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
 
   const twoText = renderAt(9).lines.map(stripAnsi).join("\n");
   assert.doesNotMatch(twoText, /no explicit request|running · ACTIVE/);
-  assert.match(twoText, /api\s+● running[\s\S]*▸ Enter\s+Open/);
+  assert.match(twoText, /api\s+● running[\s\S]*▌ Open\s+Enter/);
   const one = renderAt(8);
   assert.doesNotMatch(one.lines.map(stripAnsi).join("\n"), /no explicit request|running · ACTIVE/);
   assert.deepEqual(one.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
@@ -1151,9 +1159,9 @@ test("layout hit map marks only rendered session rows", () => {
 
 test("workspace uses frozen responsive geometry", () => {
   const planned = { ...session("planned", "default", "idle"), workflow: WORKFLOW };
-  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 81);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 65);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 95);
+  assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 98);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 83);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 113);
 });
 
 test("layout hit maps handle empty and persistent workspace layouts", () => {
@@ -1164,7 +1172,7 @@ test("layout hit maps handle empty and persistent workspace layouts", () => {
   const wide = renderSessions(workspaceModel({ sessions: [session("a", "default", "idle")], selectedId: "a", width: 120 }));
   assert.equal(wide.lines.length, wide.rowTargets.length);
   assert.equal(wide.lines.length, wide.workspaceRowTargets.length);
-  assert.equal(wide.listWidth, 65);
+  assert.equal(wide.listWidth, 83);
   assert.ok(wide.workspaceRowTargets.some(Boolean));
 });
 
@@ -1399,13 +1407,23 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showWorkspace, false);
-  assert.equal(model.footer, "Enter Open · i Info · : Actions · / Filter · ? Help");
+  assert.equal(model.footer, "Enter Open · i Workspace · : Actions · / Filter · ? Help");
 });
 
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+});
+
+test("footer request count follows the visible projection at medium and wide widths", () => {
+  const request = { ...session("request", "default", "waiting"), context: { version: 1 as const, updatedAt: 2,
+    attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
+  for (const width of [80, 160]) {
+    const sessions = [request, session("quiet", "default", "idle")];
+    assert.match(buildRenderModel({ sessions, width }).footer, /\] Next request/);
+    assert.doesNotMatch(buildRenderModel({ sessions, width, filter: "quiet" }).footer, /\] Next request/);
+  }
 });
 
 test("wide footer stays stable for worktree sessions", () => {
@@ -1413,7 +1431,22 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+});
+
+test("footer controls survive layout fitting at each responsive boundary", () => {
+  for (const width of [61, 80, 99, 100, 119, 120, 160]) {
+    for (const requested of [false, true]) {
+      const context = requested ? { version: 1 as const, updatedAt: 2,
+        attention: { requestId: "req", kind: "question" as const, text: "Choose" } } : undefined;
+      const layout = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "idle"), context }], width, height: 24 }));
+      assert.ok(layout.lines.every((line) => visibleWidth(line) === width), `${width}`);
+      const footer = stripAnsi(layout.lines[layout.footerRow!]!);
+      assert.match(footer, /Enter Open/);
+      if (width < 120) assert.match(footer, /i Workspace/);
+      assert.equal(layout.footerItems.some((item) => item.key === "]"), requested);
+    }
+  }
 });
 
 test("long titles/cwd truncate without exceeding width", () => {
@@ -1433,7 +1466,7 @@ test("top summary shows visible totals while the filter bar owns filter text", (
   assert.equal(model.summary.visibleTotal, 1);
   assert.deepEqual(model.summary.statusCounts, { running: 0, waiting: 1, idle: 0, error: 0, stopped: 0 });
   const rendered = renderSessions(model).lines.map(stripAnsi);
-  assert.match(rendered[1] ?? "", /FLEET\s+1\/3 trees/);
+  assert.match(rendered[1] ?? "", /FLEET.*1\/3 sessions/);
   assert.doesNotMatch(rendered[1] ?? "", /filter:|doc/);
   assert.match(rendered.join("\n"), /FILTERED\s+doc\s+2 hidden/);
   assert.ok(rendered.findIndex((line) => line.includes("FILTERED")) < rendered.findIndex((line) => line.includes("docs")));
@@ -1450,8 +1483,8 @@ test("filter bar renders cursor-aware editing including an empty draft", () => {
     filterEditing: { value: "auth", cursor: 2 },
   })).lines.map(stripAnsi).join("\n");
   assert.match(editing, /FILTERING\s+au█th/);
-  assert.match(editing, /Enter apply/);
-  assert.match(editing, /Esc cancel/);
+  assert.match(editing, /Enter Apply/);
+  assert.match(editing, /Esc Cancel/);
   assert.doesNotMatch(editing, /FILTERED/);
 
   const emptyDraft = renderSessions(buildRenderModel({
@@ -1461,7 +1494,7 @@ test("filter bar renders cursor-aware editing including an empty draft", () => {
     filterEditing: { value: "", cursor: 0 },
   })).lines.map(stripAnsi).join("\n");
   assert.match(emptyDraft, /FILTERING\s+█/);
-  assert.match(emptyDraft, /Esc cancel/);
+  assert.match(emptyDraft, /Esc Cancel/);
 });
 
 test("filter hidden counts use full owner totals and board Active scope", () => {
@@ -1500,7 +1533,7 @@ test("filter hidden counts use full owner totals and board Active scope", () => 
 test("restored filter over an empty registry advertises only its valid clear action", () => {
   const text = renderSessions(buildRenderModel({ sessions: [], width: 80, filter: "saved" })).lines.map(stripAnsi).join("\n");
   assert.match(text, /FILTERED\s+saved/);
-  assert.match(text, /Esc clear/);
+  assert.match(text, /Esc Clear/);
   assert.doesNotMatch(text, /\/ edit/);
 });
 
@@ -1519,7 +1552,7 @@ test("filter bar remains width and height bounded across supported geometry", ()
       assert.equal(layout.lines.length, layout.rowTargets.length);
       assert.ok(layout.lines.every((line) => visibleWidth(line) <= width), `${width}x${height}`);
       assert.match(text, /FILTERED/, `${width}x${height}`);
-      assert.match(text, /Esc clear/, `${width}x${height}`);
+      assert.match(text, /Esc Clear/, `${width}x${height}`);
     }
   }
 });
@@ -1543,8 +1576,8 @@ test("editing filter stays visible and selected titles survive compact fleet mod
         const geometry = `${mode} ${width}x${height}`;
         assert.equal(layout.lines.length, height, geometry);
         assert.ok(layout.lines.every(line => visibleWidth(line) <= width), geometry);
-        assert.match(text, /FILTERING.*au█th.*Esc cancel/, geometry);
-        for (const targets of [layout.rowTargets, layout.navigatorRowTargets, layout.workspaceRowTargets, layout.announcementRowTargets]) {
+        assert.match(text, /FILTERING.*au█th.*Esc Cancel/, geometry);
+        for (const targets of [layout.rowTargets, layout.workspaceRowTargets, layout.announcementRowTargets]) {
           assert.equal(targets.length, layout.lines.length, geometry);
           if (width > 60) assert.equal(targets.at(-1), undefined, `${geometry}: frame border has no target`);
         }
@@ -1560,13 +1593,13 @@ test("filter bar shifts exact mouse targets without owning a target", () => {
   const filtered = renderSessions(buildRenderModel({ sessions, selectedId: "api", width: 100, filter: "default" }));
   const barIndex = filtered.lines.findIndex((line) => stripAnsi(line).includes("FILTERED"));
   const firstSession = (layout: ReturnType<typeof renderSessions>) => layout.rowTargets.findIndex((target) => target?.kind === "session");
-  const firstNavigator = (layout: ReturnType<typeof renderSessions>) => layout.navigatorRowTargets.findIndex(Boolean);
+
 
   assert.equal(firstSession(filtered), firstSession(baseline) + 1);
-  assert.equal(firstNavigator(filtered), firstNavigator(baseline) + 1);
+  assert.equal(filtered.tierChipRow, baseline.tierChipRow);
   assert.ok(barIndex >= 0);
   assert.equal(filtered.rowTargets[barIndex], undefined);
-  assert.equal(filtered.navigatorRowTargets[barIndex], undefined);
+  assert.notEqual(filtered.tierChipRow, barIndex);
   assert.equal(filtered.workspaceRowTargets[barIndex], undefined);
   assert.equal(filtered.announcementRowTargets[barIndex], undefined);
 
@@ -1588,7 +1621,7 @@ test("selected and stopped rows have distinct treatments with inactive stopped r
   const layout = renderSessions(model);
   const lines = layout.lines.map(stripAnsi).join("\n");
   const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "b");
-  assert.match(stripAnsi(layout.lines[selectedRow] ?? ""), /▌(?:│)?\s+·\s+○ docs/);
+  assert.match(stripAnsi(layout.lines[selectedRow] ?? ""), /▌(?:│)?\s+○ docs/);
   assert.ok(lines.indexOf("○ docs") < lines.indexOf("- api"));
   assert.doesNotMatch(lines, /Stopped/);
 });
@@ -1735,7 +1768,7 @@ test("verified cleaned worktree markers are muted", () => {
   };
   const rendered = renderSessions(buildRenderModel({ sessions: [item], width: 120 }), theme).lines.join("\n");
 
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇✓")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇✓")));
   assert.ok(!rendered.includes(styleToken(theme, "success", "⎇✓")));
 });
 
@@ -1753,9 +1786,9 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const theme = { ...darkTheme, accent: "#010203" };
   const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ◈ api ⧉ 3/);
+  assert.match(plain, /○ ▢1 api ⎇[\s\S]*\[default\] ◈ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
-  assert.ok(rendered.includes(styleToken(theme, "dim", "⎇ ")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });
@@ -1835,7 +1868,7 @@ test("group row tags remain visible when space permits", () => {
   const layout = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 }));
   const titleIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "a");
   assert.notEqual(titleIndex, -1);
-  assert.match(stripAnsi(layout.lines[titleIndex] ?? ""), /▌(?:│)?\s+·\s+○ release/);
+  assert.match(stripAnsi(layout.lines[titleIndex] ?? ""), /▌(?:│)?\s+○ release/);
   const metadataIndex = layout.rowTargets.findIndex((target) => target?.kind === "session-continuation" && target.id === "a");
   assert.match(stripAnsi(layout.lines[metadataIndex] ?? ""), /\[release-group\]/);
   for (const line of layout.lines) assert.ok(visibleWidth(line) <= 100, line);
@@ -1846,11 +1879,11 @@ test("filter with zero matches renders no-match state beside recovery controls",
   const model = buildRenderModel({ sessions: [session("a", "default", "idle", "api")], width: 100, filter: "zzz" });
   assert.equal(model.noMatches, true);
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
-  assert.match(rendered, /FLEET\s+0\/1 trees/);
+  assert.match(rendered, /FLEET\s+0\/1 sessions/);
   assert.doesNotMatch(rendered.split("\n")[1] ?? "", /filter:/);
   assert.match(rendered, /FILTERED\s+zzz\s+1 hidden/);
   assert.match(rendered, /No sessions match/);
-  assert.match(rendered, /\/ edit · Esc clear/);
+  assert.match(rendered, /\/ Edit · Esc Clear/);
 });
 
 test("starting displays and counts as running", () => {
@@ -1963,7 +1996,7 @@ test("adaptive richness stays Active-main-only and ANSI width safe", () => {
     assert.match(text, width >= 100 ? /▌│ ▾\s+◐ Parent/ : /▌ ▾\s+◐ Parent/);
     assert.match(text, /\[agents\].*[✓◉·]/);
     assert.match(text, /└─\s+○ worker/);
-    assert.match(text, /·\s+○ \[agents\] Backlog/);
+    assert.match(text, /   ○ \[agents\] Backlog/);
     assert.match(text, /- \[agents\] Archived/);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
@@ -1976,7 +2009,7 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   }));
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", width: 120, height: 12 }));
   const text = layout.lines.map(stripAnsi).join("\n");
-  assert.equal(layout.listWidth, 100);
+  assert.equal(layout.listWidth, 118);
   assert.match(text, /Stored session 3/);
   assert.match(text, /Stored session [24]/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
@@ -2031,13 +2064,13 @@ test("generic attention is gated to waiting/idle and stays searchable on its own
   assert.equal(rows.find((row) => row.id === "running")?.attention, undefined);
   assert.equal(rows.find((row) => row.id === "stopped")?.attention, undefined);
   const output = renderSessions(model, darkTheme).lines.map(stripAnsi).join("\n");
-  assert.match(output, /✓ ◐ \[agents\] ready/);
-  assert.match(output, /\? ○ \[agents\] question/);
+  assert.match(output, /✓ \[agents\] ready/);
+  assert.match(output, /\? \[agents\] question/);
   assert.doesNotMatch(output, /✓ ● \[agents\] running|! - \[agents\] stopped/);
 
   const projectCompact = renderSessions(buildRenderModel({ sessions, grouping: "project", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
-  assert.match(projectCompact, /✓ ◐ ready[\s\S]*\[agents\]/);
-  assert.match(projectCompact, /\? ○ question[\s\S]*\[agents\]/);
+  assert.match(projectCompact, /✓ ready[\s\S]*\[agents\]/);
+  assert.match(projectCompact, /\? question[\s\S]*\[agents\]/);
 
   const parent = { ...session("parent", "agents", "waiting"), workflow: WORKFLOW };
   const child = { ...session("child", "agents", "waiting"), kind: "subagent" as const, parentId: "parent", agentName: "worker", context: attention("blocked", "Needs sandbox access") };
@@ -2052,7 +2085,7 @@ test("workflowless Active board keeps generic attention and distinct empty state
   const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", width: 60 });
   assert.equal(plain.noBoardSessions, false);
   assert.deepEqual(plain.sections.map((section) => section.key), ["other-active"]);
-  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? ○ \[defau…\] plain/);
+  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 active session · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? \[defau…\] plain/);
 
   const sessions = [{ ...session("backlog", "default", "idle"), bucket: "backlog" as const, workflow: WORKFLOW }];
   const empty = buildRenderModel({ sessions, grouping: "stage", width: 60 });
@@ -2094,13 +2127,13 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
-    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▸ Enter", "LIVE DETAILS"].map((label) => text.indexOf(label));
+    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▌ Open in Pi", "LIVE DETAILS"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
     assert.doesNotMatch(text, /Ship once notarization/, `${width}: description must not trail a complete subtitle`);
-    assert.match(text, /i\s+Hide details/);
-    assert.match(text, /:\s+Actions/);
+    assert.match(text, /Hide details\s+i/);
+    assert.match(text, /All actions\s+:/);
     assert.ok(layout.workspaceRowTargets.filter(Boolean).length >= 3);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
@@ -2179,12 +2212,12 @@ test("workspace height pruning preserves primary action and requested evidence t
     const layout = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 60, height, workspaceEvidenceVisible: true }));
     assert.equal(layout.lines.length, height);
     const text = layout.lines.map(stripAnsi).join("\n");
-    assert.match(text, /▸ Enter\s+Open/);
+    assert.match(text, /▌ Open\s+Enter/);
     assert.match(text, /live evidence unavailable/);
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
     for (const [index, target] of layout.workspaceRowTargets.entries()) {
-      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|Actions/);
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|All actions/);
     }
   }
 });
@@ -2280,56 +2313,32 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   const model = buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", width: 100, expandedProjectParentIds: new Set(["parent"]) });
   const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
 
-  assert.match(text, /▌│ ▾ \? ◐ .*Release decision/);
+  assert.match(text, /▌│ ▾ \? .*Release decision/);
   assert.match(text, /“Use the approved card hierarchy\?”/);
   assert.doesNotMatch(text, /#cockpit-008/);
   assert.equal(text.match(/agents/g)?.length, 1);
-  assert.match(text, /└─  .*● .*frontend-designer Review cockpit hierarchy geometry/);
+  assert.match(text, /└─ ● frontend-designer Review cockpit hierarchy geometry/);
   assert.doesNotMatch(text, /frontend-designer.*EX|frontend-designer.*agents/);
   assert.equal(text.split("\n").filter((line) => line.includes("Theme spike")).length, 1);
   assert.equal(text.split("\n").filter((line) => line.includes("Old notes")).length, 1);
 });
 
-test("project tier navigator is independent, responsive, and keeps zero tiers", () => {
+test("tier navigation projection retains zero tiers independently of header fitting", () => {
   const needs = { ...session("needs", "docs", "waiting", "Needs answer"), context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
   const active = session("active", "default", "running", "Active work");
   const model = buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 100 });
   assert.deepEqual(model.cockpitNavigation.map((entry) => [entry.tier, entry.ownerCount, entry.selected]), [
     ["needs-you", 1, false], ["health", 0, false], ["active", 1, true], ["quiet", 0, false], ["archived", 0, false],
   ]);
-  const layout = renderSessions(model, darkTheme);
-  const text = stripAnsi(layout.lines.join("\n"));
-  assert.equal(layout.navigatorWidth, 16);
-  assert.equal(layout.listStartX, 19);
-  assert.equal(layout.listWidth, 81);
-  assert.match(text, /FLEET/);
-  assert.match(text, /NEEDS YOU\s+1/);
-  assert.match(text, /HEALTH\s+0/);
-
-  const wide = renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 120 }), darkTheme);
-  assert.equal(wide.navigatorWidth, 17);
-  assert.equal(wide.listStartX, 20);
-  assert.equal(wide.listWidth, 65);
-  assert.equal(wide.workspaceStartX, 86);
-  const ultra = renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 160 }), darkTheme);
-  assert.equal(ultra.navigatorWidth, 17);
-  assert.equal(ultra.listWidth, 95);
-  assert.equal(ultra.workspaceStartX, 116);
-
-  const narrow = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 60 }), darkTheme);
-  assert.equal(narrow.navigatorWidth, 0);
-  assert.equal(narrow.listStartX, 1, "phone widths are frameless");
-  for (const [width, expected] of [[40, 0], [59, 0], [60, 0], [99, 0], [100, 16], [119, 16], [120, 17], [159, 17], [160, 17]] as const) {
+  for (const width of [40, 59, 60, 99, 100, 119, 120, 159, 160]) {
     const responsive = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width }), darkTheme);
-    assert.equal(responsive.navigatorWidth, expected, `width ${width}`);
+    assert.equal(responsive.listStartX, width <= 60 ? 1 : 2);
     for (const line of responsive.lines) assert.equal(visibleWidth(line), width, `width ${width}: ${line}`);
+    assert.deepEqual(responsive.tierChips.map(chip => chip.tier).filter(tier => tier === "health" || tier === "quiet" || tier === "archived"), []);
   }
-  assert.equal(renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", grouping: "stage", width: 100 })).navigatorWidth, 0);
-  assert.equal(renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", pinSlots: ["active"], width: 100 })).navigatorWidth, 0);
-  assert.equal(renderSessions(workspaceModel({ sessions: [needs, active], selectedId: "active", width: 100 })).navigatorWidth, 0);
 });
 
-test("tier navigator stays composed for filtered no-match and standalone subagent owners", () => {
+test("tier navigation stays composed for filtered no-match and standalone subagent owners", () => {
   const parent = session("parent", "default", "idle", "Parent");
   const orphan = { ...session("orphan", "default", "running", "Orphan"), kind: "subagent" as const, parentId: "missing", agentName: "scout", taskPreview: "Inspect orphan handling" };
   const orphanModel = buildRenderModel({ sessions: [parent, orphan], selectedId: "parent", width: 100 });
@@ -2342,7 +2351,7 @@ test("tier navigator stays composed for filtered no-match and standalone subagen
   assert.deepEqual(filtered.cockpitNavigation.map((entry) => entry.ownerCount), [0, 0, 0, 0, 0]);
   const layout = renderSessions(filtered, darkTheme);
   const text = stripAnsi(layout.lines.join("\n"));
-  assert.equal(layout.navigatorWidth, 16);
+  assert.deepEqual(layout.tierChips, []);
   assert.match(text, /FLEET/);
   assert.match(text, /No sessions match\./);
 });
@@ -2457,17 +2466,17 @@ test("needsYouOwners lists explicit owner requests in dashboard order and otherR
   ]));
 });
 
-test("running rows animate with the render clock and show running time", () => {
+test("only the selected running row animates with the render clock; rows retain running time", () => {
   const now = 10 * 60_000;
   const sessions: RuntimeSession[] = [
     { ...session("long", "default", "running", "Long task"), lastActivityAt: now - 3 * 60_000 },
     { ...session("fresh", "default", "starting", "Fresh task"), lastActivityAt: now - 20_000 },
     { ...session("wait", "default", "waiting", "Waiting task"), lastActivityAt: now - 5 * 60_000 },
   ];
-  const symbols = (at?: number) => Object.fromEntries(buildRenderModel({ sessions, width: 120, now: at }).sections
+  const symbols = (at?: number) => Object.fromEntries(buildRenderModel({ sessions, selectedId: "long", width: 120, now: at }).sections
     .flatMap((section) => section.groups.flatMap((group) => group.sessions)).map((row) => [row.id, row.symbol]));
-  assert.deepEqual(symbols(now), { long: "⠋", fresh: "⠋", wait: "◐" });
-  assert.deepEqual(symbols(now + 250), { long: "⠙", fresh: "⠙", wait: "◐" });
+  assert.deepEqual(symbols(now), { long: "⠋", fresh: "●", wait: "◐" });
+  assert.deepEqual(symbols(now + 250), { long: "⠙", fresh: "●", wait: "◐" });
   assert.deepEqual(symbols(), { long: "●", fresh: "●", wait: "◐" });
 
   for (const grouping of ["project", "stage"] as const) {

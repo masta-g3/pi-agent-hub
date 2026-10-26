@@ -98,8 +98,8 @@ test("below 100 columns cards keep their previous lines", () => {
   assert.ok(!card.some((line) => line.includes("⎇") || line.includes("writing plan")));
 });
 
-/** List column zero sits after the left frame and the 17-cell tier navigator at 120+ columns. */
-const LIST_START = 19;
+/** List column zero sits immediately after the left frame. */
+const LIST_START = 1;
 
 function linesBetween(rendered: ReturnType<typeof render>, firstId: string, secondId: string): string[] {
   const targets = rendered.layout.rowTargets;
@@ -199,16 +199,19 @@ test("producer-owned worktrees show their branch until cleaned", () => {
   assert.ok(!cleaned.some((line) => line.includes("costs-002")), cleaned.join("\n"));
 });
 
-test("the bold group badge stands in for a repo that repeats it", () => {
+test("muted group and repo names avoid repeating the same identity", () => {
   const same = cardLines(render([session("same", { group: "Hub Repo" })]), "same");
   assert.equal(same.length, 1, same.join("\n"));
   const branched = cardLines(render([session("same", { group: "hub-repo", worktreeBranch: "feat/x" })]), "same");
   const repoLine = branched.find((line) => line.includes("⎇ feat/x"));
   assert.ok(repoLine && !/hub-repo ⎇/.test(repoLine), branched.join("\n"));
   const raw = renderSessions(buildRenderModel({ sessions: [session("same")], selectedId: "same", width: 160, height: 60, now: NOW, guidanceHidden: true }), darkTheme).lines;
-  assert.ok(raw.some((line) => line.includes("\u001b[1mcards\u001b[22m")), "bold group badge");
+  const groupLine = raw.find((line) => stripAnsi(line).includes("[cards]"))!;
+  assert.ok(groupLine.includes(styleToken(darkTheme, "muted", "cards")), "muted group badge");
+  assert.doesNotMatch(groupLine, /\u001b\[1m/);
   const differing = raw.find((line) => stripAnsi(line).includes("◈ hub-repo"))!;
-  assert.ok(differing.includes(styleToken(darkTheme, "accent", "◈")) && differing.includes("\u001b[1mhub-repo\u001b[22m"), differing);
+  assert.ok(differing.includes(styleToken(darkTheme, "accent", "◈")) && differing.includes(styleToken(darkTheme, "muted", "hub-repo")), differing);
+  assert.doesNotMatch(differing, /\u001b\[1m/);
 });
 
 test("narrow and pinned views carry a differing repo name on the metadata line", () => {
