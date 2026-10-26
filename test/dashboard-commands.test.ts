@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import type { RuntimeSession } from "../src/core/types.js";
 import { validateDashboardShortcuts } from "../src/core/dashboard-shortcuts.js";
 import {
@@ -59,10 +60,34 @@ test("Backlog visibility is a catalog-owned toggle distinct from moving a sessio
   const selected = session("alpha");
   const hidden = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "release", capabilities: allCapabilities });
   const shown = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "lifecycle:active,archived release", capabilities: allCapabilities });
-  assert.equal(hidden.find((command) => command.id === "view:backlog")?.label, "Hide Backlog");
-  assert.equal(shown.find((command) => command.id === "view:backlog")?.label, "Show Backlog");
-  assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "lifecycle:active,backlog release", capabilities: allCapabilities }).find((command) => command.id === "view:backlog")?.label, "Hide Backlog");
+  assert.equal(hidden.find((command) => command.id === "view:backlog")?.label, "Hide backlog");
+  assert.equal(shown.find((command) => command.id === "view:backlog")?.label, "Show backlog");
+  assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, filter: "lifecycle:active,backlog release", capabilities: allCapabilities }).find((command) => command.id === "view:backlog")?.label, "Hide backlog");
   assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities }).find((command) => command.id === "action:alpha:backlog")?.displayKey, "B");
+});
+
+test("footer labels Enter and Workspace truthfully and keeps request navigation when space is tight", () => {
+  for (const width of [61, 80, 99, 100, 119, 120, 160]) {
+    for (const requestCount of [0, 1]) {
+      const footer = dashboardFooter(width, { requestCount });
+      assert.match(footer, /Enter Open/);
+      assert.doesNotMatch(footer, /Enter Workspace/);
+      if (width < 120) assert.match(footer, /i Workspace/);
+      if (requestCount) assert.match(footer, /Enter Open · (?:i Workspace · )?\] Next request/);
+      else assert.doesNotMatch(footer, /\] Next request/);
+      assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
+    }
+  }
+});
+
+test("footer backlog toggle uses the catalog label for the current filter", () => {
+  assert.match(dashboardFooter(160), /b Hide backlog/);
+  assert.match(dashboardFooter(160, { filter: "lifecycle:active,archived" }), /b Show backlog/);
+});
+
+test("phone request hint keeps the existing tap-target order and only uses spare space", () => {
+  assert.equal(dashboardFooter(44, { requestCount: 1 }), dashboardFooter(44));
+  assert.equal(dashboardFooter(60, { requestCount: 1 }), "Enter Open · i Info · : Actions · / Filter · ] Next · ? Help");
 });
 
 test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
@@ -73,6 +98,16 @@ test("coaching footer keeps the approved daily-loop controls in catalog ownershi
   assert.equal(dashboardFooter(40, { coaching: true }), "Enter Open · Ctrl+Q Return · : · ?");
   assert.equal(dashboardFooter(60, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
   assert.equal(dashboardFooter(160, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
+});
+
+test("coaching retains truthful workspace and request hints", () => {
+  for (const width of [61, 80, 100, 160]) {
+    const footer = dashboardFooter(width, { coaching: true, requestCount: 1 });
+    assert.match(footer, /Enter Open/);
+    assert.match(footer, /\] Next request/);
+    if (width < 120) assert.match(footer, /i Workspace/);
+    assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
+  }
 });
 
 test("pinned footer is derived from catalog-owned action metadata", () => {
