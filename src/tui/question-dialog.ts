@@ -132,6 +132,6 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
   const final = dialog.page === dialog.request.params.questions.length - 1;
   const footer = !focused ? "Tab Answer · c Hide" : dialog.custom ? `${final ? "Enter Send" : "Enter Next"} · Editing answer` : `${final ? "Enter Send" : "Enter Next"}${question?.multiSelect ? " · Numbers/Space Toggle" : ` · 1–${question?.options.length} Choose`} · t Type`;
   dialog.rowTargets = [undefined, ...visible.map(row => row.target), undefined, !dialog.submitting && !dialog.uncertain && dialog.available ? final ? "submit" : "next" : undefined, "back"];
-  const styled = (token: "accent" | "dim" | "error" | "warning", text: string) => theme ? styleToken(theme, token, text) : text;
-  return [styled("warning", heading), ...visible.map(row => theme && row.target === dialog.choice ? styleBgToken(theme, "selectedBg", row.text) : row.text), styled(dialog.error ? "error" : "dim", status), styled("accent", footer), styled("dim", "Esc Fleet · Tab Focus")].map(line => truncateToWidth(line, width));
+  const styled = (token: "accent" | "muted" | "error" | "warning", text: string) => theme ? styleToken(theme, token, text) : text;
+  return [styled("warning", heading), ...visible.map(row => theme && row.target === dialog.choice ? styleBgToken(theme, "selectedBg", row.text) : row.text), styled(dialog.error ? "error" : "muted", status), styled("accent", footer), styled("muted", "Esc Fleet · Tab Focus")].map(line => truncateToWidth(line, width));
 }
