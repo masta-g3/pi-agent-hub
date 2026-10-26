@@ -770,7 +770,7 @@ export async function runTui(): Promise<void> {
     },
   });
   stopActionLoop = startDashboardActionLoop(async () => {
-    if (view.conversationWorking || view.hasVisibleRunningRows) tui.requestRender();
+    if (view.conversationWorking || view.hasAnimatingSelectedRow) tui.requestRender();
     const action = await consumeDashboardAction();
     if (!action) return;
     await processDashboardAction(view, action, refreshDashboard);

@@ -430,7 +430,7 @@ test("rich owner trees use truthful gutters without changing compact rows", () =
   assert.match(project.find((line) => line.includes("[app]")) ?? "", /\[app\]/);
   assert.match(project.find((line) => line.includes("Tree context")) ?? "", / │ Tree context/);
   assert.match(project.find((line) => line.includes("worker")) ?? "", /▌└ └─\s+○ worker/);
-  assert.match(project.find((line) => line.includes("Backlog")) ?? "", / ·\s+○ \[[^\]]+\] Backlog/);
+  assert.match(project.find((line) => line.includes("Backlog")) ?? "", /   ○ \[[^\]]+\] Backlog/);
 
   const narrow = renderSessions(buildRenderModel({
     sessions: [parent, child], selectedId: "parent", width: 60, expandedProjectParentIds: new Set(["parent"]),
@@ -482,8 +482,8 @@ test("tree gutter tones reuse warning and border theme tokens", () => {
   const active = { ...session("active", "app", "running", "Active"), context: { version: 1 as const, updatedAt: 2, ticket: { id: "active-001", subtitle: "Active context" } } };
   const clipped = renderSessions(buildRenderModel({ sessions: [needs, active, quiet], selectedId: "active", width: 100, height: 14 })).lines.map(stripAnsi);
   assert.match(clipped.find((line) => line.includes(" NEEDS YOU") && line.includes("·1")) ?? "", /─│ NEEDS YOU/);
-  assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│ · \? ◐ Needs/);
-  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└ · \? ◐ Needs/);
+  assert.match(clipped.find((line) => line.includes("Needs")) ?? "", /│   \? Needs/);
+  assert.doesNotMatch(clipped.find((line) => line.includes("Needs")) ?? "", /└   \? Needs/);
 });
 
 test("mode labels survive every 40-column signal combination", () => {
@@ -759,7 +759,7 @@ test("archived tails show one meaning: closure outcome, else compact producer st
   assert.match(rowText(lines, "Date-based paths"), /- .*Date-based paths\s+CM ✓ · 1h/);
   assert.match(rowText(lines, "Investigate publishing"), /Investigate publishing\s+3h/);
   assert.doesNotMatch(rowText(lines, "Investigate publishing"), /[✓◉⊘]/);
-  assert.match(rowText(lines, "Note templates"), /⠋ .*Note templates\s+✓ · now/);
+  assert.match(rowText(lines, "Note templates"), /● .*Note templates\s+✓ · now/);
   assert.doesNotMatch(rowText(lines, "Note templates"), /CM/);
   assert.match(rowText(lines, "Alternative planning approach"), /× .*Alternative planning approach\s+⊘ · 3d/);
   assert.doesNotMatch(rowText(lines, "Alternative planning approach"), /EX/);
@@ -1613,7 +1613,7 @@ test("selected and stopped rows have distinct treatments with inactive stopped r
   const layout = renderSessions(model);
   const lines = layout.lines.map(stripAnsi).join("\n");
   const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "b");
-  assert.match(stripAnsi(layout.lines[selectedRow] ?? ""), /▌(?:│)?\s+·\s+○ docs/);
+  assert.match(stripAnsi(layout.lines[selectedRow] ?? ""), /▌(?:│)?\s+○ docs/);
   assert.ok(lines.indexOf("○ docs") < lines.indexOf("- api"));
   assert.doesNotMatch(lines, /Stopped/);
 });
@@ -1778,9 +1778,9 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const theme = { ...darkTheme, accent: "#010203" };
   const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 ⎇  api[\s\S]*\[default\] ◈ api ⧉ 3/);
+  assert.match(plain, /○ ▢1 api ⎇[\s\S]*\[default\] ◈ api ⧉ 3/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
-  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇ ")));
+  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
   assert.doesNotMatch(rendered, /runtime\s+\/state\/workspaces\/a/);
 });
@@ -1860,7 +1860,7 @@ test("group row tags remain visible when space permits", () => {
   const layout = renderSessions(buildRenderModel({ sessions: [session("a", group, "idle", "release")], width: 100 }));
   const titleIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "a");
   assert.notEqual(titleIndex, -1);
-  assert.match(stripAnsi(layout.lines[titleIndex] ?? ""), /▌(?:│)?\s+·\s+○ release/);
+  assert.match(stripAnsi(layout.lines[titleIndex] ?? ""), /▌(?:│)?\s+○ release/);
   const metadataIndex = layout.rowTargets.findIndex((target) => target?.kind === "session-continuation" && target.id === "a");
   assert.match(stripAnsi(layout.lines[metadataIndex] ?? ""), /\[release-group\]/);
   for (const line of layout.lines) assert.ok(visibleWidth(line) <= 100, line);
@@ -1988,7 +1988,7 @@ test("adaptive richness stays Active-main-only and ANSI width safe", () => {
     assert.match(text, width >= 100 ? /▌│ ▾\s+◐ Parent/ : /▌ ▾\s+◐ Parent/);
     assert.match(text, /\[agents\].*[✓◉·]/);
     assert.match(text, /└─\s+○ worker/);
-    assert.match(text, /·\s+○ \[agents\] Backlog/);
+    assert.match(text, /   ○ \[agents\] Backlog/);
     assert.match(text, /- \[agents\] Archived/);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
@@ -2056,13 +2056,13 @@ test("generic attention is gated to waiting/idle and stays searchable on its own
   assert.equal(rows.find((row) => row.id === "running")?.attention, undefined);
   assert.equal(rows.find((row) => row.id === "stopped")?.attention, undefined);
   const output = renderSessions(model, darkTheme).lines.map(stripAnsi).join("\n");
-  assert.match(output, /✓ ◐ \[agents\] ready/);
-  assert.match(output, /\? ○ \[agents\] question/);
+  assert.match(output, /✓ \[agents\] ready/);
+  assert.match(output, /\? \[agents\] question/);
   assert.doesNotMatch(output, /✓ ● \[agents\] running|! - \[agents\] stopped/);
 
   const projectCompact = renderSessions(buildRenderModel({ sessions, grouping: "project", width: 80 }), darkTheme).lines.map(stripAnsi).join("\n");
-  assert.match(projectCompact, /✓ ◐ ready[\s\S]*\[agents\]/);
-  assert.match(projectCompact, /\? ○ question[\s\S]*\[agents\]/);
+  assert.match(projectCompact, /✓ ready[\s\S]*\[agents\]/);
+  assert.match(projectCompact, /\? question[\s\S]*\[agents\]/);
 
   const parent = { ...session("parent", "agents", "waiting"), workflow: WORKFLOW };
   const child = { ...session("child", "agents", "waiting"), kind: "subagent" as const, parentId: "parent", agentName: "worker", context: attention("blocked", "Needs sandbox access") };
@@ -2077,7 +2077,7 @@ test("workflowless Active board keeps generic attention and distinct empty state
   const plain = buildRenderModel({ sessions: [workflowless], grouping: "stage", width: 60 });
   assert.equal(plain.noBoardSessions, false);
   assert.deepEqual(plain.sections.map((section) => section.key), ["other-active"]);
-  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? ○ \[defau…\] plain/);
+  assert.match(renderSessions(plain).lines.map(stripAnsi).join("\n"), /WORKFLOW\s+1 Active tree · 1 needs you[\s\S]*OTHER ACTIVE[\s\S]*\? \[defau…\] plain/);
 
   const sessions = [{ ...session("backlog", "default", "idle"), bucket: "backlog" as const, workflow: WORKFLOW }];
   const empty = buildRenderModel({ sessions, grouping: "stage", width: 60 });
@@ -2305,11 +2305,11 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   const model = buildRenderModel({ sessions: [parent, child, backlog, archived], selectedId: "parent", width: 100, expandedProjectParentIds: new Set(["parent"]) });
   const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
 
-  assert.match(text, /▌│ ▾ \? ◐ .*Release decision/);
+  assert.match(text, /▌│ ▾ \? .*Release decision/);
   assert.match(text, /“Use the approved card hierarchy\?”/);
   assert.doesNotMatch(text, /#cockpit-008/);
   assert.equal(text.match(/agents/g)?.length, 1);
-  assert.match(text, /└─  .*● .*frontend-designer Review cockpit hierarchy geometry/);
+  assert.match(text, /└─ ● frontend-designer Review cockpit hierarchy geometry/);
   assert.doesNotMatch(text, /frontend-designer.*EX|frontend-designer.*agents/);
   assert.equal(text.split("\n").filter((line) => line.includes("Theme spike")).length, 1);
   assert.equal(text.split("\n").filter((line) => line.includes("Old notes")).length, 1);
@@ -2482,17 +2482,17 @@ test("needsYouOwners lists explicit owner requests in dashboard order and otherR
   ]));
 });
 
-test("running rows animate with the render clock and show running time", () => {
+test("only the selected running row animates with the render clock; rows retain running time", () => {
   const now = 10 * 60_000;
   const sessions: RuntimeSession[] = [
     { ...session("long", "default", "running", "Long task"), lastActivityAt: now - 3 * 60_000 },
     { ...session("fresh", "default", "starting", "Fresh task"), lastActivityAt: now - 20_000 },
     { ...session("wait", "default", "waiting", "Waiting task"), lastActivityAt: now - 5 * 60_000 },
   ];
-  const symbols = (at?: number) => Object.fromEntries(buildRenderModel({ sessions, width: 120, now: at }).sections
+  const symbols = (at?: number) => Object.fromEntries(buildRenderModel({ sessions, selectedId: "long", width: 120, now: at }).sections
     .flatMap((section) => section.groups.flatMap((group) => group.sessions)).map((row) => [row.id, row.symbol]));
-  assert.deepEqual(symbols(now), { long: "⠋", fresh: "⠋", wait: "◐" });
-  assert.deepEqual(symbols(now + 250), { long: "⠙", fresh: "⠙", wait: "◐" });
+  assert.deepEqual(symbols(now), { long: "⠋", fresh: "●", wait: "◐" });
+  assert.deepEqual(symbols(now + 250), { long: "⠙", fresh: "●", wait: "◐" });
   assert.deepEqual(symbols(), { long: "●", fresh: "●", wait: "◐" });
 
   for (const grouping of ["project", "stage"] as const) {
