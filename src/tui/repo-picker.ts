@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -113,31 +114,31 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   else for (const index of rows) {
     const item = state.items[index]!;
     const active = index === selected;
-    const marker = active ? "▶" : " ";
-    const favorite = item.favorite ? "★" : " ";
+    const marker = active ? glyphs.primary : " ";
+    const favorite = item.favorite ? glyphs.favorite : " ";
     const line = narrow
       ? `${marker} ${favorite} ${truncate(item.label, labelWidth)}`
-      : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.dim(truncate(item.detail, detailWidth))}`;
+      : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.muted(truncate(item.detail, detailWidth))}`;
     lines.push(active ? styles.accent(line) : line);
   }
   if (narrow && height && height > 0) {
     const itemCount = Math.max(1, rows.length);
     lines.push(...Array.from({ length: Math.max(0, rowLimit - itemCount) }, () => ""));
   }
-  if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.dim(pathLines[pathOffset + index] ?? "")));
+  if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.muted(pathLines[pathOffset + index] ?? "")));
   lines.push("");
   const browse = state.mode === "browse";
   if (narrow) lines.push(
-    styles.muted(browse ? "Type Search · → Open · ← Up · ↑↓ Move" : "Type Search · ↑↓ Move · PgUp/PgDn Path"),
-    styles.muted(browse ? "Enter Select · Tab Recent · Esc Cancel" : "Enter Select · → Browse · Tab Browse · Esc Cancel"),
+    styles.muted(browse ? `Type Search ${glyphs.pendingStep} ${glyphs.right} Open ${glyphs.pendingStep} ${glyphs.left} Up ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move` : `Type Search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} PgUp/PgDn Path`),
+    styles.muted(browse ? `Enter Select ${glyphs.pendingStep} Tab Recent ${glyphs.pendingStep} Esc Cancel` : `Enter Select ${glyphs.pendingStep} ${glyphs.right} Browse ${glyphs.pendingStep} Tab Browse ${glyphs.pendingStep} Esc Cancel`),
   );
   else lines.push(styles.muted(browse
-    ? "type search · → open · ← up · enter select · tab recent · esc cancel"
-    : "type search · ↑↓ move · → browse into · enter select · tab browse · esc cancel"));
+    ? `Type search ${glyphs.pendingStep} ${glyphs.right} Open ${glyphs.pendingStep} ${glyphs.left} Up ${glyphs.pendingStep} Enter Select ${glyphs.pendingStep} Tab Recent ${glyphs.pendingStep} Esc Cancel`
+    : `Type search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.right} Browse into ${glyphs.pendingStep} Enter Select ${glyphs.pendingStep} Tab Browse ${glyphs.pendingStep} Esc Cancel`));
   return [
-    `${styles.border("╭")}${styles.border("─".repeat(inner))}${styles.border("╮")}`,
-    ...lines.map((line) => `${styles.border("│")}${pad(line, inner)}${styles.border("│")}`),
-    `${styles.border("╰")}${styles.border("─".repeat(inner))}${styles.border("╯")}`,
+    `${styles.border(glyphs.topLeft)}${styles.border(glyphs.horizontal.repeat(inner))}${styles.border(glyphs.topRight)}`,
+    ...lines.map((line) => `${styles.border(glyphs.vertical)}${pad(line, inner)}${styles.border(glyphs.vertical)}`),
+    `${styles.border(glyphs.bottomLeft)}${styles.border(glyphs.horizontal.repeat(inner))}${styles.border(glyphs.bottomRight)}`,
   ];
 }
 
@@ -186,7 +187,6 @@ function createStyles(theme: SessionsTheme) {
   return {
     accent: (text: string) => styleToken(theme, "accent", text),
     border: (text: string) => styleToken(theme, "border", text),
-    dim: (text: string) => styleToken(theme, "dim", text),
     muted: (text: string) => styleToken(theme, "muted", text),
   };
 }
@@ -198,5 +198,5 @@ function pad(value: string, width: number): string {
 
 function truncate(value: string, width: number): string {
   if (width <= 1) return "";
-  return truncateToWidth(value, width, "…");
+  return truncateToWidth(value, width, glyphs.ellipsis);
 }

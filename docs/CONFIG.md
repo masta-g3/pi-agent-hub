@@ -342,6 +342,18 @@ Servers with `pool: true` require `pi-hub mcp-pool`; they are not started automa
 pi-hub mcp-pool
 ```
 
+## Plain terminals
+
+Set `NO_COLOR` to any non-empty value to remove dashboard foreground and background colors. Bold stays available. The selected session keeps its marker in reverse video. An empty `NO_COLOR` value does not disable color. While color is disabled, Hub skips Pi theme synchronization and disables the dashboard theme picker.
+
+Set `PI_AGENT_HUB_GLYPHS=ascii` to use ASCII dashboard symbols, borders, navigation hints, and truncation marks:
+
+```sh
+NO_COLOR=1 PI_AGENT_HUB_GLYPHS=ascii pi-hub
+```
+
+The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols. Both variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
+
 ## Theme behavior
 
 Press `t` to open dashboard theme settings. The list contains Pi's `dark` and `light` themes plus custom/package themes from global Pi resources. Project-local themes are deliberately excluded because a synchronized choice becomes Pi's global default. Pi 0.83 or newer is required for the matching Automatic light/dark setting.

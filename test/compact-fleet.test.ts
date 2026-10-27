@@ -119,9 +119,10 @@ test("crowded fleet panels keep progress with every visible title", () => {
       const rendered = renderSessions(buildRenderModel({ sessions: crowded, selectedId, width, height: 18, pinSlots: width <= 60 ? ["s0"] : undefined }));
       for (const [index, target] of rendered.rowTargets.entries()) {
         if (target?.kind !== "session") continue;
-        // Short phone-width windows keep progress on each one-line title row.
-        if (width < 100) {
+        // Short phone windows and dense unselected parents carry progress on the title row.
+        if (width < 100 || target.id !== (selectedId ?? "s0")) {
           assert.match(stripAnsi(rendered.lines[index]), /✓\s+◉\s+·/, `${width}: ${target.id} lost its progress`);
+          if (target.id !== (selectedId ?? "s0")) assert.notEqual(rendered.rowTargets[index + 1]?.kind, "session-continuation");
           continue;
         }
         assert.deepEqual(rendered.rowTargets[index + 1], { kind: "session-continuation", id: target.id }, `${width}: ${target.id} lost its progress row`);

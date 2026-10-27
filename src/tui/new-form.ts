@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { basename } from "node:path";
 import { normalizeGroup } from "../core/registry.js";
 import type { SessionFavorite } from "../core/session-favorites.js";
@@ -216,8 +217,8 @@ function buildFields(repoValues: string[], group: string, suggestions: string[],
     {
       key: "worktree" as const,
       label: "worktree",
-      value: worktreeEnabled ? `[x] on${repoCount > 1 ? ` · ${repoCount} repos` : ""}` : "[ ] off",
-      hint: "space toggle · create an isolated Git branch",
+      value: worktreeEnabled ? `[x] on${repoCount > 1 ? ` ${glyphs.pendingStep} ${repoCount} repos` : ""}` : "[ ] off",
+      hint: `Space Toggle ${glyphs.pendingStep} create an isolated Git branch`,
       readonly: true,
     },
     ...(worktreeEnabled ? [{ key: "branch" as const, label: "branch", value: branch, hint: repos.length > 1 ? "same new branch in every repo" : "new local branch" }] : []),
@@ -230,7 +231,7 @@ function repoField(index: number, value: string, suggestions: string[]): Field {
     key: `repo:${index}`,
     label: index === 0 ? "Primary" : "Additional",
     value,
-    hint: index === 0 ? "Project Skills/MCP use this directory · ctrl-o choose" : "ctrl-o choose · ctrl-x remove",
+    hint: index === 0 ? "Project Skills/MCP use this directory" : "Ctrl+X Remove",
     suggestions,
     cycleIndex: matchSuggestionIndex(value, suggestions),
     truncate: "start",

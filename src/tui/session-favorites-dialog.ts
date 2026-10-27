@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import type { SessionFavorite, SessionFavorites } from "../core/session-favorites.js";
 import { applyFavorite, favoriteCwds } from "./new-form.js";
@@ -171,8 +172,8 @@ function submitMutation(dialog: FavoritesDialog, ctx: NewSessionDialogContext): 
 function renderPicker(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext): string[] {
   const projection = pickerViewport(dialog, width, ctx.viewport.height ?? 18);
   const itemLines = projection.visibleChoices.map((favorite) => {
-    const marker = favorite.id === dialog.selected ? "▎" : " ";
-    const line = `${marker} ${favorite.name}  ·  ${favorite.cwds.length} ${favorite.cwds.length === 1 ? "directory" : "directories"}`;
+    const marker = favorite.id === dialog.selected ? glyphs.focus : " ";
+    const line = `${marker} ${favorite.name}  ${glyphs.pendingStep}  ${favorite.cwds.length} ${favorite.cwds.length === 1 ? "directory" : "directories"}`;
     return favorite.id === dialog.selected && ctx.theme ? styleToken(ctx.theme, "accent", line) : line;
   });
   const state = dialog.loading ? ["loading favorites..."] : projection.choices.length ? itemLines : [dialog.search.value ? "No matching favorites." : "No favorites saved."];
@@ -191,7 +192,7 @@ function renderName(dialog: FavoritesDialog, width: number, ctx: NewSessionDialo
   const details = paths.length ? paths : ["No directories."];
   const narrow = width <= NARROW_LAYOUT_MAX_WIDTH;
   const pathDetail = paths.length
-    ? paths.map((path, index) => `${index === 0 ? "Primary" : "Extra"}: ${path}`).join(" · ")
+    ? paths.map((path, index) => `${index === 0 ? "Primary" : "Extra"}: ${path}`).join(` ${glyphs.pendingStep} `)
     : details[0]!;
   return renderForm({
     title,
@@ -209,7 +210,7 @@ function renderName(dialog: FavoritesDialog, width: number, ctx: NewSessionDialo
     compact: true,
     height: ctx.viewport.height,
     detailOffset: dialog.detailOffset,
-    footer: dialog.loading ? "Loading… · Esc Cancel" : !dialog.favorites ? "Enter Retry · Esc Cancel" : dialog.pending ? (dialog.mode === "save" ? "Saving..." : "Renaming...") : "Enter Save · Esc Cancel",
+    footer: dialog.loading ? `Loading${glyphs.ellipsis} ${glyphs.pendingStep} Esc Cancel` : !dialog.favorites ? `Enter Retry ${glyphs.pendingStep} Esc Cancel` : dialog.pending ? (dialog.mode === "save" ? "Saving..." : "Renaming...") : `Enter Save ${glyphs.pendingStep} Esc Cancel`,
   }, width, ctx.theme);
 }
 
@@ -251,9 +252,9 @@ function pickerViewport(dialog: FavoritesDialog, width: number, height: number):
       : []),
     ...(dialog.error ? wrapWords(dialog.error, inner, inner).map((text) => ({ text, error: true })) : []),
   ];
-  const footers = dialog.loading ? ["Loading… · Esc Cancel"] : !dialog.favorites
-    ? ["Enter Retry · Esc Cancel"]
-    : ["^S Save · ^U Update · PgUp/PgDn Read", "^R Rename · ^X Remove", "↑↓ Select · Enter Apply · Esc Cancel"];
+  const footers = dialog.loading ? [`Loading${glyphs.ellipsis} ${glyphs.pendingStep} Esc Cancel`] : !dialog.favorites
+    ? [`Enter Retry ${glyphs.pendingStep} Esc Cancel`]
+    : [`Ctrl+S Save ${glyphs.pendingStep} Ctrl+U Update ${glyphs.pendingStep} PgUp/PgDn Read`, `Ctrl+R Rename ${glyphs.pendingStep} Ctrl+X Remove`, `${glyphs.up}${glyphs.down} Select ${glyphs.pendingStep} Enter Apply ${glyphs.pendingStep} Esc Cancel`];
   const rowBudget = Math.max(3, height - 4);
   const preferredDetails = Math.min(2, detailRows.length);
   const listLimit = Math.max(1, Math.min(8, rowBudget - 1 - footers.length - preferredDetails));
@@ -283,7 +284,7 @@ function confirmationViewport(dialog: FavoritesDialog, width: number, height: nu
     ...(update ? pathLines(paths).flatMap((line) => wrapWords(line, inner, inner)).map((text) => ({ text })) : []),
     ...(dialog.error ? wrapWords(dialog.error, inner, inner).map((text) => ({ text, error: true })) : []),
   ];
-  const footer = dialog.pending ? (update ? "Updating..." : "Removing...") : `Enter ${update ? "Save" : "Remove"} · Esc Cancel · PgDn Read`;
+  const footer = dialog.pending ? (update ? "Updating..." : "Removing...") : `Enter ${update ? "Save" : "Remove"} ${glyphs.pendingStep} Esc Cancel ${glyphs.pendingStep} PgDn Read`;
   return { footer, ...detailViewport(detailRows, dialog.detailOffset, Math.max(0, height - 5)) };
 }
 
@@ -301,7 +302,7 @@ function moveFavoriteDetail(dialog: FavoritesDialog, delta: number, ctx: NewSess
     const paths = dialog.mode === "save" ? displayDraftCwds(dialog) : selected?.cwds ?? [];
     const name = dialog.edit?.fields.name;
     const detail = name?.error ?? dialog.error ?? (paths.length
-      ? paths.map((path, index) => `${index === 0 ? "Primary" : "Extra"}: ${path}`).join(" · ")
+      ? paths.map((path, index) => `${index === 0 ? "Primary" : "Extra"}: ${path}`).join(` ${glyphs.pendingStep} `)
       : "No directories.");
     return { ...dialog, detailOffset: normalizeDetailOffset(dialog.detailOffset, delta, name?.error ? `${name.label}: ${detail}` : detail, width, height) };
   }

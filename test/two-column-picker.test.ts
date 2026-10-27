@@ -45,8 +45,8 @@ test("picker renders skill pool path and edit hint", () => {
   const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, poolDir: "/tmp/skills", items: [{ name: "a", enabled: true }] }, 80);
   const rendered = lines.join("\n");
   assert.match(rendered, /pool: \/tmp\/skills/);
-  assert.match(rendered, /Alt\+E edit/);
-  assert.match(rendered, /Alt\+E edit pool/);
+  assert.match(rendered, /Alt\+E Edit/);
+  assert.match(rendered, /Alt\+E Edit pool/);
 });
 
 test("picker renders its search cursor at the stored position", () => {
@@ -57,7 +57,7 @@ test("picker renders its search cursor at the stored position", () => {
 test("picker renders skill pool input cursor while editing", () => {
   const lines = renderTwoColumnPicker({ title: "Skills", selected: 0, poolInput: createTextInput("/tmp/skills", 4), items: [] }, 80);
   assert.match(lines.join("\n"), /pool: \/tmp█\/skills/);
-  assert.match(lines.join("\n"), /enter save\/reload/);
+  assert.match(lines.join("\n"), /Enter Save\/reload/);
 });
 
 test("themed picker keeps narrow terminal width", () => {

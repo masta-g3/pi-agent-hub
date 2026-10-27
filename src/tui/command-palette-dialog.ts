@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { MouseEvent } from "./mouse.js";
 import type { DashboardCommand, DashboardCommandGroup } from "./dashboard-commands.js";
@@ -156,27 +157,27 @@ export function renderCommandPalette(
 
   const queryWidth = Math.max(1, safeWidth - 2);
   const query = renderCursorValue(normalized.query.value, normalized.query.cursor, queryWidth, "start");
-  const search = normalized.query.value ? query : `${query} ${styleToken(theme, "dim", "Search actions, sessions, filters")}`;
+  const search = normalized.query.value ? query : `${query} ${styleToken(theme, "muted", "Search actions, sessions, filters")}`;
   const searchLine = pad(truncate(`${styleToken(theme, "accent", ":")} ${search}`, safeWidth), safeWidth);
   if (safeHeight < 6) {
     lines[0] = searchLine;
-    if (safeHeight > 1) lines[safeHeight - 1] = pad(truncate(styleToken(theme, "dim", "resize to use command palette"), safeWidth), safeWidth);
+    if (safeHeight > 1) lines[safeHeight - 1] = pad(truncate(styleToken(theme, "muted", "resize to use command palette"), safeWidth), safeWidth);
     return result();
   }
 
   const compactFrame = safeHeight < 7;
   const searchIndex = compactFrame ? 0 : 1;
-  if (!compactFrame) lines[0] = styleToken(theme, "border", "─".repeat(safeWidth));
+  if (!compactFrame) lines[0] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
   lines[searchIndex] = searchLine;
   const searchRuleIndex = searchIndex + 1;
   if (safeHeight <= searchRuleIndex) return result();
-  lines[searchRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
+  lines[searchRuleIndex] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
 
   const helpIndex = safeHeight - 1;
   const contentStart = searchRuleIndex + 1;
   const helpRuleIndex = Math.max(contentStart, helpIndex - 1);
-  lines[helpRuleIndex] = styleToken(theme, "border", "─".repeat(safeWidth));
-  lines[helpIndex] = pad(truncate(styleToken(theme, "dim", narrow ? "Enter Run · Esc Back · PgUp/PgDn Details" : "↑↓/Ctrl+N/P Navigate · Enter Run · Esc Close"), safeWidth), safeWidth);
+  lines[helpRuleIndex] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
+  lines[helpIndex] = pad(truncate(styleToken(theme, "muted", narrow ? `Enter Run ${glyphs.pendingStep} Esc Back ${glyphs.pendingStep} PgUp/PgDn Details` : `${glyphs.up}${glyphs.down}/Ctrl+N/Ctrl+P Navigate ${glyphs.pendingStep} Enter Run ${glyphs.pendingStep} Esc Close`), safeWidth), safeWidth);
   const available = Math.max(0, helpRuleIndex - contentStart);
   if (!available) return result();
 
@@ -188,7 +189,7 @@ export function renderCommandPalette(
     const maxOffset = Math.max(0, detailLines.length - detailPageSize);
     const offset = Math.max(0, Math.min(normalized.detailOffset ?? 0, maxOffset));
     normalized = { ...normalized, detailOffset: offset };
-    lines[detailStart - 1] = styleToken(theme, "border", "─".repeat(safeWidth));
+    lines[detailStart - 1] = styleToken(theme, "border", glyphs.horizontal.repeat(safeWidth));
     detailLines.slice(offset, offset + detailPageSize).forEach((line, index) => {
       lines[detailStart + index] = pad(line, safeWidth);
     });
@@ -209,7 +210,7 @@ export function renderCommandPalette(
     const row = window[index]!;
     const lineIndex = contentStart + index;
     if (row.kind === "heading") {
-      lines[lineIndex] = pad(styleToken(theme, "dim", groupLabels[row.group!]), safeWidth);
+      lines[lineIndex] = pad(styleToken(theme, "muted", groupLabels[row.group!]), safeWidth);
       continue;
     }
     if (row.kind === "blank") continue;
@@ -245,12 +246,12 @@ function selectedDetail(
 ): string[] {
   const rows = [
     ...wrapPlain(item.label, width).map((line) => styleToken(theme, "muted", line)),
-    ...wrapPlain(item.hint, width).map((line) => styleToken(theme, "dim", line)),
-    ...(!item.enabled ? wrapPlain(item.disabledReason ?? "unavailable", width).map((line) => styleToken(theme, "error", line)) : []),
+    ...wrapPlain(item.hint, width).map((line) => styleToken(theme, "muted", line)),
+    ...(!item.enabled ? wrapPlain(item.disabledReason ?? "unavailable", width).map((line) => styleToken(theme, "muted", line)) : []),
   ];
   if (!item.targetSessionId || !targetIdentities) return rows;
   const identity = targetIdentities.get(item.targetSessionId);
-  if (!identity) return [...rows, styleToken(theme, "error", "Target: unavailable")];
+  if (!identity) return [...rows, styleToken(theme, "muted", "Target: unavailable")];
   rows.push(...detailField("Target", identity.title, width, theme));
   if (identity.group) rows.push(...detailField("Group", identity.group, width, theme));
   if (identity.repository) rows.push(...detailField("Repo", identity.repository, width, theme));
@@ -261,7 +262,7 @@ function detailField(label: string, value: string, width: number, theme: Session
   const prefix = `${label}: `;
   const valueWidth = Math.max(1, width - visibleWidth(prefix));
   const wrapped = wrapPlain(value, valueWidth);
-  return wrapped.map((line, index) => `${index === 0 ? styleToken(theme, "dim", prefix) : " ".repeat(visibleWidth(prefix))}${styleToken(theme, "muted", line)}`);
+  return wrapped.map((line, index) => `${index === 0 ? styleToken(theme, "muted", prefix) : " ".repeat(visibleWidth(prefix))}${styleToken(theme, "muted", line)}`);
 }
 
 function wrapPlain(value: string, width: number): string[] {
@@ -304,10 +305,10 @@ function windowRows(rows: readonly PaletteRow[], selectedRow: number, capacity: 
 }
 
 function renderItem(item: DashboardCommand, selected: boolean, width: number, theme: SessionsTheme): string {
-  const marker = selected ? "▸" : " ";
+  const marker = selected ? glyphs.collapsed : " ";
   const keyWidth = width < 60 ? 7 : 10;
   const key = truncate(item.displayKey ?? "", keyWidth - 1);
-  const gutter = `${styleToken(theme, "accent", key)}${" ".repeat(Math.max(0, keyWidth - visibleWidth(key)))}`;
+  const gutter = `${styleToken(theme, item.enabled ? "accent" : "muted", key)}${" ".repeat(Math.max(0, keyWidth - visibleWidth(key)))}`;
   const hint = item.enabled
     ? (width > 60 ? item.hint : "")
     : width <= 60
@@ -321,10 +322,10 @@ function renderItem(item: DashboardCommand, selected: boolean, width: number, th
   const left = `${styleToken(theme, "accent", marker)} ${gutter}${styleToken(theme, "muted", label)}`;
   if (!hintWidth) {
     const gap = hint ? " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(hint))) : "";
-    return truncate(`${left}${gap}${styleToken(theme, item.enabled ? "dim" : "error", hint)}`, width);
+    return truncate(`${left}${gap}${styleToken(theme, "muted", hint)}`, width);
   }
   const leftPadded = `${left}${" ".repeat(Math.max(1, width - hintWidth - visibleWidth(left)))}`;
-  return truncate(`${leftPadded}${styleToken(theme, item.enabled ? "dim" : "error", truncate(hint, hintWidth))}`, width);
+  return truncate(`${leftPadded}${styleToken(theme, "muted", truncate(hint, hintWidth))}`, width);
 }
 
 function pad(value: string, width: number): string {

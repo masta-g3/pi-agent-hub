@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { ConversationReader, renderConversationHeading, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
 import { sameInteractionTarget } from "../core/session-interaction.js";
 import { createQuestionDialog, handleQuestionInput, renderQuestionDialog, type QuestionDialog } from "./question-dialog.js";
@@ -7,8 +8,10 @@ import type { SessionsController, SyncPiNameResult } from "../app/controller.js"
 import type { ManagedSession, RuntimeSession } from "../core/types.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
+import { formatKey } from "./dashboard-shortcuts.js";
+import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { effectiveSessionLifecycle } from "./archive-section.js";
-import { buildDashboardCommands, commandForKey, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
+import { buildDashboardCommands, commandForKey, dashboardHelpSections, selectWorkspaceCommands, type DashboardCommand, type DashboardCommandCapabilities } from "./dashboard-commands.js";
 import {
   createCommandPalette,
   handleCommandPaletteInput,
@@ -21,9 +24,9 @@ import {
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierNavigatorTarget } from "./layout.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
-import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
+import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
 import type { CollapsibleSection, SessionsViewState } from "./dialog.js";
 import { errorMessage, isPromise, type CloseSidePaneResult, type DialogContext, type ResizeSidePaneResult, type SessionDialog, type SessionsViewActions, type SidePaneResult, type SidePaneViewState } from "./dialog.js";
@@ -100,18 +103,19 @@ export class SessionsView implements Component {
   private busy = false;
   private archiveExpanded = false;
   private archiveDisclosureSelected = false;
+  private initialSelectionPending = true;
   private selectedSection: CollapsibleSection | undefined;
   private filterDisclosure: FilterDisclosure = { sections: new Set(), repos: new Set(), projectTrees: new Set(), boardTrees: new Set() };
   private collapsedSections = new Set<CollapsibleSection>();
   private collapsedRepos = new Set<string>();
   private selectedRepo: string | undefined;
   private rowTargets: (SessionListTarget | undefined)[] = [];
-  private runningRowsVisible = false;
-  private navigatorRowTargets: (TierNavigatorTarget | undefined)[] = [];
+  private selectedRowAnimating = false;
+  private tierChipRow: number | undefined;
+  private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
   private announcementRowTargets: (string | undefined)[] = [];
   private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
-  private navigatorWidth = 0;
   private listStartX = 2;
   private workspaceStartX: number | undefined;
   private footerRow: number | undefined;
@@ -314,9 +318,11 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
-    this.runningRowsVisible = false;
+    this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
+    this.tierChipRow = undefined;
+    this.tierChips = [];
     this.confirmationReview = undefined;
     this.clearExpiredFlash();
     this.lastWidth = width;
@@ -335,10 +341,8 @@ export class SessionsView implements Component {
       this.conversationActions = [];
       if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
       this.rowTargets = [];
-      this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
       this.announcementRowTargets = [];
-      this.navigatorWidth = 0;
       this.listStartX = 2;
       this.workspaceStartX = undefined;
       this.listWidth = 0;
@@ -346,7 +350,6 @@ export class SessionsView implements Component {
     }
     if (this.dialog || this.pendingRestart) {
       this.rowTargets = [];
-      this.navigatorRowTargets = [];
       this.workspaceRowTargets = [];
       this.announcementRowTargets = [];
     }
@@ -363,7 +366,7 @@ export class SessionsView implements Component {
       return palette.lines;
     }
     if (this.dialog?.kind === "help") {
-      const page = renderHelp(width, this.theme, this.dashboardCommands(), height, this.helpScroll);
+      const page = renderHelp(width, this.theme, this.actions.dashboardShortcuts, height, this.helpScroll);
       this.helpScroll = page.offset;
       this.helpPageSize = page.pageSize;
       this.helpMaxScroll = page.maxOffset;
@@ -382,6 +385,13 @@ export class SessionsView implements Component {
       this.confirmationReview = rendered.review;
       return rendered.lines;
     }
+    if (this.initialSelectionPending) {
+      this.initialSelectionPending = false;
+      if (!this.controller.hasExplicitSelection && !this.releaseCueSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo) {
+        const first = this.visibleListTargets().find((target) => target.kind === "session");
+        if (first?.kind === "session" && first.id !== this.controller.snapshot().selectedId) this.selectListTarget(first);
+      }
+    }
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
     const selected = this.controller.selected();
@@ -395,6 +405,7 @@ export class SessionsView implements Component {
     const model = buildRenderModel({
       sessions: snapshot.sessions,
       selectedId: snapshot.selectedId,
+      visibleRequestCount: this.visibleRequestIds().length,
       width,
       compactRows: this.conversationOpen,
       filter,
@@ -435,12 +446,13 @@ export class SessionsView implements Component {
     if (this.conversationOpen) { model.showWorkspace = false; model.workspace = undefined; model.footer = ""; }
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
-    const runningIds = new Set(snapshot.sessions.filter((session) => session.status === "running" || session.status === "starting").map((session) => session.id));
-    this.runningRowsVisible = layout.rowTargets.some((target) => target?.kind === "session" && runningIds.has(target.id));
-    this.navigatorRowTargets = layout.navigatorRowTargets;
+    this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
+      && (selected?.status === "running" || selected?.status === "starting")
+      && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
+    this.tierChipRow = layout.tierChipRow;
+    this.tierChips = layout.tierChips;
     this.workspaceRowTargets = layout.workspaceRowTargets;
     this.announcementRowTargets = layout.announcementRowTargets;
-    this.navigatorWidth = layout.navigatorWidth;
     this.listStartX = layout.listStartX;
     this.workspaceStartX = layout.workspaceStartX;
     this.listWidth = layout.listWidth;
@@ -512,9 +524,9 @@ export class SessionsView implements Component {
     this.actions.requestRender?.();
   }
 
-  /** True while the last rendered fleet showed a running row, so the spinner needs frames. */
-  get hasVisibleRunningRows(): boolean {
-    return this.runningRowsVisible;
+  /** True while the selected running/starting row is on screen and needs spinner frames. */
+  get hasAnimatingSelectedRow(): boolean {
+    return this.selectedRowAnimating;
   }
 
   get conversationWorking(): boolean {
@@ -622,27 +634,27 @@ export class SessionsView implements Component {
     const commands = this.dashboardCommands();
     this.conversationActions = selected ? commands.filter(command => command.enabled && (command.id === `action:${selected.id}:open` || command.id.startsWith(`shortcut:${selected.id}:`))) : [];
     if (this.conversationFocus !== "fleet" && this.conversationFocus !== "content" && this.conversationFocus !== "question" && !this.conversationActions.some(command => command.id === this.conversationFocus)) this.conversationFocus = "content";
-    const title = `CONVERSATION · ${selected ? `${selected.title} [${selected.group}]` : "Select a session"}`;
+    const title = `CONVERSATION ${glyphs.pendingStep} ${selected ? `${selected.title} [${selected.group}]` : "Select a session"}`;
     if (this.inlineQuestion) {
-      const transcriptHeight = height >= 12 ? Math.max(3, height - 12) : 0;
-      this.conversationTranscriptEndY = 1 + transcriptHeight + (transcriptHeight ? 1 : 0);
+      const transcriptLimit = height >= 12 ? Math.max(3, height - 12) : 0;
+      const transcript = target && transcriptLimit ? this.conversationReader.render(width, transcriptLimit, this.theme, this.inlineQuestion.request.toolCallId) : [];
+      this.conversationTranscriptEndY = 1 + transcript.length + (transcript.length ? 1 : 0);
       const answerHeight = height - this.conversationTranscriptEndY;
-      const transcript = target && transcriptHeight ? this.conversationReader.render(width, transcriptHeight, this.theme, this.inlineQuestion.request.toolCallId) : [];
       const heading = renderConversationHeading(title, width, this.theme);
-      const separator = this.theme ? styleToken(this.theme, "border", "─".repeat(width)) : "─".repeat(width);
+      const separator = this.theme ? styleToken(this.theme, "border", glyphs.horizontal.repeat(width)) : glyphs.horizontal.repeat(width);
       const answer = renderQuestionDialog(this.inlineQuestion, width, answerHeight, this.theme, this.conversationFocus === "question");
       this.conversationActionRows = [];
-      return [...fleet, truncateToWidth(heading, width), ...Array.from({ length: transcriptHeight }, (_, index) => transcript[index] ?? ""), ...(transcriptHeight ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
+      return [...fleet, truncateToWidth(heading, width), ...transcript, ...(transcript.length ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
     }
     const actionHeight = Math.min(2, this.conversationActions.length);
     const actions = this.conversationActions.slice(0, actionHeight);
-    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? "Direct answering unavailable · Open in Pi" : this.interaction.state?.shortcutDisabledReason);
+    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? `Direct answering unavailable ${glyphs.pendingStep} Open in Pi` : this.interaction.state?.shortcutDisabledReason);
     const transcriptHeight = Math.max(0, height - actions.length - 3);
     this.conversationTranscriptEndY = transcriptHeight + 1;
     const workingAt = this.conversationWorking ? (this.actions.now?.() ?? Date.now()) : undefined;
     const transcript = target ? this.conversationReader.render(width, transcriptHeight - (workingAt === undefined ? 0 : 1), this.theme) : [];
     const layout = renderConversationPane({ width, height, title, transcript, transcriptHeight, workingAt,
-      status: this.message ?? this.flash?.text ?? reason ?? (this.conversationReader.newMessages ? "New messages ↓ · End Latest" : `${this.conversationFocus === "fleet" ? "Fleet focused" : "Conversation focused"} · Tab Focus · PgUp/PgDn Read · c Hide`), actions, focusedAction: this.conversationFocus }, this.theme);
+      status: this.message ?? this.flash?.text ?? reason ?? (this.conversationReader.newMessages ? `New messages ${glyphs.down} ${glyphs.pendingStep} End Latest` : `${this.conversationFocus === "fleet" ? "Fleet focused" : "Conversation focused"} ${glyphs.pendingStep} Tab Focus ${glyphs.pendingStep} PgUp/PgDn Read ${glyphs.pendingStep} c Hide`), actions, focusedAction: this.conversationFocus }, this.theme);
     this.conversationActionRows = layout.actionRows;
     return [...fleet, ...layout.lines];
   }
@@ -673,10 +685,13 @@ export class SessionsView implements Component {
     if (event.kind === "wheel") { dialog.scroll = Math.max(0, dialog.scroll + event.delta * 3); return; }
     if (!dialog.usable || dialog.submitting) return;
     const target = dialog.rowTargets[event.y - 1];
-    if (target === "back") { this.handleQuestion("\x1b"); return; }
+    const footerItem = event.y === dialog.rowTargets.length
+      ? dialog.footerItems.find(item => event.x >= item.x && event.x < item.x + item.width)
+      : undefined;
+    if (target === "back" || footerItem?.key === "Esc") { this.handleQuestion("\x1b"); return; }
     if (!dialog.available || dialog.uncertain) return;
     if (typeof target === "number") this.handleQuestion(target < dialog.request.params.questions[dialog.page]!.options.length ? String(target + 1) : "t");
-    else if (target === "next" || target === "submit") this.handleQuestion("\r");
+    else if ((target === "next" || target === "submit") && footerItem?.key === "Enter") this.handleQuestion("\r");
 
   }
 
@@ -782,17 +797,6 @@ export class SessionsView implements Component {
     this.clearPendingRestart();
     this.clearFlash();
     this.runAction(() => refresh(), "refreshing status evidence...", () => reveal(true));
-  }
-
-  private openWorkspace(showEvidence: boolean): void {
-    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo) return;
-    const selected = this.controller.selected();
-    if (!selected) return;
-    this.workspaceSessionId = selected.id;
-    this.workspaceEvidenceSessionId = showEvidence ? selected.id : undefined;
-    this.clearPendingRestart();
-    this.clearFlash();
-    this.message = undefined;
   }
 
   private closeWorkspace(): void {
@@ -925,7 +929,7 @@ export class SessionsView implements Component {
       copyPath: Boolean(this.actions.copy),
       skills: Boolean(this.actions.skills),
       mcp: Boolean(this.actions.mcpServers),
-      theme: Boolean(this.actions.themeSettings),
+      theme: !noColor() && Boolean(this.actions.themeSettings),
       pinSidePane: Boolean(this.actions.pinSidePane),
       assignSidePaneSlot: Boolean(this.actions.assignSidePaneSlot),
       focusSidePaneSlot: Boolean(this.actions.focusSidePaneSlot),
@@ -1164,7 +1168,7 @@ export class SessionsView implements Component {
     this.runAction(
       () => this.actions.runDashboardShortcut?.(target.id, shortcut),
       "running shortcut...",
-      () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} → ${target.title}`); },
+      () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} ${glyphs.right} ${target.title}`); },
     );
   }
 
@@ -1258,7 +1262,7 @@ export class SessionsView implements Component {
       setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
       success: (result: SidePaneResult) => {
         if (result.kind === "capacity") this.flashMessage(result.capacity ? `pin capacity ${result.capacity}; close a pin or widen` : "pinning needs 100 columns; use Enter instead");
-        else this.flashMessage(result.kind === "focused" ? `focused · ${session.title}` : `pinned · ${session.title}`);
+        else this.flashMessage(result.kind === "focused" ? `focused ${glyphs.pendingStep} ${session.title}` : `pinned ${glyphs.pendingStep} ${session.title}`);
       },
       failure: (error) => { this.message = errorMessage(error); },
     });
@@ -1285,7 +1289,7 @@ export class SessionsView implements Component {
           this.flashMessage(`Slot ${slot} contains ${occupant}; close it first`);
         } else if (result.kind === "capacity") {
           this.flashMessage(result.capacity ? `pin capacity ${result.capacity}; close a pin or widen` : "pinning needs 100 columns; use Enter instead");
-        } else this.flashMessage(result.kind === "focused" ? `focused slot ${slot} · ${session.title}` : `slot ${slot} · ${session.title}`);
+        } else this.flashMessage(result.kind === "focused" ? `focused slot ${slot} ${glyphs.pendingStep} ${session.title}` : `slot ${slot} ${glyphs.pendingStep} ${session.title}`);
       },
       failure: (error) => { this.message = errorMessage(error); },
     });
@@ -1325,7 +1329,7 @@ export class SessionsView implements Component {
       pending,
       setBusy: (busy) => { this.busy = busy; },
       setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
-      success: (result: CloseSidePaneResult) => this.flashMessage(result.kind === "closed" ? `pin closed · ${title}` : `${title} is not pinned`),
+      success: (result: CloseSidePaneResult) => this.flashMessage(result.kind === "closed" ? `pin closed ${glyphs.pendingStep} ${title}` : `${title} is not pinned`),
       failure: (error) => { this.message = errorMessage(error); },
     });
   }
@@ -1341,7 +1345,7 @@ export class SessionsView implements Component {
       pending,
       setBusy: (busy) => { this.busy = busy; },
       setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
-      success: (result: ResizeSidePaneResult) => this.flashMessage(result.kind === "resized" ? `pin split · ${result.splitPercent}%` : "pin layout cannot be resized"),
+      success: (result: ResizeSidePaneResult) => this.flashMessage(result.kind === "resized" ? `pin split ${glyphs.pendingStep} ${result.splitPercent}%` : "pin layout cannot be resized"),
       failure: (error) => { this.message = errorMessage(error); },
     });
   }
@@ -1405,12 +1409,12 @@ export class SessionsView implements Component {
       this.executeDashboardCommand(announcementTarget);
       return;
     }
-    const navigatorTarget = this.navigatorWidth && event.x >= 2 && event.x < 2 + this.navigatorWidth
-      ? this.navigatorRowTargets[event.y - 1]
+    const tierChip = event.kind === "press" && event.y - 1 === this.tierChipRow
+      ? this.tierChips.find((chip) => event.x >= chip.x && event.x < chip.x + chip.width)
       : undefined;
-    if (navigatorTarget) {
+    if (tierChip) {
       this.lastMouseClick = undefined;
-      this.jumpToCockpitTier(navigatorTarget.tier);
+      this.jumpToCockpitTier(tierChip.tier);
       return;
     }
     const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX && event.x < this.lastWidth
@@ -1476,7 +1480,7 @@ export class SessionsView implements Component {
     this.runAction(
       () => setAttentionBell(next),
       "saving attention bell...",
-      () => this.flashMessage(`attention bell · ${next ? "On" : "Off"}`),
+      () => this.flashMessage(`attention bell ${glyphs.pendingStep} ${next ? "On" : "Off"}`),
     );
   }
 
@@ -1492,7 +1496,7 @@ export class SessionsView implements Component {
       const request = ++this.themeLoadRequest;
       this.busy = true;
       this.themeLoading = true;
-      this.message = "loading themes... · Esc cancel";
+      this.message = `loading themes... ${glyphs.pendingStep} Esc Cancel`;
       void result.then((input) => {
         if (request !== this.themeLoadRequest) return;
         this.busy = false;
@@ -1663,7 +1667,7 @@ export class SessionsView implements Component {
         this.message = plan.message;
         return false;
       }
-      this.flashMessage(`switching: ${plan.command} · Ctrl+Q returns`);
+      this.flashMessage(`switching: ${plan.command} ${glyphs.pendingStep} Ctrl+Q Return`);
       try {
         const result = switchInsideTmux(selected.tmuxSession);
         if (isPromise(result)) return result.then((switched) => switched !== false).catch((error: unknown) => {
@@ -1728,6 +1732,7 @@ export class SessionsView implements Component {
 
   private selectListTarget(next: SessionListTarget): boolean {
     if ((next.kind === "session" || next.kind === "session-continuation") && !this.controller.selectSession(next.id)) return false;
+    this.initialSelectionPending = false;
     this.releaseCueSelected = next.kind === "release-cue";
     this.archiveDisclosureSelected = next.kind === "archive-disclosure";
     this.selectedSection = next.kind === "section-header" ? next.section : undefined;
@@ -2228,7 +2233,7 @@ function overlayCommandPalette(
   for (let index = 0; index < panelHeight; index += 1) {
     const panelLine = palette.lines[index] ?? "";
     const padded = `${panelLine}${" ".repeat(Math.max(0, innerWidth - visibleWidth(panelLine)))}`;
-    lines[start + index] = `${border("│")}${padded}${border("│")}`;
+    lines[start + index] = `${border(glyphs.vertical)}${padded}${border(glyphs.vertical)}`;
     rowTargets[start + index] = palette.rowTargets[index];
   }
   return { lines, rowTargets, bounds: { start, end: start + panelHeight - 1 } };
@@ -2252,78 +2257,90 @@ function syncPiNameMessage(result: SyncPiNameResult): string {
   }
 }
 
-function renderHelp(width: number, theme: SessionsTheme | undefined, commands: readonly DashboardCommand[], height: number | undefined, scroll: number): { lines: string[]; offset: number; maxOffset: number; pageSize: number } {
+function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: readonly DashboardShortcut[] | undefined, height: number | undefined, scroll: number): { lines: string[]; offset: number; maxOffset: number; pageSize: number } {
   const heading = (text: string) => theme ? styleToken(theme, "accent", text) : text;
-  const commandLines = commands
-    .filter((command) => command.group !== "sessions")
-    .map((command) => {
-      const keys = command.bindings.map((binding) => binding.key).join("/") || ":";
-      const unavailable = command.enabled ? "" : ` · unavailable: ${command.disabledReason}`;
-      return `  ${padVisibleLine(keys, 12)} ${command.label} · ${command.hint}${unavailable}`;
-    });
-  const lines = [
-    heading("pi agent hub help"),
-    "",
-    heading("Commands"),
-    ...commandLines,
-    "",
+  const muted = (text: string) => theme ? styleToken(theme, "muted", text) : text;
+  const inner = Math.max(MIN_RENDER_WIDTH, width) - 2;
+  const sections = dashboardHelpSections(shortcuts);
+  const sectionLines = (section: typeof sections[number], cells: number): string[] => {
+    const keyWidth = Math.max(0, ...section.commands.map(command => visibleWidth(formatKey(command.displayKey ?? ""))));
+    return [heading(section.label), ...(section.paletteNote ? [muted("  via : palette")] : []), ...section.commands.map(command => {
+      const key = formatKey(command.displayKey ?? "");
+      const labelWidth = cells - 4 - keyWidth;
+      const label = truncateVisible(command.label, labelWidth);
+      const hintWidth = labelWidth - visibleWidth(label) - 3;
+      const hint = width >= 120 && hintWidth >= 12 ? muted(` ${glyphs.pendingStep} ${truncateVisible(command.hint, hintWidth)}`) : "";
+      return `  ${padVisibleLine(`${label}${hint}`, labelWidth)}  ${" ".repeat(keyWidth - visibleWidth(key))}${heading(key)}`;
+    })];
+  };
+  const commandLines: string[] = [];
+  const columns = width >= 160 ? 2 : 1;
+  const columnWidth = columns === 2 ? Math.floor((inner - 4) / 2) : inner;
+  for (let index = 0; index < sections.length; index += columns) {
+    const left = sectionLines(sections[index]!, columnWidth);
+    const right = columns === 2 ? sectionLines(sections[index + 1]!, inner - columnWidth - 4) : [];
+    for (let row = 0; row < Math.max(left.length, right.length); row += 1) {
+      commandLines.push(columns === 2 ? `${padVisibleLine(left[row] ?? "", columnWidth)}    ${right[row] ?? ""}` : left[row]!);
+    }
+    commandLines.push("");
+  }
+  const referenceLines = [
     heading("Navigation"),
-    "  ↑↓/j/k move selection     Esc cancel/clear",
-    "  P pin/focus selected     x close selected pin     +/- resize split",
-    "  Alt+arrows move spatially     Ctrl+Q return to cockpit",
-    "  subagent trees: ←/→ collapse/expand selected · Shift+←/→ all",
-    "  mouse click select · tier navigator jumps at 100+ · double-click open/switch · wheel move",
+    `  ${glyphs.up}${glyphs.down}/j/k Move selection     Esc Cancel/clear`,
+    "  P Pin/focus selected     x Close selected pin     +/- Resize split",
+    `  Alt+${glyphs.left}/${glyphs.right}/${glyphs.up}/${glyphs.down} Move spatially     Ctrl+Q Return to cockpit`,
+    `  subagent rows: ${glyphs.left}/${glyphs.right} Collapse/expand selected ${glyphs.pendingStep} Shift+${glyphs.left}/${glyphs.right} All`,
+    `  mouse click select ${glyphs.pendingStep} header tier chips jump ${glyphs.pendingStep} double-click open/switch ${glyphs.pendingStep} wheel move`,
     "",
     heading("Choice dialogs"),
-    "  Restart: r selected     n new conversation     a all     Esc cancel",
-    "  Delete: d delete/forget     D discard worktree     s close subagents     w finish worktree",
-    "  Group picker: Ctrl+N/P cycles groups · palette: Ctrl+N/P moves selection",
+    "  Restart: r Selected     n New conversation     a All     Esc Cancel",
+    "  Delete: d Delete/forget     D Discard worktree     s Close subagents     w Finish worktree",
+    `  Group picker: Ctrl+N/Ctrl+P Cycle groups ${glyphs.pendingStep} palette: Ctrl+N/Ctrl+P Move selection`,
     "",
     heading("New-session form"),
-    "  Tab/↑↓ move     Space toggles Worktree row     Ctrl+T toggles anywhere     Ctrl+O choose repo",
-    "  Ctrl+R add repo    Ctrl+X remove extra",
+    `  Tab/${glyphs.up}${glyphs.down} Move     Space Toggle Worktree row     Ctrl+T Toggle anywhere     Ctrl+O Choose repo`,
+    "  Ctrl+R Add repo    Ctrl+X Remove extra",
     "",
     heading("Pickers and themes"),
-    "  pickers: ←→/Tab switch columns; theme: live preview, Enter apply, Esc cancel",
+    `  pickers: ${glyphs.left}${glyphs.right}/Tab Switch columns; theme: live preview, Enter Apply, Esc Cancel`,
     "",
     heading("Return from managed sessions and panels"),
-    "  Ctrl+Q pinned pane to cockpit     Alt+R rename session     Alt+W open next request",
+    "  Ctrl+Q Return to cockpit     Alt+R Rename session     Alt+W Open next request",
     "",
     heading("Sections and views"),
-    "  Status fleet: Needs you · Health · Active · Quiet; groups appear on session rows",
-    "  v toggles flat repo sections; Enter/double-click folds the selected repo header",
+    `  Status fleet: Needs you ${glyphs.pendingStep} Health ${glyphs.pendingStep} Active ${glyphs.pendingStep} Quiet; groups appear on session rows`,
+    "  v Toggle flat repo sections; Enter/double-click Fold the selected repo header",
     "  only explicit producer attention enters Needs you; Backlog stays labeled in Quiet when inactive",
-    "  Archived is flat and chronological; Enter/double-click reveals older rows",
+    "  Archived is flat and chronological; Enter/double-click Reveal older rows",
     "  Archived cascades auto-remove after 7d once every tmux session is gone",
-    "  S toggles the read-only producer workflow board",
+    "  S Toggle the read-only producer workflow board",
     "  Board view lanes canonical workflow sessions by producer step, then OTHER ACTIVE;",
-    "  subagent trees start collapsed; Space toggles one board tree; filters reveal matches",
+    "  subagent rows start collapsed; Space Toggle one board tree; filters reveal matches",
     "  every lane nests project/group labels; Backlog/Archived stay summarized",
     "",
     heading("Status legend"),
-    "  ⠋ running/starting (animated, with run time)     ◐ waiting     ○ idle     × error     - stopped",
-    "  ⎇ active worktree     ⎇… awaits merge     ⎇! cleanup/check needed     ⎇✓ cleanup verified",
+    `  ${glyphs.running} running (selected row animates)     ${glyphs.waiting} waiting     ${glyphs.idle} idle     ${glyphs.error} error     - stopped`,
+    `  ${glyphs.worktree} active worktree     ${glyphs.worktreePending} awaits merge     ${glyphs.worktreeWarning} cleanup/check needed     ${glyphs.worktreeDone} cleanup verified`,
     "  zero counts are hidden from tier and top summaries",
     "",
     heading("Action workspace"),
-    "  selected session: request · task · workflow position · exceptional guidance · actions",
-    "  ▸ marks the primary action; i appends or hides live Details",
-    "  Enter/double-click opens or switches directly at every width",
-    "  with pins, Enter opens directly and i toggles details in the compact decision strip",
+    `  selected session: request ${glyphs.pendingStep} task ${glyphs.pendingStep} workflow position ${glyphs.pendingStep} exceptional guidance ${glyphs.pendingStep} actions`,
+    `  ${glyphs.selected} marks the primary action; i Append or hide live Details`,
+    "  Enter/double-click Open or switch directly at every width",
+    "  with pins, Enter Open directly and i Toggle details in the compact decision strip",
   ];
-  const inner = Math.max(MIN_RENDER_WIDTH, width) - 2;
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
-  const content = width <= NARROW_LAYOUT_MAX_WIDTH
-    ? lines.slice(2).flatMap((line) => line ? wrapWords(stripAnsi(line), inner, inner) : [""])
-    : lines.slice(2);
+  const content = [...commandLines, ...(width <= NARROW_LAYOUT_MAX_WIDTH
+    ? referenceLines.flatMap((line) => line ? wrapWords(stripAnsi(line), inner, inner) : [""])
+    : referenceLines)];
   const pageSize = Math.max(1, (height ?? content.length + 4) - 4);
   const maxOffset = Math.max(0, content.length - pageSize);
   const offset = Math.max(0, Math.min(scroll, maxOffset));
-  const body = [heading("pi agent hub help"), ...content.slice(offset, offset + pageSize), "↑↓/PgUp/PgDn Scroll · Esc Back"];
+  const body = [heading("pi agent hub help"), ...content.slice(offset, offset + pageSize), `${glyphs.up}${glyphs.down}/PgUp/PgDn Scroll ${glyphs.pendingStep} Esc Back`];
   const rendered = [
-    border(`╭${"─".repeat(inner)}╮`),
-    ...body.map((line) => `${border("│")}${padVisibleLine(line, inner)}${border("│")}`),
-    border(`╰${"─".repeat(inner)}╯`),
+    border(`${glyphs.topLeft}${glyphs.horizontal.repeat(inner)}${glyphs.topRight}`),
+    ...body.map((line) => `${border(glyphs.vertical)}${padVisibleLine(line, inner)}${border(glyphs.vertical)}`),
+    border(`${glyphs.bottomLeft}${glyphs.horizontal.repeat(inner)}${glyphs.bottomRight}`),
   ];
   return { lines: height && height < 5 ? limitRows(["Help: enlarge pane", "Esc Back"], height, width, theme) : rendered, offset, maxOffset, pageSize };
 }
@@ -2335,7 +2352,7 @@ function padVisibleLine(line: string, width: number): string {
 
 function limitRows(lines: string[], height: number | undefined, width: number, theme?: SessionsTheme): string[] {
   if (!height || height <= 0 || lines.length <= height) return lines;
-  const marker = theme ? styleToken(theme, "dim", "… resize for full help") : "… resize for full help";
+  const marker = theme ? styleToken(theme, "muted", `${glyphs.ellipsis} resize for full help`) : `${glyphs.ellipsis} resize for full help`;
   return [...lines.slice(0, Math.max(0, height - 1)), truncateVisible(marker, Math.max(1, width))];
 }
 
@@ -2344,14 +2361,14 @@ function narrowNotice(width: number): string[] {
   return [
     "pi agent hub",
     "pane too narrow",
-    `widen to ≥${MIN_RENDER_WIDTH} cols`,
+    `widen to ${glyphs.atLeast}${MIN_RENDER_WIDTH} cols`,
   ].map((line) => truncateVisible(line, safeWidth));
 }
 
 function replaceFooter(lines: string[], message: string, theme?: SessionsTheme): string[] {
   if (!lines.length) return lines;
   const lastLine = stripAnsi(lines.at(-1) ?? "");
-  if (!lastLine.startsWith("╰")) {
+  if (!lastLine.startsWith(glyphs.bottomLeft)) {
     // Frameless phone layouts keep the footer on the last row.
     return [...lines.slice(0, -1), truncateVisible(message, Math.max(1, visibleWidth(lastLine)))];
   }
@@ -2362,11 +2379,11 @@ function replaceFooter(lines: string[], message: string, theme?: SessionsTheme):
   const inner = Math.max(0, width - 2);
   const border = (text: string) => theme ? styleToken(theme, "border", text) : text;
   const text = truncateVisible(message, inner);
-  copy[footerIndex] = `${border("│")}${text}${" ".repeat(Math.max(0, inner - visibleWidth(text)))}${border("│")}`;
+  copy[footerIndex] = `${border(glyphs.vertical)}${text}${" ".repeat(Math.max(0, inner - visibleWidth(text)))}${border(glyphs.vertical)}`;
   return copy;
 }
 
 function truncateVisible(value: string, width: number): string {
   if (width <= 1) return "";
-  return truncateToWidth(value, width, "…");
+  return truncateToWidth(value, width, glyphs.ellipsis);
 }

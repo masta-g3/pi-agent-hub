@@ -1,3 +1,4 @@
+import { glyphs } from "./glyphs.js";
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue } from "./layout.js";
 import { darkTheme, styleToken, type SessionsTheme } from "./theme.js";
@@ -109,7 +110,7 @@ function renderCompactBody(state: PickerState, width: number, height: number | u
   const pool = poolRows(state, width, styles);
   const enabledCount = visibleColumnIndexes(state, true).length;
   const availableCount = visibleColumnIndexes(state, false).length;
-  const tabs = `${enabled ? "▶" : " "} Enabled (${enabledCount})   ${enabled ? " " : "▶"} Available (${availableCount})`;
+  const tabs = `${enabled ? glyphs.primary : " "} Enabled (${enabledCount})   ${enabled ? " " : glyphs.primary} Available (${availableCount})`;
   const detail = compactDetailLayout(state, width, height);
   const listCapacity = detail.listCapacity;
   const visible = windowIndexes(indexes, selected, listCapacity);
@@ -163,9 +164,9 @@ function renderWideBody(state: PickerState, width: number, height: number | unde
 
 function frame(lines: string[], width: number, styles: ReturnType<typeof createStyles>): string[] {
   return [
-    `${styles.border("╭")}${styles.border("─".repeat(width))}${styles.border("╮")}`,
-    ...lines.map((line) => `${styles.border("│")}${pad(line, width)}${styles.border("│")}`),
-    `${styles.border("╰")}${styles.border("─".repeat(width))}${styles.border("╯")}`,
+    `${styles.border(glyphs.topLeft)}${styles.border(glyphs.horizontal.repeat(width))}${styles.border(glyphs.topRight)}`,
+    ...lines.map((line) => `${styles.border(glyphs.vertical)}${pad(line, width)}${styles.border(glyphs.vertical)}`),
+    `${styles.border(glyphs.bottomLeft)}${styles.border(glyphs.horizontal.repeat(width))}${styles.border(glyphs.bottomRight)}`,
   ];
 }
 
@@ -187,8 +188,8 @@ function fitRows(rows: string[], limit: number): string[] {
 function poolRows(state: PickerState, width: number, styles: ReturnType<typeof createStyles>): string[] {
   const rows: string[] = [];
   if (state.poolDir !== undefined || state.poolInput) rows.push(renderPoolLine(state, width));
-  if (state.poolError) rows.push(styles.error(truncateToWidth(state.poolError, width, "…")));
-  else if (state.poolMessage) rows.push(styles.muted(truncateToWidth(state.poolMessage, width, "…")));
+  if (state.poolError) rows.push(styles.error(truncateToWidth(state.poolError, width, glyphs.ellipsis)));
+  else if (state.poolMessage) rows.push(styles.muted(truncateToWidth(state.poolMessage, width, glyphs.ellipsis)));
   return rows;
 }
 
@@ -200,22 +201,22 @@ function renderPoolLine(state: PickerState, width: number): string {
   const label = "pool: ";
   if (state.poolInput) return `${label}${renderCursorValue(state.poolInput.value, state.poolInput.cursor, Math.max(1, width - visibleWidth(label)), "start")}`;
   const extra = state.poolDirExtraCount && state.poolDirExtraCount > 0 ? ` (+${state.poolDirExtraCount})` : "";
-  const hint = "Alt+E edit";
+  const hint = "Alt+E Edit";
   const available = Math.max(0, width - visibleWidth(label) - visibleWidth(hint) - 1);
-  const path = truncateToWidth(`${state.poolDir ?? ""}${extra}`, available, "…");
+  const path = truncateToWidth(`${state.poolDir ?? ""}${extra}`, available, glyphs.ellipsis);
   const gap = " ".repeat(Math.max(1, width - visibleWidth(label) - visibleWidth(path) - visibleWidth(hint)));
   return `${label}${path}${gap}${hint}`;
 }
 
 function compactFooter(state: PickerState): string[] {
-  if (state.poolInput) return ["Type Path", "←→ Edit  Enter Save/Reload  Esc Cancel"];
-  return ["↑↓ Move ←→/Tab List PgUp/PgDn Detail", "Space Toggle  Enter Apply  Esc Cancel"];
+  if (state.poolInput) return ["Type Path", `${glyphs.left}${glyphs.right} Edit  Enter Save/reload  Esc Cancel`];
+  return [`${glyphs.up}${glyphs.down} Move ${glyphs.left}${glyphs.right}/Tab List PgUp/PgDn Detail`, "Space Toggle  Enter Apply  Esc Cancel"];
 }
 
 function pickerFooter(state: PickerState): string {
-  if (state.poolInput) return "←→ edit · enter save/reload · esc cancel";
-  if (state.poolDir !== undefined) return "type search · ↑↓ move · ←→/Tab column · space toggle · Alt+E edit pool · enter apply · esc cancel";
-  return "type search · ↑↓ move · ←→/Tab column · space toggle · enter apply · esc cancel";
+  if (state.poolInput) return `${glyphs.left}${glyphs.right} Edit ${glyphs.pendingStep} Enter Save/reload ${glyphs.pendingStep} Esc Cancel`;
+  if (state.poolDir !== undefined) return `Type search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.left}${glyphs.right}/Tab Column ${glyphs.pendingStep} Space Toggle ${glyphs.pendingStep} Alt+E Edit pool ${glyphs.pendingStep} Enter Apply ${glyphs.pendingStep} Esc Cancel`;
+  return `Type search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.left}${glyphs.right}/Tab Column ${glyphs.pendingStep} Space Toggle ${glyphs.pendingStep} Enter Apply ${glyphs.pendingStep} Esc Cancel`;
 }
 
 function formatItem(state: PickerState, index: number | undefined): string {
@@ -223,7 +224,7 @@ function formatItem(state: PickerState, index: number | undefined): string {
   const item = state.items[index];
   if (!item) return "";
   const selected = activeCategory(state) === item.enabled && selectedIndex(state, item.enabled) === index;
-  return `${selected ? ">" : " "} ${item.enabled ? "✓" : " "} ${item.name}`;
+  return `${selected ? ">" : " "} ${item.enabled ? glyphs.ready : " "} ${item.name}`;
 }
 
 function createStyles(theme: SessionsTheme) {
@@ -268,5 +269,5 @@ function windowStart(length: number, selected: number, capacity: number): number
 }
 
 function pad(value: string, width: number): string {
-  return truncateToWidth(value, width, "…", true);
+  return truncateToWidth(value, width, glyphs.ellipsis, true);
 }

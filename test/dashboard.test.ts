@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -73,6 +73,31 @@ test("openDashboard configures chrome from Pi global theme and ignores project-l
   const setOption = tmux.calls.find((call) => call.args[0] === "set-option" && call.args.includes("status-style"));
   assert.ok(setOption);
   assert.ok(setOption.args.includes("bg=#dce0e8,fg=#5a8080"));
+});
+
+test("NO_COLOR does not change configured tmux chrome", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-no-color-"));
+  try {
+    const agent = join(root, "agent");
+    const hub = join(root, "hub");
+    await mkdir(agent);
+    await mkdir(hub);
+    await writeFile(join(agent, "settings.json"), JSON.stringify({ theme: "light" }));
+    for (const syncPi of [true, false]) {
+      await writeFile(join(hub, "config.json"), JSON.stringify({ version: 1, dashboard: { themeSync: syncPi, theme: "light" } }));
+      const chrome: string[][] = [];
+      for (const NO_COLOR of ["", "1"]) {
+        const tmux = fakeTmux(true);
+        await openDashboard({ cwd: root, command: "pi-hub tui", insideTmux: true,
+          env: { PI_CODING_AGENT_DIR: agent, PI_AGENT_HUB_DIR: hub, NO_COLOR } }, tmux, fakeRunner());
+        chrome.push(tmux.calls.find(call => call.args.includes("status-style"))!.args);
+      }
+      assert.ok(chrome[0]!.includes("bg=#dce0e8,fg=#5a8080"));
+      assert.deepEqual(chrome[1], chrome[0]);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("openDashboard configures chrome from a detached Hub theme override", async () => {

@@ -1,3 +1,4 @@
+import { glyphs, unicode } from "./glyphs.js";
 import { conversationDashboardFooter } from "./dashboard-commands.js";
 import { Markdown, truncateToWidth, visibleWidth, type MarkdownTheme } from "@earendil-works/pi-tui";
 import { conversationText as cleanMarkdown, type ConversationItem, type ConversationPage } from "../core/conversation.js";
@@ -11,7 +12,7 @@ export function renderMarkdown(text: string, width: number, theme?: SessionsThem
   const token = (name: ThemeToken) => (value: string) => theme ? styleToken(theme, name, value) : value;
   const normal = token("text");
   const markdownTheme: MarkdownTheme = {
-    heading: token("accent"), link: normal, linkUrl: token("dim"), code: normal, codeBlock: normal,
+    heading: token("accent"), link: normal, linkUrl: token("muted"), code: normal, codeBlock: normal,
     codeBlockBorder: token("border"), quote: normal, quoteBorder: token("border"), hr: token("border"),
     listBullet: token("accent"), bold: normal, italic: normal, strikethrough: normal, underline: normal,
   };
@@ -113,16 +114,12 @@ export class ConversationReader {
   get pageSize(): number { return Math.max(1, this.height - 1); }
   render(width: number, height: number, theme?: SessionsTheme, inlineToolCallId?: string): string[] {
     this.height = Math.max(1, height);
-    const labels = { user: "YOU", assistant: "PI", question: "PI · QUESTION", answer: "YOU · ANSWER" };
+    const labels = { user: "YOU", assistant: "PI", question: `PI ${glyphs.pendingStep} QUESTION`, answer: `YOU ${glyphs.pendingStep} ANSWER` };
     const bodyWidth = Math.max(1, width - 2);
-    this.lines = this.items.filter(item => !inlineToolCallId || item.role !== "question" || item.toolCallId !== inlineToolCallId).flatMap(item => [labels[item.role], ...renderMarkdown(item.text, bodyWidth, theme), ...(item.truncated && !item.text.includes("Content shortened — Open in Pi") ? ["Content shortened — Open in Pi"] : []), ""]
+    this.lines = this.items.filter(item => !inlineToolCallId || item.role !== "question" || item.toolCallId !== inlineToolCallId).flatMap(item => [labels[item.role], ...renderMarkdown(item.text, bodyWidth, theme), ...(item.truncated && !item.text.includes(`Content shortened ${unicode.dash} Open in Pi`) ? [`Content shortened ${glyphs.dash} Open in Pi`] : []), ""]
       .map((text, offset) => {
         let line = text ? truncateToWidth(`  ${text}`, width) : "";
-        if (offset === 0) {
-          const label = `${line} `;
-          line = truncateToWidth(label + "─".repeat(Math.max(0, width - visibleWidth(label))), width);
-          if (theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
-        }
+        if (offset === 0 && theme) line = styleToken(theme, item.role === "user" || item.role === "answer" ? "accent" : "success", line);
         return { id: item.id, offset, text: line };
       }));
     if (this.following) {
@@ -144,9 +141,9 @@ export class ConversationReader {
 }
 
 export function renderConversationHeading(title: string, width: number, theme?: SessionsTheme): string {
-  const label = `── ${truncateToWidth(cleanMarkdown(title), Math.max(0, width - 6))} `;
-  const line = truncateToWidth(label + "─".repeat(Math.max(0, width - visibleWidth(label))), width);
-  return theme ? styleToken(theme, "dim", line) : line;
+  const label = `${glyphs.horizontal}${glyphs.horizontal} ${truncateToWidth(cleanMarkdown(title), Math.max(0, width - 6))} `;
+  const line = truncateToWidth(label + glyphs.horizontal.repeat(Math.max(0, width - visibleWidth(label))), width);
+  return theme ? styleToken(theme, "muted", line) : line;
 }
 
 /** Render the full-width transcript and its catalog actions. */
@@ -160,13 +157,13 @@ export function renderConversationPane(input: {
   if (input.workingAt !== undefined && input.transcriptHeight > 0) {
     const frame = SPINNER_FRAMES[Math.floor(input.workingAt / SPINNER_FRAME_MS) % SPINNER_FRAMES.length];
     transcript.length = Math.min(transcript.length, input.transcriptHeight - 1);
-    transcript.push(styled("accent", `  ${frame} PI is working…`));
+    transcript.push(styled("accent", `  ${frame} PI is working${glyphs.ellipsis}`));
   }
   const content = [renderConversationHeading(input.title, input.width, theme),
     ...Array.from({ length: input.transcriptHeight }, (_, index) => transcript[index] ?? ""),
-    styled(input.status.startsWith("?") ? "warning" : "dim", cleanMarkdown(input.status)),
-    ...input.actions.map((command, index) => styled(command.id === input.focusedAction ? "accent" : "text", `${command.id === input.focusedAction ? "▎" : index === 0 ? "▶" : " "} ${cleanMarkdown(command.label)}`)),
-    styled("dim", conversationDashboardFooter()),
+    styled(input.status.startsWith("?") ? "warning" : "muted", cleanMarkdown(input.status)),
+    ...input.actions.map((command, index) => styled(command.id === input.focusedAction ? "accent" : "text", `${command.id === input.focusedAction ? glyphs.focus : index === 0 ? glyphs.primary : " "} ${cleanMarkdown(command.label)}`)),
+    styled("muted", conversationDashboardFooter()),
   ].slice(0, input.height);
   const actionRows: (string | undefined)[] = content.map(() => undefined);
   for (let index = 0; index < input.actions.length; index++) {

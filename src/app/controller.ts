@@ -33,6 +33,7 @@ export class SessionsController {
   private workflowModes = new Map<string, WorkflowModeDisplay>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
+  private explicitSelection = false;
   private filter: string | undefined;
 
   constructor(
@@ -127,7 +128,12 @@ export class SessionsController {
     return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, filter: this.filter };
   }
 
+  get hasExplicitSelection(): boolean {
+    return this.explicitSelection;
+  }
+
   move(delta: number): void {
+    this.explicitSelection = true;
     const sessions = this.visibleSessions();
     if (!sessions.length) {
       this.selectedId = undefined;
@@ -308,6 +314,7 @@ export class SessionsController {
 
   selectSession(id: string): boolean {
     if (!this.visibleSessions().some((session) => session.id === id)) return false;
+    this.explicitSelection = true;
     if (id !== this.selectedId) this.selectedId = id;
     return true;
   }

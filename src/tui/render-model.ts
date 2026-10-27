@@ -1,3 +1,4 @@
+import { glyphs, worktreeGlyph } from "./glyphs.js";
 import { basename, dirname, parse, resolve, sep } from "node:path";
 import { ARCHIVE_PRUNE_AFTER_MS, sessionClosure, type SessionSection } from "../core/session-bucket.js";
 import { orderedSessions } from "../core/session-order.js";
@@ -74,7 +75,7 @@ export interface RenderSession {
   worktreeOwnedByHub?: boolean;
   worktreeCount?: number;
   worktreeLifecycle?: WorktreeLifecycleSnapshot;
-  worktreeMarker?: "⎇" | "⎇…" | "⎇!" | "⎇✓";
+  worktreeMarker?: string;
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
@@ -111,6 +112,8 @@ export interface RenderSection {
   cockpitTier?: CockpitTier;
   repoKey?: string;
   title: string;
+  /** Canonical board vocabulary selected by the producer-lane projection. */
+  gridWorkflow?: WorkflowRuntimeSnapshot;
   statusCounts: StatusCounts;
   sessionsTotal: number;
   sessionsVisible?: number;
@@ -316,7 +319,7 @@ export function repoIdentities(
         }
         qualifier ??= dirname(key);
       }
-      identityByKey.set(key, { key, label: qualifier ? `${name} · ${qualifier}` : name });
+      identityByKey.set(key, { key, label: qualifier ? `${name} ${glyphs.pendingStep} ${qualifier}` : name });
     }
   }
   return new Map([...keysByOwner].map(([ownerId, key]) => [ownerId, identityByKey.get(key)!]));
@@ -560,6 +563,7 @@ export interface BuildRenderModelInput {
   releaseCueSelected?: boolean;
   guidanceHidden?: boolean;
   compactRows?: boolean;
+  visibleRequestCount?: number;
 }
 
 export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
@@ -602,7 +606,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.selectedRepo && !input.releaseCueSelected;
   const mapped = visible.flatMap((session) => {
     const rendered = mappedById.get(session.id);
-    return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId }] : [];
+    return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId,
+      symbol: symbolFor(rendered.displayStatus, listSelected && rendered.id === selectedId, input.now) }] : [];
   });
   const archiveDisclosure = projection.archiveDisclosureVisible ? {
     expanded: input.archiveExpanded ?? false,
@@ -663,7 +668,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
     ...(workspace ? { workspace } : {}),
-    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, { coaching: coach }),
+    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, {
+      coaching: coach,
+      requestCount: input.visibleRequestCount ?? visible.filter((session) => visibleAttention(session)).length,
+      filter: input.filter,
+    }),
     filter: input.filter,
     filterEditing: input.filterEditing,
     grouping,
@@ -704,6 +713,7 @@ export interface BoardLaneRow {
 }
 
 interface BoardProjection<T> {
+  workflow?: WorkflowRuntimeSnapshot;
   rows: T[];
   lanes: { key: string; title: string; rows: T[]; parentCount: number }[];
   hidden: BoardHiddenCounts;
@@ -773,6 +783,7 @@ function projectBoardRows<T extends BoardLaneRow>(activeRows: T[], allRows: T[])
   const allParents = allRows.filter((row) => row.kind !== "subagent");
   const activeParentIds = new Set(activeParents.map((row) => row.id));
   return {
+    workflow: vocabularyOwner?.workflow,
     rows: lanes.flatMap((lane) => lane.rows),
     lanes,
     hidden: {
@@ -824,6 +835,7 @@ function lanesForBoard(sessions: RenderSession[], projection: BoardProjection<Ru
     return {
       key: lane.key,
       title: lane.title,
+      gridWorkflow: projection.workflow,
       statusCounts: countRenderSessions(rows),
       sessionsTotal: lane.parentCount,
       hiddenChildRequestCount: 0,
@@ -1018,7 +1030,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     status: session.status,
     statusEvidence: session.statusEvidence,
     displayStatus,
-    symbol: symbolFor(displayStatus, now),
+    symbol: symbolFor(displayStatus, selected, now),
     needsAttention: attention !== undefined,
     selected,
     error: session.error,
@@ -1049,7 +1061,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     worktreeOwnedByHub: session.worktreeOwnedByHub,
     worktreeCount: worktrees.length || undefined,
     worktreeLifecycle: effectiveWorktreeLifecycle(session),
-    worktreeMarker: worktreeMarker(session),
+    worktreeMarker: worktreeGlyph(worktreeMarker(session)),
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),
@@ -1107,16 +1119,16 @@ function displayStatusFor(status: SessionStatus): RenderSession["displayStatus"]
   return status;
 }
 
-export const SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+export const SPINNER_FRAMES = glyphs.spinner;
 export const SPINNER_FRAME_MS = 250;
 
-/** Running rows animate only when the render has a clock. */
-function symbolFor(status: RenderSession["displayStatus"], now: number | undefined): string {
+/** Only the selected running row animates, and only when the render has a clock. */
+function symbolFor(status: RenderSession["displayStatus"], selected: boolean, now: number | undefined): string {
   switch (status) {
-    case "running": return now === undefined ? "●" : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
-    case "waiting": return "◐";
-    case "idle": return "○";
-    case "error": return "×";
+    case "running": return !selected || now === undefined ? glyphs.running : SPINNER_FRAMES[Math.floor(now / SPINNER_FRAME_MS) % SPINNER_FRAMES.length]!;
+    case "waiting": return glyphs.waiting;
+    case "idle": return glyphs.idle;
+    case "error": return glyphs.error;
     case "stopped": return "-";
   }
 }
