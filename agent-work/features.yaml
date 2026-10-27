@@ -1271,7 +1271,7 @@
   plan_file: agent-work/history/20261025_ui-polish-010_plain_terminal_support.md
   completed_at: '2026-10-25'
 - id: test-isolation-001
-  status: pending
+  status: done
   title: Test environment isolation
   subtitle: Isolate tests from live agent state
   description: Tests clear inherited Hub/subagent routing variables so full-suite
@@ -1282,3 +1282,5 @@
   discovered_from: ui-polish-001
   references:
   - agent-work/history/20261025_ui-polish-001_footer_cursor_fixes.md
+  completed_at: '2026-10-26'
+  plan_file: agent-work/history/20261026_test-isolation-001_test_environment_isolation.md

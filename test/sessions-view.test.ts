@@ -4587,6 +4587,11 @@ test("hasAnimatingSelectedRow tracks the on-screen selected running row only", (
   view.handleInput("?");
   view.render(120);
   assert.equal(view.hasAnimatingSelectedRow, false, "help covers the fleet");
+  view.handleInput("\x1b");
+
+  view.handleInput(":");
+  view.render(120);
+  assert.equal(view.hasAnimatingSelectedRow, false, "the palette covers the selected row");
 });
 
 test("visible unselected runners and synthetic selections do not request animation frames", () => {

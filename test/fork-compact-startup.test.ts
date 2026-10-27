@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import piAgentHubExtension from "../src/extension/index.js";
 import { FORK_COMPACT_ENV, KIND_ENV, SESSION_ID_ENV, STATE_ENV } from "../src/core/names.js";
+import { isErrno } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
 
 type Dependencies = NonNullable<Parameters<typeof piAgentHubExtension>[1]>;
@@ -19,7 +20,9 @@ const resetEntries = (id = attempt) => [
 ];
 const sleep = (ms = 10) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check: () => boolean | Promise<boolean>) {
-  for (let i = 0; i < 100; i++) { if (await check()) return; await sleep(); }
+  // The extension writes its first heartbeat asynchronously; a missing file is not yet observable.
+  const observe = async () => { try { return await check(); } catch (error) { if (isErrno(error, "ENOENT")) return false; throw error; } };
+  for (let i = 0; i < 100; i++) { if (await observe()) return; await sleep(); }
   assert.fail("Timed out waiting for test observation");
 }
 function deferred<T>() {

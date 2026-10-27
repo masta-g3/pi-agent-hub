@@ -472,6 +472,8 @@ export class SessionsView implements Component {
       withFooter = overlay.lines;
       this.paletteRowTargets = overlay.rowTargets;
       this.paletteBounds = overlay.bounds;
+      const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === selected?.id);
+      if (overlay.bounds && selectedRow >= overlay.bounds.start && selectedRow <= overlay.bounds.end) this.selectedRowAnimating = false;
     }
     const final = this.conversationOpen ? withFooter : this.message
       ? replaceFooter(withFooter, this.message, this.theme)
