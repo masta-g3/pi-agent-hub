@@ -26,6 +26,7 @@ import {
 import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
 import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
+import { DOWN, PAGE_DOWN, PAGE_UP, UP, hitAt, type DialogHit } from "./dialog-mouse.js";
 import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
 import type { FollowSidePaneResult } from "../app/side-pane.js";
@@ -103,6 +104,9 @@ export class SessionsView implements Component {
   private pendingRestart: RestartDialog | undefined;
   private confirmationReview: ConfirmationReview | undefined;
   private lastMouseClick: { target: string; at: number } | undefined;
+  /** Hits from the last dialog render; they apply only while `dialogHitOwner` is still the open dialog. */
+  private dialogHits: DialogHit[] = [];
+  private dialogHitOwner: unknown;
   private busy = false;
   private archiveExpanded = false;
   private archiveDisclosureSelected = false;
@@ -178,6 +182,7 @@ export class SessionsView implements Component {
       if (event && this.conversationOpen && !this.dialog && !this.busy && this.handleConversationMouse(event)) return;
       else if (event && this.dialog?.kind === "help" && event.kind === "wheel") this.helpScroll = Math.max(0, Math.min(this.helpMaxScroll, this.helpScroll + event.delta * 3));
       else if (event && this.dialog?.kind === "commandPalette" && !this.busy) this.handlePaletteMouse(event);
+      else if (event && (this.dialog || this.pendingRestart) && !this.busy && this.handleDialogMouse(event)) return;
       else if (event && !this.dialog && !this.busy) this.handleFleetMouse(event);
       else if (event) this.lastMouseClick = undefined;
       return;
@@ -329,6 +334,8 @@ export class SessionsView implements Component {
     this.tierChipRow = undefined;
     this.tierChips = [];
     this.confirmationReview = undefined;
+    this.dialogHits = [];
+    this.dialogHitOwner = this.dialog ?? this.pendingRestart;
     this.clearExpiredFlash();
     this.lastWidth = width;
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
@@ -378,16 +385,17 @@ export class SessionsView implements Component {
       this.helpMaxScroll = page.maxOffset;
       return page.lines;
     }
-    if (this.dialog?.kind === "picker") return limitRows(renderPickerDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
-    if (this.dialog?.kind === "theme") return limitRows(renderThemeDialog(this.dialog, width, height, this.theme), height, width, this.theme);
-    if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return limitRows(renderNewSessionDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
-    if (this.dialog?.kind === "sessionFavorites") return limitRows(renderFavoritesDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
-    if (this.dialog?.kind === "form") return limitRows(renderFormDialog(this.dialog, width, this.dialogContext(), height), height, width, this.theme);
-    if (this.dialog?.kind === "archive") return limitRows(renderArchiveDialog(this.dialog, width, this.dialogContext()), height, width, this.theme);
+    const hits = this.dialogHits;
+    if (this.dialog?.kind === "picker") return this.dialogRows(renderPickerDialog(this.dialog, width, this.dialogContext(), height, hits), height, width);
+    if (this.dialog?.kind === "theme") return this.dialogRows(renderThemeDialog(this.dialog, width, height, this.theme, hits), height, width);
+    if (this.dialog?.kind === "new" || this.dialog?.kind === "repoPicker") return this.dialogRows(renderNewSessionDialog(this.dialog, width, this.dialogContext(), hits), height, width);
+    if (this.dialog?.kind === "sessionFavorites") return this.dialogRows(renderFavoritesDialog(this.dialog, width, this.dialogContext(), hits), height, width);
+    if (this.dialog?.kind === "form") return this.dialogRows(renderFormDialog(this.dialog, width, this.dialogContext(), height, hits), height, width);
+    if (this.dialog?.kind === "archive") return this.dialogRows(renderArchiveDialog(this.dialog, width, this.dialogContext(), hits), height, width);
     if (this.dialog?.kind === "confirm" || this.pendingRestart) {
       const rendered = this.dialog?.kind === "confirm"
-        ? renderConfirmDialog(this.dialog, width, height, this.dialogContext())
-        : renderRestartDialog(this.pendingRestart!, width, height, this.dialogContext());
+        ? renderConfirmDialog(this.dialog, width, height, this.dialogContext(), hits)
+        : renderRestartDialog(this.pendingRestart!, width, height, this.dialogContext(), hits);
       this.confirmationReview = rendered.review;
       return rendered.lines;
     }
@@ -1038,6 +1046,42 @@ export class SessionsView implements Component {
       return;
     }
     this.dialog = { ...this.dialog, state: result.state };
+  }
+
+  /** Keeps only hits on rows that survive height limiting. */
+  private dialogRows(lines: string[], height: number | undefined, width: number): string[] {
+    const limited = limitRows(lines, height, width, this.theme);
+    const lastRow = limited.length === lines.length ? limited.length : limited.length - 1;
+    this.dialogHits = this.dialogHits.filter((hit) => hit.row < lastRow);
+    return limited;
+  }
+
+  private handleDialogMouse(event: MouseEvent): boolean {
+    if ((this.dialog ?? this.pendingRestart) !== this.dialogHitOwner || this.dialogNeedsRoom()) return false;
+    if (event.kind === "wheel") {
+      const keys = this.dialogWheelKeys();
+      if (!keys) return false;
+      this.handleInput(event.delta < 0 ? keys[0] : keys[1]);
+      return true;
+    }
+    const hit = hitAt(this.dialogHits, event.y - 1, event.x);
+    if (!hit) return false;
+    const now = this.actions.now?.() ?? Date.now();
+    const target = `dialog:${hit.id}`;
+    const elapsed = this.lastMouseClick?.target === target ? now - this.lastMouseClick.at : undefined;
+    const doubleClick = elapsed !== undefined && elapsed >= 0 && elapsed <= DOUBLE_CLICK_MS;
+    if (hit.select) this.dialog = hit.select(this.dialogContext());
+    if (hit.key) this.handleInput(hit.key);
+    if (doubleClick && hit.confirm) this.handleInput(hit.confirm);
+    this.lastMouseClick = doubleClick ? undefined : { target, at: now };
+    return true;
+  }
+
+  private dialogWheelKeys(): [string, string] | undefined {
+    if (this.pendingRestart || this.dialog?.kind === "confirm") return [PAGE_UP, PAGE_DOWN];
+    if (this.dialog?.kind === "theme" || this.dialog?.kind === "picker" || this.dialog?.kind === "repoPicker"
+      || (this.dialog?.kind === "sessionFavorites" && this.dialog.mode === "picker")) return [UP, DOWN];
+    return undefined;
   }
 
   private handlePaletteMouse(event: MouseEvent): void {

@@ -10,6 +10,7 @@ import {
   selectedRepoCwd, toggleRepoPickerMode, type RepoPickerState,
 } from "./repo-picker.js";
 import { openFavoritesDialog, type FavoritesDialog } from "./session-favorites-dialog.js";
+import { ENTER, RIGHT, type DialogAction, type DialogHit } from "./dialog-mouse.js";
 import {
   addRepo, createNewForm, cycleCwdSuggestion, editNewForm, isRepoKey,
   removeFocusedRepo, setFocus, setRepoValue, submission, toggleWorktree, validateNewForm,
@@ -45,9 +46,19 @@ export function handleNewSessionInput(dialog: NewSessionDialog | RepoPickerDialo
   return dialog.kind === "new" ? handleNewFormInput(dialog, data, ctx) : handleRepoPickerInput(dialog, data, ctx);
 }
 
-export function renderNewSessionDialog(dialog: NewSessionDialog | RepoPickerDialog, width: number, ctx: NewSessionDialogContext): string[] {
+export function renderNewSessionDialog(dialog: NewSessionDialog | RepoPickerDialog, width: number, ctx: NewSessionDialogContext, hits?: DialogHit[]): string[] {
   const height = ctx.viewport.height;
-  if (dialog.kind === "repoPicker") return renderRepoPicker(dialog.picker, width, ctx.theme, height);
+  if (dialog.kind === "repoPicker") {
+    return renderRepoPicker(dialog.picker, width, ctx.theme, height, hits && {
+      out: hits,
+      target: (index) => ({
+        id: `repo:${dialog.picker.items[index]?.cwd}`,
+        select: () => ({ ...dialog, picker: { ...dialog.picker, selected: index, detailOffset: 0 } }),
+        // Browsing opens folders like a file manager; the footer's Enter still chooses one.
+        confirm: dialog.picker.mode === "browse" ? RIGHT : ENTER,
+      }),
+    });
+  }
   return renderForm({
     title: "New session",
     fields: newFormFields(dialog, width),
@@ -57,7 +68,16 @@ export function renderNewSessionDialog(dialog: NewSessionDialog | RepoPickerDial
     compact: true,
     height,
     detailOffset: dialog.detailOffset,
+    hits: hits && { out: hits, target: (key) => newFormAction(dialog, key) },
   }, width, ctx.theme);
+}
+
+function newFormAction(dialog: NewSessionDialog, key: string): DialogAction {
+  if (key in dialog.form.fields) {
+    const field = key as NewFormState["focus"];
+    return { id: `new:${key}`, select: () => withForm(dialog, setFocus(dialog.form, field)), ...(field === "worktree" ? { key: " " } : {}) };
+  }
+  return { id: `new:${key}`, select: () => ({ ...dialog, actionFocus: key as NewSessionAction, detailOffset: 0 }), key: ENTER };
 }
 
 function handleNewFormInput(dialog: NewSessionDialog, data: string, ctx: NewSessionDialogContext): NewSessionResult {

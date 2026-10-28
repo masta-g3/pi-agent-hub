@@ -10,6 +10,7 @@ import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, renderDialog, renderForm, w
 import { normalizeDetailOffset } from "./form-dialogs.js";
 import { createTextInput, editTextInput, isEnterKey, type TextInputState } from "./text-input.js";
 import { styleToken } from "./theme.js";
+import { DIALOG_CONTENT_X, ENTER, footerHits, type DialogHit } from "./dialog-mouse.js";
 
 export type FavoritesDialogMode = "picker" | "save" | "rename" | "update" | "remove";
 type NameForm = FormState<"name">;
@@ -85,10 +86,10 @@ export function handleFavoritesInput(
   return dialog;
 }
 
-export function renderFavoritesDialog(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext): string[] {
-  if (dialog.mode === "picker") return renderPicker(dialog, width, ctx);
-  if (dialog.mode === "save" || dialog.mode === "rename") return renderName(dialog, width, ctx);
-  return renderConfirmation(dialog, width, ctx);
+export function renderFavoritesDialog(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext, hits?: DialogHit[]): string[] {
+  if (dialog.mode === "picker") return renderPicker(dialog, width, ctx, hits);
+  if (dialog.mode === "save" || dialog.mode === "rename") return renderName(dialog, width, ctx, hits);
+  return renderConfirmation(dialog, width, ctx, hits);
 }
 
 function handlePickerInput(dialog: FavoritesDialog, data: string, ctx: NewSessionDialogContext): FavoritesDialog | NewSessionDialog {
@@ -169,7 +170,7 @@ function submitMutation(dialog: FavoritesDialog, ctx: NewSessionDialogContext): 
   }
 }
 
-function renderPicker(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext): string[] {
+function renderPicker(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext, hits?: DialogHit[]): string[] {
   const projection = pickerViewport(dialog, width, ctx.viewport.height ?? 18);
   const itemLines = projection.visibleChoices.map((favorite) => {
     const marker = favorite.id === dialog.selected ? glyphs.focus : " ";
@@ -177,6 +178,16 @@ function renderPicker(dialog: FavoritesDialog, width: number, ctx: NewSessionDia
     return favorite.id === dialog.selected && ctx.theme ? styleToken(ctx.theme, "accent", line) : line;
   });
   const state = dialog.loading ? ["loading favorites..."] : projection.choices.length ? itemLines : [dialog.search.value ? "No matching favorites." : "No favorites saved."];
+  if (hits) {
+    // renderDialog adds the top border, title and rule; the search row comes first.
+    if (!dialog.loading && !dialog.pending) projection.visibleChoices.forEach((favorite, index) => hits.push({
+      id: `favorite:${favorite.id}`, row: 4 + index,
+      select: () => ({ ...dialog, selected: favorite.id, error: undefined, detailOffset: 0 }),
+      confirm: ENTER,
+    }));
+    const footerRow = 4 + state.length + projection.visibleDetails.length;
+    projection.footers.forEach((footer, index) => hits.push(...footerHits(footerRow + index, footer, DIALOG_CONTENT_X, Math.min(width - 2, 86))));
+  }
   return renderDialog("Session favorites", [
     `Search  ${renderCursorValue(dialog.search.value, dialog.search.cursor, Math.min(width - 2, 86) - 8, "start")}`,
     ...state,
@@ -185,7 +196,7 @@ function renderPicker(dialog: FavoritesDialog, width: number, ctx: NewSessionDia
   ], width, ctx.theme);
 }
 
-function renderName(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext): string[] {
+function renderName(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext, hits?: DialogHit[]): string[] {
   const name = dialog.edit?.fields.name;
   const title = dialog.mode === "save" ? "Save favorite" : "Rename favorite";
   const paths = dialog.mode === "save" ? displayDraftCwds(dialog) : selectedFavorite(dialog)?.cwds ?? [];
@@ -208,15 +219,17 @@ function renderName(dialog: FavoritesDialog, width: number, ctx: NewSessionDialo
     ],
     focus: "name",
     compact: true,
+    hits: hits && { out: hits, target: () => undefined },
     height: ctx.viewport.height,
     detailOffset: dialog.detailOffset,
     footer: dialog.loading ? `Loading${glyphs.ellipsis} ${glyphs.pendingStep} Esc Cancel` : !dialog.favorites ? `Enter Retry ${glyphs.pendingStep} Esc Cancel` : dialog.pending ? (dialog.mode === "save" ? "Saving..." : "Renaming...") : `Enter Save ${glyphs.pendingStep} Esc Cancel`,
   }, width, ctx.theme);
 }
 
-function renderConfirmation(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext): string[] {
+function renderConfirmation(dialog: FavoritesDialog, width: number, ctx: NewSessionDialogContext, hits?: DialogHit[]): string[] {
   const update = dialog.mode === "update";
   const projection = confirmationViewport(dialog, width, ctx.viewport.height ?? 18);
+  hits?.push(...footerHits(3 + projection.visibleDetails.length, projection.footer, DIALOG_CONTENT_X, Math.min(width - 2, 86)));
   return renderDialog(update ? "Update favorite" : "Remove favorite", [
     ...projection.visibleDetails.map((row) => row.error ? errorLine(row.text, ctx) : row.text),
     projection.footer,

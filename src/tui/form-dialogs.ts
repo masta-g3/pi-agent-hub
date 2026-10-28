@@ -3,7 +3,8 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { orderedSessionRows } from "../core/session-tree.js";
 import { sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
 import { isEnterKey } from "./text-input.js";
-import { createForm, editField, moveFocus, setValue, validateRequired, type FormState } from "./form.js";
+import { createForm, editField, moveFocus, setFocus, setValue, validateRequired, type FormState } from "./form.js";
+import type { DialogHit } from "./dialog-mouse.js";
 import { renderForm, wrapWords } from "./layout.js";
 import { revealCreated, type FormDialogContext } from "./dialog.js";
 
@@ -166,7 +167,7 @@ export function handleFormDialogInput(dialog: FormDialog, data: string, ctx: For
   return { ...dialog, detailOffset: 0, form: edited };
 }
 
-export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDialogContext, height?: number): string[] {
+export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDialogContext, height?: number, hits?: DialogHit[]): string[] {
   const spec = formRenderSpec(dialog, ctx);
   return renderForm({
     title: spec.title,
@@ -179,6 +180,15 @@ export function renderFormDialog(dialog: FormDialog, width: number, ctx: FormDia
     height,
     compact: dialog.purpose === "send",
     detailOffset: dialog.detailOffset,
+    hits: hits && {
+      out: hits,
+      target: (key) => ({
+        id: `form:${key}`,
+        select: () => ({ ...dialog, detailOffset: 0, form: setFocus(dialog.form, key) }),
+        // A click on the send delivery choice changes it, like Space does once it is focused.
+        ...(dialog.purpose === "send" && key === "delivery" ? { key: " " } : {}),
+      }),
+    },
   }, width, ctx.theme);
 }
 

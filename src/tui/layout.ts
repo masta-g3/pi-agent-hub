@@ -8,6 +8,7 @@ import { formatKey } from "./dashboard-shortcuts.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
 import { darkTheme, selectionMarker, stripAnsi, styleBgToken, styleToken, type SessionsTheme } from "./theme.js";
+import { DIALOG_CONTENT_X, footerHits, type DialogHitSink } from "./dialog-mouse.js";
 
 export const NARROW_LAYOUT_MAX_WIDTH = 60;
 export const MIN_LAYOUT_WIDTH = 30;
@@ -1707,6 +1708,13 @@ export interface FormSpec {
   compact?: boolean;
   height?: number;
   detailOffset?: number;
+  /** Receives one whole-row hit per visible field line, plus footer key taps. */
+  hits?: DialogHitSink<string>;
+}
+
+interface FormLine {
+  text: string;
+  key?: string;
 }
 
 export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme): string[] {
@@ -1717,9 +1725,9 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
   const labelWidth = Math.max(...spec.fields.map((field) => displayWidth(field.label)), 5);
   let previousSection: string | undefined;
   const fieldBlocks = spec.fields.map((field) => {
-    const lines: string[] = [];
+    const lines: FormLine[] = [];
     if (field.section && field.section !== previousSection) {
-      lines.push(`  ${styles.muted(field.section)}`);
+      lines.push({ text: `  ${styles.muted(field.section)}` });
       previousSection = field.section;
     }
     const focused = field.key === spec.focus;
@@ -1739,16 +1747,16 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
       : rawValue;
     const value = `${styles.border(prefix)}${content}${styles.border(suffix)}`;
     if (stacked) {
-      lines.push(`${caret} ${truncate(label, Math.max(0, inner - 2))}`);
-      lines.push(`  ${value}`);
+      lines.push({ text: `${caret} ${truncate(label, Math.max(0, inner - 2))}`, key: field.key });
+      lines.push({ text: `  ${value}`, key: field.key });
     } else {
-      lines.push(`${caret} ${pad(label, labelWidth)}  ${value}`);
+      lines.push({ text: `${caret} ${pad(label, labelWidth)}  ${value}`, key: field.key });
     }
     const hintText = !narrow && !spec.compact
       ? field.error ? styles.error(field.error) : (showHints && field.hint ? styles.muted(field.hint) : "")
       : "";
-    if (hintText) lines.push(`  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`);
-    if (!spec.compact) lines.push("");
+    if (hintText) lines.push({ text: `  ${pad("", labelWidth)}  ${truncate(hintText, valueWidth)}`, key: field.key });
+    if (!spec.compact) lines.push({ text: "" });
     return lines;
   });
   const focusedField = spec.fields.find((field) => field.key === spec.focus);
@@ -1780,22 +1788,30 @@ export function renderForm(spec: FormSpec, width: number, theme?: SessionsTheme)
     styles.accent(spec.title),
     styles.border(glyphs.horizontal.repeat(inner)),
     "",
-    ...visibleFields,
+    ...visibleFields.map((line) => line.text),
     ...fieldPadding,
     ...visibleDetail,
     styles.border(glyphs.horizontal.repeat(inner)),
   ];
   const footer = narrow && displayWidth(spec.footer) > inner ? (spec.narrowFooter ?? `Enter Confirm ${glyphs.pendingStep} Esc Cancel`) : spec.footer;
+  if (spec.hits) {
+    // The frame's top border precedes the title, rule and blank row.
+    visibleFields.forEach((line, index) => {
+      const action = line.key === undefined ? undefined : spec.hits!.target(line.key);
+      if (action) spec.hits!.out.push({ ...action, row: 4 + index });
+    });
+    spec.hits.out.push(...footerHits(body.length + 1, footer, DIALOG_CONTENT_X, inner));
+  }
   body.push(truncate(styles.muted(footer), inner));
   return frame(width, body, styles, { border: "dialog-title" });
 }
 
-function windowFormBlocks(blocks: string[][], focusIndex: number, rowLimit: number): string[][] {
+function windowFormBlocks(blocks: FormLine[][], focusIndex: number, rowLimit: number): FormLine[][] {
   if (blocks.reduce((total, block) => total + block.length, 0) <= rowLimit) return blocks;
   const focusedBlock = blocks[focusIndex] ?? [];
   if (focusedBlock.length > rowLimit) {
     const required = [...focusedBlock];
-    while (required.at(-1) === "") required.pop();
+    while (required.at(-1)?.text === "") required.pop();
     return rowLimit > 0 ? [required.slice(-rowLimit)] : [];
   }
   let start = focusIndex;

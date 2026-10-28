@@ -7,6 +7,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { createTextInput, type TextInputState } from "./text-input.js";
 import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue, wrapWords } from "./layout.js";
 import { darkTheme, styleToken, type SessionsTheme } from "./theme.js";
+import { DIALOG_CONTENT_X, footerHits, type DialogHitSink } from "./dialog-mouse.js";
 
 export interface RepoPickerItem {
   cwd: string;
@@ -87,7 +88,7 @@ export function selectedRepoCwd(state: RepoPickerState): string | undefined {
   return selected === undefined ? undefined : state.items[selected]?.cwd;
 }
 
-export function renderRepoPicker(state: RepoPickerState, width: number, theme?: SessionsTheme, height?: number): string[] {
+export function renderRepoPicker(state: RepoPickerState, width: number, theme?: SessionsTheme, height?: number, hits?: DialogHitSink<number>): string[] {
   const styles = createStyles(theme ?? { ...darkTheme, accent: "", border: "", dim: "", muted: "" });
   const inner = Math.max(1, width - 2);
   const narrow = width <= NARROW_LAYOUT_MAX_WIDTH;
@@ -119,6 +120,9 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
     const line = narrow
       ? `${marker} ${favorite} ${truncate(item.label, labelWidth)}`
       : `${marker} ${favorite} ${pad(item.label, labelWidth)} ${styles.muted(truncate(item.detail, detailWidth))}`;
+    const action = hits?.target(index);
+    // The top border precedes the body lines.
+    if (action) hits!.out.push({ ...action, row: lines.length + 1 });
     lines.push(active ? styles.accent(line) : line);
   }
   if (narrow && height && height > 0) {
@@ -128,6 +132,7 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   if (pathLines.length) lines.push(...Array.from({ length: pathLimit }, (_, index) => styles.muted(pathLines[pathOffset + index] ?? "")));
   lines.push("");
   const browse = state.mode === "browse";
+  const footerStart = lines.length;
   if (narrow) lines.push(
     styles.muted(browse ? `Type Search ${glyphs.pendingStep} ${glyphs.right} Open ${glyphs.pendingStep} ${glyphs.left} Up ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move` : `Type Search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} PgUp/PgDn Path`),
     styles.muted(browse ? `Enter Select ${glyphs.pendingStep} Tab Recent ${glyphs.pendingStep} Esc Cancel` : `Enter Select ${glyphs.pendingStep} ${glyphs.right} Browse ${glyphs.pendingStep} Tab Browse ${glyphs.pendingStep} Esc Cancel`),
@@ -135,6 +140,7 @@ export function renderRepoPicker(state: RepoPickerState, width: number, theme?: 
   else lines.push(styles.muted(browse
     ? `Type search ${glyphs.pendingStep} ${glyphs.right} Open ${glyphs.pendingStep} ${glyphs.left} Up ${glyphs.pendingStep} Enter Select ${glyphs.pendingStep} Tab Recent ${glyphs.pendingStep} Esc Cancel`
     : `Type search ${glyphs.pendingStep} ${glyphs.up}${glyphs.down} Move ${glyphs.pendingStep} ${glyphs.right} Browse into ${glyphs.pendingStep} Enter Select ${glyphs.pendingStep} Tab Browse ${glyphs.pendingStep} Esc Cancel`));
+  if (hits) lines.slice(footerStart).forEach((line, index) => hits.out.push(...footerHits(footerStart + index + 1, line, DIALOG_CONTENT_X, inner)));
   return [
     `${styles.border(glyphs.topLeft)}${styles.border(glyphs.horizontal.repeat(inner))}${styles.border(glyphs.topRight)}`,
     ...lines.map((line) => `${styles.border(glyphs.vertical)}${pad(line, inner)}${styles.border(glyphs.vertical)}`),

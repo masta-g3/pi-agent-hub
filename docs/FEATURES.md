@@ -86,7 +86,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `t` | Preview and configure the dashboard theme |
 | `v` | Toggle Status / Repo fleet grouping |
 | `S` | Visit the workflow board or return to the chosen fleet grouping |
-| Click / double-click | Select / open a session; double-click folds a section header |
+| Click / double-click | Select / open a session; double-click folds a section header. In dialogs, click selects, double-click confirms, and footer hints are tappable; Delete and Finish choices need keys |
 
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
