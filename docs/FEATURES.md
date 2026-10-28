@@ -16,7 +16,7 @@ work in Pi
 Ctrl+Q returns to the dashboard
 ```
 
-Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns to the session list.
+Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns to the session list. Or press `o` for follow view: one pane beside the list that always shows the selected session.
 
 ## Core capabilities
 
@@ -26,6 +26,7 @@ Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` f
 | Attention-first dashboard | Status view separates explicit requests, errors, running work, quiet sessions, and archives. |
 | Repository grouping | `v` switches between Status and Repo views. |
 | Live pins | `1`–`4` assigns a free slot; `P` chooses the first free one. |
+| Follow view | `o` shows the selected session beside the list and follows the selection. |
 | Search and actions | `/` filters; `:` finds actions, sessions, and named filters. |
 | Task context | The selected-session workspace shows requests, task text, workflow position, and actions. |
 | Conversation | `c` shows completed messages and supported inline questions below the fleet. |
@@ -52,6 +53,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `Alt+1`–`Alt+4` | Focus an occupied slot from the dashboard or a live pane |
 | `x` | Close the selected session's pin without stopping Pi |
 | `+` / `-` | Resize the main pin split by ten percentage points, within 30/70 |
+| `o` | Turn follow view on or off |
 | `Ctrl+Q` | Return to the dashboard from a managed session or pin |
 | `/` | Filter sessions |
 | `b` | Show or hide Backlog in the current filter |
@@ -92,7 +94,7 @@ Press `?` for a static reference grouped into Session actions, Pins, Views, and 
 
 ## Conversation
 
-Press `c` to read the selected live parent session below the fleet. Close pinned panes first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
+Press `c` to read the selected live parent session below the fleet. Close pinned panes or leave follow view first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
 
 Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the fleet to focus the answer area. Number keys select options or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answers. `←` revisits a previous question when not editing text. `Esc` returns focus to the fleet without cancelling the question.
 
@@ -224,6 +226,18 @@ Use `1`–`4` to assign a live session to an exact free slot, or `P` for the low
 | 100–119 | Two pins in any slots, stacked |
 | 120–159 | Two pins in any slots; 1+3 or 2+4 stack, other pairs sit side by side |
 | 160+ | Four pins in a 2×2 layout |
+
+### Follow view
+
+Press `o` with a live session selected, no pins open, and at least 100 columns. One pane opens beside the list and shows the selected session. When you stop moving the selection for about 200 ms, the pane switches to the new session. Keyboard focus stays in the list.
+
+- `Enter` or double-click on a live row moves typing into the pane, like focusing a pin. It marks a waiting session read. `Ctrl+Q` returns to the list.
+- `Enter` on a stopped or error row restarts it, as usual. The pane keeps the last live session, and its title names the selected row's state.
+- Open in the action workspace or `:` palette still opens the session full screen.
+- Switching the pane never marks a session read, changes its order, or counts as interaction.
+- Follow view and pins do not mix: `o` asks you to close pins first, and pin keys ask you to leave follow view first.
+- Below 100 columns the pane hides like pins and returns, still following, when the window widens.
+- `o` again closes the pane. Pi keeps running.
 
 Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
 

@@ -4678,3 +4678,134 @@ test("hidden pins leave pin mode so phones can open the workspace", () => {
   view.handleInput("i");
   assert.doesNotMatch(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
 });
+
+function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[] } = {}) {
+  const events = options.events ?? [];
+  const controller = new SessionsController({ version: 1, sessions: options.sessions ?? [session("api", "api"), session("docs", "docs"), session("more", "more")] });
+  let following = options.following ?? true;
+  const state = () => ({ slots: options.slots ?? (following ? ["api", undefined, undefined, undefined] : [undefined, undefined, undefined, undefined]),
+    capacity: options.capacity ?? 2, constrained: false, splitPercent: 50, following });
+  const view = new SessionsView(controller, () => {}, {
+    sidePaneState: state,
+    followSidePane: (id) => { events.push(`follow:${id}`); following = true; return { kind: "following" }; },
+    unfollowSidePane: () => { events.push("unfollow"); following = false; return { kind: "closed" }; },
+    retargetFollow: (id) => { events.push(`retarget:${id}`); },
+    focusFollow: (id) => { events.push(`focus-follow:${id}`); return { kind: "focused" }; },
+    focusPinnedSession: (id) => { events.push(`focus-pin:${id}`); return { kind: "focused" }; },
+    switchInsideTmux: (tmuxSession) => { events.push(`switch:${tmuxSession}`); },
+    restart: (id) => { events.push(`restart:${id}`); },
+    acknowledgeSession: (id) => { events.push(`ack:${id}`); },
+    pinSidePane: (id) => { events.push(`pin:${id}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot: 1 }; },
+    assignSidePaneSlot: (id, slot) => { events.push(`assign:${id}:${slot}`); return { kind: "pinned", session: `pi-agent-hub-${id}`, slot }; },
+    closeSidePane: (id) => { events.push(`close:${id}`); return { kind: "closed" }; },
+    resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 60 }; },
+  });
+  return { controller, view, events };
+}
+
+test("follow view retargets once after the selection settles and skips non-live rows", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const off = { ...session("off", "off"), status: "stopped" as const };
+  const { controller, view, events } = followView({ sessions: [session("api", "api"), session("docs", "docs"), session("more", "more"), off] });
+  controller.selectSession("api");
+  view.render(100);
+  t.mock.timers.tick(200);
+  for (const id of ["docs", "more"]) { controller.selectSession(id); view.render(100); t.mock.timers.tick(50); }
+  t.mock.timers.tick(200);
+  assert.deepEqual(events.filter((event) => event.startsWith("retarget:")), ["retarget:api", "retarget:more"]);
+
+  events.length = 0;
+  controller.selectSession("docs");
+  view.render(100);
+  controller.selectSession("off");
+  view.render(100);
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, [], "a non-live selection cancels the pending retarget");
+});
+
+test("o toggles follow view and explains each refusal", () => {
+  const started = followView({ following: false });
+  started.controller.selectSession("docs");
+  started.view.handleInput("o");
+  started.view.handleInput("o");
+  assert.deepEqual(started.events, ["follow:docs", "unfollow"]);
+
+  const pinned = followView({ following: false, slots: ["api", undefined, undefined, undefined] });
+  pinned.view.handleInput("o");
+  assert.match(stripAnsi(pinned.view.render(100).join("\n")), /close pins first/);
+
+  const narrow = followView({ following: false, capacity: 0 });
+  narrow.view.handleInput("o");
+  assert.match(stripAnsi(narrow.view.render(100).join("\n")), /follow view needs 100 columns/);
+
+  const stopped = followView({ following: false, sessions: [{ ...session("off", "off"), status: "stopped" as const }] });
+  stopped.view.handleInput("o");
+  assert.match(stripAnsi(stopped.view.render(100).join("\n")), /select a live session to follow/);
+  assert.deepEqual([...pinned.events, ...narrow.events, ...stopped.events], []);
+});
+
+test("Enter types into the follow pane on live rows, restarts stopped rows, and Open stays full screen", async () => {
+  const oldTmux = process.env.TMUX;
+  process.env.TMUX = "/tmp/tmux";
+  try {
+    const waiting = { ...session("api", "api"), status: "waiting" as const,
+      context: { version: 1 as const, updatedAt: 2, attention: { requestId: "question-1", kind: "question" as const, text: "Choose release" } } };
+    const off = { ...session("off", "off"), status: "stopped" as const };
+    const { controller, view, events } = followView({ sessions: [waiting, off] });
+    controller.selectSession("api");
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["focus-follow:api"]);
+    assert.doesNotMatch(stripAnsi(view.render(130).join("\n")), /Open in Pi\s+Enter/, "Enter belongs to the follow pane while following");
+
+    events.length = 0;
+    view.handleInput(":");
+    for (const char of "open in pi") view.handleInput(char);
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["ack:api", "switch:pi-agent-hub-api"], "palette Open goes full screen, never into the follow pane");
+
+    events.length = 0;
+    controller.selectSession("off");
+    view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["restart:off"]);
+
+    const plain = followView({ following: false });
+    plain.controller.selectSession("docs");
+    plain.view.handleInput("\r");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(plain.events, ["switch:pi-agent-hub-docs"]);
+  } finally {
+    if (oldTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = oldTmux;
+  }
+});
+
+test("pin commands and Conversation are refused while following", () => {
+  const { controller, view, events } = followView();
+  controller.selectSession("docs");
+  for (const key of ["P", "2", "x", "+", "c"]) {
+    view.handleInput(key);
+    assert.match(stripAnsi(view.render(100).join("\n")), /leave follow view first \(o\)/, key);
+  }
+  assert.deepEqual(events.filter((event) => !event.startsWith("retarget:")), []);
+});
+
+test("follow view header, footer, and Help name the mode", () => {
+  const { view } = followView();
+  const rendered = stripAnsi(view.render(100).join("\n"));
+  assert.match(rendered, /FOLLOWING/);
+  assert.doesNotMatch(rendered, /PINNED FLEET|1 pinned/);
+  assert.match(rendered, /Enter Type · o Leave/);
+  view.handleInput("?");
+  assert.match(stripAnsi(view.render(120).join("\n")), /Follow view on\/off · [^\n]*o│/);
+
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const hidden = new SessionsView(controller, () => {}, {
+    sidePaneState: () => ({ slots: ["api", undefined, undefined, undefined], capacity: 0, constrained: false, hidden: true, following: true, splitPercent: 50 }),
+  });
+  const narrow = stripAnsi(hidden.render(80).join("\n"));
+  assert.match(narrow, /follow view hidden/);
+  assert.doesNotMatch(narrow, /pin hidden/);
+});

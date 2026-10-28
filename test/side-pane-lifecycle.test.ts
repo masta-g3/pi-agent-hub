@@ -19,7 +19,10 @@ class NamedPaneTmux implements TmuxExec {
   ownWidth = 42;
   windowWidth = 160;
   zoomed = false;
+  follow = false;
   failSplit?: Error;
+  failRetarget?: Error;
+  duringRetarget?: () => void;
   failPinTitle?: Error;
   failBorder?: Error;
   nextSplit?: Promise<void>;
@@ -113,7 +116,22 @@ class NamedPaneTmux implements TmuxExec {
       return { stdout: "", stderr: "" };
     }
     if (action === "resize-pane") this.ownWidth = Number(args.at(-1));
+    if (action === "switch-client" && args.includes("-c")) {
+      const pane = this.panes.find((item) => item.tty === args[args.indexOf("-c") + 1]);
+      if (pane) {
+        if (this.failRetarget) throw this.failRetarget;
+        this.duringRetarget?.();
+        pane.session = args.at(-1)!;
+        this.events.push(`retarget:${pane.id}:${args.at(-1)}`);
+        return { stdout: "", stderr: "" };
+      }
+    }
     if (action === "switch-client") this.events.push(`switch:${args.at(-1)}`);
+    if (action === "show-options" && args.at(-1) === "@pi_hub_follow") return { stdout: this.follow ? "1\n" : "", stderr: "" };
+    if (action === "set-option" && args.at(-1) === "@pi_hub_follow") { this.follow = false; this.events.push("follow:off"); }
+    if (action === "set-option" && args.at(-2) === "@pi_hub_follow") { this.follow = args.at(-1) === "1"; this.events.push(`follow:${this.follow ? "on" : "off"}`); }
+    if (action === "resize-window") this.events.push(`presize:${args[args.indexOf("-t") + 1]}`);
+    if (action === "set-option" && args.includes("window-size")) this.events.push(`window-size:${args[args.indexOf("-t") + 1]}`);
     if (action === "display-message") {
       const format = args.at(-1);
       if (format === "#{window_zoomed_flag}") return { stdout: `${this.zoomed ? 1 : 0}\n`, stderr: "" };
@@ -150,15 +168,19 @@ async function harness(t: TestContext, options: {
   width?: number;
   activeRequestIds?: ReadonlyMap<string, string>;
   revealResult?: boolean;
+  selected?: string;
+  follow?: boolean;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pi-hub-named-lifecycle-"));
   const sessions = options.sessions ?? [session("api"), session("docs")];
   const tmux = new NamedPaneTmux(options.initial);
   if (options.width) tmux.windowWidth = options.width;
+  tmux.follow = options.follow ?? false;
+  let selected = options.selected;
   const events = tmux.events;
   const lifecycle = createSidePaneLifecycle({
     dashboardSession: "pi-agent-hub", dashboardCwd: "/repo", dashboardCommand: "pi-hub tui", dashboardEnv: () => ({}),
-    ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux,
+    ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux, selectedSessionId: () => selected,
     revealSession: (id) => { events.push(`reveal:${id}`); return options.revealResult ?? true; },
     activeAttentionRequestId: (id) => options.activeRequestIds?.get(id),
     acknowledgeSession: async (id, requestId) => { events.push(`ack:${id}${requestId ? `:${requestId}` : ""}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
@@ -170,7 +192,7 @@ async function harness(t: TestContext, options: {
   lifecycle.start();
   await waitFor(() => events.includes("inspect"));
   t.after(async () => { await lifecycle.stop(); await rm(root, { recursive: true, force: true }); });
-  return { lifecycle, tmux, events, sessions };
+  return { lifecycle, tmux, events, sessions, select: (id: string | undefined) => { selected = id; } };
 }
 
 function before(events: readonly string[], first: string, second: string) {
@@ -184,7 +206,7 @@ test("presence adopts named pins and publishes the complete live snapshot", asyn
   assert.deepEqual(value.lifecycle.snapshot(), {
     pins: [{ slot: 1, sessionId: "api", tmuxSession: "pi-agent-hub-api", paneId: "%2", title: "API", active: true,
       rect: { left: 43, top: 0, width: 117, height: 59 } }],
-    activeSessionId: "api", capacity: 4, constrained: false, hidden: false, splitPercent: 50, dashboardStatusVisible: false,
+    activeSessionId: "api", capacity: 4, constrained: false, hidden: false, following: false, splitPercent: 50, dashboardStatusVisible: false,
   });
   assert.equal(value.tmux.ownTitle, "PI HUB / PINNED FLEET");
   assert.equal(value.tmux.panes[0]?.title, "LIVE 1 · API · Alt+1–4 · Ctrl+Q");
@@ -517,4 +539,199 @@ test("shutdown rejects new mutations and restores footer, panes, and dashboard c
   assert.ok(value.events.includes("status:pi-agent-hub:on"));
   assert.equal(value.tmux.ownTitle, "");
   assert.ok(value.events.includes("border:off"));
+});
+
+test("follow opens one pane for the selection, keeps cockpit focus, and acknowledges nothing", async (t) => {
+  const value = await harness(t, { sessions: [session("api", "waiting"), session("docs")], selected: "api" });
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.follow("api"), { kind: "following" });
+  assert.equal(value.tmux.follow, true);
+  assert.deepEqual(value.tmux.panes.map((pane) => pane.session), ["pi-agent-hub-api"]);
+  assert.equal(value.events.some((event) => event.startsWith("ack:")), false);
+  assert.ok(value.tmux.ownActive, "focus stays in the list");
+  const snapshot = value.lifecycle.snapshot();
+  assert.equal(snapshot.following, true);
+  assert.equal(value.tmux.ownTitle, "PI HUB / FOLLOWING");
+  assert.equal(value.tmux.panes[0]?.title, "LIVE · API");
+});
+
+test("follow is refused with pins open, without a live session, and below 100 columns", async (t) => {
+  const pinned = await harness(t, { initial: [{ session: "pi-agent-hub-docs" }] });
+  await waitFor(() => pinned.lifecycle.snapshot().pins.length === 1);
+  assert.deepEqual(await pinned.lifecycle.follow("api"), { kind: "refused", reason: "close pins first" });
+  assert.equal(pinned.tmux.follow, false);
+  assert.deepEqual(pinned.tmux.panes.map((pane) => pane.session), ["pi-agent-hub-docs"]);
+
+  const stopped = await harness(t, { sessions: [session("api", "stopped")] });
+  assert.deepEqual(await stopped.lifecycle.follow("api"), { kind: "refused", reason: "session is not live" });
+  assert.equal(stopped.tmux.panes.length, 0);
+
+  const narrow = await harness(t, { width: 90 });
+  assert.deepEqual(await narrow.lifecycle.follow("api"), { kind: "refused", reason: "follow view needs 100 columns" });
+  assert.equal(narrow.tmux.panes.length, 0);
+});
+
+test("unfollow closes only the follow pane and restores dashboard chrome", async (t) => {
+  const value = await harness(t, { selected: "api" });
+  await value.lifecycle.follow("api");
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.unfollow(), { kind: "closed" });
+  assert.equal(value.tmux.panes.length, 0);
+  assert.equal(value.tmux.follow, false);
+  assert.equal(value.lifecycle.snapshot().following, false);
+  assert.ok(value.events.includes("status:pi-agent-hub-api:on"));
+  assert.ok(value.events.includes("status:pi-agent-hub:on"), "dashboard status bar returns");
+  assert.equal(value.tmux.commands.some((command) => command.startsWith("kill-session")), false, "Pi keeps running");
+});
+
+test("retarget switches the same pane's nested client after pre-sizing, without acknowledging", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("docs", "waiting")], selected: "api" });
+  await value.lifecycle.follow("api");
+  const paneId = value.tmux.panes[0]!.id;
+  value.select("docs");
+  value.events.length = 0;
+  await value.lifecycle.retarget("docs");
+  // Hiding the footer first and pre-sizing to the full pane means Pi sees no resize, so it never redraws twice.
+  before(value.events, "status:pi-agent-hub-docs:off", "presize:pi-agent-hub-docs");
+  assert.ok(value.tmux.commands.includes("resize-window -t pi-agent-hub-docs -x 117 -y 59"), "pre-size matches the pane exactly");
+  assert.equal(value.events.filter((event) => event === "status:pi-agent-hub-docs:off").length, 1, "no redundant footer toggles");
+  before(value.events, "presize:pi-agent-hub-docs", `retarget:${paneId}:pi-agent-hub-docs`);
+  before(value.events, `retarget:${paneId}:pi-agent-hub-docs`, "window-size:pi-agent-hub-docs");
+  assert.deepEqual(value.tmux.panes.map((pane) => [pane.id, pane.session]), [[paneId, "pi-agent-hub-docs"]]);
+  assert.ok(value.events.includes("status:pi-agent-hub-api:on"));
+  assert.ok(value.events.includes("status:pi-agent-hub-docs:off"));
+  assert.equal(value.events.some((event) => event.startsWith("ack:") || event.startsWith("reveal:")), false);
+  assert.equal(value.lifecycle.snapshot().pins[0]?.sessionId, "docs");
+  assert.equal(value.tmux.panes[0]?.title, "LIVE · DOCS");
+});
+
+test("retarget is a no-op for real pins, stale or non-live selections, and shown sessions", async (t) => {
+  const pinned = await harness(t, { selected: "docs", initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => pinned.lifecycle.snapshot().pins.length === 1);
+  await pinned.lifecycle.retarget("docs");
+  assert.equal(pinned.tmux.panes[0]?.session, "pi-agent-hub-api", "a real pin never retargets");
+
+  const value = await harness(t, { sessions: [session("api"), session("docs"), session("off", "stopped")], selected: "api" });
+  await value.lifecycle.follow("api");
+  value.events.length = 0;
+  value.select("api");
+  await value.lifecycle.retarget("docs");
+  value.select("off");
+  await value.lifecycle.retarget("off");
+  await value.lifecycle.retarget("api");
+  assert.equal(value.events.some((event) => event.startsWith("retarget:") || event.startsWith("presize:")), false);
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-api");
+});
+
+test("a retarget queued behind another operation drops a selection that moved on", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("docs"), session("more")], selected: "api" });
+  await value.lifecycle.follow("api");
+  const gate = deferred<CommandResult>();
+  value.tmux.nextListPanes = gate.promise;
+  const blocking = value.lifecycle.focusPinnedSession("api");
+  value.select("docs");
+  const queued = value.lifecycle.retarget("docs");
+  value.select("more");
+  gate.resolve({ stdout: value.tmux.paneOutput(), stderr: "" });
+  await blocking;
+  await queued;
+  assert.equal(value.events.some((event) => event.includes("retarget:") && event.endsWith("pi-agent-hub-docs")), false);
+  assert.notEqual(value.tmux.panes[0]?.session, "pi-agent-hub-docs");
+});
+
+test("a failed nested switch restores window sizing and keeps the previous attachment", async (t) => {
+  const value = await harness(t, { selected: "api" });
+  await value.lifecycle.follow("api");
+  value.select("docs");
+  value.tmux.failRetarget = new Error("switch failed");
+  value.events.length = 0;
+  await assert.rejects(value.lifecycle.retarget("docs"), /switch failed/);
+  assert.ok(value.events.includes("window-size:pi-agent-hub-docs"));
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-api");
+  assert.ok(value.events.includes("status:pi-agent-hub-docs:on"), "a failed switch restores the target's footer");
+  assert.equal(value.events.includes("status:pi-agent-hub-api:on"), false, "shown session keeps its hidden footer");
+  assert.equal(value.lifecycle.snapshot().pins[0]?.sessionId, "api");
+});
+
+test("retargeting a focused follow pane is not a focus; explicit focusFollow acknowledges", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("docs", "waiting")], selected: "api" });
+  await value.lifecycle.follow("api");
+  value.tmux.ownActive = false;
+  value.tmux.panes[0]!.active = true;
+  await waitFor(() => value.lifecycle.snapshot().activeSessionId === "api");
+  value.select("docs");
+  value.events.length = 0;
+  await value.lifecycle.retarget("docs");
+  await waitFor(() => value.events.filter((event) => event === "inspect").length >= 3);
+  assert.equal(value.events.some((event) => event.startsWith("ack:")), false);
+
+  value.tmux.ownActive = true;
+  value.tmux.panes[0]!.active = false;
+  value.tmux.panes[0]!.session = "pi-agent-hub-api";
+  await waitFor(() => value.lifecycle.snapshot().pins[0]?.sessionId === "api" && !value.lifecycle.snapshot().activeSessionId);
+  value.events.length = 0;
+  assert.deepEqual(await value.lifecycle.focusFollow("docs"), { kind: "focused" });
+  before(value.events, `retarget:${value.tmux.panes[0]!.id}:pi-agent-hub-docs`, "ack:docs");
+  before(value.events, "ack:docs", `focus:${value.tmux.panes[0]!.id}`);
+});
+
+test("follow view survives a phone-width hide and resumes on the current selection", async (t) => {
+  const value = await harness(t, { selected: "api" });
+  await value.lifecycle.follow("api");
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  value.select("docs");
+  await value.lifecycle.retarget("docs");
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-api", "no retarget while hidden");
+  value.tmux.windowWidth = 160;
+  await waitFor(() => !value.lifecycle.snapshot().hidden);
+  await waitFor(() => value.tmux.panes[0]?.session === "pi-agent-hub-docs");
+  assert.equal(value.tmux.follow, true);
+  assert.equal(value.lifecycle.snapshot().following, true);
+});
+
+test("a stale follow flag is cleared by the first real pin and by a vanished follow pane", async (t) => {
+  const value = await harness(t, { follow: true, selected: "docs" });
+  await value.lifecycle.pin("api");
+  assert.equal(value.tmux.follow, false);
+  assert.equal(value.lifecycle.snapshot().following, false);
+  await value.lifecycle.retarget("docs");
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-api");
+
+  const followed = await harness(t, { selected: "api" });
+  await followed.lifecycle.follow("api");
+  followed.tmux.panes.splice(0);
+  await waitFor(() => !followed.tmux.follow && !followed.lifecycle.snapshot().following);
+});
+
+test("follow pane title names a non-live selection without leaving the shown session", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("off", "stopped")], selected: "api" });
+  await value.lifecycle.follow("api");
+  value.select("off");
+  await waitFor(() => value.tmux.panes[0]?.title === "LIVE · API · selected OFF is stopped");
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-api");
+});
+
+test("a user focus that lands during a retarget does not acknowledge the new session", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("docs", "waiting")], selected: "api" });
+  await value.lifecycle.follow("api");
+  value.select("docs");
+  value.tmux.duringRetarget = () => { value.tmux.ownActive = false; value.tmux.panes[0]!.active = true; };
+  value.events.length = 0;
+  await value.lifecycle.retarget("docs");
+  await waitFor(() => value.lifecycle.snapshot().activeSessionId === "docs");
+  assert.equal(value.events.some((event) => event.startsWith("ack:")), false);
+});
+
+test("retarget succeeds when the previously shown session vanished", async (t) => {
+  const value = await harness(t, { sessions: [session("api"), session("docs", "waiting")], selected: "api" });
+  await value.lifecycle.follow("api");
+  value.select("docs");
+  const exec = value.tmux.exec.bind(value.tmux);
+  value.tmux.exec = async (command, args) => {
+    if (args[0] === "set-option" && args.includes("pi-agent-hub-api") && args.at(-1) === "on") throw new Error("can't find session: pi-agent-hub-api");
+    return exec(command, args);
+  };
+  await value.lifecycle.retarget("docs");
+  assert.equal(value.tmux.panes[0]?.session, "pi-agent-hub-docs");
 });

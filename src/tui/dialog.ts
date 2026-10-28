@@ -1,7 +1,7 @@
 import type { InteractionTarget, SessionInteractionState, AnswerInput, MessageDelivery } from "../core/session-interaction.js";
 import type { ConversationPage } from "../core/conversation.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
-import type { CloseSidePaneResult, FocusSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
+import type { CloseSidePaneResult, FocusSidePaneResult, FollowSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession, SessionClosure } from "../core/types.js";
 import type { NewFormContext, NewFormSubmission } from "./new-form.js";
@@ -68,6 +68,8 @@ export interface SidePaneViewState {
   constrained: boolean;
   /** Pins are attached but hidden because the window is too narrow to show them. */
   hidden?: boolean;
+  /** The single pane follows the selection instead of holding a fixed pin. */
+  following?: boolean;
   splitPercent: number;
 }
 
@@ -80,6 +82,10 @@ export interface SidePaneActions {
   resizeSidePane: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
   focusSidePaneDirection: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   returnToCockpit: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  followSidePane: (sessionId: string) => FollowSidePaneResult | Promise<FollowSidePaneResult>;
+  unfollowSidePane: () => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  retargetFollow: (sessionId: string) => void | Promise<void>;
+  focusFollow: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   sidePaneState: () => SidePaneViewState;
 }
 
@@ -164,6 +170,10 @@ export interface SessionsViewActions {
   resizeSidePane?: (delta: -1 | 1) => ResizeSidePaneResult | Promise<ResizeSidePaneResult>;
   focusSidePaneDirection?: (direction: SpatialDirection) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   returnToCockpit?: () => FocusSidePaneResult | Promise<FocusSidePaneResult>;
+  followSidePane?: (sessionId: string) => FollowSidePaneResult | Promise<FollowSidePaneResult>;
+  unfollowSidePane?: () => CloseSidePaneResult | Promise<CloseSidePaneResult>;
+  retargetFollow?: (sessionId: string) => void | Promise<void>;
+  focusFollow?: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   sidePaneState?: () => SidePaneViewState;
   refreshStatusEvidence?: () => void | Promise<void>;
   restart?: (sessionId: string) => unknown;
