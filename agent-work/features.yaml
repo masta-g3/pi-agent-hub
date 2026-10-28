@@ -1295,7 +1295,7 @@
   plan_file: agent-work/history/20261027_new-session-ux-004_unopened_sessions_tier.md
   completed_at: '2026-10-27'
 - id: new-session-ux-005
-  status: pending
+  status: done
   title: Quiet unread count
   subtitle: Show unread replies under collapsed QUIET
   description: A collapsed QUIET header shows how many of its owners have unread finished
@@ -1303,3 +1303,15 @@
   priority: 1
   created_at: '2026-10-27'
   discovered_from: new-session-ux-004
+  plan_file: agent-work/history/20261027_new-session-ux-005_quiet_unread_count.md
+  completed_at: '2026-10-27'
+- id: new-session-ux-006
+  status: pending
+  title: Collapsed tier reveal
+  subtitle: Show revealed sessions inside collapsed tiers
+  description: A session revealed inside a collapsed Status tier, for example by a
+    palette jump, renders as a visible row instead of being dropped by the collapsed
+    section builder.
+  priority: 2
+  created_at: '2026-10-27'
+  discovered_from: new-session-ux-005

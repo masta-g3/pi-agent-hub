@@ -625,7 +625,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
           ...(section.ownerAttentionCount ? [styles.warning(`${section.ownerAttentionCount} needs you`)] : []),
           ...(section.hiddenChildRequestCount ? [styles.warning(`?${section.hiddenChildRequestCount} child`)] : []),
         ].join(styles.border(` ${glyphs.pendingStep} `))
-        : section.hiddenChildRequestCount ? styles.warning(`?${section.hiddenChildRequestCount} child`) : "";
+        : cockpitHeadingRight(section, displayWidth(headingTitle), width, styles);
     if (gridWorkflow) {
       const headingWidth = board ? displayWidth(headingTitle) + 4 : section.cockpitTier ? displayWidth(headingTitle) + 3 : Math.min(20, displayWidth(headingTitle) + 4);
       const rightWidth = (headingRight ? displayWidth(headingRight) + 2 : 0) + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
@@ -1569,6 +1569,18 @@ function sectionHeader(title: string, right: string, width: number, styles: Layo
     : `${selected ? styles.accent(glyphs.selected) : tone(glyphs.horizontal)}${disclosureTone(collapsed ? glyphs.collapsed : glyphs.expanded)}`;
   const label = tone(` ${title} `);
   return twoColumn(`${prefix}${bold ? `\u001b[1m${label}\u001b[22m` : label}`, right, width);
+}
+
+/** Child requests keep priority; the unread count shortens, then drops, before the tier title is cut. */
+function cockpitHeadingRight(section: RenderModel["sections"][number], titleWidth: number, width: number, styles: LayoutStyles): string {
+  const separator = ` ${glyphs.pendingStep} `;
+  const child = section.hiddenChildRequestCount ? `?${section.hiddenChildRequestCount} child` : "";
+  const unread = section.hiddenUnreadCount;
+  // sectionHeader renders a two-cell prefix and the title padded by one space on each side, then twoColumn needs one gap.
+  const available = width - (titleWidth + 4) - 1 - (child ? displayWidth(child) + displayWidth(separator) : 0);
+  const unreadLabel = !unread ? ""
+    : [`${glyphs.waiting} ${unread} unread`, `${glyphs.waiting}${unread}`].find((label) => displayWidth(label) <= available) ?? "";
+  return [child && styles.warning(child), unreadLabel && styles.warning(unreadLabel)].filter(Boolean).join(styles.border(separator));
 }
 
 function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], styles: LayoutStyles): string {

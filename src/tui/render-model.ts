@@ -122,6 +122,8 @@ export interface RenderSection {
   selected?: boolean;
   archiveDisclosure?: ArchiveDisclosure;
   hiddenChildRequestCount: number;
+  /** Parent owners with an unread reply (`waiting`) that a collapsed ACTIVE or QUIET header hides. */
+  hiddenUnreadCount?: number;
   lesson?: string;
 }
 
@@ -953,6 +955,17 @@ function cockpitSectionsForSessions(
     const allSectionSessions = allSessions.filter((session) => session.cockpitTier === tier);
     if (!allSectionSessions.length && (!coach || tier === "archived")) return [];
     const collapsed = !alwaysExpanded(tier) && collapsedSections.has(tier);
+    const groups = collapsed && !filterActive ? [] : [{
+      name: "",
+      statusCounts: countRenderSessions(allSectionSessions),
+      attentionCount: countAttentionSessions(sectionSessions),
+      sessions: sectionSessions,
+    }];
+    const renderedIds = new Set(groups.flatMap((group) => group.sessions.map((session) => session.id)));
+    const hiddenUnreadCount = collapsed && (tier === "active" || tier === "quiet")
+      ? allSectionSessions.filter((session) => session.id === session.cockpitOwnerId
+        && session.displayStatus === "waiting" && !renderedIds.has(session.id)).length
+      : 0;
     return [{
       key: tier,
       cockpitTier: tier,
@@ -962,12 +975,8 @@ function cockpitSectionsForSessions(
       hiddenChildRequestCount: allSectionSessions
         .filter((session) => session.id === session.cockpitOwnerId)
         .reduce((sum, session) => sum + (session.hiddenChildRequestCount ?? 0), 0),
-      groups: collapsed && !filterActive ? [] : [{
-        name: "",
-        statusCounts: countRenderSessions(allSectionSessions),
-        attentionCount: countAttentionSessions(sectionSessions),
-        sessions: sectionSessions,
-      }],
+      ...(hiddenUnreadCount ? { hiddenUnreadCount } : {}),
+      groups,
       collapsible: !alwaysExpanded(tier),
       collapsed,
       selected: !alwaysExpanded(tier) && selectedSection === tier,
