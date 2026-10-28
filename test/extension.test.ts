@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import piAgentHubExtension from "../src/extension/index.js";
-import { FORK_COMPACT_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
+import { FORK_COMPACT_ENV, KIND_ENV, PRIMARY_CWD_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../src/core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../src/core/worktree-context.js";
 import { heartbeatPath } from "../src/core/paths.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
@@ -457,9 +457,19 @@ test("compaction watchdog restores the prior state when completion is missing", 
   }
 });
 
-test("piAgentHubExtension appends bounded worktree guidance before parent agent turns", async () => {
+test("piAgentHubExtension appends the dashboard note only to managed parent turns before bounded worktree guidance", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
-  const previous = process.env[WORKTREE_GUIDANCE_ENV];
+  const keys = [SESSION_ID_ENV, KIND_ENV, "PI_TMUX_SUBAGENTS_JOB_ID", WORKTREE_GUIDANCE_ENV];
+  const previous = keys.map((key) => [key, process.env[key]] as const);
+  const note = `## Hub dashboard
+The user supervises this session from the pi-hub dashboard and usually does not read this transcript. They see the session title, ticket subtitle, workflow position, and your explicit requests.
+
+- Need a decision: use ask_user_question if available. Make it self-contained: the decision, the context needed to choose, 2-4 concrete options with trade-offs, and your recommended option first. Do not assume the user read earlier chat.
+- Work ready or blocked: use hand_off if available, with the outcome or blocker, the recommended next action, and an evidence path.
+- Do not ask only in plain chat text; it is easy to miss. Do not use these tools for routine progress.
+- A dashboard reply approves only what it says. Follow existing tool and workflow rules.`;
+  const guidance = "## worktree context\nUse /hub/worktree, not /repo/source.";
+  const maximumGuidance = "x".repeat(WORKTREE_GUIDANCE_MAX_LENGTH);
   const handlers = new Map<string, (event: { systemPrompt?: string }, ctx: unknown) => unknown>();
   const pi = {
     on(name: string, handler: (event: { systemPrompt?: string }, ctx: unknown) => unknown) { handlers.set(name, handler); },
@@ -468,19 +478,34 @@ test("piAgentHubExtension appends bounded worktree guidance before parent agent 
 
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
-    process.env[WORKTREE_GUIDANCE_ENV] = "## worktree context\nUse /hub/worktree, not /repo/source.";
-    assert.deepEqual(await handlers.get("before_agent_start")?.({ systemPrompt: "base prompt" }, {}), {
-      systemPrompt: "base prompt\n\n## worktree context\nUse /hub/worktree, not /repo/source.",
-    });
-
-    process.env[WORKTREE_GUIDANCE_ENV] = "   ";
-    assert.equal(await handlers.get("before_agent_start")?.({ systemPrompt: "base prompt" }, {}), undefined);
-    process.env[WORKTREE_GUIDANCE_ENV] = "x".repeat(WORKTREE_GUIDANCE_MAX_LENGTH + 1);
-    assert.equal(await handlers.get("before_agent_start")?.({ systemPrompt: "base prompt" }, {}), undefined);
+    const cases = [
+      { name: "unmanaged without guidance", env: {}, additions: [] },
+      { name: "unmanaged guidance only", env: { [WORKTREE_GUIDANCE_ENV]: `  ${guidance}\n ` }, additions: [guidance] },
+      { name: "unmanaged blank guidance", env: { [WORKTREE_GUIDANCE_ENV]: "   " }, additions: [] },
+      { name: "unmanaged oversized guidance", env: { [WORKTREE_GUIDANCE_ENV]: `${maximumGuidance}x` }, additions: [] },
+      { name: "managed without guidance", env: { [SESSION_ID_ENV]: "parent" }, additions: [note] },
+      { name: "managed note then trimmed guidance", env: { [SESSION_ID_ENV]: "parent", [WORKTREE_GUIDANCE_ENV]: `  ${guidance}\n ` }, additions: [note, guidance] },
+      { name: "managed maximum guidance", env: { [SESSION_ID_ENV]: "parent", [WORKTREE_GUIDANCE_ENV]: maximumGuidance }, additions: [note, maximumGuidance] },
+      { name: "managed blank guidance", env: { [SESSION_ID_ENV]: "parent", [WORKTREE_GUIDANCE_ENV]: "   " }, additions: [note] },
+      { name: "managed oversized guidance", env: { [SESSION_ID_ENV]: "parent", [WORKTREE_GUIDANCE_ENV]: `${maximumGuidance}x` }, additions: [note] },
+      { name: "tmux subagent", env: { [SESSION_ID_ENV]: "parent", PI_TMUX_SUBAGENTS_JOB_ID: "child", [WORKTREE_GUIDANCE_ENV]: guidance }, additions: [] },
+      { name: "kind subagent", env: { [SESSION_ID_ENV]: "child", [KIND_ENV]: "subagent", [WORKTREE_GUIDANCE_ENV]: guidance }, additions: [] },
+    ];
+    for (const scenario of cases) {
+      for (const key of keys) delete process.env[key];
+      Object.assign(process.env, scenario.env);
+      const expected = scenario.additions.length ? { systemPrompt: ["base prompt", ...scenario.additions].join("\n\n") } : undefined;
+      // Pi supplies the base prompt again each turn; additions must not accumulate.
+      for (let turn = 0; turn < 2; turn += 1) {
+        assert.deepEqual(await handlers.get("before_agent_start")?.({ systemPrompt: "base prompt" }, {}), expected, scenario.name);
+      }
+    }
   } finally {
+    delete process.env[SESSION_ID_ENV];
     await handlers.get("session_shutdown")?.({}, { cwd: "/repo", hasUI: false });
-    if (previous === undefined) delete process.env[WORKTREE_GUIDANCE_ENV];
-    else process.env[WORKTREE_GUIDANCE_ENV] = previous;
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
     delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   }
 });
