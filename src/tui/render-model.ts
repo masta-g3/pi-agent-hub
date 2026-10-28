@@ -639,10 +639,10 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     : fleetGrouping === "repo"
       ? repoSectionsForSessions(repoSections, mapped, allMapped, attentiveDescendantIds, visibleIds, input.selectedRepo,
         cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
-          revealFilterMatches || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), false)
+          revealFilterMatches, false)
           .filter((section) => section.cockpitTier === "archived"))
       : cockpitSectionsForSessions(mapped, allMapped, archiveDisclosure, collapsedSections, input.selectedSection,
-        revealFilterMatches || (input.revealedSessionId !== undefined && mappedById.get(input.revealedSessionId)?.cockpitTier === "archived"), coach);
+        revealFilterMatches, coach);
 
   const compactFooter = input.width < 90;
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
@@ -959,7 +959,8 @@ function cockpitSectionsForSessions(
     const allSectionSessions = allSessions.filter((session) => session.cockpitTier === tier);
     if (!allSectionSessions.length && (!coach || tier === "archived")) return [];
     const collapsed = !alwaysExpanded(tier) && collapsedSections.has(tier);
-    const groups = collapsed && !filterActive ? [] : [{
+    // The projection already limits a folded tier to its revealed tree, so keep any rows it passed through.
+    const groups = collapsed && !filterActive && !sectionSessions.length ? [] : [{
       name: "",
       statusCounts: countRenderSessions(allSectionSessions),
       attentionCount: countAttentionSessions(sectionSessions),

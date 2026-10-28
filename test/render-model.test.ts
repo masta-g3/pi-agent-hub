@@ -304,6 +304,20 @@ test("repo reveal and filtering share header visibility and effective folds", ()
   assert.deepEqual([...collapsedRepos], ["/repos/alpha"]);
 });
 
+test("a reveal inside a collapsed Status tier shows only the revealed tree under the folded header", () => {
+  const parent = session("parent", "default", "idle");
+  const child = { ...session("child", "default", "idle"), kind: "subagent" as const, parentId: "parent" };
+  const other = session("other", "default", "idle");
+  const model = buildRenderModel({ sessions: [parent, child, other], width: 100, collapsedSections: new Set(["quiet"]),
+    expandedProjectParentIds: new Set(["parent"]), selectedId: "child", revealedSessionId: "child" });
+  const quiet = model.sections.find((section) => section.cockpitTier === "quiet")!;
+  assert.equal(quiet.collapsed, true);
+  assert.deepEqual(quiet.groups.flatMap((group) => group.sessions.map((row) => row.id)), ["parent", "child"]);
+  const targets = renderSessions(model).rowTargets;
+  assert.ok(targets.some((target) => target?.kind === "session" && target.id === "child"));
+  assert.ok(!targets.some((target) => target?.kind === "session" && target.id === "other"));
+});
+
 test("group badges stay bounded and width-safe in status repo board archive and pin rows", () => {
   const first = { ...session("one", "default", "running", "Important title"), cwd: "/very/long/alpha-parent/shared-repository-name" };
   const second = { ...session("two", "default", "idle", "Second title"), cwd: "/very/long/beta-parent/shared-repository-name" };
