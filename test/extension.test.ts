@@ -413,8 +413,10 @@ test("compaction watchdog restores the prior state when completion is missing", 
     registerTool() {},
   };
   const ctx = { cwd: root, hasUI: false };
+  // Heartbeat writes are real file I/O while timers are mocked; poll by wall-clock time, not a turn count.
   const readCompactionHeartbeat = async (predicate?: (heartbeat: Heartbeat) => boolean): Promise<Heartbeat> => {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
       try {
         const heartbeat = JSON.parse(await readFile(heartbeatPath("compaction-watchdog", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
         if (!predicate || predicate(heartbeat)) return heartbeat;
@@ -430,7 +432,8 @@ test("compaction watchdog restores the prior state when completion is missing", 
     t.mock.timers.tick(3_000);
     await new Promise<void>((resolve) => setImmediate(resolve));
     await handlers.get("session_before_compact")?.({ reason: "manual", willRetry: false }, ctx);
-    let heartbeat = await readCompactionHeartbeat();
+    // session_start already wrote a heartbeat; wait for the compaction write, not that earlier one.
+    let heartbeat = await readCompactionHeartbeat((item) => item.state === "running");
     assert.equal(heartbeat.state, "running");
 
     t.mock.timers.tick(HEARTBEAT_STALE_MS);

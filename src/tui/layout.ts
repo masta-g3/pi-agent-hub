@@ -397,16 +397,24 @@ function sessionCountLabel(model: RenderModel): string {
     : `${visible}${board ? " active" : ""} ${visible === 1 ? "session" : "sessions"}`;
 }
 
+/** Follow view is one pane, so only its hidden state is worth a header signal. */
+function pinSummaryLabel(model: RenderModel): string {
+  const summary = model.pinSummary;
+  if (!summary?.count) return "";
+  if (summary.following) return summary.hidden ? "follow view hidden" : "";
+  return summary.hidden ? `${summary.count} ${summary.count === 1 ? "pin" : "pins"} hidden` : `${summary.count} pinned`;
+}
+
 function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutStyles): { line: string; chips: TierChip[] } {
   if (model.grouping !== "project" || model.fleetGrouping !== "status" || model.pinMode) {
     return { line: renderTopSummary(model, width, styles), chips: [] };
   }
   let entries = model.cockpitNavigation.filter((entry) => entry.ownerCount > 0);
   const count = styles.accent(sessionCountLabel(model));
-  const pinCount = model.pinSummary?.count ?? 0;
+  const pinLabel = pinSummaryLabel(model);
   const signals = [
     count,
-    ...(pinCount ? [styles.muted(model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`)] : []),
+    ...(pinLabel ? [styles.muted(pinLabel)] : []),
     ...(model.pinSummary?.constrained ? [styles.warning("constrained")] : []),
   ];
   const separator = styles.border(` ${glyphs.pendingStep} `);
@@ -431,10 +439,10 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
   const board = model.grouping === "stage";
   const parentRows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))
     .filter((session) => session.kind !== "subagent");
-  const mode = model.pinMode ? "PINNED FLEET" : board ? "WORKFLOW" : "FLEET";
+  const following = model.pinSummary?.following === true;
+  const mode = model.pinMode ? following ? "FOLLOWING" : "PINNED FLEET" : board ? "WORKFLOW" : "FLEET";
   const countLabel = sessionCountLabel(model);
-  const pinCount = model.pinSummary?.count ?? 0;
-  const pinLabel = model.pinSummary?.hidden ? `${pinCount} ${pinCount === 1 ? "pin" : "pins"} hidden` : `${pinCount} pinned`;
+  const pinLabel = pinSummaryLabel(model);
   const constrained = model.pinSummary?.constrained ? styles.warning("constrained") : "";
   const needsYou = board
     ? new Set(parentRows.filter((session) => session.cockpitTier === "needs-you").map((session) => session.cockpitOwnerId)).size
@@ -444,7 +452,7 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     : model.cockpitNavigation.find((entry) => entry.tier === "health")?.ownerCount ?? 0;
   const ordered = [
     styles.accent(countLabel),
-    ...(pinCount ? [styles.muted(pinLabel)] : []),
+    ...(pinLabel ? [styles.muted(pinLabel)] : []),
     ...(constrained ? [constrained] : []),
     ...(needsYou ? [styles.warning(`${needsYou} needs you`)] : []),
     ...(health ? [styles.error(`${health} health`)] : []),

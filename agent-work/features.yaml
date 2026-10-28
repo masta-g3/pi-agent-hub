@@ -1315,3 +1315,14 @@
   priority: 2
   created_at: '2026-10-27'
   discovered_from: new-session-ux-005
+- id: split-view-012
+  status: done
+  title: Follow view
+  subtitle: Sidebar pane shows the selected session
+  description: An opt-in sidebar mode keeps one live pane beside the fleet that always
+    shows the selected session, Codex-style, without acknowledging attention or changing
+    pins.
+  priority: 2
+  created_at: '2026-10-26'
+  plan_file: agent-work/history/20261027_split-view-012_follow_view.md
+  completed_at: '2026-10-27'

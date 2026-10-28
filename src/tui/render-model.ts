@@ -10,7 +10,7 @@ import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
 import type { TextInputState } from "./text-input.js";
-import { dashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
+import { dashboardFooter, followDashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
 import { COCKPIT_RELEASE_CUE, coachingActive, releaseCueVisible, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
 export type CockpitTier = "needs-you" | "health" | "new" | "active" | "quiet" | "archived";
@@ -151,6 +151,8 @@ export interface RenderPinSummary {
   constrained: boolean;
   /** Pins stay attached but are hidden because the window is too narrow to show them. */
   hidden: boolean;
+  /** The single pane follows the selection instead of holding a fixed pin. */
+  following?: boolean;
 }
 
 export interface RenderPlanSummary {
@@ -559,6 +561,7 @@ export interface BuildRenderModelInput {
   pinCapacity?: number;
   pinConstrained?: boolean;
   pinsHidden?: boolean;
+  following?: boolean;
   archiveExpanded?: boolean;
   archiveDisclosureSelected?: boolean;
   selectedSection?: CollapsibleSection;
@@ -685,7 +688,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
     selected,
     ...(workspace ? { workspace } : {}),
-    footer: pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, {
+    footer: pinMode && input.following ? followDashboardFooter(input.width) : pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, {
       coaching: coach,
       requestCount: input.visibleRequestCount ?? visible.filter((session) => visibleAttention(session)).length,
       filter: input.filter,
@@ -702,7 +705,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       ...(showReleaseCue ? { releaseCue: { ...COCKPIT_RELEASE_CUE, selected: input.releaseCueSelected ?? false } } : {}),
     },
     ...(pinned.size ? {
-      pinSummary: { count: pinned.size, constrained: !input.pinsHidden && (input.pinConstrained ?? false), hidden: input.pinsHidden ?? false },
+      pinSummary: { count: pinned.size, constrained: !input.pinsHidden && (input.pinConstrained ?? false), hidden: input.pinsHidden ?? false,
+        ...(input.following ? { following: true } : {}) },
     } : {}),
   };
 }

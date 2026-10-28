@@ -487,6 +487,7 @@ export async function runTui(): Promise<void> {
     ownPane: () => process.env.TMUX_PANE,
     insideTmux: () => Boolean(process.env.TMUX),
     sessions: () => controller.snapshot().registry.sessions,
+    selectedSessionId: () => view?.selectedSessionTarget,
     revealSession: (sessionId) => view.revealSession(sessionId),
     acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
     touchSession: (sessionId) => mutateRegistry(() => controller.touchSession(sessionId)),
@@ -565,6 +566,13 @@ export async function runTui(): Promise<void> {
     resizeSidePane: (delta) => sidePanes!.resize(delta),
     focusSidePaneDirection: (direction) => sidePanes!.focusDirection(direction),
     returnToCockpit: () => sidePanes!.returnToCockpit(),
+    followSidePane: (sessionId) => sidePanes!.follow(sessionId),
+    unfollowSidePane: () => sidePanes!.unfollow(),
+    retargetFollow: (sessionId) => sidePanes!.retarget(sessionId),
+    focusFollow: async (sessionId) => {
+      await touchSession(sessionId);
+      return sidePanes!.focusFollow(sessionId);
+    },
     sidePaneState() {
       const state = sidePanes!.snapshot();
       return {
@@ -573,6 +581,7 @@ export async function runTui(): Promise<void> {
         capacity: state.capacity,
         constrained: state.constrained,
         hidden: state.hidden,
+        following: state.following,
         splitPercent: state.splitPercent,
       };
     },

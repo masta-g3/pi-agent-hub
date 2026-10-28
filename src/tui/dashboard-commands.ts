@@ -56,6 +56,8 @@ export interface DashboardCommandCapabilities {
   focusSidePaneSlot?: boolean;
   closeSidePane?: boolean;
   resizeSidePane?: boolean;
+  followSidePane?: boolean;
+  focusFollow?: boolean;
   acknowledge?: boolean;
   attentionBell?: boolean;
   answerQuestion?: boolean;
@@ -68,6 +70,8 @@ export interface DashboardPinState {
   count: number;
   capacity: number;
   constrained: boolean;
+  /** The single pane follows the selection; pin commands stay unavailable until it closes. */
+  following?: boolean;
 }
 
 export interface DashboardCommandInput {
@@ -115,6 +119,8 @@ const slotActionSpecs: ActionSpec[] = [1, 2, 3, 4].map((slot) => ({
 }));
 
 const actionSpecs: ActionSpec[] = [
+  // Listed only while following a live row, so Enter types into the follow pane before `open` claims it.
+  { name: "focus-follow", label: "Type in follow pane", hint: "move the keyboard into the follow pane; Ctrl+Q returns", keys: ["Enter", "C-m", "C-j"], available: focusFollowAvailability },
   { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: `Restart choices${glyphs.ellipsis}`, hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: `Send text${glyphs.ellipsis}`, hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
@@ -151,6 +157,7 @@ export interface DashboardHelpSection {
 
 /** Static reference uses catalog base labels, never selected-target availability. */
 export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = []): DashboardHelpSection[] {
+  const isFollowFocus = (spec: ActionSpec) => spec.name === "focus-follow";
   const isPin = (spec: ActionSpec) => spec.name === "pin" || spec.name === "close-pin" || spec.name.startsWith("slot-") || spec.name.startsWith("size-");
   const reference = (spec: ActionSpec) => ({ label: spec.label, hint: spec.hint, displayKey: formatKey(spec.keys[0]!) });
   const views = viewCommands({ sessions: [] }).map(command => ({
@@ -158,7 +165,7 @@ export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = 
   }));
   return [
     { label: "Session actions", commands: [
-      ...actionSpecs.filter(spec => !isPin(spec)).map(reference),
+      ...actionSpecs.filter(spec => !isPin(spec) && !isFollowFocus(spec)).map(reference),
       ...shortcuts.map(shortcut => ({ label: shortcut.label ?? shortcut.send, hint: `send ${shortcut.send}`, displayKey: formatKey(shortcut.key) })),
     ] },
     { label: "Pins", commands: [...actionSpecs.filter(isPin).map(reference), ...views.filter(command => command.id.startsWith("view:focus-slot-"))] },
@@ -175,7 +182,10 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
       id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire", targetSessionId: selected.id,
       enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "answer question questionnaire",
     }));
-    for (const spec of actionSpecs) commands.push(actionCommand(spec, selected, input));
+    for (const spec of actionSpecs) {
+      if (spec.name === "focus-follow" && !(input.pinState?.following && isLive(selected))) continue;
+      commands.push(actionCommand(spec, selected, input));
+    }
     for (const [index, shortcut] of (input.configuredShortcuts ?? []).entries()) commands.push(configuredCommand(shortcut, index, selected, input));
   } else {
     commands.push(projectCommand("skills", `Skills${glyphs.ellipsis}`, "edit dashboard-project skills", "s", input.capabilities?.skills === true, "Skills catalog unavailable", input.interactionBlockedReason));
@@ -300,6 +310,19 @@ export function pinnedDashboardFooter(width: number): string {
   return [...controls.slice(0, 2), item(pin.keys[0]!, pin.footerLabel!), ...controls.slice(2), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)].join(` ${glyphs.pendingStep} `);
 }
 
+export function followDashboardFooter(width: number): string {
+  const view = viewCommands({ sessions: [], pinState: { slots: [], count: 1, capacity: 2, constrained: false, following: true }, capabilities: { followSidePane: true } });
+  const command = (id: string) => view.find((candidate) => candidate.id === id)!;
+  const item = (key: string, label: string) => `${key} ${label}`;
+  const follow = command("view:follow");
+  const palette = command("view:palette");
+  const help = command("view:help");
+  const items = [item("Enter", "Type"), item(follow.displayKey!, "Leave"), item("Ctrl+Q", "Return"), item(palette.displayKey!, palette.label), item(help.displayKey!, help.label)];
+  // Trailing items drop whole so phone and sidebar footers never cut a label.
+  while (items.length > 2 && visibleWidth(items.join(` ${glyphs.pendingStep} `)) > width - 2) items.splice(items.length - 2, 1);
+  return items.join(` ${glyphs.pendingStep} `);
+}
+
 export function conversationDashboardFooter(): string {
   const commands = viewCommands({ sessions: [], conversation: true });
   return [["view:conversation", "Overview"], ["view:palette", "Actions"], ["view:help", "Help"]]
@@ -380,8 +403,8 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
     group: "actions",
     label,
     hint,
-    displayKey: spec.keys[0],
-    bindings: spec.keys.map((key) => ({ key })),
+    // While following a live row, Enter belongs to focus-follow; Open stays a palette/workspace action.
+    ...(spec.name === "open" && input.pinState?.following && isLive(session) ? { bindings: [] } : { displayKey: spec.keys[0], bindings: spec.keys.map((key) => ({ key })) }),
     targetSessionId: session.id,
     enabled: availability.enabled,
     disabledReason: availability.reason,
@@ -465,7 +488,8 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   const bellOn = input.attentionBellEnabled === true;
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
-    makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", helpLabel: "Show/hide conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
+    makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", helpLabel: "Show/hide conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.following ? FOLLOWING_REASON : input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
+    followCommand(input),
     makeCommand({ id: "view:palette", group: "views", label: "Actions", hint: "search actions, sessions, bounded context, and filters", displayKey: ":", bindings: [{ key: ":" }], enabled: true, searchText: ": actions commands palette sessions bounded context filters search" }),
     makeCommand({ id: "view:theme", group: "views", label: `Theme${glyphs.ellipsis}`, hint: "preview and select the dashboard theme", displayKey: "t", bindings: [{ key: "t" }], enabled: input.capabilities?.theme === true && !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason ?? (input.capabilities?.theme === true ? undefined : "theme settings unavailable"), searchText: "t theme colors appearance" }),
     makeCommand({ id: "view:grouping", group: "views", label: "Workflow board", helpLabel: "Show/hide workflow board", hint: "toggle fleet and workflow grouping", displayKey: "S", bindings: [{ key: "S" }], enabled: true, searchText: "S workflow board fleet project stage grouping view" }),
@@ -613,6 +637,7 @@ function copyPathAvailability(session: RuntimeSession, input: DashboardCommandIn
 
 function slotAvailability(slot: number): ActionSpec["available"] {
   return (session, input) => {
+    if (input.pinState?.following) return disabled(FOLLOWING_REASON);
     if (!isLive(session)) return disabled("session is not live");
     if (input.capabilities?.assignSidePaneSlot !== true) return disabled("slot assignment transport unavailable");
     const state = input.pinState;
@@ -630,7 +655,40 @@ function slotAvailability(slot: number): ActionSpec["available"] {
   };
 }
 
+const FOLLOWING_REASON = "leave follow view first (o)";
+
+function followCommand(input: DashboardCommandInput): DashboardCommand {
+  const following = input.pinState?.following === true;
+  const selected = input.selectedId ? input.sessions.find((session) => session.id === input.selectedId) : undefined;
+  const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason)
+    : input.capabilities?.followSidePane !== true ? disabled("follow view unavailable")
+    : following ? enabled()
+    : !selected || !isLive(selected) ? disabled("select a live session to follow")
+    : (input.pinState?.count ?? 0) > 0 ? disabled("close pins first")
+    : (input.pinState?.capacity ?? 0) < 1 ? disabled("follow view needs 100 columns")
+    : enabled();
+  return makeCommand({
+    id: "view:follow",
+    group: "views",
+    label: following ? "Leave follow view" : "Follow view",
+    helpLabel: "Follow view on/off",
+    hint: following ? "close the follow pane without stopping Pi" : "show the selected session beside the list; Enter types into it",
+    displayKey: "o",
+    bindings: [{ key: "o" }],
+    ...(!following && selected ? { targetSessionId: selected.id } : {}),
+    enabled: availability.enabled,
+    disabledReason: availability.reason,
+    searchText: "o follow view live pane selected sidebar codex",
+  });
+}
+
+function focusFollowAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (!input.pinState?.following || !isLive(session)) return disabled("follow view is off");
+  return input.capabilities?.focusFollow === true ? enabled() : disabled("follow focus transport unavailable");
+}
+
 function pinAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (input.pinState?.following) return disabled(FOLLOWING_REASON);
   if (!isLive(session)) return disabled("session is not live");
   if (input.capabilities?.pinSidePane !== true) return disabled("pin transport unavailable");
   const state = input.pinState;
@@ -651,11 +709,13 @@ function pinCountAvailability(state: DashboardPinState): Availability {
 }
 
 function closePinAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (input.pinState?.following) return disabled(FOLLOWING_REASON);
   if (!input.pinState?.slots.includes(session.id)) return disabled("session is not pinned");
   return input.capabilities?.closeSidePane === true ? enabled() : disabled("close pin transport unavailable");
 }
 
 function resizeAvailability(_session: RuntimeSession, input: DashboardCommandInput): Availability {
+  if (input.pinState?.following) return disabled(FOLLOWING_REASON);
   if ((input.pinState?.count ?? 0) < 2) return disabled("pin at least two sessions to resize");
   if (input.pinState?.constrained) return disabled("pin layout is constrained; widen the dashboard before resizing");
   return input.capabilities?.resizeSidePane === true ? enabled() : disabled("resize transport unavailable");

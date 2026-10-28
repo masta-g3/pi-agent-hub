@@ -204,6 +204,18 @@ export async function setPaneSlot(paneId: string, slot: number, exec: TmuxExec =
   await exec.exec("tmux", ["set-option", "-p", "-t", paneId, "@pi_hub_slot", String(slot)]);
 }
 
+/** Follow view is transient dashboard-window state, like pin slots. */
+export async function windowFollowFlag(pane: string, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+  const result = await exec.exec("tmux", ["show-options", "-wqv", "-t", pane, "@pi_hub_follow"]);
+  return result.stdout.trim() === "1";
+}
+
+export async function setWindowFollowFlag(pane: string, on: boolean, exec: TmuxExec = realTmuxExec): Promise<void> {
+  await exec.exec("tmux", on
+    ? ["set-option", "-w", "-t", pane, "@pi_hub_follow", "1"]
+    : ["set-option", "-wu", "-t", pane, "@pi_hub_follow"]);
+}
+
 export async function setWindowPaneBorderStatus(paneId: string, visible: boolean, chrome?: TmuxChrome, exec: TmuxExec = realTmuxExec): Promise<void> {
   if (visible) {
     await exec.exec("tmux", ["set-option", "-w", "-t", paneId, "pane-border-format", chrome?.paneBorderFormat ?? " #{pane_title} "]);
