@@ -80,7 +80,7 @@ test("conversation is optional and pinned panes refuse it; c is reserved", () =>
 function liveSession(id: string): RuntimeSession {
   return { id, title: `Session ${id}`, group: "default", cwd: "/repo", tmuxSession: `tmux-${id}`, status: "idle", createdAt: 1, updatedAt: 1, piSessionId: `pi-${id}`, interaction: { version: 1, instanceId: `instance-${id}` } };
 }
-const request: PendingQuestion = { toolCallId: "call", params: { questions: [{ header: "Auth", question: "Choose sign-in", options: [{ label: "Email", description: "Link", preview: "# Preview\n\n" + Array.from({ length: 60 }, (_, index) => `line ${index}`).join("\n\n") }, { label: "Password", description: "Secret" }] }] } };
+const request: PendingQuestion = { toolCallId: "call", params: { questions: [{ header: "Auth", question: "Choose sign-in", options: [{ label: "Email", description: "Link", hasPreview: true }, { label: "Password", description: "Secret" }] }] } };
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
 test("observer permits one request and drops state from the previous target", async () => {
@@ -99,15 +99,12 @@ test("observer permits one request and drops state from the previous target", as
   assert.equal(calls, 2);
 });
 
-test("Page Down reads every preview paragraph in a short answer panel", () => {
-  const dialog = createQuestionDialog(target, "Login", { ...request, params: { questions: [{ ...request.params.questions[0]!, options: [{ label: "Email", description: "Link", preview: Array.from({ length: 20 }, (_, i) => `Preview${i}`).join("\n\n") }, { label: "Password", description: "Secret" }] }] } });
-  const seen = new Set<string>();
-  for (let i = 0; i < 50; i++) {
-    const text = stripAnsi(renderQuestionDialog(dialog, 40, 7).join("\n"));
-    for (const match of text.matchAll(/Preview\d+/g)) seen.add(match[0]);
-    handleQuestionInput(dialog, "\x1b[6~");
-  }
-  assert.deepEqual([...seen], Array.from({ length: 20 }, (_, i) => `Preview${i}`));
+test("official preview flags show a Pi marker without disabling the option", () => {
+  const dialog = createQuestionDialog(target, "Login", request);
+  assert.match(stripAnsi(renderQuestionDialog(dialog, 80, 12).join("\n")), /Email.*preview in Pi/);
+  assert.equal(handleQuestionInput(dialog, "1"), "changed");
+  assert.equal(handleQuestionInput(dialog, "\r"), "submit");
+  assert.deepEqual(dialog.answers, [{ questionIndex: 0, kind: "option", optionIndex: 0 }]);
 });
 
 test("Page Down reads every history paragraph in a short conversation panel", async () => {
@@ -127,7 +124,7 @@ test("Page Down reads every history paragraph in a short conversation panel", as
   assert.deepEqual([...seen], Array.from({ length: 40 }, (_, i) => `Paragraph${i}`));
 });
 
-test("question previews scroll fully and short layouts expose no hidden targets", () => {
+test("official questions stay width bounded and short layouts expose no hidden targets", () => {
   const dialog = createQuestionDialog(target, "Login", request);
   for (const width of [40, 80, 119, 120, 160, 200]) {
     for (const height of [5, 10, 24]) {
@@ -137,9 +134,6 @@ test("question previews scroll fully and short layouts expose no hidden targets"
       assert.ok(dialog.rowTargets.length <= lines.length);
     }
   }
-  renderQuestionDialog(dialog, 80, 12);
-  for (let index = 0; index < 12; index++) handleQuestionInput(dialog, "\x1b[6~");
-  assert.match(renderQuestionDialog(dialog, 80, 12).join("\n"), /line (2[0-9]|3[0-9]|4[0-9]|5[0-9])/);
 });
 
 test("custom input is literal, editable, and final Enter submits all four answers", () => {
@@ -191,6 +185,13 @@ test("Answer is separate from Open and shortcut reasons are discoverable", () =>
   assert.ok(!replaced.some(command => command.id === previous));
 });
 
+test("unanswerable official prompts offer Open in Pi without an Answer command", () => {
+  const selected = liveSession("a");
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: "a", interactionState: { questionProtocol: true, pending: [], questionUnavailableReason: "This prompt can only be answered in Pi" }, capabilities: { answerQuestion: true, openSession: true } });
+  assert.equal(commands.find(command => command.id === "action:a:open")?.label, "Open in Pi");
+  assert.ok(!commands.some(command => command.id.includes(":answer:")));
+});
+
 test("inline question submits once to its exact selected session", async () => {
   const controller = new SessionsController({ version: 1, sessions: [liveSession("a"), liveSession("b")] });
   const writes: string[] = [];
@@ -206,6 +207,33 @@ test("inline question submits once to its exact selected session", async () => {
   view.handleInput("\r");
   assert.deepEqual(writes, ["a"]);
   settle(); await tick();
+});
+
+for (const reason of ["Update rpiv-ask-user-question to 2.15+ to answer from Hub", "This prompt can only be answered in Pi"]) test(`Conversation shows the producer reason and Open in Pi: ${reason}`, async () => {
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [liveSession("a")] }), () => {}, {
+    interactionTarget, loadInteractionState: async () => ({ questionProtocol: false, pending: [], questionUnavailableReason: reason }),
+    submitAnswer: async () => { assert.fail("unsupported question submitted"); }, terminalRows: () => 24,
+  });
+  view.render(120); view.handleInput("c"); await tick();
+  const text = stripAnsi(view.render(120).join("\n"));
+  assert.ok(text.includes(reason), text);
+  assert.match(text, /Open in Pi/);
+  assert.doesNotMatch(text, /ANSWER NEEDED/);
+});
+
+test("unsupported_host removes the inline form and shows the specific Pi-only reason", async () => {
+  let unsupported = false;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [liveSession("a")] }), () => {}, {
+    interactionTarget, loadInteractionState: async () => unsupported
+      ? { questionProtocol: true, pending: [], questionUnavailableReason: "This prompt can only be answered in Pi" }
+      : { questionProtocol: true, pending: [request] },
+    submitAnswer: async () => { unsupported = true; throw new Error("This prompt can only be answered in Pi"); }, terminalRows: () => 24,
+  });
+  view.render(120); view.handleInput("c"); await tick(); view.render(120); view.handleInput("\r"); await tick();
+  const text = stripAnsi(view.render(120).join("\n"));
+  assert.match(text, /This prompt can only be answered in Pi/);
+  assert.match(text, /Open in Pi/);
+  assert.doesNotMatch(text, /ANSWER NEEDED/);
 });
 
 test("synthetic headers clear conversation data and cannot expose stale answer targets", async () => {

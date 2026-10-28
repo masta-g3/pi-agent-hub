@@ -521,7 +521,9 @@ export class SessionsView implements Component {
       if (!sameInteractionTarget(question.target, current && this.actions.interactionTarget?.(current)) || (this.interaction.state && !this.interaction.state.pending.some(request => request.toolCallId === question.request.toolCallId))) {
         this.inlineQuestion = undefined;
         this.conversationFocus = "content";
-        this.message = "Question answered elsewhere or no longer available";
+        this.message = this.interaction.state?.questionUnavailableReason
+          ? `${this.interaction.state.questionUnavailableReason}; Open in Pi`
+          : "Question answered elsewhere or no longer available";
       } else if (this.interaction.state) { question.uncertain = false; question.available = true; }
       else if (this.interaction.error) question.available = false;
     }
@@ -665,7 +667,7 @@ export class SessionsView implements Component {
     }
     const actionHeight = Math.min(2, this.conversationActions.length);
     const actions = this.conversationActions.slice(0, actionHeight);
-    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? `Direct answering unavailable ${glyphs.pendingStep} Open in Pi` : this.interaction.state?.shortcutDisabledReason);
+    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (this.interaction.state?.questionUnavailableReason ? `${this.interaction.state.questionUnavailableReason} ${glyphs.pendingStep} Open in Pi` : selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? `Direct answering unavailable ${glyphs.pendingStep} Open in Pi` : this.interaction.state?.shortcutDisabledReason);
     const transcriptHeight = Math.max(0, height - actions.length - 3);
     this.conversationTranscriptEndY = transcriptHeight + 1;
     const workingAt = this.conversationWorking ? (this.actions.now?.() ?? Date.now()) : undefined;
@@ -680,7 +682,7 @@ export class SessionsView implements Component {
     const selected = this.selectedInteractionSession();
     const target = selected && this.actions.interactionTarget?.(selected);
     const request = this.interaction.state?.pending[0];
-    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer) { this.message = "Direct answering unavailable; Open in Pi"; return; }
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer) { this.message = `${this.interaction.state?.questionUnavailableReason ?? "Direct answering unavailable"}; Open in Pi`; return; }
     if (!this.conversationOpen) this.conversationOpen = true;
     this.inlineQuestion = createQuestionDialog(target, selected.title, request, selected.context?.attention?.requestId);
     this.conversationFocus = "question";

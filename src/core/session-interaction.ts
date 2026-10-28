@@ -9,13 +9,13 @@ export const DELIVERY_UNCONFIRMED = "Delivery not confirmed; check Pi before ret
 export interface InteractionTarget { managedId: string; piSessionId: string; instanceId: string }
 export interface PendingQuestion {
   toolCallId: string;
-  params: { questions: { question: string; header: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean }[] };
+  params: { questions: { question: string; header: string; options: { label: string; description: string; hasPreview?: boolean }[]; multiSelect?: boolean }[] };
 }
 export type AnswerInput = { questionIndex: number; kind: "option"; optionIndex: number }
   | { questionIndex: number; kind: "custom"; text: string }
   | { questionIndex: number; kind: "multi"; optionIndices: number[] };
 export type MessageDelivery = "send" | "steer" | "followUp";
-export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
 export type InteractionRequest = InteractionTarget & { version: 1; id: string } & (
   { kind: "state" } | { kind: "read"; before?: string; branchId?: string; limit?: number }
   | { kind: "submit-answer"; toolCallId: string; answers: AnswerInput[] }
@@ -54,8 +54,11 @@ export function parsePendingQuestions(value: unknown): PendingQuestion[] | undef
     && Array.isArray(p.params.questions) && p.params.questions.length >= 1 && p.params.questions.length <= 4
     && p.params.questions.every((q: unknown) => isObject(q) && typeof q.question === "string" && typeof q.header === "string"
       && (q.multiSelect === undefined || typeof q.multiSelect === "boolean") && Array.isArray(q.options)
-      && q.options.length >= 2 && q.options.length <= 4 && q.options.every((o: unknown) => isObject(o) && typeof o.label === "string" && typeof o.description === "string" && (o.preview === undefined || typeof o.preview === "string"))))) return;
-  return value as PendingQuestion[];
+      && q.options.length >= 2 && q.options.length <= 4 && q.options.every((o: unknown) => isObject(o) && typeof o.label === "string" && typeof o.description === "string" && (o.hasPreview === undefined || typeof o.hasPreview === "boolean"))))) return;
+  return (value as PendingQuestion[]).map(p => ({ toolCallId: p.toolCallId, params: { questions: p.params.questions.map(q => ({
+    question: q.question, header: q.header, ...(q.multiSelect === undefined ? {} : { multiSelect: q.multiSelect }),
+    options: q.options.map(o => ({ label: o.label, description: o.description, ...(o.hasPreview === undefined ? {} : { hasPreview: o.hasPreview }) })),
+  })) } }));
 }
 export function requestSessionInteraction(request: InteractionRequest, env: NodeJS.ProcessEnv = process.env): Promise<InteractionResult> {
   const path = interactionSocketPath(request.managedId, env);
@@ -94,6 +97,7 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
 function validResult(kind: InteractionRequest["kind"], value: unknown): value is InteractionResult {
   if (!isObject(value)) return false;
   if (kind === "state") return typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
+    && (value.questionUnavailableReason === undefined || typeof value.questionUnavailableReason === "string")
     && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
     && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy");
   if (kind === "read") return typeof value.branchId === "string" && typeof value.revision === "string"

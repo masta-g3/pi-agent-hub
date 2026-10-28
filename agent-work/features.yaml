@@ -1329,7 +1329,7 @@
   plan_file: agent-work/history/20261027_split-view-012_follow_view.md
   completed_at: '2026-10-27'
 - id: inbox-001
-  status: pending
+  status: done
   title: Official answer protocol
   subtitle: Answer stock rpiv questions from Hub
   description: Hub answers stock rpiv-ask-user-question 2.15+ questionnaires through
@@ -1339,6 +1339,8 @@
   created_at: '2026-10-27'
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261027_inbox-001_official_answer_protocol.md
+  completed_at: '2026-10-27'
 - id: inbox-002
   status: pending
   title: Inbox design lab

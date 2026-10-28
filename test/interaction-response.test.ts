@@ -18,7 +18,7 @@ test("client rejects malformed state, history and acceptance payloads before the
   await new Promise<void>((resolve) => server.listen(path, resolve));
   const request = (kind: InteractionRequest["kind"]) => requestSessionInteraction({ version: 1, id: "request", managedId: "managed", piSessionId: "pi", instanceId: "instance", kind } as InteractionRequest, env);
   try {
-    for (const value of [{}, { pending: [], questionProtocol: "yes" }, { questionProtocol: true, pending: [{ toolCallId: "call", params: { questions: [{ header: "h", question: "Q?", options: [] }] } }] }]) {
+    for (const value of [{}, { pending: [], questionProtocol: "yes" }, { questionProtocol: false, pending: [], questionUnavailableReason: 42 }, { questionProtocol: true, pending: [{ toolCallId: "call", params: { questions: [{ header: "h", question: "Q?", options: [] }] } }] }]) {
       result = value;
       await assert.rejects(request("state"), /Invalid interaction response/);
     }

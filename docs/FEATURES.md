@@ -98,7 +98,7 @@ Press `c` to read the selected live parent session below the fleet. Close pinned
 
 Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the fleet to focus the answer area. Number keys select options or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answers. `←` revisits a previous question when not editing text. `Esc` returns focus to the fleet without cancelling the question.
 
-Direct answers require a [compatible question extension](CONFIG.md#inline-questions). If unavailable, use **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. Opening or hiding Conversation neither answers nor cancels a request.
+Direct answers require [`@juicesharp/rpiv-ask-user-question` 2.15.0+](CONFIG.md#inline-questions) and use its official answer channel. Hub shows labels and descriptions; **preview in Pi** marks options whose previews are available only in Pi. These options remain answerable from Hub. Unsupported prompts show the reason and **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. If delivery is not confirmed, check Pi before retrying. Opening or hiding Conversation neither answers nor cancels a request.
 
 Conversation shows completed text and question/answer exchanges, not tools, thinking, or streaming fragments. It reads the live session without saving a second transcript or searching messages. Stopped sessions require Restart. After updating Hub, reopen the dashboard and reload idle Pi sessions with `/reload` if their extension changed.
 
