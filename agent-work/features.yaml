@@ -1328,3 +1328,89 @@
   created_at: '2026-10-26'
   plan_file: agent-work/history/20261027_split-view-012_follow_view.md
   completed_at: '2026-10-27'
+- id: inbox-001
+  status: pending
+  title: Official answer protocol
+  subtitle: Answer stock rpiv questions from Hub
+  description: Hub answers stock rpiv-ask-user-question 2.15+ questionnaires through
+    its official answer events, retires the fork protocol, and explains why answering
+    is unavailable.
+  priority: 1
+  created_at: '2026-10-27'
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-002
+  status: pending
+  title: Inbox design lab
+  subtitle: Approved mockups for inbox-first dashboard
+  description: An HTML design deck grounded in supervisory-control and calm-technology
+    research approves card, reply composer, question, handoff, and narrow-width states.
+  priority: 1
+  created_at: '2026-10-27'
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-003
+  status: pending
+  title: Self-explaining cards
+  subtitle: Cards show what, where, and next
+  description: Active cards answer what the session is about, where it is, and what
+    it needs from producer metadata, and the dashboard opens without follow view by
+    default.
+  priority: 2
+  created_at: '2026-10-27'
+  depends_on:
+  - inbox-002
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-004
+  status: pending
+  title: Reply from card
+  subtitle: Inline composer replaces Send text dialog
+  description: An inline composer on the selected card sends, steers, or queues text
+    through the existing guarded send path and replaces the Send text dialog.
+  priority: 2
+  created_at: '2026-10-27'
+  depends_on:
+  - inbox-003
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-005
+  status: pending
+  title: Answer from card
+  subtitle: Pick question options directly on cards
+  description: Pending rpiv questions render on the card with numbered options and
+    custom text, answers use the official event, and Conversation drops its separate
+    answer area.
+  priority: 2
+  created_at: '2026-10-27'
+  depends_on:
+  - inbox-001
+  - inbox-003
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-006
+  status: pending
+  title: Dashboard agent note
+  subtitle: Agents reach users through dashboard
+  description: Managed parent sessions receive a short system note telling agents
+    to use ask_user_question and hand_off with context and a recommendation, because
+    the user watches the dashboard.
+  priority: 2
+  created_at: '2026-10-27'
+  references:
+  - agent-work/plans/inbox-000.md
+- id: inbox-007
+  status: pending
+  title: Inbox-first docs
+  subtitle: Docs describe inbox-first supervision model
+  description: CONTEXT.md, AGENTS.md, and FEATURES.md describe the inbox-first model
+    and drop retired paths and duplicate guidance.
+  priority: 3
+  created_at: '2026-10-27'
+  depends_on:
+  - inbox-003
+  - inbox-004
+  - inbox-005
+  - inbox-006
+  references:
+  - agent-work/plans/inbox-000.md
