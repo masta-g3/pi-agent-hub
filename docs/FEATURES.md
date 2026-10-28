@@ -160,6 +160,7 @@ Status view groups complete session trees into these sections:
 | --- | --- |
 | NEEDS YOU | A waiting/idle parent with an explicit request from a Pi extension |
 | HEALTH | A parent with a runtime error |
+| NEW | A new or forked parent you have not opened, focused, answered, or sent to yet |
 | ACTIVE | A running/starting parent or child |
 | QUIET | Other non-archived sessions |
 | ARCHIVED | Archived trees, newest-first |
@@ -168,7 +169,7 @@ Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its fi
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` stays expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` and `NEW` stay expanded. Other Status sections can fold, and Hub saves those preferences. Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. A parent you have not opened yet shows a `new` badge after its title until your first open, pin focus, answer, or send; Status omits it under the `NEW` heading, and Repo, board, and pinned views keep it. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Action workspace
 

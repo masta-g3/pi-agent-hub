@@ -125,6 +125,8 @@ export interface ManagedSession {
   piSessionId?: string;
   acknowledgedAt?: number;
   lastActivityAt?: number;
+  /** Set on create/fork; removed by the user's first open, pin focus, answer, or send, never by agent activity. */
+  unopened?: true;
   order?: number;
   bucket?: SessionBucket;
   bucketChangedAt?: number;

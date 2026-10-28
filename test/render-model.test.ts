@@ -59,7 +59,7 @@ test("new-user coaching teaches the real empty tiers and daily-loop footer", () 
       sessions: [], width,
       cockpitOnboarding: { cohort: "new", phase: "learning" },
     });
-    assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "ACTIVE", "QUIET"]);
+    assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "NEW", "ACTIVE", "QUIET"]);
     assert.equal(model.guidance.coach, true);
     assert.match(model.footer, /Enter Open/);
     assert.match(model.footer, /Ctrl\+Q Return/);
@@ -192,7 +192,7 @@ test("repo fleet sections are alphabetical, flat, collapsible, and retain a sepa
   assert.equal(model.sections[0]?.sessionsTotal, 2);
   assert.equal(model.sections[0]?.ownerAttentionCount, 1);
   assert.equal(model.sections[0]?.hiddenChildRequestCount, 0);
-  assert.equal(model.cockpitNavigation.length, 5);
+  assert.equal(model.cockpitNavigation.length, 6);
 
   const key = model.sections[0]?.repoKey;
   assert.ok(key);
@@ -2330,7 +2330,7 @@ test("tier navigation projection retains zero tiers independently of header fitt
   const active = session("active", "default", "running", "Active work");
   const model = buildRenderModel({ sessions: [needs, active], selectedId: "active", width: 100 });
   assert.deepEqual(model.cockpitNavigation.map((entry) => [entry.tier, entry.ownerCount, entry.selected]), [
-    ["needs-you", 1, false], ["health", 0, false], ["active", 1, true], ["quiet", 0, false], ["archived", 0, false],
+    ["needs-you", 1, false], ["health", 0, false], ["new", 0, false], ["active", 1, true], ["quiet", 0, false], ["archived", 0, false],
   ]);
   for (const width of [40, 59, 60, 99, 100, 119, 120, 159, 160]) {
     const responsive = renderSessions(buildRenderModel({ sessions: [needs, active], selectedId: "active", width }), darkTheme);
@@ -2350,7 +2350,7 @@ test("tier navigation stays composed for filtered no-match and standalone subage
 
   const filtered = buildRenderModel({ sessions: [parent, orphan], selectedId: "parent", width: 100, filter: "no-such-session" });
   assert.equal(filtered.noMatches, true);
-  assert.deepEqual(filtered.cockpitNavigation.map((entry) => entry.ownerCount), [0, 0, 0, 0, 0]);
+  assert.deepEqual(filtered.cockpitNavigation.map((entry) => entry.ownerCount), [0, 0, 0, 0, 0, 0]);
   const layout = renderSessions(filtered, darkTheme);
   const text = stripAnsi(layout.lines.join("\n"));
   assert.deepEqual(layout.tierChips, []);
@@ -2491,33 +2491,33 @@ test("only the selected running row animates with the render clock; rows retain 
   }
 });
 
-test("sessions created within the last minute show a new badge after the title", () => {
+test("unopened Active parents show a new badge after the title outside the NEW heading", () => {
   const now = 1_000_000;
-  const fresh = { ...session("fresh", "default", "running", "fresh-title"), createdAt: now - 10_000 };
-  const old = { ...session("old", "default", "running", "old-title"), createdAt: now - 61_000 };
-  const child = { ...session("child", "default", "running"), createdAt: now - 1_000, kind: "subagent" as const, parentId: "fresh", agentName: "child-agent" };
-  const backlog = { ...session("later", "default", "idle", "later-title"), createdAt: now - 1_000, bucket: "backlog" as const };
-  const sessions = [fresh, old, child, backlog];
+  const fresh = { ...session("fresh", "default", "running", "fresh-title"), createdAt: now - 3_600_000, unopened: true as const };
+  const opened = { ...session("old", "default", "running", "old-title"), createdAt: now - 1_000 };
+  const child = { ...session("child", "default", "running"), unopened: true as const, kind: "subagent" as const, parentId: "fresh", agentName: "child-agent" };
+  const backlog = { ...session("later", "default", "idle", "later-title"), unopened: true as const, bucket: "backlog" as const };
+  const sessions = [fresh, opened, child, backlog];
 
-  const rows = modelRows(buildRenderModel({ sessions, width: 120, now }));
-  assert.deepEqual(rows.filter((row) => row.fresh).map((row) => row.id), ["fresh"]);
+  const rows = modelRows(buildRenderModel({ sessions, width: 120, now, fleetGrouping: "repo" }));
+  assert.deepEqual(rows.filter((row) => row.unopened).map((row) => row.id), ["fresh"]);
 
-  for (const grouping of ["project", "stage"] as const) {
-    const text = stripAnsi(renderSessions(buildRenderModel({ sessions, width: 120, now, grouping }), darkTheme).lines.join("\n"));
+  for (const options of [{ fleetGrouping: "repo" as const }, { grouping: "stage" as const }]) {
+    const text = stripAnsi(renderSessions(buildRenderModel({ sessions, width: 120, now, ...options }), darkTheme).lines.join("\n"));
     assert.match(text, /fresh-title new/);
     assert.doesNotMatch(text, /old-title new/);
     assert.doesNotMatch(text, /later-title new/);
   }
-  assert.equal(modelRows(buildRenderModel({ sessions, width: 120 })).some((row) => row.fresh), false);
+  assert.equal(modelRows(buildRenderModel({ sessions, width: 120 })).some((row) => row.unopened), false);
 });
 
 test("the new badge yields to the title on narrow rows", () => {
   const now = 1_000_000;
-  const fresh = { ...session("fresh", "default", "running", "a-rather-long-session-title"), createdAt: now };
+  const fresh = { ...session("fresh", "default", "running", "a-rather-long-session-title"), unopened: true as const };
   for (const width of [40, 60]) {
-    const lines = renderSessions(buildRenderModel({ sessions: [fresh], width, now }), darkTheme).lines;
+    const lines = renderSessions(buildRenderModel({ sessions: [fresh], width, now, fleetGrouping: "repo" }), darkTheme).lines;
     assert.equal(lines.every((line) => visibleWidth(line) <= width), true);
-    const titleLine = stripAnsi(lines.join("\n")).split("\n").find((line) => line.includes("a-rather"))!;
+    const titleLine = stripAnsi(lines.join("\n")).split("\n").find((line) => line.includes("a-rather") && !line.startsWith("─"))!;
     assert.ok(titleLine, `title visible at ${width}`);
     assert.match(titleLine, /a-rather-long-ses\S{0,10} new/);
   }

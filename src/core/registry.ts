@@ -55,6 +55,7 @@ export function createSessionRecord(input: NewSessionInput): ManagedSession {
     group: normalizeGroup(input.group),
     tmuxSession: tmuxSessionName(id),
     status: "starting",
+    unopened: true,
     createdAt: now,
     updatedAt: now,
   };

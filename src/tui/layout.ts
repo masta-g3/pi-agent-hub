@@ -2,7 +2,7 @@ import { glyphs } from "./glyphs.js";
 import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
-import type { CockpitTier, RenderModel, RenderSession, RenderWorkspace } from "./render-model.js";
+import { alwaysExpanded, type CockpitTier, type RenderModel, type RenderSession, type RenderWorkspace } from "./render-model.js";
 import { ageLabel } from "./age.js";
 import { formatKey } from "./dashboard-shortcuts.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
@@ -412,7 +412,7 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
   const separator = styles.border(` ${glyphs.pendingStep} `);
   const parts = () => [...entries.map((entry) => cockpitTone(entry.tier, styles)(`${entry.label} ${entry.ownerCount}`)), ...signals];
   const fits = () => displayWidth("FLEET") + 1 + displayWidth(parts().join(separator)) <= width;
-  for (const tier of ["quiet", "archived", "active", "health", "needs-you"] as const) {
+  for (const tier of ["quiet", "archived", "active", "new", "health", "needs-you"] as const) {
     if (fits()) break;
     entries = entries.filter((entry) => entry.tier !== tier);
   }
@@ -634,7 +634,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const sectionHeadingIndex = lines.length;
     const headerTarget = section.repoKey
       ? { kind: "repo-header" as const, repoKey: section.repoKey }
-      : section.collapsible && section.cockpitTier && section.cockpitTier !== "needs-you"
+      : section.collapsible && section.cockpitTier && !alwaysExpanded(section.cockpitTier)
         ? { kind: "section-header" as const, section: section.cockpitTier }
         : undefined;
     if (section.selected) {
@@ -1547,6 +1547,7 @@ function splitAtWidth(value: string, width: number): [string, string] {
 function cockpitTone(tier: CockpitTier | undefined, styles: LayoutStyles): (text: string) => string {
   if (tier === "needs-you") return styles.warning;
   if (tier === "health") return styles.error;
+  if (tier === "new") return styles.accent;
   if (tier === "active") return styles.success;
   return tier ? styles.muted : styles.border;
 }
@@ -1554,6 +1555,7 @@ function cockpitTone(tier: CockpitTier | undefined, styles: LayoutStyles): (text
 const COCKPIT_ROW_LABELS: Record<CockpitTier, string> = {
   "needs-you": "NEEDS YOU",
   health: "HEALTH",
+  new: "NEW",
   active: "ACTIVE",
   quiet: "QUIET",
   archived: "ARCHIVED",
@@ -1615,8 +1617,8 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree));
     const right = options.oneLine ? fleetOneLineTail(session, available, styles, options) : "";
     const titleSpace = available - (right ? displayWidth(right) + 1 : 0);
-    const fresh = freshBadge(session, titleSpace, styles);
-    const left = `${prefix}${styles.strong(truncate(session.title, titleSpace - displayWidth(fresh)))}${worktree}${fresh}`;
+    const newMarker = newBadge(session, titleSpace, styles);
+    const left = `${prefix}${styles.strong(truncate(session.title, titleSpace - displayWidth(newMarker)))}${worktree}${newMarker}`;
     return right ? twoColumn(left, right, width) : truncate(left, width);
   }
   const repoCount = options.terminalWidth >= 80 && session.repoCount > 1 ? styles.muted(` ${glyphs.repos} ${session.repoCount}`) : "";
@@ -1638,19 +1640,19 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   const fittedCount = displayWidth(fittedBadge) + displayWidth(repoCount) <= availableAdornments ? repoCount : "";
   const fittedAdornments = `${fittedBadge}${fittedCount}`;
   const titleSpace = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(fittedAdornments) - rightSpace);
-  const fresh = freshBadge(session, titleSpace, styles);
-  const title = styles.strong(truncate(session.title, titleSpace - displayWidth(fresh)));
-  const left = `${prefix}${fittedBadge}${title}${worktree}${fresh}${fittedCount}`;
+  const newMarker = newBadge(session, titleSpace, styles);
+  const title = styles.strong(truncate(session.title, titleSpace - displayWidth(newMarker)));
+  const left = `${prefix}${fittedBadge}${title}${worktree}${newMarker}${fittedCount}`;
   return right ? twoColumn(left, right, width) : truncate(left, width);
 }
 
-const FRESH_BADGE = " new";
+const NEW_BADGE = " new";
 
 /** Drops before the title would truncate below its readable minimum. */
-function freshBadge(session: RenderSession, titleSpace: number, styles: LayoutStyles): string {
-  if (!session.fresh) return "";
+function newBadge(session: RenderSession, titleSpace: number, styles: LayoutStyles): string {
+  if (!session.unopened) return "";
   const titleNeed = Math.min(12, displayWidth(session.title));
-  return titleSpace - FRESH_BADGE.length >= titleNeed ? styles.accent(FRESH_BADGE) : "";
+  return titleSpace - NEW_BADGE.length >= titleNeed ? styles.accent(NEW_BADGE) : "";
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {

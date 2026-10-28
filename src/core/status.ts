@@ -117,7 +117,7 @@ export function applyComputedStatus(session: ManagedSession, computed: ComputedS
 
 // Attach, pin focus, and sends count as activity so recency ordering reflects the user's own interaction.
 export function markInteracted(session: ManagedSession, now = Date.now()): ManagedSession {
-  return updateSession(session, { lastActivityAt: latestActivityAt(session.lastActivityAt, now) }, now);
+  return updateSession(session, { unopened: undefined, lastActivityAt: latestActivityAt(session.lastActivityAt, now) }, now);
 }
 
 export function markAcknowledged(session: ManagedSession, now = Date.now(), allowIdleRequest = false): ManagedSession {

@@ -13,12 +13,13 @@ import type { TextInputState } from "./text-input.js";
 import { dashboardFooter, pinnedDashboardFooter, type WorkspaceCommandSelection } from "./dashboard-commands.js";
 import { COCKPIT_RELEASE_CUE, coachingActive, releaseCueVisible, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
-export type CockpitTier = "needs-you" | "health" | "active" | "quiet" | "archived";
+export type CockpitTier = "needs-you" | "health" | "new" | "active" | "quiet" | "archived";
 
 export type CockpitPlacementReason =
   | { kind: "archived"; ownerId: string; ownerTitle: string }
   | { kind: "explicit-attention"; ownerId: string; ownerTitle: string; attentionKind: SessionAttention["kind"] }
   | { kind: "owner-error"; ownerId: string; ownerTitle: string }
+  | { kind: "unopened"; ownerId: string; ownerTitle: string }
   | { kind: "owner-active"; ownerId: string; ownerTitle: string; status: "starting" | "running" }
   | { kind: "descendant-active"; ownerId: string; ownerTitle: string; driverId: string; driverTitle: string; status: "starting" | "running" }
   | { kind: "quiet"; ownerId: string; ownerTitle: string };
@@ -79,12 +80,9 @@ export interface RenderSession {
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
-  /** Active parent created within FRESH_SESSION_MS of render time. */
-  fresh?: true;
+  /** Unopened Active parent shown outside a NEW heading. */
+  unopened?: true;
 }
-
-/** How long a newly created or forked session keeps its `new` badge. */
-export const FRESH_SESSION_MS = 60_000;
 
 export interface StatusCounts {
   running: number;
@@ -389,7 +387,7 @@ export function buildDashboardProjection(input: DashboardProjectionInput): Dashb
   const collapsedSections = input.collapsedSections ?? new Set<CollapsibleSection>();
   const statusVisible = revealFilterMatches ? projectRows : projectRows.filter((session) => {
     const tier = cockpitTierById.get(session.id);
-    return !tier || tier === "needs-you" || !collapsedSections.has(tier) || revealedIds.has(session.id);
+    return !tier || alwaysExpanded(tier) || !collapsedSections.has(tier) || revealedIds.has(session.id);
   });
   const repoVisible = repoSections.flatMap((section) => section.collapsed ? [] : section.rows);
   const archivedVisible = projectRows.filter((row) => cockpitTierById.get(row.id) === "archived" && (
@@ -484,6 +482,7 @@ function cockpitPlacementFor(
   const attention = visibleAttention(owner);
   if (attention) return { tier: "needs-you", placement: { kind: "explicit-attention", ...ownerFields, attentionKind: attention.kind } };
   if (owner.status === "error") return { tier: "health", placement: { kind: "owner-error", ...ownerFields } };
+  if (isUnopened(owner, rows, tree)) return { tier: "new", placement: { kind: "unopened", ...ownerFields } };
   if (owner.status === "starting" || owner.status === "running") {
     return { tier: "active", placement: { kind: "owner-active", ...ownerFields, status: owner.status } };
   }
@@ -503,10 +502,21 @@ function cockpitPlacementFor(
   return { tier: "quiet", placement: { kind: "quiet", ...ownerFields } };
 }
 
-const COCKPIT_TIER_ORDER: CockpitTier[] = ["needs-you", "health", "active", "quiet", "archived"];
+function isUnopened(session: RuntimeSession, rows: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>): boolean {
+  return session.kind !== "subagent" && session.unopened === true
+    && effectiveSessionLifecycle(session, rows, tree).section === "active";
+}
+
+/** Tiers that never collapse: requests and unopened sessions stay in view. */
+export function alwaysExpanded(tier: CockpitTier): tier is "needs-you" | "new" {
+  return tier === "needs-you" || tier === "new";
+}
+
+const COCKPIT_TIER_ORDER: CockpitTier[] = ["needs-you", "health", "new", "active", "quiet", "archived"];
 const COCKPIT_TIER_LABELS: Record<CockpitTier, string> = {
   "needs-you": "NEEDS YOU",
   health: "HEALTH",
+  new: "NEW",
   active: "ACTIVE",
   quiet: "QUIET",
   archived: "ARCHIVED",
@@ -515,6 +525,7 @@ const COCKPIT_TIER_LABELS: Record<CockpitTier, string> = {
 const COCKPIT_TIER_LESSONS: Partial<Record<CockpitTier, string>> = {
   "needs-you": "an agent's explicit request lands here",
   health: "a failed owner session lands here",
+  new: "new and forked sessions wait here until you open them",
   active: "work in progress lands here",
   quiet: "no intervention requested",
 };
@@ -594,12 +605,16 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   // Build each source row once. Visible selection is a small overlay: lifecycle
   // headers and archive disclosure can suppress the list highlight while keeping
   // the selected row available to the details pane.
+  // The NEW heading already marks unopened rows in the Status fleet; elsewhere the row badge does.
+  const statusFleet = !board && fleetGrouping === "status" && !pinMode;
   const allMapped = allRows.map((session) => {
     const ownerId = cockpitOwnerById.get(session.id)!;
+    const tier = cockpitTierById.get(session.id)!;
     return toRenderSession(
       session, session.id === selectedId, allRows, allTree, input.now,
       slotBySession.get(session.id), pinned.has(session.id), session.id === input.activePinnedSessionId, board, subagentStats.get(session.id), treeExpanded(session.id),
-      cockpitTierById.get(session.id)!, ownerId, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id), repoIdentityByOwnerId.get(ownerId)!,
+      tier, ownerId, cockpitPlacementById.get(session.id)!, hiddenAttentionCount(session.id), repoIdentityByOwnerId.get(ownerId)!,
+      !(statusFleet && tier === "new"),
     );
   });
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
@@ -937,7 +952,7 @@ function cockpitSectionsForSessions(
     const sectionSessions = sessions.filter((session) => session.cockpitTier === tier);
     const allSectionSessions = allSessions.filter((session) => session.cockpitTier === tier);
     if (!allSectionSessions.length && (!coach || tier === "archived")) return [];
-    const collapsed = tier !== "needs-you" && collapsedSections.has(tier);
+    const collapsed = !alwaysExpanded(tier) && collapsedSections.has(tier);
     return [{
       key: tier,
       cockpitTier: tier,
@@ -953,9 +968,9 @@ function cockpitSectionsForSessions(
         attentionCount: countAttentionSessions(sectionSessions),
         sessions: sectionSessions,
       }],
-      collapsible: tier !== "needs-you",
+      collapsible: !alwaysExpanded(tier),
       collapsed,
-      selected: tier !== "needs-you" && selectedSection === tier,
+      selected: !alwaysExpanded(tier) && selectedSection === tier,
       ...(coach && tier !== "archived" ? { lesson: COCKPIT_TIER_LESSONS[tier] } : {}),
       ...(tier === "archived" && archiveDisclosure ? { archiveDisclosure } : {}),
     } satisfies RenderSection];
@@ -1000,7 +1015,7 @@ function descendantAttentionIds(
   return ids;
 }
 
-function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason, hiddenChildRequestCount: number, repoIdentity: RepoIdentity): RenderSession {
+function toRenderSession(session: RuntimeSession, selected: boolean, sessions: RuntimeSession[], tree: SessionTreeIndex<RuntimeSession>, now: number | undefined, pinSlot: number | undefined, pinned: boolean, pinFocused: boolean, board: boolean, subagentStats: DescendantSubagentStats | undefined, boardExpanded: boolean, cockpitTier: CockpitTier, cockpitOwnerId: string, cockpitPlacement: CockpitPlacementReason, hiddenChildRequestCount: number, repoIdentity: RepoIdentity, unopenedBadge: boolean): RenderSession {
   const displayStatus = displayStatusFor(session.status);
   const worktree = primaryWorktree(session);
   const worktrees = sessionWorktrees(session);
@@ -1065,8 +1080,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),
-    ...(lifecycle.section === "active" && session.kind !== "subagent" && now !== undefined
-      && now - session.createdAt < FRESH_SESSION_MS ? { fresh: true } : {}),
+    ...(unopenedBadge && isUnopened(session, sessions, tree) ? { unopened: true } : {}),
   };
 }
 

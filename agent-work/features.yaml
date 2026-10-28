@@ -1284,3 +1284,22 @@
   - agent-work/history/20261025_ui-polish-001_footer_cursor_fixes.md
   completed_at: '2026-10-26'
   plan_file: agent-work/history/20261026_test-isolation-001_test_environment_isolation.md
+- id: new-session-ux-004
+  status: done
+  title: Unopened sessions tier
+  subtitle: Keep new sessions visible until opened
+  description: New and forked parent sessions appear in an always-expanded NEW fleet
+    tier and keep a new badge until the user first opens or interacts with them.
+  priority: 2
+  created_at: '2026-10-27'
+  plan_file: agent-work/history/20261027_new-session-ux-004_unopened_sessions_tier.md
+  completed_at: '2026-10-27'
+- id: new-session-ux-005
+  status: pending
+  title: Quiet unread count
+  subtitle: Show unread replies under collapsed QUIET
+  description: A collapsed QUIET header shows how many of its owners have unread finished
+    replies, so replies do not hide behind the fold.
+  priority: 1
+  created_at: '2026-10-27'
+  discovered_from: new-session-ux-004

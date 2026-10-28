@@ -32,6 +32,29 @@ test("Status header chips show nonzero owner counts in tier order with exact hit
   assert.doesNotMatch(stripAnsi(layout.lines[1]!), /HEALTH|ACTIVE|QUIET|ARCHIVED/);
 });
 
+test("the NEW chip sits after HEALTH in accent tone and drops after ACTIVE", () => {
+  const withNew = (rows: ReturnType<typeof fleet>) => [...rows, { ...rows.find(row => row.id === "release")!, id: "fresh", title: "Fresh fork", status: "idle" as const, unopened: true as const }];
+  const header = renderSessions(buildRenderModel({ sessions: withNew(fleet()), width: 160, now: COCKPIT_NOW }), darkTheme);
+  assert.match(stripAnsi(header.lines[header.tierChipRow!]!), /NEEDS YOU 1 · HEALTH 1 · NEW 1 · ACTIVE 2 · QUIET 3 · ARCHIVED 1 · 9 sessions/);
+  assert.ok(header.lines[header.tierChipRow!]!.includes(styleToken(darkTheme, "accent", "NEW 1")));
+
+  const sessions = Array.from({ length: 10 }, (_, i) => withNew(fleet()).map(row => ({ ...row, id: `${row.id}-${i}`, ...(row.parentId ? { parentId: `${row.parentId}-${i}` } : {}) }))).flat();
+  const seen: string[][] = [];
+  for (let width = 160; width >= 30; width -= 1) {
+    const tiers = renderSessions(buildRenderModel({ sessions, width, now: COCKPIT_NOW })).tierChips.map(chip => chip.tier);
+    if (JSON.stringify(seen.at(-1)) !== JSON.stringify(tiers)) seen.push(tiers);
+  }
+  assert.deepEqual(seen, [
+    ["needs-you", "health", "new", "active", "quiet", "archived"],
+    ["needs-you", "health", "new", "active", "archived"],
+    ["needs-you", "health", "new", "active"],
+    ["needs-you", "health", "new"],
+    ["needs-you", "health"],
+    ["needs-you"],
+    [],
+  ]);
+});
+
 test("header chip fitting drops QUIET then ARCHIVED then ACTIVE and retains sessions", () => {
   const sessions = Array.from({ length: 10 }, (_, i) => fleet().map(row => ({ ...row, id: `${row.id}-${i}`, ...(row.parentId ? { parentId: `${row.parentId}-${i}` } : {}) }))).flat();
   const tiers = (width: number) => {

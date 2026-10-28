@@ -156,11 +156,13 @@ async function harness(t: TestContext, options: {
   const tmux = new NamedPaneTmux(options.initial);
   if (options.width) tmux.windowWidth = options.width;
   const events = tmux.events;
+  const touched: string[] = [];
   const lifecycle = createSidePaneLifecycle({
     dashboardSession: "pi-agent-hub", dashboardCwd: "/repo", dashboardCommand: "pi-hub tui", dashboardEnv: () => ({}),
     ownPane: () => "%1", insideTmux: () => true, sessions: () => sessions, exec: tmux,
     revealSession: (id) => { events.push(`reveal:${id}`); return options.revealResult ?? true; },
     activeAttentionRequestId: (id) => options.activeRequestIds?.get(id),
+    touchSession: async (id) => { touched.push(id); },
     acknowledgeSession: async (id, requestId) => { events.push(`ack:${id}${requestId ? `:${requestId}` : ""}`); const found = sessions.find((item) => item.id === id); if (found) found.status = "idle"; },
     configureManagedSession: async (item, visible) => { events.push(`managed:${item.id}:${visible}`); },
     syncManagedSessionStatusBars: async (hidden) => { events.push(`sync:${[...hidden].join(",")}`); },
@@ -170,7 +172,7 @@ async function harness(t: TestContext, options: {
   lifecycle.start();
   await waitFor(() => events.includes("inspect"));
   t.after(async () => { await lifecycle.stop(); await rm(root, { recursive: true, force: true }); });
-  return { lifecycle, tmux, events, sessions };
+  return { lifecycle, tmux, events, sessions, touched };
 }
 
 function before(events: readonly string[], first: string, second: string) {
@@ -243,6 +245,7 @@ test("new pin does not acknowledge and keeps cockpit focus", async (t) => {
   value.events.length = 0;
   assert.deepEqual(await value.lifecycle.pin("api"), { kind: "pinned", session: "pi-agent-hub-api", slot: 1 });
   assert.equal(value.events.includes("ack:api"), false);
+  assert.deepEqual(value.touched, []);
   assert.ok(value.events.includes("focus:%1"));
   assert.equal(value.lifecycle.snapshot().pins[0]?.sessionId, "api");
 });
@@ -288,6 +291,7 @@ test("presence follows externally focused pane identity and acknowledges waiting
   value.tmux.panes[0]!.active = true;
   await waitFor(() => value.lifecycle.snapshot().activeSessionId === "api");
   before(value.events, "reveal:api", "ack:api");
+  assert.deepEqual(value.touched, ["api"]);
 });
 
 test("return to cockpit reveals the exact active managed session before focus", async (t) => {
@@ -356,7 +360,9 @@ test("hidden pin focus opens the exact session full screen instead of selecting 
   value.tmux.windowWidth = 50;
   await waitFor(() => value.lifecycle.snapshot().hidden);
   value.events.length = 0;
+  value.touched.length = 0;
   assert.deepEqual(await value.lifecycle.focus(1), { kind: "focused" });
+  assert.deepEqual(value.touched, ["api"]);
   before(value.events, "reveal:api", "ack:api");
   before(value.events, "ack:api", "switch:pi-agent-hub-api");
   assert.equal(value.events.some((event) => event.startsWith("focus:%")), false);

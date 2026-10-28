@@ -1412,18 +1412,20 @@ test("tier chip mouse click selects each exact first owner and reveals collapsed
   const archived = { ...session("archived", "archived"), status: "stopped" as const, bucket: "archived" as const, bucketChangedAt: 1 };
   const health = { ...session("health", "health"), status: "error" as const };
   const quiet = session("quiet", "quiet");
-  const controller = new SessionsController({ version: 1, sessions: [needs, health, active, quiet, archived] });
+  const fresh = { ...session("fresh", "fresh"), unopened: true as const };
+  const controller = new SessionsController({ version: 1, sessions: [needs, health, fresh, active, quiet, archived] });
   const saved: SessionsViewState[] = [];
   const view = new SessionsView(controller, () => {}, {
     initialViewState: { grouping: "project", collapsedSections: ["archived"] },
     saveViewState: (state) => { saved.push(state); },
   });
 
-  for (const [label, id] of [["ACTIVE 1", "active"], ["HEALTH 1", "health"], ["QUIET 1", "quiet"], ["NEEDS YOU 1", "needs"], ["ARCHIVED 1", "archived"]]) {
+  for (const [label, id] of [["ACTIVE 1", "active"], ["HEALTH 1", "health"], ["NEW 1", "fresh"], ["QUIET 1", "quiet"], ["NEEDS YOU 1", "needs"], ["ARCHIVED 1", "archived"]]) {
     const { row, x } = tierChipPosition(view.render(160), label!);
     view.handleInput(mousePressAtLine(row, x));
     assert.equal(controller.selected()?.id, id);
   }
+  assert.equal(controller.snapshot().sessions.find((row) => row.id === "fresh")?.unopened, true);
   assert.deepEqual(saved.at(-1), { grouping: "project" });
 });
 

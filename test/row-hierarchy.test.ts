@@ -49,17 +49,17 @@ for (const width of [44, 80, 120, 160]) {
 test("trailing worktree markers survive title truncation before the new badge", () => {
   let sawDroppedNew = false;
   for (const width of [30, 44, 80, 120, 160]) {
-    for (const grouping of ["project", "stage"] as const) {
-      const row = session("long", { title: "Long title ".repeat(40), worktreePath: "/tmp/wt", worktreeBranch: "feature", createdAt: NOW });
-      const line = stripAnsi(titleLine(render([row], { width, grouping }), row.id));
+    for (const view of [{ fleetGrouping: "repo" as const }, { grouping: "stage" as const }]) {
+      const row = session("long", { title: "Long title ".repeat(40), worktreePath: "/tmp/wt", worktreeBranch: "feature", unopened: true });
+      const line = stripAnsi(titleLine(render([row], { width, ...view }), row.id));
       assert.match(line, /Long.*… ⎇/);
       sawDroppedNew ||= !line.includes(" new");
       assert.ok(visibleWidth(line) <= width);
     }
   }
   assert.ok(sawDroppedNew, "new badge yields before the worktree marker");
-  const row = session("short", { title: "Short", worktreePath: "/tmp/wt", worktreeBranch: "feature", createdAt: NOW });
-  assert.match(stripAnsi(titleLine(render([row]), row.id)), /Short ⎇ new/);
+  const row = session("short", { title: "Short", worktreePath: "/tmp/wt", worktreeBranch: "feature", unopened: true });
+  assert.match(stripAnsi(titleLine(render([row], { fleetGrouping: "repo" }), row.id)), /Short ⎇ new/);
 });
 
 test("attention shares the child state slot without hiding workspace runtime", () => {

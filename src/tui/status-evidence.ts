@@ -109,6 +109,7 @@ function placementReason(placement: CockpitPlacementReason, selectedId: string):
     case "archived": return `lifecycle archived${owner}`;
     case "explicit-attention": return `${attentionReason(placement.attentionKind)}${owner}`;
     case "owner-error": return `owner reported an error${owner}`;
+    case "unopened": return `not opened yet${owner}`;
     case "owner-active": return placement.ownerId === selectedId ? "" : `owner is ${placement.status}${owner}`;
     case "descendant-active": return `${placement.driverTitle} is ${placement.status}${owner}`;
     case "quiet": return placement.ownerId === selectedId ? "" : `owner tree is quiet${owner}`;

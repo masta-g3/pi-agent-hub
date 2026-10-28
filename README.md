@@ -63,7 +63,7 @@ Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agent
 
 See [Dashboard keys](docs/FEATURES.md#dashboard-keys) for all controls.
 
-The default Status view puts explicit requests in `NEEDS YOU`, runtime errors in `HEALTH`, running work in `ACTIVE`, and other sessions in `QUIET`. `ARCHIVED` is newest-first. Waiting alone does not mean an agent needs an answer. Explicit requests require an extension that reports them.
+The default Status view puts explicit requests in `NEEDS YOU`, runtime errors in `HEALTH`, new or forked sessions you have not opened yet in `NEW`, running work in `ACTIVE`, and other sessions in `QUIET`. `ARCHIVED` is newest-first. Waiting alone does not mean an agent needs an answer. Explicit requests require an extension that reports them.
 
 Each parent session shows its `[group]` after the title. Press `v` to browse by repository instead. Worktrees stay with their source repo; multi-repo sessions appear under their primary repo. Groups and Backlog/Archive organize sessions without stopping their agents.
 

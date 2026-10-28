@@ -23,7 +23,7 @@ import {
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
-import { buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
+import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
 import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -1464,7 +1464,7 @@ export class SessionsView implements Component {
     this.archiveDisclosureSelected = false;
     this.selectedSection = undefined;
     const sections = this.controller.snapshot().filter?.trim() ? this.filterDisclosure.sections : this.collapsedSections;
-    if (tier !== "needs-you" && sections.delete(tier)) {
+    if (!alwaysExpanded(tier) && sections.delete(tier)) {
       this.viewStateRevision += 1;
       this.saveViewState();
     }
@@ -1761,13 +1761,13 @@ export class SessionsView implements Component {
       return targets;
     }
     const { allRows, visible: visibleRows } = projection;
-    const tierOrder: CockpitTier[] = ["needs-you", "health", "active", "quiet", "archived"];
+    const tierOrder: CockpitTier[] = ["needs-you", "health", "new", "active", "quiet", "archived"];
     const targets: SessionListTarget[] = [];
     let releaseCueTargetAdded = false;
     for (const tier of tierOrder) {
       const allTierRows = allRows.filter((row) => projection.cockpitTierById.get(row.id) === tier);
       if (!allTierRows.length) continue;
-      if (tier !== "needs-you") targets.push({ kind: "section-header", section: tier });
+      if (!alwaysExpanded(tier)) targets.push({ kind: "section-header", section: tier });
       const rows = visibleRows.filter((row) => projection.cockpitTierById.get(row.id) === tier);
       targets.push(...rows.map((row) => ({ kind: "session" as const, id: row.id })));
       if (tier === "needs-you" && this.releaseCueAvailable()) {
@@ -1818,7 +1818,7 @@ export class SessionsView implements Component {
         }
       }
       if (this.grouping === "project" && (this.fleetGrouping === "status" || tier === "archived")
-        && tier && tier !== "needs-you" && this.collapsedSections.has(tier)) {
+        && tier && !alwaysExpanded(tier) && this.collapsedSections.has(tier)) {
         this.selectedSection = tier;
         return;
       }

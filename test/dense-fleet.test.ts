@@ -105,8 +105,8 @@ test("dense tail drops group before age, then grid before an unreadable title", 
 
 test("dense rows retain trailing worktree and new markers after the bold title", () => {
   const sessions = fleet(30);
-  sessions[1] = { ...sessions[1]!, worktreeBranch: "feature/dense", createdAt: NOW - 1000 };
-  const layout = render(sessions);
+  sessions[1] = { ...sessions[1]!, worktreeBranch: "feature/dense", unopened: true };
+  const layout = render(sessions, { fleetGrouping: "repo" });
   const row = layout.lines[titleIndex(layout, "s1")]!;
   assert.match(stripAnsi(row), /Task 1 ⎇ new/);
   assert.match(row, /\u001b\[1m[^]*Task 1/);

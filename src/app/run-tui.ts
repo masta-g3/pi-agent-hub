@@ -489,6 +489,7 @@ export async function runTui(): Promise<void> {
     sessions: () => controller.snapshot().registry.sessions,
     revealSession: (sessionId) => view.revealSession(sessionId),
     acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
+    touchSession: (sessionId) => mutateRegistry(() => controller.touchSession(sessionId)),
     activeAttentionRequestId: currentAttentionRequestId,
     configureManagedSession: applyManagedSessionTheme,
     syncManagedSessionStatusBars,

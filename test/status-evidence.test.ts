@@ -103,6 +103,11 @@ test("status evidence names active descendants and inherited quiet placement", (
   assert.ok(quietValues.some((value) => value === "error · quiet · Pi heartbeat reported an error; owner tree is quiet with owner \"Quiet parent\""));
 });
 
+test("status evidence explains unopened placement", () => {
+  const fresh = session("fresh", { title: "Fresh fork", unopened: true });
+  assert.ok(values([fresh], fresh.id).some((value) => value === "idle · new · not opened yet"));
+});
+
 test("status evidence explains Health, Archived, and retained workflow independently", () => {
   const errorBase = session("broken", { status: "error", error: "failed" });
   const broken = { ...errorBase, statusEvidence: computeStatus({ session: errorBase, tmux: { exists: false }, now }).evidence };

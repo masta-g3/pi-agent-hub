@@ -72,6 +72,8 @@ export interface SidePaneLifecycleDependencies {
   sessions(): readonly RuntimeSession[];
   revealSession(sessionId: string): boolean | void;
   acknowledgeSession(sessionId: string, requestId?: string): Promise<void>;
+  /** Records the user's own focus of a pin, including mouse and spatial focus observed here. */
+  touchSession(sessionId: string): Promise<void>;
   activeAttentionRequestId?(sessionId: string): string | undefined;
   configureManagedSession(session: ManagedSession, visible: boolean): Promise<void>;
   syncManagedSessionStatusBars(hiddenSessions: ReadonlySet<string>): Promise<void>;
@@ -269,8 +271,9 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     if (activeSessionId && activeSessionId !== snapshot.activeSessionId) {
       const active = sessionById(activeSessionId);
       const requestId = active ? deps.activeAttentionRequestId?.(active.id) : undefined;
-      if (active && deps.revealSession(active.id) !== false && (active.status === "waiting" || requestId)) {
-        await deps.acknowledgeSession(active.id, requestId);
+      if (active && deps.revealSession(active.id) !== false) {
+        await deps.touchSession(active.id);
+        if (active.status === "waiting" || requestId) await deps.acknowledgeSession(active.id, requestId);
       }
     }
     const next: SidePaneLifecycleSnapshot = {
@@ -312,6 +315,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   };
   const revealAndAcknowledge = async (session: ManagedSession): Promise<boolean> => {
     if (deps.revealSession(session.id) === false) return false;
+    await deps.touchSession(session.id);
     const requestId = deps.activeAttentionRequestId?.(session.id);
     if (session.status === "waiting" || requestId) await deps.acknowledgeSession(session.id, requestId);
     return true;
