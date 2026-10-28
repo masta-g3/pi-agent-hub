@@ -1,5 +1,5 @@
 import { glyphs } from "./glyphs.js";
-import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AnswerInput, InteractionTarget, PendingQuestion } from "../core/session-interaction.js";
 import { createForm, editField, setValue, type FormState } from "./form.js";
 import { fitFooter, footerItems, renderForm, type FooterItem } from "./layout.js";
@@ -106,20 +106,8 @@ export function renderQuestionDialog(dialog: QuestionDialog, width: number, heig
     if (dialog.custom) {
       rows.push(...renderForm({ title: "Custom answer", fields: Object.values(dialog.custom.fields), focus: "answer", footer: "" }, width, theme).map(text => ({ text, field: text.includes(glyphs.focus) })));
     } else {
-      const choices = [...question.options.map((option, index) => ({ text: `${index === dialog.choice ? glyphs.focus : " "} ${index + 1} ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label} ${glyphs.dash} ${option.description}`, target: index })), { text: `${dialog.choice === question.options.length ? glyphs.focus : " "} t Type something${glyphs.ellipsis}`, target: question.options.length }];
-      const preview = question.options[dialog.choice]?.preview;
-      if (preview && width >= 80) {
-        const left = Math.floor(width / 2) - 1;
-        const right = renderMarkdown(preview, width - left - 3, theme);
-        const wrapped = choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), left).map(text => ({ text, target: choice.target })));
-        for (let i = 0; i < Math.max(wrapped.length, right.length); i++) {
-          const text = wrapped[i]?.text ?? "";
-          rows.push({ text: `${text}${" ".repeat(Math.max(0, left - visibleWidth(text)))} ${glyphs.vertical} ${right[i] ?? ""}`, target: wrapped[i]?.target });
-        }
-      } else {
-        rows.push(...choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), width).map(text => ({ text, target: choice.target }))));
-        if (preview) rows.push({ text: "Preview" }, ...renderMarkdown(preview, width, theme).map(text => ({ text })));
-      }
+      const choices = [...question.options.map((option, index) => ({ text: `${index === dialog.choice ? glyphs.focus : " "} ${index + 1} ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label} ${glyphs.dash} ${option.description}${option.hasPreview ? " (preview in Pi)" : ""}`, target: index })), { text: `${dialog.choice === question.options.length ? glyphs.focus : " "} t Type something${glyphs.ellipsis}`, target: question.options.length }];
+      rows.push(...choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), width).map(text => ({ text, target: choice.target }))));
     }
   }
   const status = dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Delivery not confirmed; checking Pi before retrying" : !dialog.available ? "Question availability not confirmed; Open in Pi" : dialog.error;

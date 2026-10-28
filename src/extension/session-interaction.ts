@@ -18,9 +18,6 @@ export interface InteractionAdapter {
   uiPromptOpen(): boolean;
   sendUserMessage(text: string, options: { expandPromptTemplates: boolean; deliverAs?: "steer" | "followUp" }): void;
 }
-const REQUEST_EVENT = "rpiv:ask-user:request";
-const RESPONSE_EVENT = "rpiv:ask-user:response";
-
 export async function startSessionInteraction(adapter: InteractionAdapter) {
   const target: InteractionTarget = { managedId: adapter.managedId, piSessionId: adapter.piSessionId, instanceId: randomUUID() };
   const path = interactionSocketPath(target.managedId, adapter.env);
@@ -43,53 +40,62 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
   let active = true;
   let branchId: string = randomUUID();
   let dispatching = false;
-  let supported: boolean | undefined;
-  let discovery: Promise<PendingQuestion[]> | undefined;
+  const questionnaires = new Map<string, PendingQuestion>();
+  const unsupported = new Set<string>();
+  let questionProtocol = false;
+  let legacyProducer = false;
+  const unsubscribe = [
+    adapter.events.on("rpiv:ask-user:prompt", (data) => {
+      if (!isObject(data)) return;
+      if (data.toolCallId === undefined) { legacyProducer = true; return; }
+      const pending = parsePendingQuestions([{ toolCallId: data.toolCallId, params: { questions: data.questions } }]);
+      if (!pending || Buffer.byteLength(JSON.stringify(pending)) > INTERACTION_BYTE_CAP - 2048) return;
+      questionnaires.set(pending[0]!.toolCallId, pending[0]!);
+      questionProtocol = true;
+    }),
+    adapter.events.on("rpiv:ask-user:blocked", (data) => {
+      if (!isObject(data) || data.active !== false || typeof data.toolCallId !== "string") return;
+      questionnaires.delete(data.toolCallId);
+      unsupported.delete(data.toolCallId);
+    }),
+  ];
+  const pendingQuestions = () => [...questionnaires.values()].filter(p => !unsupported.has(p.toolCallId));
+  const unavailableReason = () => legacyProducer ? "Update rpiv-ask-user-question to 2.15+ to answer from Hub"
+    : unsupported.size || adapter.uiPromptOpen() && !questionnaires.size ? "This prompt can only be answered in Pi" : undefined;
   const clients = new Set<Socket>();
   const cancellations = new Set<() => void>();
   const receipts = new Map<string, { fingerprint: string; promise: Promise<InteractionResponse>; complete: boolean }>();
   const check = () => { if (!active || adapter.getPiSessionId() !== target.piSessionId) throw new Error("Session interaction unavailable"); };
-  function producer(body: Record<string, unknown>, timeout: number): Promise<unknown> {
+  function submitAnswer(toolCallId: string, answers: Extract<InteractionRequest, { kind: "submit-answer" }>["answers"]): Promise<Record<string, unknown> | undefined> {
     check();
     return new Promise((resolve, reject) => {
-      const id = randomUUID();
+      const requestId = randomUUID();
       let finished = false;
-      const finish = (value?: unknown, error?: Error) => {
+      const finish = (value?: Record<string, unknown>, error?: Error) => {
         if (finished) return;
         finished = true; clearTimeout(timer); off(); cancellations.delete(cancel);
         if (error) reject(error); else resolve(value);
       };
       const cancel = () => finish(undefined, new Error("Session interaction unavailable"));
-      const timer = setTimeout(() => finish(), timeout);
-      const off = adapter.events.on(RESPONSE_EVENT, (data) => {
-        if (isObject(data) && data.version === 1 && data.id === id) finish(data);
+      const timer = setTimeout(() => finish(), INTERACTION_TIMEOUT_MS);
+      const off = adapter.events.on("rpiv:ask-user:answer-result", (data) => {
+        if (isObject(data) && data.requestId === requestId && typeof data.ok === "boolean") finish(data);
       });
       cancellations.add(cancel);
-      try { check(); adapter.events.emit(REQUEST_EVENT, { version: 1, id, ...body }); }
-      catch { finish(undefined, new Error("Session interaction unavailable")); }
+      try {
+        check();
+        adapter.events.emit("rpiv:ask-user:answer", { toolCallId, requestId, answers: answers.map(answer => answer.kind === "custom"
+          ? { questionIndex: answer.questionIndex, text: answer.text }
+          : { questionIndex: answer.questionIndex, optionIndexes: answer.kind === "option" ? [answer.optionIndex] : answer.optionIndices }) });
+      } catch { finish(undefined, new Error("Session interaction unavailable")); }
     });
-  }
-  async function query(): Promise<PendingQuestion[]> {
-    if (supported === false) return [];
-    if (discovery) return discovery;
-    const work = (async () => {
-      const reply = await producer({ kind: "query" }, 250);
-      check();
-      if (reply === undefined && supported === undefined) { supported = false; return []; }
-      const pending = isObject(reply) && reply.ok === true ? parsePendingQuestions(reply.pending) : undefined;
-      if (!pending || Buffer.byteLength(JSON.stringify(pending)) > INTERACTION_BYTE_CAP - 2048) throw new Error("Question state unavailable");
-      supported = true;
-      return pending;
-    })();
-    discovery = work;
-    try { return await work; } finally { if (discovery === work) discovery = undefined; }
   }
   function disabled(pending: PendingQuestion[]): string | undefined {
     check();
     if (dispatching) return "Command dispatch in progress";
     if (!adapter.isIdle()) return "Pi is busy";
     if (adapter.hasPendingMessages()) return "Pi has queued messages";
-    if (adapter.uiPromptOpen() || pending.length) return "Answer the pending Pi question first";
+    if (adapter.uiPromptOpen() || pending.length || unsupported.size) return "Answer the pending Pi question first";
     if (adapter.getEditorText().trim()) return "Clear the Pi editor draft first";
   }
   async function handle(request: InteractionRequest): Promise<InteractionResult> {
@@ -103,20 +109,26 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       return readConversation(branch, { branchId: generation, before: request.before, limit: request.limit });
     }
     if (request.kind === "state") {
-      const pending = await query();
-      checkRequest();
-      return { questionProtocol: supported === true, pending, shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" } satisfies SessionInteractionState;
+      const pending = pendingQuestions();
+      return { questionProtocol, pending, questionUnavailableReason: unavailableReason(), shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" } satisfies SessionInteractionState;
     }
     if (request.kind === "submit-answer") {
-      const pending = await query();
-      checkRequest();
-      if (!supported) throw new Error("Direct answering unsupported");
-      if (!pending.some((p) => p.toolCallId === request.toolCallId)) throw new Error("Question stale; answered elsewhere or closed");
-      const reply = await producer({ kind: "submit", toolCallId: request.toolCallId, answers: request.answers }, 5_000);
-      checkRequest();
+      if (unsupported.has(request.toolCallId)) throw new Error("This prompt can only be answered in Pi");
+      if (!questionnaires.has(request.toolCallId)) throw new Error("Question stale; answered elsewhere or closed");
+      let reply: Record<string, unknown> | undefined;
+      try { reply = await submitAnswer(request.toolCallId, request.answers); }
+      finally { checkRequest(); }
       if (!reply) throw new Error(DELIVERY_UNCONFIRMED);
-      if (!isObject(reply) || reply.ok !== true || reply.accepted !== true) throw new Error(isObject(reply) && typeof reply.error === "string" ? reply.error : "Answer unavailable");
-      return { accepted: true };
+      if (reply.ok === true) { questionnaires.delete(request.toolCallId); return { accepted: true }; }
+      if (reply.code === "not_found") {
+        questionnaires.delete(request.toolCallId);
+        throw new Error("Question stale; answered elsewhere or closed");
+      }
+      if (reply.code === "unsupported_host") {
+        unsupported.add(request.toolCallId);
+        throw new Error("This prompt can only be answered in Pi");
+      }
+      throw new Error(`Answer rejected: ${typeof reply.reason === "string" ? reply.reason : String(reply.code)}`);
     }
     if (request.kind === "send-message") {
       if (request.delivery === "send" && !adapter.isIdle()) throw new Error("Pi started working; reopen Send and choose Steer now or Queue for later");
@@ -131,7 +143,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
     const shortcuts = await effectiveDashboardShortcuts(adapter.env);
     const shortcut = shortcuts.find((s) => s.key === request.key);
     if (!shortcut || shortcut.send !== request.expectedSend) throw new Error("Configured command changed or unavailable");
-    const pending = await query();
+    const pending = pendingQuestions();
     checkRequest();
     const reason = disabled(pending);
     if (reason) throw new Error(reason);
@@ -193,24 +205,28 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       void promise.then(send);
     });
   });
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, () => { server.off("error", reject); resolve(); }); });
+  try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(path, () => { server.off("error", reject); resolve(); }); });
+  } catch (error) { for (const off of unsubscribe) off(); throw error; }
   let owned;
   try {
     await chmod(path, 0o600);
     owned = await lstat(path);
   } catch (error) {
     active = false;
+    for (const off of unsubscribe) off();
     for (const client of clients) client.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     throw error;
   }
   return {
     target,
-    branchChanged() { branchId = randomUUID(); for (const cancel of cancellations) cancel(); },
+    branchChanged() { branchId = randomUUID(); questionnaires.clear(); unsupported.clear(); for (const cancel of cancellations) cancel(); },
     lifecycleChanged() { dispatching = false; },
     async close() {
       if (!active) return;
       active = false;
+      for (const off of unsubscribe) off();
       for (const cancel of cancellations) cancel();
       for (const client of clients) client.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));

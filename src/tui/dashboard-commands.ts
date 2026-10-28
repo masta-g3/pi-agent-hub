@@ -379,7 +379,7 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
   const closed = sessionClosure(session) !== undefined;
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
-  const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length);
+  const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length || input.interactionState?.questionUnavailableReason);
   const label = spec.name === "open" && (session.status === "error" || session.status === "stopped")
     ? "Restart"
     : spec.name === "open" && (isQuestion || input.conversation)

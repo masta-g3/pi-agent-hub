@@ -38,33 +38,17 @@ Rules' sync also adds this package to Pi settings. You do not need a second inst
 
 ### Inline questions
 
-Conversation can display completed messages without an extra question package. Answering questionnaires inside Hub requires a producer that supports its external-answer protocol. Rules' attention metadata alone does not provide this.
-
-The verified integration is the `2.10.1-hub.1` fork of `@juicesharp/rpiv-ask-user-question`. It retains the original package name. Do not assume the ordinary npm release supports this protocol or load both copies together.
-
-Download the [verified tarball](https://github.com/masta-g3/pi-agent-hub/raw/afa0fa7549b8e1b2804b0308f6ed8f3187f46fa8/agent-work/tickets/cockpit-013/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz). Its SHA-256 is `e91e010cf2f12c609c1ea1689a89616fbc126006f2ec50a5d129b4546ec6744c`. Review the included `package/docs/hosts.md` before installation. Extensions run with your user's permissions.
-
-Install the verified archive into a new versioned directory, not over a running package:
+Conversation can display completed messages without an extra question package. Answering questionnaires inside Hub requires `@juicesharp/rpiv-ask-user-question` 2.15.0+:
 
 ```bash
-shasum -a 256 /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
-# Continue only if the checksum matches above.
-PATCH_HOME="$HOME/.local/share/pi-hub-questions/2.10.1-hub.1"
-mkdir -p "$PATCH_HOME"
-cp /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz "$PATCH_HOME/"
-cd "$PATCH_HOME"
-npm install --save-exact ./juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
+pi install npm:@juicesharp/rpiv-ask-user-question
 ```
 
-Close running Pi sessions and back up Pi settings. Use `pi list` to find the existing questionnaire source. If present, remove it with `pi remove <original-source>` and remove any explicit extension path that also loads it. Then register the replacement directory:
+Reload or restart the managed Pi session after installation. Hub uses the package's official answer events. Rules' attention metadata alone does not enable answering.
 
-```bash
-pi install "$PATCH_HOME/node_modules/@juicesharp/rpiv-ask-user-question"
-```
+Hub shows option labels and descriptions. Options with previews stay answerable; their **preview in Pi** marker means the preview itself is available only in Pi. Older package versions show an update notice. Prompts that cannot accept external answers show **This prompt can only be answered in Pi** and **Open in Pi**.
 
-Do not pass the `.tgz` directly to `pi install`; Pi treats local files as extension source. Restart Pi and verify that exactly one `ask_user_question` tool is available. Keep `package.json`, `package-lock.json`, and the archive together. To reproduce this dependency set in a new directory or on another machine, copy all three there and run `npm ci` before registering that package directory with Pi. This local installation does not follow upstream updates. To roll back, close Pi, remove the replacement source, and restore the original source from your saved settings.
-
-Without this integration, use **Open in Pi** to answer. See [Conversation](FEATURES.md#conversation) for dashboard controls.
+See [Conversation](FEATURES.md#conversation) for dashboard controls.
 
 ### Your own integrations
 

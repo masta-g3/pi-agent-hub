@@ -155,7 +155,7 @@ for (const width of [80, 120, 160]) {
   test(`${width}-column question and conversation frames keep hints and status readable`, () => {
     const dialog = createQuestionDialog({ managedId: "m", piSessionId: "p", instanceId: "i" }, "Session", {
       toolCallId: "call", params: { questions: [{ question: "Read [the guide](https://example.com) first. Which?", header: "Choice",
-        options: [{ label: "First", description: "First option", preview: "A preview" }] }] },
+        options: [{ label: "First", description: "First option", hasPreview: true }] }] },
     });
     decorationOnly(renderQuestionDialog(dialog, width, 16, theme));
     handleQuestionInput(dialog, "t");
