@@ -59,6 +59,14 @@ const FORK_RESET_TIMEOUT_MS = 5_000;
 const FORK_RESET_POLL_MS = 50;
 const FORK_ATTEMPT_PATTERN = /^[A-Za-z0-9_-]{16,80}$/;
 
+export const DASHBOARD_NOTE = `## Hub dashboard
+The user supervises this session from the pi-hub dashboard and usually does not read this transcript. They see the session title, ticket subtitle, workflow position, and your explicit requests.
+
+- Need a decision: use ask_user_question if available. Make it self-contained: the decision, the context needed to choose, 2-4 concrete options with trade-offs, and your recommended option first. Do not assume the user read earlier chat.
+- Work ready or blocked: use hand_off if available, with the outcome or blocker, the recommended next action, and an evidence path.
+- Do not ask only in plain chat text; it is easy to miss. Do not use these tools for routine progress.
+- A dashboard reply approves only what it says. Follow existing tool and workflow rules.`;
+
 export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   startInteraction?: typeof startSessionInteraction;
   registerMcp?: typeof registerMcpTools;
@@ -174,10 +182,13 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   }
 
   pi.on("before_agent_start", async (event) => {
-    if (process.env.PI_TMUX_SUBAGENTS_JOB_ID) return;
+    if (process.env.PI_TMUX_SUBAGENTS_JOB_ID || process.env[KIND_ENV] === "subagent") return;
+    const additions: string[] = [];
+    if (process.env[SESSION_ID_ENV]) additions.push(DASHBOARD_NOTE);
     const guidance = process.env[WORKTREE_GUIDANCE_ENV]?.trim();
-    if (!guidance || guidance.length > WORKTREE_GUIDANCE_MAX_LENGTH) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${guidance}` };
+    if (guidance && guidance.length <= WORKTREE_GUIDANCE_MAX_LENGTH) additions.push(guidance);
+    if (!additions.length) return;
+    return { systemPrompt: [event.systemPrompt, ...additions].join("\n\n") };
   });
 
   pi.on("session_start", async (_event, ctx) => {
