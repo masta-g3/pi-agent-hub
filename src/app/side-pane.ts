@@ -9,8 +9,10 @@ import {
   selectPane,
   setPaneSlot,
   setPaneTitle,
+  setSessionStatusBarVisible,
   splitPaneAttach,
   splitWindowAttach,
+  switchClientTo,
   type TmuxExec,
   type WindowPane,
 } from "../core/tmux.js";
@@ -60,6 +62,7 @@ export type SidePaneResult =
   | { kind: "occupied"; slot: SidePaneSlot; session: string }
   | { kind: "capacity"; capacity: 0 | 2 | 4; pins: number };
 export type CloseSidePaneResult = { kind: "closed" } | { kind: "unavailable" };
+export type FollowSidePaneResult = { kind: "following" } | { kind: "refused"; reason: string };
 export type FocusSidePaneResult = { kind: "focused" } | { kind: "unavailable" };
 export type ResizeSidePaneResult = { kind: "resized"; splitPercent: number } | { kind: "unavailable" };
 export type SpatialDirection = "left" | "right" | "up" | "down";
@@ -324,6 +327,34 @@ export async function relayoutSidePanes(options: {
   if (!inspected.pins.length || inspected.pins.length > capacity || !pinsFit(inspected.pins.length, inspected.own)) return;
   await rebuildSidePanes(options.ownPane, inspected, pinSessions(inspected.pins), options.splitPercent, exec, options.titleFor);
   await selectPane(options.ownPane, exec);
+}
+
+/**
+ * Points the single follow pane's nested client at another managed session.
+ * The target's footer is hidden first and its window pre-sized to the exact pane,
+ * so Pi receives no resize and does not redraw. `window-size latest` is always
+ * restored, and a failed switch also restores the target's footer.
+ */
+export async function retargetFollowPane(options: { ownPane: string; target: string }, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+  const inspected = await inspectSidePaneWindow(options.ownPane, exec);
+  await removeDuplicates(inspected, exec);
+  const pin = inspected.pins.length === 1 ? inspected.pins[0]! : undefined;
+  if (!pin || pin.session === options.target) return false;
+  let switchError: unknown;
+  try {
+    await setSessionStatusBarVisible({ name: options.target, visible: false }, exec);
+    await presizeSessionWindow({ target: options.target, width: pin.rect.width, height: pin.rect.height }, exec);
+    await switchClientTo({ clientTty: pin.tty, target: options.target }, exec);
+  } catch (error) { switchError = error; }
+  try { await resetSessionWindowSize(options.target, exec); }
+  catch (error) { if (switchError === undefined && !targetMissing(error)) throw error; }
+  if (switchError !== undefined) {
+    await setSessionStatusBarVisible({ name: options.target, visible: true }, exec).catch(() => {});
+    throw switchError;
+  }
+  try { await setSessionStatusBarVisible({ name: pin.session, visible: true }, exec); }
+  catch (error) { if (!targetMissing(error)) throw error; }
+  return true;
 }
 
 export async function closeSidePaneShowing(options: { target: string; ownPane: string }, exec: TmuxExec = realTmuxExec): Promise<boolean> {

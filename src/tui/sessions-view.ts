@@ -28,6 +28,7 @@ import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, t
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
+import type { FollowSidePaneResult } from "../app/side-pane.js";
 import type { CollapsibleSection, SessionsViewState } from "./dialog.js";
 import { errorMessage, isPromise, type CloseSidePaneResult, type DialogContext, type ResizeSidePaneResult, type SessionDialog, type SessionsViewActions, type SidePaneResult, type SidePaneViewState } from "./dialog.js";
 
@@ -72,6 +73,8 @@ import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAtt
 
 const MIN_RENDER_WIDTH = MIN_LAYOUT_WIDTH;
 const DOUBLE_CLICK_MS = 400;
+/** Follow view waits for the selection to settle so held j/k does not retarget per row. */
+const FOLLOW_SETTLE_MS = 200;
 
 export class SessionsView implements Component {
   private conversationOpen = false;
@@ -111,6 +114,8 @@ export class SessionsView implements Component {
   private selectedRepo: string | undefined;
   private rowTargets: (SessionListTarget | undefined)[] = [];
   private selectedRowAnimating = false;
+  private followTarget: string | undefined;
+  private followTimer: ReturnType<typeof setTimeout> | undefined;
   private tierChipRow: number | undefined;
   private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
@@ -327,6 +332,7 @@ export class SessionsView implements Component {
     this.clearExpiredFlash();
     this.lastWidth = width;
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
+    this.scheduleFollowRetarget();
     const selectedId = this.controller.selected()?.id;
     if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
     if (this.workspaceSessionId && selectedId !== this.workspaceSessionId) this.closeWorkspace();
@@ -426,6 +432,7 @@ export class SessionsView implements Component {
       pinCapacity: sidePaneState.capacity,
       pinConstrained: sidePaneState.constrained,
       pinsHidden: sidePaneState.hidden,
+      following: sidePaneState.following === true,
       archiveExpanded: this.archiveExpanded,
       archiveDisclosureSelected: this.archiveDisclosureSelected,
       selectedSection: this.selectedSection,
@@ -484,6 +491,8 @@ export class SessionsView implements Component {
   }
 
   disposeInteraction(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = undefined;
     this.interactionStopped = true; this.closeConversation(); this.interaction.setTarget(undefined);
   }
 
@@ -524,6 +533,12 @@ export class SessionsView implements Component {
       }
     }
     this.actions.requestRender?.();
+  }
+
+  /** Exact selected session id; undefined while a synthetic header, disclosure, or cue is selected. */
+  get selectedSessionTarget(): string | undefined {
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected) return undefined;
+    return this.controller.selected()?.id;
   }
 
   /** True while the selected running/starting row is on screen and needs spinner frames. */
@@ -937,6 +952,8 @@ export class SessionsView implements Component {
       focusSidePaneSlot: Boolean(this.actions.focusSidePaneSlot),
       closeSidePane: Boolean(this.actions.closeSidePane),
       resizeSidePane: Boolean(this.actions.resizeSidePane),
+      followSidePane: Boolean(this.actions.followSidePane && this.actions.unfollowSidePane),
+      focusFollow: Boolean(this.actions.focusFollow),
       acknowledge: true,
       attentionBell: Boolean(this.actions.attentionDelivery?.setAttentionBell),
     };
@@ -959,6 +976,7 @@ export class SessionsView implements Component {
         count: this.pinState().slots.filter(Boolean).length,
         capacity: this.pinState().capacity,
         constrained: this.pinState().constrained,
+        following: this.pinState().following === true,
       },
       interactionBlockedReason: blockedReason,
     });
@@ -1092,6 +1110,7 @@ export class SessionsView implements Component {
         return;
       }
       switch (action) {
+        case "focus-follow": this.focusFollow(command.targetSessionId!); return;
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
         case "send": this.startSendDialog(); return;
@@ -1132,6 +1151,7 @@ export class SessionsView implements Component {
       case "project:mcp": this.startPicker("mcp"); return;
       case "action:new": this.startNewDialog(); return;
       case "view:conversation": this.toggleConversation(); return;
+      case "view:follow": this.toggleFollow(command.targetSessionId); return;
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
@@ -1292,6 +1312,74 @@ export class SessionsView implements Component {
         } else if (result.kind === "capacity") {
           this.flashMessage(result.capacity ? `pin capacity ${result.capacity}; close a pin or widen` : "pinning needs 100 columns; use Enter instead");
         } else this.flashMessage(result.kind === "focused" ? `focused slot ${slot} ${glyphs.pendingStep} ${session.title}` : `slot ${slot} ${glyphs.pendingStep} ${session.title}`);
+      },
+      failure: (error) => { this.message = errorMessage(error); },
+    });
+  }
+
+  private followView(): boolean {
+    return this.pinState().following === true;
+  }
+
+  /** Retargets the follow pane once the exact live selection has been stable for FOLLOW_SETTLE_MS. */
+  private scheduleFollowRetarget(): void {
+    const retarget = this.actions.retargetFollow;
+    const selected = this.controller.selected();
+    const target = retarget && this.followView() && !this.pinState().hidden && selected && this.selectedSessionTarget === selected.id
+      && selected.status !== "stopped" && selected.status !== "error" ? selected.id : undefined;
+    if (target === this.followTarget) return;
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = undefined;
+    this.followTarget = target;
+    if (!target || !retarget) return;
+    this.followTimer = setTimeout(() => {
+      this.followTimer = undefined;
+      void Promise.resolve(retarget(target)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
+    }, FOLLOW_SETTLE_MS);
+  }
+
+  private toggleFollow(sessionId: string | undefined) {
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+    const following = this.followView();
+    const follow = this.actions.followSidePane;
+    const unfollow = this.actions.unfollowSidePane;
+    if (!follow || !unfollow || (!following && !sessionId)) {
+      this.message = "follow view unavailable";
+      return;
+    }
+    if (!following) this.closeConversation();
+    const pending = following ? "leaving follow view..." : "opening follow view...";
+    runSyncAsyncAction<FollowSidePaneResult | CloseSidePaneResult>(() => following ? unfollow() : follow(sessionId!), {
+      pending,
+      setBusy: (busy) => { this.busy = busy; },
+      setMessage: (message) => { if (!message || this.message === pending) this.message = message; },
+      success: (result) => {
+        if (result.kind === "refused") this.flashMessage(result.reason);
+        else if (result.kind === "unavailable") this.flashMessage("follow view is already closed");
+      },
+      failure: (error) => { this.message = errorMessage(error); },
+    });
+  }
+
+  private focusFollow(sessionId: string) {
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.message = undefined;
+    const focus = this.actions.focusFollow;
+    if (!focus) {
+      this.message = "follow focus unavailable";
+      return;
+    }
+    runSyncAsyncAction(() => focus(sessionId), {
+      pending: "focusing follow pane...",
+      setBusy: (busy) => { this.busy = busy; },
+      setMessage: (message) => { if (!message || this.message === "focusing follow pane...") this.message = message; },
+      // A hidden follow pane cannot take the keyboard; open the session full screen instead.
+      success: (result) => {
+        const session = this.controller.snapshot().sessions.find((item) => item.id === sessionId);
+        if (result.kind === "unavailable" && session) this.acknowledgeAndAttach(sessionId, questionRequestId(session));
       },
       failure: (error) => { this.message = errorMessage(error); },
     });
@@ -1566,7 +1654,8 @@ export class SessionsView implements Component {
     }
     const requestId = questionRequestId(selected);
     const focusPinned = this.actions.focusPinnedSession;
-    if (requestId && focusPinned) {
+    // While following, Open means full screen; Enter already types into the follow pane.
+    if (requestId && focusPinned && !this.followView()) {
       runSyncAsyncAction(() => focusPinned(selected.id), {
         pending: "locating questionnaire...",
         setBusy: (busy) => { this.busy = busy; },

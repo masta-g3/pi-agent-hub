@@ -13,6 +13,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Add a Conversation panel with completed messages, a working indicator, and inline answers through compatible question extensions.
 - Add `:` search for actions, sessions, and filters, plus notifications for fresh explicit requests.
 - Add up to four live session pins with stable slots, `Alt+1`–`Alt+4` focus, and `x` to close the selected session's pin.
+- Add follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it.
 - Add producer-owned workflow progress, completion markers, and optional focus-mode display.
 - Add dashboard theme preview and Pi theme synchronization.
 - Document optional Rules and subagent setup and refresh the dashboard image.
@@ -22,6 +23,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Start fleet and board subagent trees collapsed; use arrow keys for one tree and Shift with arrows for all trees.
 - Size session rows to the available space and show each parent's group after its title, alongside worktree and multi-repo indicators.
 - Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
+- Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
 - Open sessions directly with `Enter` at every width; use `i` for the full-width workspace in narrow terminals.
 - Use distinct initial session/fork names and preserve linked ticket titles.

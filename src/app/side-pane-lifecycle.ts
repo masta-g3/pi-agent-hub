@@ -9,9 +9,11 @@ import {
   selectPane,
   setPaneTitle,
   setSessionStatusBarVisible,
+  setWindowFollowFlag,
   setWindowPaneBorderStatus,
   switchClientWithReturn,
   togglePaneZoom,
+  windowFollowFlag,
   windowZoomed,
   type TmuxExec,
 } from "../core/tmux.js";
@@ -28,11 +30,13 @@ import {
   rectangleNeighbor,
   relayoutSidePanes,
   resizeSidePane,
+  retargetFollowPane,
   sidebarRepairWidth,
   sidePaneCapacity,
   sidePaneStatus,
   type CloseSidePaneResult,
   type FocusSidePaneResult,
+  type FollowSidePaneResult,
   type PaneRectangle,
   type ResizeSidePaneResult,
   type SidePaneResult,
@@ -58,6 +62,8 @@ export interface SidePaneLifecycleSnapshot {
   constrained: boolean;
   /** Pins are alive but hidden behind a Hub-made zoom because the window is too narrow for them. */
   hidden: boolean;
+  /** The single pane follows the dashboard selection instead of holding a fixed pin. */
+  following: boolean;
   splitPercent: number;
   dashboardStatusVisible: boolean;
 }
@@ -70,6 +76,8 @@ export interface SidePaneLifecycleDependencies {
   ownPane(): string | undefined;
   insideTmux(): boolean;
   sessions(): readonly RuntimeSession[];
+  /** Exact selected session id, or undefined for synthetic dashboard selections. */
+  selectedSessionId(): string | undefined;
   revealSession(sessionId: string): boolean | void;
   acknowledgeSession(sessionId: string, requestId?: string): Promise<void>;
   activeAttentionRequestId?(sessionId: string): string | undefined;
@@ -90,6 +98,11 @@ export interface SidePaneLifecycle {
   assign(sessionId: string, slot: SidePaneSlot): Promise<SidePaneResult>;
   focus(slot: SidePaneSlot): Promise<FocusSidePaneResult>;
   focusPinnedSession(sessionId: string): Promise<FocusSidePaneResult>;
+  follow(sessionId: string): Promise<FollowSidePaneResult>;
+  unfollow(): Promise<CloseSidePaneResult>;
+  /** Shows the selected live session in the follow pane; quietly skips stale, hidden, or non-live targets. */
+  retarget(sessionId: string): Promise<void>;
+  focusFollow(sessionId: string): Promise<FocusSidePaneResult>;
   close(sessionId: string): Promise<CloseSidePaneResult>;
   resize(delta: -1 | 1): Promise<ResizeSidePaneResult>;
   focusDirection(direction: SpatialDirection): Promise<FocusSidePaneResult>;
@@ -102,10 +115,12 @@ export interface SidePaneLifecycle {
 }
 
 const COCKPIT_PANE_TITLE = "PI HUB / PINNED FLEET";
+const FOLLOW_COCKPIT_TITLE = "PI HUB / FOLLOWING";
 const FOCUSED_PIN_HINT = "Alt+1–4 · Ctrl+Q";
+const FOLLOWED_PANE_HINT = "Ctrl+Q";
 
 const EMPTY_SNAPSHOT: SidePaneLifecycleSnapshot = {
-  pins: [], capacity: 0, constrained: false, hidden: false, splitPercent: 50, dashboardStatusVisible: true,
+  pins: [], capacity: 0, constrained: false, hidden: false, following: false, splitPercent: 50, dashboardStatusVisible: true,
 };
 
 export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): SidePaneLifecycle {
@@ -121,6 +136,8 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   let bindingFingerprint: string | undefined;
   // Phone-size windows share the desktop window; pins hide behind a zoom and are rebuilt from the last wide layout.
   let hiddenPins: { zoomedByHub: boolean } | undefined;
+  // The latest automatic retarget destination; presence never treats it as a user focus.
+  let retargetedSessionId: string | undefined;
   let wideLayout: { sidebarWidth: number; splitPercent: number } | undefined;
   const activeIntents = new Set<Promise<unknown>>();
 
@@ -203,6 +220,26 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     }
   };
 
+  /** The follow pane keeps its last live session when the selection has no live Pi; say so in its title. */
+  const followSelectionNote = (shownTmux: string) => {
+    const selectedId = deps.selectedSessionId();
+    const selected = selectedId ? sessionById(selectedId) : undefined;
+    if (!selected || selected.tmuxSession === shownTmux || isLive(selected)) return "";
+    return ` · selected ${selected.title} is ${selected.status}`;
+  };
+  /** Retargets only the exact live selection; callers run inside the serialized queue. */
+  const retargetNow = async (ownPane: string, sessionId: string): Promise<boolean> => {
+    const session = sessionById(sessionId);
+    if (!session || !isLive(session) || deps.selectedSessionId() !== sessionId) return false;
+    const status = await sidePaneStatus({ ownPane }, exec);
+    if (status.pins.length !== 1 || pinsHidden(status) || !await windowFollowFlag(ownPane, exec)) return false;
+    if (!await retargetFollowPane({ ownPane, target: session.tmuxSession }, exec)) return false;
+    // retargetFollowPane already swapped both footers; presence must not toggle them again.
+    openTmuxSessions = [session.tmuxSession];
+    retargetedSessionId = session.id;
+    return true;
+  };
+
   const reconcileHiddenPins = async (ownPane: string, status: SidePaneStatus): Promise<boolean> => {
     const own = status.own!;
     if (status.pins.length && sidePaneCapacity(own.windowWidth) === 0) {
@@ -236,7 +273,15 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   const refreshPresence = async () => {
     const ownPane = deps.ownPane();
     let status = ownPane ? await sidePaneStatus({ ownPane }, exec) : undefined;
-    if (ownPane && status?.own && await reconcileHiddenPins(ownPane, status)) status = await sidePaneStatus({ ownPane }, exec);
+    const restored = Boolean(ownPane && status?.own && await reconcileHiddenPins(ownPane, status));
+    if (restored) status = await sidePaneStatus({ ownPane: ownPane! }, exec);
+    let following = false;
+    if (ownPane && status?.pins.length === 1) following = await windowFollowFlag(ownPane, exec);
+    else if (ownPane && snapshot.following) await setWindowFollowFlag(ownPane, false, exec);
+    if (ownPane && status && following && restored && !hiddenPins) {
+      const selected = deps.selectedSessionId();
+      if (selected && await retargetNow(ownPane, selected)) status = await sidePaneStatus({ ownPane }, exec);
+    }
     const nextTmux = status?.pins.map((pin) => pin.session) ?? [];
     const hadPins = openTmuxSessions.length > 0;
     const hasPins = nextTmux.length > 0;
@@ -249,14 +294,16 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       await setDashboardStatusVisible(!hasPins);
       if (!hiddenPins) await setWindowPaneBorderStatus(ownPane, hasPins, hasPins ? deps.currentChrome() : undefined, exec);
     }
-    if (ownPane && hasPins && status?.own?.title !== COCKPIT_PANE_TITLE) await setPaneTitle(ownPane, COCKPIT_PANE_TITLE, exec);
-    if (ownPane && !hasPins && status?.own?.title === COCKPIT_PANE_TITLE) await setPaneTitle(ownPane, "", exec);
+    const cockpitTitle = following ? FOLLOW_COCKPIT_TITLE : COCKPIT_PANE_TITLE;
+    if (ownPane && hasPins && status?.own?.title !== cockpitTitle) await setPaneTitle(ownPane, cockpitTitle, exec);
+    if (ownPane && !hasPins && (status?.own?.title === COCKPIT_PANE_TITLE || status?.own?.title === FOLLOW_COCKPIT_TITLE)) await setPaneTitle(ownPane, "", exec);
     if (ownPane) await reconcileBinding(hasPins, ownPane);
     for (const pin of status?.pins ?? []) {
-      const hint = pin.active ? ` · ${FOCUSED_PIN_HINT}` : "";
-      const prefix = `LIVE ${pin.slot} · `;
-      const identityWidth = Math.max(8, pin.rect.width - [...`${prefix}${hint}`].length);
-      const desiredTitle = `${prefix}${pinIdentity(pin.session, identityWidth)}${hint}`;
+      const hint = pin.active ? ` · ${following ? FOLLOWED_PANE_HINT : FOCUSED_PIN_HINT}` : "";
+      const prefix = following ? "LIVE · " : `LIVE ${pin.slot} · `;
+      const note = following ? followSelectionNote(pin.session) : "";
+      const identityWidth = Math.max(8, pin.rect.width - [...`${prefix}${note}${hint}`].length);
+      const desiredTitle = `${prefix}${pinIdentity(pin.session, identityWidth)}${note}${hint}`;
       if (pin.title !== desiredTitle) await setPaneTitle(pin.paneId, desiredTitle, exec);
     }
     await syncFooters(openTmuxSessions, nextTmux);
@@ -266,7 +313,10 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         title: session.title, active: pin.active, rect: pin.rect }] : [];
     });
     const activeSessionId = pins.find((pin) => pin.active)?.sessionId;
-    if (activeSessionId && activeSessionId !== snapshot.activeSessionId) {
+    // A pane that shows a retargeted session is not a focus, even if the user focused it mid-switch.
+    const retargeted = retargetedSessionId;
+    retargetedSessionId = undefined;
+    if (activeSessionId && activeSessionId !== snapshot.activeSessionId && activeSessionId !== retargeted) {
       const active = sessionById(activeSessionId);
       const requestId = active ? deps.activeAttentionRequestId?.(active.id) : undefined;
       if (active && deps.revealSession(active.id) !== false && (active.status === "waiting" || requestId)) {
@@ -279,6 +329,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       capacity: status?.capacity ?? 0,
       constrained: status?.constrained ?? false,
       hidden: hiddenPins !== undefined,
+      following,
       splitPercent: status?.splitPercent ?? 50,
       dashboardStatusVisible: snapshot.dashboardStatusVisible,
     };
@@ -346,12 +397,13 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     void serialize(() => deps.syncManagedSessionStatusBars(openTargets())).catch(() => {});
   };
 
-  const place = (sessionId: string, slot?: SidePaneSlot) => trackIntent(withPausedPresence(async () => {
+  const placeNow = async (sessionId: string, slot?: SidePaneSlot, follow = false) => {
     if (stopped) throw new Error("dashboard stopped");
     const session = sessionById(sessionId);
     if (!session) throw new Error("session not found");
     const ownPane = ownPaneOrThrow();
     const before = await sidePaneStatus({ ownPane }, exec);
+    if (!follow && before.pins.length === 1 && await windowFollowFlag(ownPane, exec)) throw new Error("leave follow view first (o)");
     const existing = before.pins.find((pin) => pin.session === session.tmuxSession);
     if (existing && (slot === undefined || existing.slot === slot)) {
       if (pinsHidden(before)) {
@@ -370,6 +422,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     const openingFirst = before.pins.length === 0;
     try {
       if (openingFirst) {
+        await setWindowFollowFlag(ownPane, follow, exec);
         await setDashboardStatusVisible(false);
         await setWindowPaneBorderStatus(ownPane, true, deps.currentChrome(), exec);
         await setPaneTitle(ownPane, COCKPIT_PANE_TITLE, exec);
@@ -378,6 +431,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         ? await pinSidePane({ target: session.tmuxSession, ownPane, titleFor }, exec)
         : await assignSidePaneSlot({ target: session.tmuxSession, ownPane, slot, titleFor }, exec);
       if (openingFirst && (result.kind === "capacity" || result.kind === "occupied")) {
+        if (follow) await setWindowFollowFlag(ownPane, false, exec);
         await setDashboardStatusVisible(true);
         await setPaneTitle(ownPane, "", exec);
         await setWindowPaneBorderStatus(ownPane, false, undefined, exec);
@@ -389,13 +443,20 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         await refreshPresence().catch(() => {});
         await reconcileBinding(true, ownPane).catch(() => {});
       } else if (openingFirst) {
+        if (follow) await setWindowFollowFlag(ownPane, false, exec).catch(() => {});
         await setDashboardStatusVisible(true).catch(() => {});
         await setPaneTitle(ownPane, "", exec).catch(() => {});
         await setWindowPaneBorderStatus(ownPane, false, undefined, exec).catch(() => {});
       }
       throw error;
     }
-  }));
+  };
+  const place = (sessionId: string, slot?: SidePaneSlot) => trackIntent(withPausedPresence(() => placeNow(sessionId, slot)));
+  const followStatus = async (ownPane: string) => {
+    const status = await sidePaneStatus({ ownPane }, exec);
+    const following = status.pins.length === 1 && await windowFollowFlag(ownPane, exec);
+    return { status, following };
+  };
 
   return {
     start() {
@@ -433,6 +494,56 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         if (pinsHidden(status)) return { kind: "unavailable" as const };
         if (!status.pins.some((pin) => pin.session === session.tmuxSession)) return { kind: "unavailable" as const };
         if (!await revealAndAcknowledge(session)) return { kind: "unavailable" as const };
+        const result = await focusSidePane({ target: session.tmuxSession, ownPane }, exec);
+        if (result.kind === "focused") await afterMutation(undefined);
+        return result;
+      }));
+    },
+    follow(sessionId) {
+      if (stopped) return Promise.resolve({ kind: "refused", reason: "dashboard stopped" });
+      return trackIntent(withPausedPresence(async (): Promise<FollowSidePaneResult> => {
+        const session = sessionById(sessionId);
+        if (!session || !isLive(session)) return { kind: "refused", reason: "session is not live" };
+        const ownPane = ownPaneOrThrow();
+        const status = await sidePaneStatus({ ownPane }, exec);
+        if (status.pins.length) return { kind: "refused", reason: "close pins first" };
+        if (status.capacity === 0) return { kind: "refused", reason: "follow view needs 100 columns" };
+        const result = await placeNow(sessionId, 1, true);
+        return result.kind === "pinned" ? { kind: "following" } : { kind: "refused", reason: "follow view needs 100 columns" };
+      }));
+    },
+    unfollow() {
+      if (stopped) return Promise.resolve({ kind: "unavailable" });
+      return trackIntent(withPausedPresence(async (): Promise<CloseSidePaneResult> => {
+        const ownPane = ownPaneOrThrow();
+        const { status, following } = await followStatus(ownPane);
+        if (!following) return { kind: "unavailable" };
+        const target = status.pins[0]!.session;
+        // A rebuild at phone width would split the zoomed window; kill only the follow pane.
+        const result = pinsHidden(status)
+          ? (await closeSidePaneShowing({ target, ownPane }, exec) ? { kind: "closed" } as const : { kind: "unavailable" } as const)
+          : await closeSidePane({ target, ownPane, titleFor }, exec);
+        await setWindowFollowFlag(ownPane, false, exec);
+        return afterMutation(result);
+      }));
+    },
+    retarget(sessionId) {
+      if (stopped) return Promise.resolve();
+      return trackIntent(serialize(async () => {
+        const ownPane = deps.ownPane();
+        if (ownPane && !stopped && await retargetNow(ownPane, sessionId)) await afterMutation(undefined);
+      }));
+    },
+    focusFollow(sessionId) {
+      if (stopped || !deps.insideTmux()) return Promise.resolve({ kind: "unavailable" });
+      return trackIntent(withPausedPresence(async (): Promise<FocusSidePaneResult> => {
+        const session = sessionById(sessionId);
+        if (!session || !isLive(session)) return { kind: "unavailable" };
+        const ownPane = ownPaneOrThrow();
+        const { status, following } = await followStatus(ownPane);
+        if (!following || pinsHidden(status)) return { kind: "unavailable" };
+        if (status.pins[0]!.session !== session.tmuxSession) await retargetNow(ownPane, sessionId);
+        if (!await revealAndAcknowledge(session)) return { kind: "unavailable" };
         const result = await focusSidePane({ target: session.tmuxSession, ownPane }, exec);
         if (result.kind === "focused") await afterMutation(undefined);
         return result;
@@ -546,4 +657,8 @@ function startPresenceRefreshLoop(options: { ownPane: string | undefined; load()
   const timer = setInterval(run, options.intervalMs ?? 500);
   run();
   return async () => { stopped = true; clearInterval(timer); await inFlight; };
+}
+
+function isLive(session: RuntimeSession): boolean {
+  return session.status !== "stopped" && session.status !== "error";
 }
