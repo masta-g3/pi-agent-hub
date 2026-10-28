@@ -242,7 +242,7 @@ Press `o` with a live session selected, no pins open, and at least 100 columns. 
 
 Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
 
-`Alt+1`–`Alt+4` focuses occupied slots from the sidebar or live panes. `Ctrl+Q` returns to the sidebar. `Alt+Arrow` is an optional spatial alias; some terminals consume it for word movement, so numeric focus is more reliable.
+`Alt+1`–`Alt+4` focuses occupied slots from the sidebar or live panes. `Ctrl+Q` returns to the sidebar. `Alt+←`/`Alt+→` is an optional spatial alias; some terminals consume it for word movement, so numeric focus is more reliable. Hub never binds `Alt+↑`/`Alt+↓`, because Pi uses `Alt+↑` to edit queued messages.
 
 Shrinking the terminal preserves pins and slot numbers. Hub blocks new pins and resizing when the layout is too small; closing pins still works. Pin creation keeps dashboard focus and does not mark a request read. Explicit focus does.
 

@@ -154,7 +154,7 @@ For better modified-key handling, enable extended keys globally if your tmux ver
 set -g extended-keys on
 ```
 
-Use `Alt+1`–`Alt+4` to focus pins. `Alt+Arrow` is an optional spatial alias, but terminals can consume these keys for word movement. Numeric focus or tmux prefix plus arrows avoids that conflict.
+Use `Alt+1`–`Alt+4` to focus pins. `Alt+←`/`Alt+→` is an optional spatial alias, but terminals can consume these keys for word movement. Hub leaves `Alt+↑`/`Alt+↓` to Pi, which uses `Alt+↑` to edit queued messages. Numeric focus or tmux prefix plus arrows avoids that conflict.
 
 ## Documentation
 

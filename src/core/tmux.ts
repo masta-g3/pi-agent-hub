@@ -604,7 +604,7 @@ export async function installSidebarReturnBinding(options: {
   await withFileLock(activePath, async () => {
     const restorePath = join(stateDir, "previous.tmux");
     const returnKey = options.returnKey ?? "C-q";
-    const keys = [...new Set([returnKey, "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"])];
+    const keys = [...new Set([returnKey, "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right"])];
     await removeSidebarReturnBindingUnlocked({ stateDir, refuseLiveForeignOwner: true }, exec);
     const previous = await Promise.all(keys.map((key) => currentKeyBinding(key, exec)));
     await writeFile(restorePath, previous.filter(Boolean).join("\n"), "utf8");
@@ -627,7 +627,8 @@ export async function installSidebarReturnBinding(options: {
     try {
       await bindIntent(returnKey);
       for (const slot of [1, 2, 3, 4]) await bindIntent(`M-${slot}`, `Escape '${slot}'`);
-      const arrows = { Left: "D", Right: "C", Up: "A", Down: "B" } as const;
+      // Alt+Up/Down stay with Pi, which uses Alt+Up to edit queued messages.
+      const arrows = { Left: "D", Right: "C" } as const;
       for (const [direction, suffix] of Object.entries(arrows)) {
         await bindIntent(`M-${direction}`, `Escape '[1;3${suffix}'`);
       }

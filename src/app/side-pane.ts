@@ -65,7 +65,7 @@ export type CloseSidePaneResult = { kind: "closed" } | { kind: "unavailable" };
 export type FollowSidePaneResult = { kind: "following" } | { kind: "refused"; reason: string };
 export type FocusSidePaneResult = { kind: "focused" } | { kind: "unavailable" };
 export type ResizeSidePaneResult = { kind: "resized"; splitPercent: number } | { kind: "unavailable" };
-export type SpatialDirection = "left" | "right" | "up" | "down";
+export type SpatialDirection = "left" | "right";
 
 interface InspectedWindow {
   own?: WindowPane;
@@ -155,13 +155,11 @@ export function rectangleNeighbor<T extends { paneId: string; rect: PaneRectangl
 ): T | undefined {
   const sourceRight = source.left + source.width;
   const sourceBottom = source.top + source.height;
-  const sourceCenterX = source.left + source.width / 2;
   const sourceCenterY = source.top + source.height / 2;
   const ranked = candidates.flatMap((candidate) => {
     const rect = candidate.rect;
     const right = rect.left + rect.width;
     const bottom = rect.top + rect.height;
-    const horizontalOverlap = rect.left < sourceRight && right > source.left;
     const verticalOverlap = rect.top < sourceBottom && bottom > source.top;
     let gap: number;
     let orthogonalDistance: number;
@@ -171,12 +169,6 @@ export function rectangleNeighbor<T extends { paneId: string; rect: PaneRectangl
     } else if (direction === "right" && rect.left >= sourceRight && verticalOverlap) {
       gap = rect.left - sourceRight;
       orthogonalDistance = Math.abs(rect.top + rect.height / 2 - sourceCenterY);
-    } else if (direction === "up" && bottom <= source.top && horizontalOverlap) {
-      gap = source.top - bottom;
-      orthogonalDistance = Math.abs(rect.left + rect.width / 2 - sourceCenterX);
-    } else if (direction === "down" && rect.top >= sourceBottom && horizontalOverlap) {
-      gap = rect.top - sourceBottom;
-      orthogonalDistance = Math.abs(rect.left + rect.width / 2 - sourceCenterX);
     } else return [];
     return [{ candidate, gap, orthogonalDistance }];
   });

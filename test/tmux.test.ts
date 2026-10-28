@@ -387,9 +387,9 @@ test("sidebar bindings deliver guarded spatial and return intents to the exact c
   await installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec);
 
   const binds = exec.calls.filter((call) => call.args[0] === "bind-key");
-  const keys = ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"];
+  const keys = ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right"];
   assert.deepEqual(binds.map((call) => call.args[2]), keys);
-  const delivered = ["C-q", "Escape '1'", "Escape '2'", "Escape '3'", "Escape '4'", "Escape '[1;3D'", "Escape '[1;3C'", "Escape '[1;3A'", "Escape '[1;3B'"];
+  const delivered = ["C-q", "Escape '1'", "Escape '2'", "Escape '3'", "Escape '4'", "Escape '[1;3D'", "Escape '[1;3C'"];
   for (const [index, key] of keys.entries()) {
     assert.deepEqual(binds[index]?.args.slice(3), [
       "if-shell", "-F", "#{==:#{session_name},pi-agent-hub}",
@@ -399,7 +399,7 @@ test("sidebar bindings deliver guarded spatial and return intents to the exact c
   }
   const status = await inspectSidebarReturnBinding({ stateDir });
   assert.deepEqual(status.active && status.keys, keys);
-  assert.match(await readFile(join(stateDir, "previous.tmux"), "utf8"), /M-Down/);
+  assert.match(await readFile(join(stateDir, "previous.tmux"), "utf8"), /M-Right/);
 
   await removeSidebarReturnBinding({ stateDir }, exec);
 
@@ -460,7 +460,7 @@ test("sidebar binding install failure rolls back the whole binding set", async (
     return { stdout: "", stderr: "" };
   });
   await assert.rejects(() => installSidebarReturnBinding({ dashboardSession: "pi-agent-hub", sidebarPane: "%1", stateDir }, exec), /bind failed/);
-  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right", "M-Up", "M-Down"]);
+  assert.deepEqual(exec.calls.filter((call) => call.args[0] === "unbind-key").map((call) => call.args.at(-1)), ["C-q", "M-1", "M-2", "M-3", "M-4", "M-Left", "M-Right"]);
   assert.deepEqual(await inspectSidebarReturnBinding({ stateDir }), { active: false });
 });
 

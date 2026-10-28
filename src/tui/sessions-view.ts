@@ -1440,7 +1440,7 @@ export class SessionsView implements Component {
     });
   }
 
-  private focusSidePaneDirection(direction: "left" | "right" | "up" | "down") {
+  private focusSidePaneDirection(direction: "left" | "right") {
     const focus = this.actions.focusSidePaneDirection;
     if (!focus) return;
     this.runAction(() => focus(direction), "moving between pins...", () => {});
@@ -2330,11 +2330,8 @@ function overlayCommandPalette(
   return { lines, rowTargets, bounds: { start, end: start + panelHeight - 1 } };
 }
 
-function spatialDirection(data: string): "left" | "right" | "up" | "down" | undefined {
-  // Legacy terminal encoding aliases Alt+Down to Escape+n. Keep the established
-  // Alt+N name-sync binding and accept directional input only when unambiguous.
-  if (matchesKey(data, Key.alt("n"))) return undefined;
-  for (const direction of ["left", "right", "up", "down"] as const) {
+function spatialDirection(data: string): "left" | "right" | undefined {
+  for (const direction of ["left", "right"] as const) {
     if (matchesKey(data, Key.alt(direction))) return direction;
   }
   return undefined;
@@ -2379,7 +2376,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: 
     heading("Navigation"),
     `  ${glyphs.up}${glyphs.down}/j/k Move selection     Esc Cancel/clear`,
     "  P Pin/focus selected     x Close selected pin     +/- Resize split",
-    `  Alt+${glyphs.left}/${glyphs.right}/${glyphs.up}/${glyphs.down} Move spatially     Ctrl+Q Return to cockpit`,
+    `  Alt+${glyphs.left}/${glyphs.right} Move spatially     Ctrl+Q Return to cockpit`,
     `  subagent rows: ${glyphs.left}/${glyphs.right} Collapse/expand selected ${glyphs.pendingStep} Shift+${glyphs.left}/${glyphs.right} All`,
     `  mouse click select ${glyphs.pendingStep} header tier chips jump ${glyphs.pendingStep} double-click open/switch ${glyphs.pendingStep} wheel move`,
     "",

@@ -438,7 +438,7 @@ test("help overlay opens and closes", () => {
   assert.match(help, /zero counts are hidden/);
   assert.match(help, /P Pin\/focus selected/);
   assert.match(help, /x Close selected pin/);
-  assert.match(help, /Alt\+←\/→\/↑\/↓ Move spatially/);
+  assert.match(help, /Alt\+←\/→ Move spatially/);
   assert.doesNotMatch(help, /1-4 assign|Focus panel/);
   assert.match(help, /Enter\/double-click Open or switch directly at every width/);
   assert.doesNotMatch(help, /Density|compact and all-card/);
@@ -1287,7 +1287,7 @@ test("canonical Alt+Arrow intents move spatially and Ctrl+Q returns", () => {
     returnToCockpit: () => { events.push("return"); return { kind: "focused" }; },
   });
   for (const sequence of ["\u001b[1;3D", "\u001b[1;3C", "\u001b[1;3A", "\u001b[1;3B", "\u001bq", "\u0011"]) view.handleInput(sequence);
-  assert.deepEqual(events, ["left", "right", "up", "down", "return"]);
+  assert.deepEqual(events, ["left", "right", "return"]);
 });
 
 test("pin mode Enter opens directly below 120 instead of opening the full workspace", () => {

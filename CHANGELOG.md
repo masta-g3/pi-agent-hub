@@ -34,6 +34,7 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Fixed
 
+- Stop intercepting `Alt+↑`/`Alt+↓` while pins are open, so Pi's `Alt+↑` edits the last queued message again. Spatial focus keeps `Alt+←`/`Alt+→`.
 - Resolve pin focus through live pane identity instead of stale slot targets.
 - Keep fresh attention requests visible after earlier requests were acknowledged.
 
