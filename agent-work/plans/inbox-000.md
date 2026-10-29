@@ -21,7 +21,8 @@ Goal: Supervise and reply to agents from the no-pin session list, so opening a s
 - Feedback closes the loop: Submitting, Accepted, Rejected, or Delivery unknown stays on the card; uncertain delivery never retries silently.
 - Selecting, reading, or acknowledging a handoff never counts as approval.
 - The Hub extension injects the agent note through the existing system-prompt hook.
-- inbox-002's approved deck is the visual reference for 003–005.
+- inbox-002's approved deck is the visual reference for 003–005: `agent-work/decks/inbox-design-lab.html`, Frozen decisions D1–D10; rationale and real-data lengths in `agent-work/history/20261028_inbox-002_inbox_design_lab.md`.
+- Preview text for the selected option comes from the exact pending `ask_user_question` tool call in the live branch (Conversation's typed source), guarded by interaction instance, branch, and toolCallId; never persisted, searched, or read from session files.
 
 ## Test seams
 
