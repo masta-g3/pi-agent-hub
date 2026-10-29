@@ -233,7 +233,6 @@ export interface DialogContext {
   controller: SessionsController;
   actions: SessionsViewActions;
   theme: SessionsTheme | undefined;
-  interactionState?: SessionInteractionState;
   now(): number;
   close(): void;
   setDialog(dialog: SessionDialog): void;

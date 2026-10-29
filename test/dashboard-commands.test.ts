@@ -70,7 +70,7 @@ test("footer keeps request navigation and palette first at every width", () => {
   for (const width of [61, 80, 99, 100, 119, 120, 160]) {
     for (const requestCount of [0, 1]) {
       const footer = dashboardFooter(width, { requestCount });
-      assert.match(footer, /^\] Next request · : All actions · \? Help/);
+      assert.match(footer, /^\] Next request · p Reply · : All actions · \? Help/);
       assert.doesNotMatch(footer, /Enter|Workspace/);
       assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
     }
@@ -84,7 +84,7 @@ test("footer uses stable Backlog text while catalog labels stay contextual", () 
 
 test("phone request hint keeps the existing tap-target order and only uses spare space", () => {
   assert.equal(dashboardFooter(44, { requestCount: 1 }), dashboardFooter(44));
-  assert.equal(dashboardFooter(60, { requestCount: 1 }), "] Next request · : All actions · ? Help");
+  assert.equal(dashboardFooter(60, { requestCount: 1 }), "] Next request · p Reply · : All actions · ? Help");
 });
 
 test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
@@ -93,13 +93,13 @@ test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
 
 test("coaching does not replace the stable inbox footer", () => {
   for (const width of [30, 40, 60, 80, 120, 160]) assert.equal(dashboardFooter(width, { coaching: true }), dashboardFooter(width));
-  assert.equal(dashboardFooter(30), "] Next · : Actions");
+  assert.equal(dashboardFooter(30), "] Next · p Reply · : Actions");
 });
 
 test("coaching retains truthful workspace and request hints", () => {
   for (const width of [61, 80, 100, 160]) {
     const footer = dashboardFooter(width, { coaching: true, requestCount: 1 });
-    assert.match(footer, /^\] Next request · : All actions · \? Help/);
+    assert.match(footer, /^\] Next request · p Reply · : All actions · \? Help/);
     assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
   }
 });
@@ -169,7 +169,7 @@ test("selected action availability mirrors row and capability guards with reason
   const byLabel = (label: string) => commands.find((command) => command.label === label)!;
   assert.deepEqual([byLabel("Restart").enabled, byLabel("Restart").disabledReason], [false, "restart transport unavailable"]);
   assert.deepEqual([byLabel("Rename…").enabled, byLabel("Rename…").disabledReason], [false, "restart the Pi session before renaming"]);
-  assert.deepEqual([byLabel("Send text…").enabled, byLabel("Send text…").disabledReason], [false, "session is not live"]);
+  assert.deepEqual([byLabel("Reply").enabled, byLabel("Reply").disabledReason], [false, "session is not live"]);
   assert.deepEqual([byLabel("Finish worktree…").enabled, byLabel("Finish worktree…").disabledReason], [false, "no Hub-owned worktree"]);
 
   const child = session("child", { kind: "subagent", parentId: "owner" });
@@ -304,7 +304,7 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
   }> = [
     { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
     { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open in Pi" },
-    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
+    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Reply" },
     { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open", "archive"], primaryLabel: "Details" },
     { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore", "archive"], primaryLabel: "Restart" },
     { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open in Pi" },

@@ -126,7 +126,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "focus-follow", label: "Type in follow pane", hint: "move the keyboard into the follow pane; Ctrl+Q returns", keys: ["Enter", "C-m", "C-j"], available: focusFollowAvailability },
   { name: "open", label: "Open in Pi", footerLabel: "Open in Pi", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: `Restart choices${glyphs.ellipsis}`, hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
-  { name: "send", label: `Send text${glyphs.ellipsis}`, hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
+  { name: "send", label: "Reply", hint: "send, steer now, or queue for later from this card", keys: ["p"], available: sendAvailability },
   { name: "rename", label: `Rename${glyphs.ellipsis}`, hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: `Fork${glyphs.ellipsis}`, hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
@@ -344,9 +344,11 @@ export function dashboardFooter(width: number, options: { coaching?: boolean; re
     const command = global.find((candidate) => candidate.id === id)!;
     return item(command.displayKey ?? "", label);
   };
+  const reply = actionSpecs.find(spec => spec.name === "send")!;
+  const replyItem = item(reply.keys[0]!, reply.label);
   const items = width < 40
-    ? [fromView("view:next-request", "Next"), fromView("view:palette", "Actions")]
-    : [fromView("view:next-request", "Next request"), fromView("view:palette", "All actions"), fromView("view:help", "Help")];
+    ? [fromView("view:next-request", "Next"), replyItem, fromView("view:palette", "Actions")]
+    : [fromView("view:next-request", "Next request"), replyItem, fromView("view:palette", "All actions"), fromView("view:help", "Help")];
   if (width >= 100) items.push(fromView("action:new", "New"), item("/", "Filter"), fromView("view:backlog", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"));
   while (items.length > 1 && visibleWidth(items.join(` ${glyphs.pendingStep} `)) > width - (width > 60 ? 2 : 0)) items.pop();
   return items.join(` ${glyphs.pendingStep} `);

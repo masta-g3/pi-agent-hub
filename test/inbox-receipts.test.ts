@@ -23,7 +23,7 @@ test("send result remains Accepted if interaction bookkeeping fails", async () =
   view.render(120); await view.refreshInteraction(); send(view);
   assert.match(text(view), /Submitting…/);
   await tick(); accept(); await tick();
-  assert.match(text(view), /Accepted · Message sent/);
+  assert.match(text(view), /Accepted · Sent/);
   assert.match(text(view), /Accepted, but activity update failed: disk full/);
 });
 
@@ -114,6 +114,26 @@ for (const host of ["fleet", "board-wide", "board-phone", "pin", "follow"] as co
     assert.deepEqual(input, ["t"], "local focus owns literal input at every host");
     controller.snapshot().sessions[0]!.interaction = { version: 1, instanceId: `${host}-replacement` };
     assert.doesNotMatch(render(), /panel paragraph/);
+  });
+}
+
+for (const host of ["fleet", "board-wide", "board-phone", "pin", "follow"] as const) {
+  test(`mixed string/cursor panel rows and reserved key rows share the renderer in ${host}`, () => {
+    const controller = new SessionsController({ version: 1, sessions: [session] });
+    const view = new SessionsView(controller, () => {}, { terminalRows: () => 22, interactionTarget,
+      ...(host.startsWith("board") ? { initialViewState: { grouping: "stage" as const } } : {}),
+      ...(host === "pin" || host === "follow" ? { sidePaneState: () => ({ slots: [session.id], capacity: 2, constrained: false, splitPercent: 50, following: host === "follow" }) } : {}),
+    });
+    view.setCardPanel(interactionTarget(session)!, {
+      body: ["String before", { value: "界".repeat(100), cursor: 100 }, "String after"],
+      keyLine: "Tab Delivery\n←/→ Steer/Queue\nEnter Steer now\nEsc Keep draft", offset: 0,
+    }, () => {});
+    const rows = view.render(host === "fleet" || host === "board-phone" ? 60 : 160).map(stripAnsi);
+    assert.ok(rows.some(row => row.includes("String before")));
+    assert.ok(rows.some(row => row.includes("String after")));
+    const input = rows.filter(row => row.includes("界"));
+    assert.equal(input.length, 1); assert.match(input[0]!, /….*█/);
+    for (const key of ["Tab Delivery", "←/→ Steer/Queue", "Enter Steer now", "Esc Keep draft"]) assert.equal(rows.filter(row => row.includes(key)).length, 1, key);
   });
 }
 

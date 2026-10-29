@@ -1,6 +1,6 @@
 import { glyphs } from "./glyphs.js";
 import { ConversationReader, renderConversationHeading, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
-import { DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget } from "../core/session-interaction.js";
+import { DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
 import { createQuestionDialog, handleQuestionInput, renderQuestionDialog, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
@@ -63,8 +63,8 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
   }
 }
 import { handlePromptInput, openFilterPrompt, promptFilterValue } from "./prompt-dialog.js";
-import { isEnterKey } from "./text-input.js";
-import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, openSendForm, renderFormDialog } from "./form-dialogs.js";
+import { createTextInput, editTextInput, isEnterKey, type TextInputState } from "./text-input.js";
+import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
 import { createRestartDialog, handleArchiveInput, handleRestartDialogInput, handleConfirmInput, openArchiveDialog, openDeleteDialog, openFinishDialog, renderArchiveDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
@@ -77,7 +77,17 @@ const DOUBLE_CLICK_MS = 400;
 /** Follow view waits for the selection to settle so held j/k does not retarget per row. */
 const FOLLOW_SETTLE_MS = 200;
 
+interface ReplyDraft {
+  target: InteractionTarget;
+  input: TextInputState;
+  delivery: MessageDelivery;
+  deliveryFocus: boolean;
+  submitting?: boolean;
+}
+
 export class SessionsView implements Component {
+  private replyDrafts = new Map<string, ReplyDraft>();
+  private replyEditor: ReplyDraft | undefined;
   private deliveryResults = new Map<string, { target: InteractionTarget; state: "submitting" | "accepted" | "rejected" | "unknown"; text: string; status: RuntimeSession["status"] }>();
   private cardPanel: { target: InteractionTarget; panel: RenderCardPanel; handleInput: (data: string) => void } | undefined;
   private panelViewport: PanelViewport = { pageSize: 1, maxOffset: 0 };
@@ -174,12 +184,14 @@ export class SessionsView implements Component {
 
   /** Reply and answer surfaces use this shell instead of adding a modal or renderer. */
   setCardPanel(target: InteractionTarget, panel: RenderCardPanel, handleInput: (data: string) => void): void {
+    this.replyEditor = undefined;
     this.cardPanel = { target, panel, handleInput };
     this.panelViewport = { pageSize: 1, maxOffset: 0 };
     this.actions.requestRender?.();
   }
 
   clearCardPanel(): void {
+    this.replyEditor = undefined;
     this.cardPanel = undefined;
     this.actions.requestRender?.();
   }
@@ -455,6 +467,7 @@ export class SessionsView implements Component {
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
     this.reconcileCardPanel();
+    this.updateReplyPanel();
     const selected = this.controller.selected();
     const now = this.actions.now?.() ?? Date.now();
     const sidePaneState = this.pinState();
@@ -889,11 +902,8 @@ export class SessionsView implements Component {
     return {
       viewport: { width: this.lastWidth, height: this.actions.terminalRows?.() ?? process.stdout.rows },
       controller: this.controller,
-      actions: { ...this.actions, ...(this.actions.sendMessage ? {
-        sendMessage: (target, text, delivery) => this.writeInteraction(target, delivery === "send" ? "Message sent" : delivery === "steer" ? "Steer requested" : "Queue requested", () => this.actions.sendMessage!(target, text, delivery)),
-      } : {}) },
+      actions: this.actions,
       theme: this.theme,
-      interactionState: sameInteractionTarget(this.interaction.target, this.controller.selected() && this.actions.interactionTarget?.(this.controller.selected()!)) ? this.interaction.state : undefined,
       now: () => this.actions.now?.() ?? Date.now(),
       close: () => { this.dialog = undefined; },
       setDialog: (dialog) => { this.dialog = dialog; },
@@ -1177,7 +1187,7 @@ export class SessionsView implements Component {
       return;
     }
     if (!command.enabled) {
-      this.message = command.disabledReason ?? "command unavailable";
+      this.message = `${command.disabledReason ?? "command unavailable"}${command.id.endsWith(":send") ? "; Open in Pi" : ""}`;
       return;
     }
     if (command.id.startsWith("session:")) {
@@ -1219,7 +1229,7 @@ export class SessionsView implements Component {
         case "focus-follow": this.focusFollow(command.targetSessionId!); return;
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
-        case "send": this.startSendDialog(); return;
+        case "send": this.startReply(); return;
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
@@ -1273,9 +1283,17 @@ export class SessionsView implements Component {
   }
 
   private reconcileCardPanel(): void {
+    const sessions = this.controller.snapshot().sessions;
+    for (const [id, draft] of this.replyDrafts) {
+      const session = sessions.find(row => row.id === id);
+      if (!sameInteractionTarget(draft.target, session && this.actions.interactionTarget?.(session))) this.replyDrafts.delete(id);
+    }
     if (!this.cardPanel) return;
     const selected = this.controller.selected();
-    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected || !sameInteractionTarget(this.cardPanel.target, selected && this.actions.interactionTarget?.(selected))) this.cardPanel = undefined;
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected || !sameInteractionTarget(this.cardPanel.target, selected && this.actions.interactionTarget?.(selected))) {
+      this.cardPanel = undefined;
+      this.replyEditor = undefined;
+    }
   }
 
   private reconcileDeliveryResults(): void {
@@ -1425,8 +1443,90 @@ export class SessionsView implements Component {
     return true;
   }
 
-  private startSendDialog() {
-    this.openDialog(openSendForm);
+  private startReply(): void {
+    this.reconcileCardPanel();
+    const selected = this.controller.selected();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !this.interaction.state?.messageDelivery) {
+      this.message = "Reload Pi in this session to enable message delivery; Open in Pi";
+      return;
+    }
+    let draft = this.replyDrafts.get(selected.id);
+    if (!draft) {
+      const attention = visibleAttention(selected);
+      draft = { target, input: createTextInput(attention?.kind === "ready" && attention.recommendation ? `Go ahead: ${stripAnsi(attention.recommendation)}` : ""),
+        delivery: this.interaction.state.messageDelivery === "busy" ? "steer" : "send", deliveryFocus: false };
+      this.replyDrafts.set(selected.id, draft);
+    } else {
+      draft.delivery = this.interaction.state.messageDelivery === "idle" ? "send" : draft.delivery === "send" ? "steer" : draft.delivery;
+      draft.deliveryFocus = false;
+    }
+    this.closeConversation();
+    this.message = undefined;
+    this.clearFlash();
+    this.setCardPanel(target, { body: [], keyLine: "", offset: 0 }, data => this.handleReplyInput(draft!, data));
+    this.replyEditor = draft;
+    this.updateReplyPanel();
+  }
+
+  private updateReplyPanel(): void {
+    const draft = this.replyEditor;
+    if (!draft || !this.cardPanel) return;
+    const title = stripAnsi(this.controller.snapshot().sessions.find(row => row.id === draft.target.managedId)!.title);
+    const label = draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer now" : "Queue for later";
+    const narrow = this.lastWidth < 60;
+    this.cardPanel.panel.body = [
+      ["REPLY", ...(!narrow ? [title] : []), label].join(` ${glyphs.pendingStep} `),
+      draft.input,
+      ...(draft.delivery === "send" || narrow ? [] : [
+        `${draft.deliveryFocus ? glyphs.selected : " "} Tab Delivery: ${glyphs.left} ${label} ${glyphs.right}`,
+        draft.delivery === "steer" ? "Use before the next model call, after current tools" : "Use after the current run",
+      ]),
+    ];
+    this.cardPanel.panel.keyLine = narrow && draft.delivery !== "send" ? [
+      `Tab Delivery${draft.deliveryFocus ? ` ${glyphs.selected}` : ""}`,
+      `${glyphs.left}/${glyphs.right} Steer/Queue`,
+      `Enter ${label}`,
+      "Esc Keep draft",
+    ].join("\n") : `Enter ${draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer" : "Queue"} ${glyphs.pendingStep} Esc Keep draft ${glyphs.pendingStep} Ctrl+U Clear${draft.delivery === "send" ? "" : ` ${glyphs.pendingStep} Tab Delivery ${glyphs.pendingStep} ${glyphs.left}/${glyphs.right} Steer/Queue`}`;
+  }
+
+  private handleReplyInput(draft: ReplyDraft, data: string): void {
+    if (matchesKey(data, Key.escape)) { this.clearCardPanel(); this.message = undefined; return; }
+    if (draft.submitting || this.deliveryResults.get(draft.target.managedId)?.state === "submitting") return;
+    if (matchesKey(data, Key.ctrl("u"))) draft.input = createTextInput();
+    else if (isEnterKey(data)) { this.submitReply(draft); return; }
+    else if (draft.delivery !== "send" && matchesKey(data, Key.tab)) draft.deliveryFocus = !draft.deliveryFocus;
+    else if (draft.deliveryFocus) {
+      if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) draft.delivery = draft.delivery === "steer" ? "followUp" : "steer";
+    } else draft.input = editTextInput(data, draft.input) ?? draft.input;
+    this.message = undefined;
+    this.updateReplyPanel();
+  }
+
+  private submitReply(draft: ReplyDraft): void {
+    if (!draft.input.value.trim()) { this.message = "message is required"; return; }
+    const command = this.dashboardCommands().find(command => command.id === `action:${draft.target.managedId}:send`);
+    const busyRace = draft.delivery === "send" && this.interaction.state?.messageDelivery === "busy";
+    const label = draft.delivery === "send" ? "Sent" : draft.delivery === "steer" ? "Steer requested" : "Queued";
+    draft.submitting = true;
+    void this.writeInteraction(draft.target, label, () => {
+      if (!command?.enabled) throw new Error(command?.disabledReason ?? "reply target is no longer available");
+      if (busyRace) throw new Error("Pi started working; choose Steer now or Queue for later");
+      return this.actions.sendMessage!(draft.target, draft.input.value, draft.delivery);
+    }).then(() => {
+      draft.input = createTextInput();
+      draft.delivery = "send";
+      draft.deliveryFocus = false;
+      if (this.replyEditor === draft) this.clearCardPanel();
+    }).catch(error => {
+      if (/Pi started working/.test(errorMessage(error))) { draft.delivery = "steer"; draft.deliveryFocus = false; }
+      this.reconcileCardPanel();
+      this.updateReplyPanel();
+    }).finally(() => {
+      draft.submitting = false;
+      this.actions.requestRender?.();
+    });
   }
 
   private pinSidePane(sessionId: string) {

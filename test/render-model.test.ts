@@ -62,7 +62,7 @@ test("new-user coaching teaches the real empty tiers and daily-loop footer", () 
     });
     assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "NEW", "ACTIVE", "QUIET"]);
     assert.equal(model.guidance.coach, true);
-    assert.match(model.footer, /\] Next request · : All actions/);
+    assert.match(model.footer, /\] Next request · p Reply · : All actions/);
     const rendered = renderSessions(model, darkTheme);
     assert.equal(rendered.lines.every((line) => visibleWidth(line) <= width), true);
     const text = stripAnsi(rendered.lines.join("\n"));
@@ -1424,13 +1424,13 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showWorkspace, false);
-  assert.equal(model.footer, "] Next request · : All actions · ? Help");
+  assert.equal(model.footer, "] Next request · p Reply · : All actions");
 });
 
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "] Next request · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
+  assert.equal(model.footer, "] Next request · p Reply · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
 });
 
 test("footer request count follows the visible projection at medium and wide widths", () => {
@@ -1448,7 +1448,7 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "] Next request · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
+  assert.equal(model.footer, "] Next request · p Reply · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
 });
 
 test("footer controls survive layout fitting at each responsive boundary", () => {
@@ -1459,7 +1459,7 @@ test("footer controls survive layout fitting at each responsive boundary", () =>
       const layout = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "idle"), context }], width, height: 24 }));
       assert.ok(layout.lines.every((line) => visibleWidth(line) === width), `${width}`);
       const footer = stripAnsi(layout.lines[layout.footerRow!]!);
-      assert.match(footer, /\] Next request · : All actions · \? Help/);
+      assert.match(footer, /\] Next request · p Reply · : All actions · \? Help/);
       assert.ok(layout.footerItems.some((item) => item.key === "]"));
     }
   }
@@ -2233,7 +2233,7 @@ test("workspace height pruning preserves primary action and requested evidence t
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
     for (const [index, target] of layout.workspaceRowTargets.entries()) {
-      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Send text|Archive|[Dd]etails|All actions/);
+      if (target) assert.match(stripAnsi(layout.lines[index] ?? ""), /Open|Reply|Archive|[Dd]etails|All actions/);
     }
   }
 });

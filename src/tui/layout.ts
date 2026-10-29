@@ -653,8 +653,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       }
       if (workspace.panel) {
         const bodyStart = lines.length;
-        for (const line of workspace.panel.body) append(line);
-        append(workspace.panel.keyLine);
+        for (const line of workspace.panel.body) append(typeof line === "string" ? line : renderCursorValue(line.value, line.cursor, Math.max(1, width - indent.length), "start"));
+        for (const line of workspace.panel.keyLine.split("\n")) append(line);
         panel = { bodyStart, content: workspace.panel, width, indent };
       }
     }
@@ -1219,6 +1219,7 @@ interface WorkspaceBlock extends WorkspaceRendered {
 function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = ""): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
   const contentWidth = Math.max(1, width - indent.length);
   const body = panel.body.flatMap(line => {
+    if (typeof line !== "string") return [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))];
     const wrapped: string[] = [];
     const length = displayWidth(line);
     for (let column = 0; column < length;) {
@@ -1228,14 +1229,16 @@ function renderFocusedPanel(title: string, context: string[], panel: NonNullable
     }
     return wrapped.length ? wrapped : [indent];
   });
-  const capacity = maxRows ?? body.length + context.length + 2 + (panel.statusLine ? 1 : 0);
-  if (capacity < 2) return { lines: [styles.accent("Enter Open in Pi")], panelViewport: { pageSize: 1, maxOffset: 0, fallback: true }, fallback: true };
-  const status = panel.statusLine && capacity >= 3 ? [indent + styles.muted(truncate(plainAttentionText(panel.statusLine), contentWidth))] : [];
-  const keptContext = context.slice(0, Math.max(0, capacity - 4 - status.length));
-  const bodyCapacity = Math.max(0, capacity - keptContext.length - 2 - status.length);
+  const keys = panel.keyLine.split("\n").map(line => indent + fitFooter(line, contentWidth));
+  const reserved = 1 + keys.length;
+  const capacity = maxRows ?? body.length + context.length + reserved + (panel.statusLine ? 1 : 0);
+  if (capacity < reserved) return { lines: [styles.accent("Enter Open in Pi")], panelViewport: { pageSize: 1, maxOffset: 0, fallback: true }, fallback: true };
+  const status = panel.statusLine && capacity > reserved ? [indent + styles.muted(truncate(plainAttentionText(panel.statusLine), contentWidth))] : [];
+  const keptContext = context.slice(0, Math.max(0, capacity - reserved - 2 - status.length));
+  const bodyCapacity = Math.max(0, capacity - keptContext.length - reserved - status.length);
   const maxOffset = Math.max(0, body.length - bodyCapacity);
   const offset = Math.max(0, Math.min(panel.offset, maxOffset));
-  return { lines: [truncate(title, width), ...keptContext, ...status, ...body.slice(offset, offset + bodyCapacity), indent + fitFooter(panel.keyLine, contentWidth)],
+  return { lines: [truncate(title, width), ...keptContext, ...status, ...body.slice(offset, offset + bodyCapacity), ...keys],
     panelViewport: { pageSize: Math.max(1, bodyCapacity), maxOffset }, fallback: false };
 }
 

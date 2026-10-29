@@ -1369,7 +1369,7 @@
   plan_file: agent-work/history/20261028_inbox-003_self_explaining_cards.md
   completed_at: '2026-10-28'
 - id: inbox-004
-  status: pending
+  status: done
   title: Reply from card
   subtitle: Inline composer replaces Send text dialog
   description: An inline composer on the selected card sends, steers, or queues text
@@ -1380,6 +1380,8 @@
   - inbox-003
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261028_inbox-004_reply_from_card.md
+  completed_at: '2026-10-28'
 - id: inbox-005
   status: pending
   title: Answer from card
