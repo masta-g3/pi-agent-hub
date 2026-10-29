@@ -86,7 +86,7 @@ export async function effectiveDashboardAttentionNotify(env: NodeJS.ProcessEnv =
 }
 
 export async function effectiveDashboardFollowDefault(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
-  return (await loadSessionsConfig(env)).dashboard?.followDefault ?? true;
+  return (await loadSessionsConfig(env)).dashboard?.followDefault ?? false;
 }
 
 export async function setSkillPoolDirs(poolDirs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {

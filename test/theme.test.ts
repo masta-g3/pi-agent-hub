@@ -271,7 +271,7 @@ test("footer keys are styled without changing visible text", () => {
   const themed = renderSessions(model, darkTheme).lines;
   const plain = renderSessions(model).lines;
   const themedFooter = themed.at(-2) ?? "";
-  assert.match(themedFooter, /\u001b\[38;2;122;162;247mEnter\u001b\[0m/);
+  assert.match(themedFooter, /\u001b\[38;2;122;162;247m\]\u001b\[0m/);
   assert.equal(stripAnsi(themedFooter), stripAnsi(plain.at(-2) ?? ""));
 });
 

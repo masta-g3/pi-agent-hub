@@ -1,6 +1,6 @@
 import { glyphs } from "./glyphs.js";
 import { ConversationReader, renderConversationHeading, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
-import { sameInteractionTarget } from "../core/session-interaction.js";
+import { DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget } from "../core/session-interaction.js";
 import { createQuestionDialog, handleQuestionInput, renderQuestionDialog, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
@@ -23,8 +23,8 @@ import {
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
-import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
+import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure, type RenderCardPanel } from "./render-model.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type PanelViewport, type CardCommandHit, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { DOWN, PAGE_DOWN, PAGE_UP, UP, hitAt, type DialogHit } from "./dialog-mouse.js";
 import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -78,6 +78,9 @@ const DOUBLE_CLICK_MS = 400;
 const FOLLOW_SETTLE_MS = 200;
 
 export class SessionsView implements Component {
+  private deliveryResults = new Map<string, { target: InteractionTarget; state: "submitting" | "accepted" | "rejected" | "unknown"; text: string; status: RuntimeSession["status"] }>();
+  private cardPanel: { target: InteractionTarget; panel: RenderCardPanel; handleInput: (data: string) => void } | undefined;
+  private panelViewport: PanelViewport = { pageSize: 1, maxOffset: 0 };
   private conversationOpen = false;
   private conversationGeneration = 0;
   private interactionStopped = false;
@@ -98,6 +101,8 @@ export class SessionsView implements Component {
   private flash: { text: string; expiresAt: number } | undefined;
   private workspaceSessionId: string | undefined;
   private workspaceEvidenceSessionId: string | undefined;
+  private cardScrollOffset = 0;
+  private cardScrollSessionId: string | undefined;
   private lastWidth = 120;
   private grouping: "project" | "stage";
   private fleetGrouping: "status" | "repo";
@@ -126,6 +131,7 @@ export class SessionsView implements Component {
   private tierChipRow: number | undefined;
   private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
+  private cardCommandHits: CardCommandHit[] = [];
   private announcementRowTargets: (string | undefined)[] = [];
   private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
   private listStartX = 2;
@@ -166,6 +172,18 @@ export class SessionsView implements Component {
     this.followWanted = actions.followPreference?.followDefault() ?? false;
   }
 
+  /** Reply and answer surfaces use this shell instead of adding a modal or renderer. */
+  setCardPanel(target: InteractionTarget, panel: RenderCardPanel, handleInput: (data: string) => void): void {
+    this.cardPanel = { target, panel, handleInput };
+    this.panelViewport = { pageSize: 1, maxOffset: 0 };
+    this.actions.requestRender?.();
+  }
+
+  clearCardPanel(): void {
+    this.cardPanel = undefined;
+    this.actions.requestRender?.();
+  }
+
   setTheme(theme: SessionsTheme): void {
     this.theme = theme;
   }
@@ -179,6 +197,7 @@ export class SessionsView implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.grouping !== "stage") this.workspaceSessionId = undefined;
     if (this.workspaceSessionId && this.controller.selected()?.id !== this.workspaceSessionId) this.closeWorkspace();
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
     if (isMouseSequence(data)) {
@@ -225,6 +244,22 @@ export class SessionsView implements Component {
       return;
     }
 
+    this.reconcileCardPanel();
+    if (this.cardPanel) {
+      if (this.panelViewport.fallback && isEnterKey(data)) {
+        this.executeDashboardCommand(`action:${this.cardPanel.target.managedId}:open`);
+        return;
+      }
+      if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown)) {
+        const step = this.panelViewport.pageSize;
+        this.cardPanel.panel.offset = Math.max(0, Math.min(this.panelViewport.maxOffset, this.cardPanel.panel.offset + (matchesKey(data, Key.pageUp) ? -step : step)));
+      } else this.cardPanel.handleInput(data);
+      return;
+    }
+    if (!this.conversationOpen && this.grouping === "project" && !this.pinMode() && (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown))) {
+      this.cardScrollOffset = Math.max(0, this.cardScrollOffset + (matchesKey(data, Key.pageUp) ? -1 : 1));
+      return;
+    }
     if (this.conversationOpen && this.handleConversationInput(data)) return;
 
     if (this.workspaceSessionId) {
@@ -332,6 +367,8 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
+    this.reconcileDeliveryResults();
+    this.cardCommandHits = [];
     this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
@@ -345,6 +382,11 @@ export class SessionsView implements Component {
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
     this.scheduleFollowRetarget();
     const selectedId = this.controller.selected()?.id;
+    if (this.cardScrollSessionId !== selectedId) {
+      this.cardScrollSessionId = selectedId;
+      this.cardScrollOffset = 0;
+    }
+    if (this.grouping !== "stage") this.workspaceSessionId = undefined;
     if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
     if (this.workspaceSessionId && selectedId !== this.workspaceSessionId) this.closeWorkspace();
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
@@ -412,6 +454,7 @@ export class SessionsView implements Component {
     }
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
+    this.reconcileCardPanel();
     const selected = this.controller.selected();
     const now = this.actions.now?.() ?? Date.now();
     const sidePaneState = this.pinState();
@@ -433,9 +476,13 @@ export class SessionsView implements Component {
         ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
-      workspaceFullScreen: width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
+      workspaceFullScreen: this.grouping === "stage" && width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
+      cardPanel: this.cardPanel ? { ...this.cardPanel.panel, statusLine: this.message ?? this.flash?.text } : undefined,
+      deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
+      selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? this.interaction.state.pending[0]?.params.questions[0] : undefined,
       height: fleetHeight,
       listScrollTop: this.listScrollTop,
+      cardScrollOffset: this.cardScrollOffset,
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
       now,
@@ -465,6 +512,8 @@ export class SessionsView implements Component {
     if (this.conversationOpen) { model.showWorkspace = false; model.workspace = undefined; model.footer = ""; }
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
+    this.cardCommandHits = layout.cardCommandHits;
+    this.panelViewport = layout.panelViewport ?? { pageSize: 1, maxOffset: 0 };
     this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
       && (selected?.status === "running" || selected?.status === "starting")
       && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
@@ -494,7 +543,7 @@ export class SessionsView implements Component {
       const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === selected?.id);
       if (overlay.bounds && selectedRow >= overlay.bounds.start && selectedRow <= overlay.bounds.end) this.selectedRowAnimating = false;
     }
-    const final = this.conversationOpen ? withFooter : this.message
+    const final = this.conversationOpen || model.workspace?.panel ? withFooter : this.message
       ? replaceFooter(withFooter, this.message, this.theme)
       : this.flash
         ? replaceFooter(withFooter, this.flash.text, this.theme)
@@ -817,7 +866,7 @@ export class SessionsView implements Component {
         this.message = "status evidence unavailable after refresh";
         return;
       }
-      if (this.lastWidth < 120) this.workspaceSessionId = selectedId;
+      if (this.grouping === "stage" && this.lastWidth < 120) this.workspaceSessionId = selectedId;
       this.workspaceEvidenceSessionId = selectedId;
     };
     const refresh = this.actions.navigationActions?.refreshStatusEvidence ?? this.actions.refreshStatusEvidence;
@@ -833,13 +882,16 @@ export class SessionsView implements Component {
   private closeWorkspace(): void {
     this.workspaceSessionId = undefined;
     this.workspaceEvidenceSessionId = undefined;
+    this.cardScrollOffset = 0;
   }
 
   private dialogContext(): DialogContext {
     return {
       viewport: { width: this.lastWidth, height: this.actions.terminalRows?.() ?? process.stdout.rows },
       controller: this.controller,
-      actions: this.actions,
+      actions: { ...this.actions, ...(this.actions.sendMessage ? {
+        sendMessage: (target, text, delivery) => this.writeInteraction(target, delivery === "send" ? "Message sent" : delivery === "steer" ? "Steer requested" : "Queue requested", () => this.actions.sendMessage!(target, text, delivery)),
+      } : {}) },
       theme: this.theme,
       interactionState: sameInteractionTarget(this.interaction.target, this.controller.selected() && this.actions.interactionTarget?.(this.controller.selected()!)) ? this.interaction.state : undefined,
       now: () => this.actions.now?.() ?? Date.now(),
@@ -975,6 +1027,7 @@ export class SessionsView implements Component {
     return buildDashboardCommands({
       sessions: this.commandSessions(snapshot),
       selectedId: selectedVisible?.id,
+      deliveryResult: selectedVisible ? this.deliveryResults.get(selectedVisible.id)?.state : undefined,
       filter: snapshot.filter,
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
@@ -1153,6 +1206,7 @@ export class SessionsView implements Component {
     if (command.id.startsWith("action:") && command.targetSessionId) {
       const prefix = `action:${command.targetSessionId}:`;
       const action = command.id.slice(prefix.length);
+      if (action.startsWith("dismiss-result:")) { this.deliveryResults.delete(command.targetSessionId); return; }
       if (action.startsWith("answer:")) { this.openQuestion(); return; }
       if (action.startsWith("copy-path:")) { this.copyHandoffPath(command.targetSessionId); return; }
       const slot = action.match(/^slot-([1-4])$/)?.[1];
@@ -1218,6 +1272,57 @@ export class SessionsView implements Component {
     this.message = "command is not implemented";
   }
 
+  private reconcileCardPanel(): void {
+    if (!this.cardPanel) return;
+    const selected = this.controller.selected();
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected || !sameInteractionTarget(this.cardPanel.target, selected && this.actions.interactionTarget?.(selected))) this.cardPanel = undefined;
+  }
+
+  private reconcileDeliveryResults(): void {
+    const sessions = this.controller.snapshot().sessions;
+    for (const [id, result] of this.deliveryResults) {
+      const session = sessions.find(row => row.id === id);
+      const target = session && this.actions.interactionTarget?.(session);
+      if (!session || !sameInteractionTarget(result.target, target) || (result.state === "accepted" && session.status === "running" && result.status !== "running")) this.deliveryResults.delete(id);
+      else result.status = session.status;
+    }
+  }
+
+  /** All card writers (including reply/answer panels) share the same exact-target receipt. */
+  async writeInteraction(target: InteractionTarget, what: string, write: () => unknown): Promise<unknown> {
+    this.reconcileDeliveryResults();
+    if (this.deliveryResults.get(target.managedId)?.state === "submitting") throw new Error("write is submitting");
+    const session = this.controller.snapshot().sessions.find(row => row.id === target.managedId);
+    if (!session || !sameInteractionTarget(target, this.actions.interactionTarget?.(session))) throw new Error("write target changed");
+    const result = { target, state: "submitting" as "submitting" | "accepted" | "rejected" | "unknown", text: `Submitting${glyphs.ellipsis}`, status: session.status };
+    this.deliveryResults.set(target.managedId, result);
+    this.actions.requestRender?.();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let value: unknown;
+    try {
+      value = await Promise.race([Promise.resolve(write()), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(DELIVERY_UNCONFIRMED)), INTERACTION_TIMEOUT_MS);
+      })]);
+      result.state = "accepted";
+      result.text = `Accepted ${glyphs.pendingStep} ${what}`;
+    } catch (error) {
+      const reason = errorMessage(error);
+      const unknown = reason === DELIVERY_UNCONFIRMED || /timeout|timed out/i.test(reason);
+      result.state = unknown ? "unknown" : "rejected";
+      result.text = unknown ? `Delivery unknown ${glyphs.pendingStep} Check Pi before retrying` : `Rejected ${glyphs.pendingStep} ${reason}`;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      this.actions.requestRender?.();
+    }
+    try {
+      await this.actions.afterInteractionWrite?.(target);
+    } catch (error) {
+      this.message = `Accepted, but activity update failed: ${errorMessage(error)}`;
+    }
+    return value;
+  }
+
   private runConfiguredCommand(command: DashboardCommand): void {
     const targetId = command.targetSessionId;
     const target = targetId ? this.controller.snapshot().sessions.find((session) => session.id === targetId) : undefined;
@@ -1241,7 +1346,11 @@ export class SessionsView implements Component {
       return;
     }
     this.runAction(
-      () => this.actions.runDashboardShortcut?.(target.id, shortcut),
+      () => {
+        const identity = this.actions.interactionTarget?.(target);
+        if (!identity) throw new Error("shortcut target is no longer available");
+        return this.writeInteraction(identity, shortcut.label ?? shortcut.send, () => this.actions.runDashboardShortcut!(target.id, shortcut));
+      },
       "running shortcut...",
       () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} ${glyphs.right} ${target.title}`); },
     );
@@ -1599,6 +1708,12 @@ export class SessionsView implements Component {
     if (tierChip) {
       this.lastMouseClick = undefined;
       this.jumpToCockpitTier(tierChip.tier);
+      return;
+    }
+    const cardHit = this.cardCommandHits.find(hit => hit.row === event.y - 1 && event.x >= hit.x && event.x < hit.x + hit.width);
+    if (cardHit) {
+      this.lastMouseClick = undefined;
+      this.executeDashboardCommand(cardHit.commandId);
       return;
     }
     const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX && event.x < this.lastWidth

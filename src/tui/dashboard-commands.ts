@@ -90,6 +90,7 @@ export interface DashboardCommandInput {
   attentionBellEnabled?: boolean;
   followDefaultEnabled?: boolean;
   visibleRequestCount?: number;
+  deliveryResult?: "submitting" | "accepted" | "rejected" | "unknown";
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
 }
@@ -123,7 +124,7 @@ const slotActionSpecs: ActionSpec[] = [1, 2, 3, 4].map((slot) => ({
 const actionSpecs: ActionSpec[] = [
   // Listed only while following a live row, so Enter types into the follow pane before `open` claims it.
   { name: "focus-follow", label: "Type in follow pane", hint: "move the keyboard into the follow pane; Ctrl+Q returns", keys: ["Enter", "C-m", "C-j"], available: focusFollowAvailability },
-  { name: "open", label: "Open", footerLabel: "Open", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
+  { name: "open", label: "Open in Pi", footerLabel: "Open in Pi", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: `Restart choices${glyphs.ellipsis}`, hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: `Send text${glyphs.ellipsis}`, hint: "send, steer now, or queue for later without opening Pi", keys: ["p"], available: sendAvailability },
   { name: "rename", label: `Rename${glyphs.ellipsis}`, hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
@@ -183,6 +184,11 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
     if (input.capabilities?.answerQuestion && input.interactionState?.questionProtocol && selected.interaction && isLive(selected) && selected.kind !== "subagent" && input.interactionState.pending.length) commands.push(makeCommand({
       id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire", targetSessionId: selected.id,
       enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "answer question questionnaire",
+    }));
+    if (input.deliveryResult && input.deliveryResult !== "submitting") commands.push(makeCommand({
+      id: `action:${selected.id}:dismiss-result:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction?.instanceId ?? "")}`,
+      group: "actions", label: "Dismiss result", hint: "hide this session's delivery result", targetSessionId: selected.id,
+      enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "dismiss result receipt delivery",
     }));
     for (const spec of actionSpecs) {
       if (spec.name === "focus-follow" && !(input.pinState?.following && isLive(selected))) continue;
@@ -333,51 +339,22 @@ export function conversationDashboardFooter(): string {
 
 export function dashboardFooter(width: number, options: { coaching?: boolean; requestCount?: number; filter?: string } = {}): string {
   const global = viewCommands({ sessions: [], filter: options.filter, capabilities: { theme: true } });
-  const open = actionSpecs.find((spec) => spec.name === "open")!;
   const item = (key: string, label: string) => `${key} ${label}`;
   const fromView = (id: string, label: string) => {
     const command = global.find((candidate) => candidate.id === id)!;
     return item(command.displayKey ?? "", label);
   };
-  const palette = fromView("view:palette", "Actions");
-  const help = fromView("view:help", "Help");
-  const openItem = item(open.keys[0]!, open.label);
-  const hasRequests = (options.requestCount ?? 0) > 0;
-  const nextRequest = global.find((command) => command.id === "view:next-request")!;
-  // Phone-width items are tap targets, ordered so trailing ones drop first.
-  if (width <= NARROW_LAYOUT_MAX_WIDTH) {
-    const compactCoaching = options.coaching && width < 60;
-    const phoneHelp = compactCoaching ? "?" : help;
-    const items = options.coaching
-      ? [openItem, item("Ctrl+Q", "Return"), compactCoaching ? ":" : palette]
-      : [openItem, item("i", "Workspace"), palette, item("/", "Filter")];
-    const next = item(nextRequest.displayKey!, "Next");
-    if (hasRequests && visibleWidth([...items, next, phoneHelp].join(` ${glyphs.pendingStep} `)) <= width) items.push(next);
-    return [...items, phoneHelp].join(` ${glyphs.pendingStep} `);
-  }
-  const filter = item("/", "Filter");
-  const backlog = global.find((command) => command.id === "view:backlog")!;
-  const backlogItem = item(backlog.displayKey!, backlog.label);
-  const newItem = fromView("action:new", "New");
-  const group = fromView("view:fleet-grouping", "Group");
-  const board = fromView("view:grouping", "Board");
-  const primary = [openItem,
-    ...(width < 120 ? [item("i", "Workspace")] : []),
-    ...(hasRequests ? [item(nextRequest.displayKey!, nextRequest.label)] : [])];
-  const items = options.coaching
-    ? [...primary, item("Ctrl+Q", "Return"), palette, help]
-    : [`${glyphs.up}${glyphs.down} Move`, ...primary, ...(width >= 100 ? [newItem] : []), filter, backlogItem,
-      ...(width >= 100 ? [group, board] : []), palette, help];
-  for (const lowerPriority of [group, board, newItem, backlogItem, `${glyphs.up}${glyphs.down} Move`, filter, help, palette]) {
-    if (visibleWidth(items.join(` ${glyphs.pendingStep} `)) <= width - 2) break;
-    const index = items.indexOf(lowerPriority);
-    if (index >= 0) items.splice(index, 1);
-  }
+  const items = width < 40
+    ? [fromView("view:next-request", "Next"), fromView("view:palette", "Actions")]
+    : [fromView("view:next-request", "Next request"), fromView("view:palette", "All actions"), fromView("view:help", "Help")];
+  if (width >= 100) items.push(fromView("action:new", "New"), item("/", "Filter"), fromView("view:backlog", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"));
+  while (items.length > 1 && visibleWidth(items.join(` ${glyphs.pendingStep} `)) > width - (width > 60 ? 2 : 0)) items.pop();
   return items.join(` ${glyphs.pendingStep} `);
 }
 
 function actionCommand(spec: ActionSpec, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
-  const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason) : spec.available(session, input);
+  const availability = input.interactionBlockedReason ? disabled(input.interactionBlockedReason)
+    : spec.name === "send" && input.deliveryResult === "submitting" ? disabled("write is submitting") : spec.available(session, input);
   const closed = sessionClosure(session) !== undefined;
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
@@ -417,6 +394,7 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
 function configuredCommand(shortcut: DashboardShortcut, index: number, session: RuntimeSession, input: DashboardCommandInput): DashboardCommand {
   const availability = input.interactionBlockedReason
     ? disabled(input.interactionBlockedReason)
+    : input.deliveryResult === "submitting" ? disabled("write is submitting")
     : session.kind === "subagent"
     ? disabled("unavailable for subagents")
     : !isLive(session)

@@ -153,6 +153,8 @@ export interface SessionsViewActions {
   loadConversation?: (target: InteractionTarget, options?: { before?: string; branchId?: string; limit?: number }) => Promise<ConversationPage>;
   submitAnswer?: (target: InteractionTarget, toolCallId: string, answers: AnswerInput[]) => Promise<void>;
   requestRender?: () => void;
+  /** Bookkeeping runs only after delivery is confirmed; it cannot change the receipt. */
+  afterInteractionWrite?: (target: InteractionTarget) => void | Promise<void>;
   sessionLifecycle?: Partial<SessionLifecycleActions>;
   sidePane?: Partial<SidePaneActions>;
   skillActions?: Partial<SkillsActions>;

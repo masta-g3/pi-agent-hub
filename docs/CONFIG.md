@@ -187,7 +187,7 @@ Optional global config lives at `config.json` under the global state directory:
     "themeSync": true,
     "attentionBell": false,
     "attentionNotify": false,
-    "followDefault": true,
+    "followDefault": false,
     "shortcuts": [
       {
         "key": "C-n",
@@ -215,7 +215,7 @@ pi-hub config unset worktree-default
 
 ### Follow view default
 
-`dashboard.followDefault` opens follow view (`o`) when the dashboard starts and reopens it after the followed session is archived, stopped, or deleted. It defaults to `true`. Use the unbound **Follow view by default: On/Off** action in the `:` palette to persist the setting; the change applies to the running dashboard at once. Pressing `o` to leave follow view keeps it closed until you press `o` again.
+`dashboard.followDefault` opens follow view (`o`) when the dashboard starts and reopens it after the followed session is archived, stopped, or deleted. It defaults to `false`. Use the unbound **Follow view by default: On/Off** action in the `:` palette to persist the setting; the change applies to the running dashboard at once. Pressing `o` to leave follow view keeps it closed until you press `o` again.
 
 ### Desktop notifications
 

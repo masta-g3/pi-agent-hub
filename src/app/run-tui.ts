@@ -654,15 +654,14 @@ export async function runTui(): Promise<void> {
     },
     async sendMessage(target, text, delivery) {
       await sendSessionMessage(target, text, delivery);
-      await touchSession(target.managedId);
     },
+    afterInteractionWrite: (target) => touchSession(target.managedId),
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
       const session = controller.snapshot().sessions.find(row => row.id === sessionId);
       const target = session && interactionTarget(session);
       if (!target) throw new Error("Restart this session to enable guarded commands");
       await runSessionShortcut(target, shortcut.key, shortcut.send);
-      await touchSession(sessionId);
     },
     acknowledgeSession(sessionId, requestId) {
       return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));

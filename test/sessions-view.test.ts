@@ -11,7 +11,7 @@ import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
   const start = 1;
-  const width = 83;
+  const width = lines.some(line => /^│WORKFLOW/.test(stripAnsi(line))) ? 83 : visibleWidth(lines[0] ?? "") - 2;
   return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
     .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
@@ -91,11 +91,11 @@ test("footer request navigation reflects visible requests and backlog state", ()
   const controller = new SessionsController({ version: 1, sessions: [request, session("quiet", "Quiet")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
   for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Hide backlog/);
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
   view.handleInput("b");
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Show backlog/);
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
   controller.setFilter("Quiet");
-  for (const width of [80, 160]) assert.doesNotMatch(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
 });
 
 test("persisted new-user state reaches the live empty SessionsView", () => {
@@ -139,12 +139,12 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   view.render(60);
   view.handleInput("i");
   let workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /\? Project API/);
   assert.match(workspace, /LIVE DETAILS/);
-  assert.match(workspace, /\? “Choose rollout order”/);
+  assert.match(workspace, /\? Choose rollout order/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /\? Project API/);
   assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
   assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
@@ -367,7 +367,7 @@ test("filter editor is visible with an empty draft and slash leaves narrow works
   const view = new SessionsView(controller, () => {}, { now: () => 0 });
   view.render(60);
   view.handleInput("i");
-  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FLEET/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /FLEET/);
   view.handleInput("/");
   const lines = view.render(60).map(stripAnsi);
   assert.match(lines[1]!, /FILTERING.*█.*Enter Apply.*Esc Cancel/);
@@ -387,8 +387,7 @@ test("slash closes narrow evidence state without clearing wide evidence", () => 
     view.handleInput("/");
     view.handleInput("\r");
     const text = stripAnsi(view.render(120).join("\n"));
-    if (width === 60) assert.doesNotMatch(text, /LIVE DETAILS/);
-    else assert.match(text, /LIVE DETAILS/);
+    assert.match(text, /LIVE DETAILS/);
   }
 });
 
@@ -941,7 +940,7 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api[^\n]*\n[^\n]*\[default\].*\?1/);
   view.handleInput("\u001b[C");
   assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
@@ -1052,6 +1051,7 @@ test("Space remains configurable outside board mode but is reserved for board di
 
   view.handleInput(" ");
   assert.equal(calls, 1);
+  await new Promise(done => setImmediate(done));
   view.handleInput("S");
   view.handleInput(" ");
   assert.equal(calls, 1);
@@ -1647,8 +1647,8 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▌ Archive…\s+A/);
-  assert.doesNotMatch(workspace, /▌ Open\s+Enter/);
+  assert.match(workspace, /A Archive…/);
+  assert.doesNotMatch(workspace, /Enter Open in Pi/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -2034,20 +2034,21 @@ test("mouse section headers block stale actions and session rows restore exact w
   const before = controller.snapshot().selectedId;
 
   const headerIndex = rendered.findIndex((line) => /─▾ QUIET 2/.test(stripAnsi(line)));
-  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
-  assert.notEqual(openIndex, -1, "missing workspace Open action");
+  assert.notEqual(openIndex, -1, "missing card Open action");
   view.handleInput(mousePressAtLine(headerIndex));
   assert.equal(controller.snapshot().selectedId, before);
   assert.deepEqual(switched, []);
-  view.handleInput(mousePressAtLine(openIndex, 110));
+  view.handleInput(mousePressAtLine(openIndex, openColumn));
   assert.deepEqual(switched, []);
 
   const sectionSelected = view.render(120);
   view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
   const sessionSelected = view.render(120);
-  const currentOpenIndex = sessionSelected.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
-  view.handleInput(mousePressAtLine(currentOpenIndex, 110));
+  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentOpenIndex, stripAnsi(sessionSelected[currentOpenIndex]!).indexOf("Enter Open in Pi") + 1));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
 
@@ -2058,19 +2059,20 @@ test("workspace More commands click opens the palette and stale action IDs stay 
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
   const rendered = view.render(120);
-  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
-  const actionsIndex = rendered.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
+  const actionsIndex = rendered.findIndex((line) => /: All actions/.test(stripAnsi(line)));
   assert.notEqual(openIndex, -1);
   assert.notEqual(actionsIndex, -1);
 
   controller.selectSession("docs");
-  view.handleInput(mousePressAtLine(openIndex, 110));
+  view.handleInput(mousePressAtLine(openIndex, openColumn));
   assert.deepEqual(switched, []);
   assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
 
   const current = view.render(120);
-  const currentActions = current.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
-  view.handleInput(mousePressAtLine(currentActions, 110));
+  const currentActions = current.findIndex((line) => /: All actions/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentActions, stripAnsi(current[currentActions]!).indexOf(": All actions") + 1));
   assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });
 
@@ -2157,7 +2159,7 @@ test("mouse hit map follows scrolled list window", () => {
   assert.equal(controller.snapshot().selectedId, "s15");
 });
 
-test("mouse clicks on list scroll indicators are ignored", () => {
+test("mouse clicks outside the selected card remain inert in short windows", () => {
   const opened: string[] = [];
   const sessions: RuntimeSession[] = manyViewSessions(20);
   sessions[0]!.context = { version: 1, updatedAt: 1, ticket: { id: "dense-001", subtitle: "Selected card context" } };
@@ -2167,8 +2169,8 @@ test("mouse clicks on list scroll indicators are ignored", () => {
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
-  const indicator = rendered.findIndex((line) => /↓ \d+ more/.test(stripAnsi(line)));
-  assert.notEqual(indicator, -1, "missing scroll indicator");
+  const indicator = rendered.findIndex((line) => /^│─+│$/.test(stripAnsi(line)));
+  assert.notEqual(indicator, -1, "missing inert footer separator");
 
   view.handleInput(mousePressAtLine(indicator));
 
@@ -2237,7 +2239,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /Enter Open .* i Workspace .* : Actions .* \? Help/);
+    assert.match(rendered, /\] Next request · : All actions · \? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -4118,8 +4120,7 @@ test("colon opens the bottom command ledger and Escape returns to the cockpit", 
   const palette = stripAnsi(view.render(100).join("\n"));
   assert.match(palette, /Search actions, sessions, filters/);
   assert.match(palette, /ACTIONS/);
-  assert.match(palette, /Actions/);
-  assert.match(palette, /Enter Open.*i Workspace.*: Actions.*\? Help/);
+  assert.match(palette, /Enter\s+Open in Pi/);
 
   view.handleInput("\u001b");
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
@@ -4305,10 +4306,12 @@ test("palette and direct configured keys execute dashboard shortcuts", async () 
 
   view.render(100);
   view.handleInput("z");
+  await new Promise(done => setImmediate(done));
   view.handleInput(":");
   for (const char of "summarize") view.handleInput(char);
   view.handleInput("\r");
 
+  await new Promise(done => setImmediate(done));
   assert.deepEqual(sent, ["api:/verify", "api:/summary"]);
 });
 
@@ -4417,10 +4420,10 @@ test("palette and workspace Archive rows open the same target-bound chooser", ()
   view.handleInput("x");
 
   const wide = view.render(120);
-  const archiveRow = wide.findIndex((line) => /Archive…\s+A/.test(stripAnsi(line)));
+  const archiveRow = wide.findIndex((line) => /A Archive…/.test(stripAnsi(line)));
   assert.notEqual(archiveRow, -1);
   assert.doesNotMatch(stripAnsi(wide.join("\n")), /Close session/);
-  view.handleInput(mousePressAtLine(archiveRow, 110));
+  view.handleInput(mousePressAtLine(archiveRow, stripAnsi(wide[archiveRow]!).indexOf("A Archive…") + 1));
   assert.match(stripAnsi(view.render(120).join("\n")), /Archive only/);
   view.handleInput("d");
 
@@ -4627,15 +4630,11 @@ function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
 
 test("phone footer taps follow the same dashboard key paths", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 22, now: () => 0 });
-  tapFooterKey(view, view.render(60), "/");
-  assert.match(stripAnsi(view.render(60).join("\n")), /FILTERING/);
+  tapFooterKey(view, view.render(60), ":");
+  assert.match(stripAnsi(view.render(60).join("\n")), /ACTIONS/);
   view.handleInput("\u001b");
-
-  tapFooterKey(view, view.render(44), "i");
-  const workspace = view.render(44);
-  assert.doesNotMatch(stripAnsi(workspace.join("\n")), /^FLEET/m);
-  tapFooterKey(view, workspace, "Esc");
-  assert.match(stripAnsi(view.render(44)[0] ?? ""), /^FLEET/);
+  tapFooterKey(view, view.render(44), "?");
+  assert.match(stripAnsi(view.render(44).join("\n")), /Session actions/);
 });
 
 test("phone coaching Next footer tap selects the next request without opening or acknowledging", () => {
@@ -4678,7 +4677,8 @@ test("hidden pins leave pin mode so phones can open the workspace", () => {
   const fleet = view.render(44).map(stripAnsi);
   assert.match(fleet[0] ?? "", /^FLEET .*1 pin hidden/);
   view.handleInput("i");
-  assert.doesNotMatch(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
+  assert.match(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
+  assert.match(stripAnsi(view.render(44).join("\n")), /LIVE DETAILS/);
 });
 
 function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[]; followDefault?: boolean } = {}) {

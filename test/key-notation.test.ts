@@ -59,7 +59,7 @@ for (const width of [80, 160]) {
     view.handleInput("?");
     const text = stripAnsi(view.render(width).join("\n"));
     consistent(text, "Help");
-    assert.equal((text.match(/Open(?: · [^\n│]*?)?\s+Enter/g) ?? []).length, 1);
+    assert.equal((text.match(/Open in Pi(?: · [^\n│]*?)?\s+Enter/g) ?? []).length, 1);
     assert.match(text, /Custom(?: · send \/custom)?\s+Ctrl\+O/);
     assert.doesNotMatch(text, /C-m|C-j|M-n|Alt\+N|R\/e/);
     assert.match(text, /subagent rows/);
@@ -109,6 +109,9 @@ for (const width of [80, 160]) {
   });
 }
 
-test("phone footers name the same Workspace as intermediate widths", () => {
-  for (const width of [30, 40, 60, 80, 119]) assert.match(dashboardFooter(width), /i Workspace/);
+test("phone footers keep the inbox loop instead of duplicating selected-card controls", () => {
+  for (const width of [30, 40, 60, 80, 119]) {
+    assert.match(dashboardFooter(width), /^\] Next(?: request)? · : (?:All actions|Actions)/);
+    assert.doesNotMatch(dashboardFooter(width), /Workspace|Enter/);
+  }
 });
