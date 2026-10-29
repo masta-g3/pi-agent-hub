@@ -3,6 +3,10 @@ import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works
 import { NARROW_LAYOUT_MAX_WIDTH, renderCursorValue } from "./layout.js";
 import { darkTheme, styleToken, type SessionsTheme } from "./theme.js";
 import type { TextInputState } from "./text-input.js";
+import { DIALOG_CONTENT_X, footerHits, type DialogHitSink } from "./dialog-mouse.js";
+
+/** A clicked item, or a clicked compact column tab. */
+export type PickerTarget = { index: number } | { enabled: boolean };
 
 export interface PickerItem {
   name: string;
@@ -60,10 +64,17 @@ export function switchPickerColumn(state: PickerState): PickerState {
   };
 }
 
-export function renderTwoColumnPicker(state: PickerState, width: number, theme?: SessionsTheme, height?: number): string[] {
+export function renderTwoColumnPicker(state: PickerState, width: number, theme?: SessionsTheme, height?: number, hits?: DialogHitSink<PickerTarget>): string[] {
   const styles = theme ? createStyles(theme) : createStyles({ ...darkTheme, accent: "", border: "", dim: "", muted: "" });
   const inner = Math.max(1, width - 2);
-  const body = width <= NARROW_LAYOUT_MAX_WIDTH ? renderCompactBody(state, inner, height, styles) : renderWideBody(state, inner, height, styles);
+  // Item clicks would bypass pool path editing, so only footer taps stay live while it is open.
+  const itemHits = hits && !state.poolInput && !state.poolPending ? hits : undefined;
+  const body = width <= NARROW_LAYOUT_MAX_WIDTH ? renderCompactBody(state, inner, height, styles, itemHits) : renderWideBody(state, inner, height, styles, itemHits);
+  if (hits) {
+    const footerCount = width <= NARROW_LAYOUT_MAX_WIDTH ? compactFooter(state).length : 1;
+    // The frame's top border precedes the body.
+    body.slice(-footerCount).forEach((line, index) => hits.out.push(...footerHits(body.length - footerCount + index + 1, line, DIALOG_CONTENT_X, inner)));
+  }
   const lines = frame(body, inner, styles);
   return height === undefined ? lines : lines.slice(0, Math.max(0, height));
 }
@@ -96,7 +107,7 @@ function compactDetailLayout(state: PickerState, width: number, height: number |
   return { lines, capacity, maxOffset, offset: Math.max(0, Math.min(state.detailOffset ?? 0, maxOffset)), listCapacity: Math.max(1, availableRows - capacity) };
 }
 
-function renderCompactBody(state: PickerState, width: number, height: number | undefined, styles: ReturnType<typeof createStyles>): string[] {
+function renderCompactBody(state: PickerState, width: number, height: number | undefined, styles: ReturnType<typeof createStyles>, hits?: DialogHitSink<PickerTarget>): string[] {
   const bodyLimit = bodyHeight(height);
   const footer = compactFooter(state).map((line) => styles.muted(line));
   if (!compactPickerCanInteract(state, width + 2, height)) {
@@ -110,7 +121,8 @@ function renderCompactBody(state: PickerState, width: number, height: number | u
   const pool = poolRows(state, width, styles);
   const enabledCount = visibleColumnIndexes(state, true).length;
   const availableCount = visibleColumnIndexes(state, false).length;
-  const tabs = `${enabled ? glyphs.primary : " "} Enabled (${enabledCount})   ${enabled ? " " : glyphs.primary} Available (${availableCount})`;
+  const enabledTab = `${enabled ? glyphs.primary : " "} Enabled (${enabledCount})`;
+  const tabs = `${enabledTab}   ${enabled ? " " : glyphs.primary} Available (${availableCount})`;
   const detail = compactDetailLayout(state, width, height);
   const listCapacity = detail.listCapacity;
   const visible = windowIndexes(indexes, selected, listCapacity);
@@ -119,6 +131,19 @@ function renderCompactBody(state: PickerState, width: number, height: number | u
     : [styles.muted(emptyCategoryMessage(state, enabled))];
   const listRows = Number.isFinite(listCapacity) ? Array.from({ length: listCapacity }, (_, index) => list[index] ?? "") : list;
   const detailRows = Array.from({ length: detail.capacity }, (_, index) => detail.lines[detail.offset + index] ?? "");
+  if (hits) {
+    // Body rows: title, pool rows, search, tabs, then the list; the frame adds one row above.
+    const tabsRow = 3 + pool.length;
+    const tabWidth = visibleWidth(enabledTab);
+    for (const [column, x, span] of [[true, DIALOG_CONTENT_X, tabWidth], [false, DIALOG_CONTENT_X + tabWidth + 3, width - tabWidth - 3]] as const) {
+      const action = hits.target({ enabled: column });
+      if (action) hits.out.push({ ...action, row: tabsRow, x, width: span });
+    }
+    visible.forEach((index, position) => {
+      const action = hits.target({ index });
+      if (action) hits.out.push({ ...action, row: tabsRow + 1 + position });
+    });
+  }
   return [
     styles.accent(state.title),
     ...pool,
@@ -130,7 +155,7 @@ function renderCompactBody(state: PickerState, width: number, height: number | u
   ];
 }
 
-function renderWideBody(state: PickerState, width: number, height: number | undefined, styles: ReturnType<typeof createStyles>): string[] {
+function renderWideBody(state: PickerState, width: number, height: number | undefined, styles: ReturnType<typeof createStyles>, hits?: DialogHitSink<PickerTarget>): string[] {
   const enabled = visibleColumnIndexes(state, true);
   const available = visibleColumnIndexes(state, false);
   const selectedEnabled = activeCategory(state);
@@ -159,7 +184,20 @@ function renderWideBody(state: PickerState, width: number, height: number | unde
     "",
     footer,
   ];
-  return fitBody(rows, bodyLimit, footer);
+  const fitted = fitBody(rows, bodyLimit, footer);
+  if (hits && (enabled.length || available.length)) {
+    // Item rows follow title, pool rows, search, blank and heading; the frame adds one row above.
+    const firstRow = 5 + pool.length;
+    for (let row = start; row < Math.min(rowCount, start + capacity); row += 1) {
+      const line = firstRow + row - start;
+      if (line > fitted.length - 1) break;
+      for (const [index, x] of [[enabled[row], DIALOG_CONTENT_X], [available[row], DIALOG_CONTENT_X + col + 3]] as const) {
+        const action = index === undefined ? undefined : hits.target({ index });
+        if (action) hits.out.push({ ...action, row: line, x, width: col });
+      }
+    }
+  }
+  return fitted;
 }
 
 function frame(lines: string[], width: number, styles: ReturnType<typeof createStyles>): string[] {

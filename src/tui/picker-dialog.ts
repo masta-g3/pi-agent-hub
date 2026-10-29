@@ -3,7 +3,8 @@ import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { createTextInput, editTextInput, isEnterKey } from "./text-input.js";
 import { errorMessage, isPromise, type PickerDialogContext, type ProjectPickerTarget } from "./dialog.js";
-import { compactPickerCanInteract, movePickerSelection, renderTwoColumnPicker, scrollPickerDetail, switchPickerColumn, togglePickerItem, type PickerItem, type PickerState } from "./two-column-picker.js";
+import { compactPickerCanInteract, movePickerSelection, renderTwoColumnPicker, scrollPickerDetail, switchPickerColumn, togglePickerItem, type PickerItem, type PickerState, type PickerTarget } from "./two-column-picker.js";
+import type { DialogAction, DialogHit } from "./dialog-mouse.js";
 
 export interface PickerDialog {
   kind: "picker";
@@ -52,8 +53,22 @@ export function handlePickerDialogInput(dialog: PickerDialog, data: string, ctx:
   return edited ? { ...dialog, picker: { ...edited, poolError: undefined, poolMessage: undefined } } : dialog;
 }
 
-export function renderPickerDialog(dialog: PickerDialog, width: number, ctx: PickerDialogContext, height?: number): string[] {
-  return renderTwoColumnPicker(dialog.picker, width, ctx.theme, height);
+export function renderPickerDialog(dialog: PickerDialog, width: number, ctx: PickerDialogContext, height?: number, hits?: DialogHit[]): string[] {
+  return renderTwoColumnPicker(dialog.picker, width, ctx.theme, height, hits && { out: hits, target: (target) => pickerAction(dialog, target) });
+}
+
+function pickerAction(dialog: PickerDialog, target: PickerTarget): DialogAction | undefined {
+  if ("enabled" in target) {
+    const switched = (dialog.picker.activeEnabled ?? dialog.picker.items[dialog.picker.selected]?.enabled ?? true) !== target.enabled;
+    return { id: `picker:column:${target.enabled}`, select: () => switched ? { ...dialog, picker: switchPickerColumn(dialog.picker) } : dialog };
+  }
+  const item = dialog.picker.items[target.index];
+  if (!item) return undefined;
+  return {
+    id: `picker:${item.name}`,
+    select: () => ({ ...dialog, picker: { ...dialog.picker, selected: target.index, activeEnabled: item.enabled, detailOffset: 0 } }),
+    confirm: " ",
+  };
 }
 
 function handleSkillPoolInput(dialog: PickerDialog, data: string, ctx: PickerDialogContext): PickerDialog | undefined {

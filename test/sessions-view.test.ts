@@ -4681,13 +4681,18 @@ test("hidden pins leave pin mode so phones can open the workspace", () => {
   assert.doesNotMatch(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
 });
 
-function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[] } = {}) {
+function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[]; followDefault?: boolean } = {}) {
   const events = options.events ?? [];
   const controller = new SessionsController({ version: 1, sessions: options.sessions ?? [session("api", "api"), session("docs", "docs"), session("more", "more")] });
   let following = options.following ?? true;
+  let followDefault = options.followDefault ?? false;
   const state = () => ({ slots: options.slots ?? (following ? ["api", undefined, undefined, undefined] : [undefined, undefined, undefined, undefined]),
     capacity: options.capacity ?? 2, constrained: false, splitPercent: 50, following });
   const view = new SessionsView(controller, () => {}, {
+    ...(options.followDefault === undefined ? {} : { followPreference: {
+      followDefault: () => followDefault,
+      setFollowDefault: async (next: boolean) => { events.push(`follow-default:${next}`); followDefault = next; },
+    } }),
     sidePaneState: state,
     followSidePane: (id) => { events.push(`follow:${id}`); following = true; return { kind: "following" }; },
     unfollowSidePane: () => { events.push("unfollow"); following = false; return { kind: "closed" }; },
@@ -4702,8 +4707,64 @@ function followView(options: { sessions?: ManagedSession[]; following?: boolean;
     closeSidePane: (id) => { events.push(`close:${id}`); return { kind: "closed" }; },
     resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 60 }; },
   });
-  return { controller, view, events };
+  return { controller, view, events, setFollowing: (value: boolean) => { following = value; } };
 }
+
+test("follow view opens by default and reopens on the live selection after its pane goes away", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const off = { ...session("off", "off"), status: "stopped" as const };
+  const { controller, view, events, setFollowing } = followView({ following: false, followDefault: true,
+    sessions: [session("api", "api"), session("docs", "docs"), off] });
+  controller.selectSession("api");
+  view.render(100);
+  t.mock.timers.tick(200);
+  assert.deepEqual(events, ["follow:api"]);
+
+  // Archive, stop, or delete closes the follow pane; the next live selection gets it back.
+  events.length = 0;
+  setFollowing(false);
+  controller.selectSession("off");
+  view.render(100);
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, [], "a non-live selection waits");
+  controller.selectSession("docs");
+  view.render(100);
+  t.mock.timers.tick(200);
+  assert.deepEqual(events, ["follow:docs"]);
+
+  // Leaving with o is sticky until o is pressed again.
+  events.length = 0;
+  view.handleInput("o");
+  view.render(100);
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["unfollow"]);
+});
+
+test("follow default stays off when disabled and never auto-opens beside pins or below 100 columns", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const options of [
+    { followDefault: false },
+    { followDefault: true, slots: ["api", undefined, undefined, undefined] },
+    { followDefault: true, capacity: 0 },
+  ]) {
+    const { view, events } = followView({ following: false, ...options });
+    view.render(100);
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, [], JSON.stringify(options));
+  }
+});
+
+test("command palette toggles the persisted follow default", async () => {
+  const { view, events } = followView({ following: false, followDefault: true, capacity: 0 });
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "follow view by default") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Follow view by default: On/);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(events, ["follow-default:false"]);
+  assert.match(stripAnsi(view.render(100).join("\n")), /follow view by default · Off/);
+});
 
 test("follow view retargets once after the selection settles and skips non-live rows", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

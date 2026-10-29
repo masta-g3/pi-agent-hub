@@ -15,7 +15,7 @@ import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTh
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardFollowDefault, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardFollowDefault, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
@@ -388,6 +388,7 @@ export async function runTui(): Promise<void> {
   const tui = new TuiMainScreen(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
   let attentionBellEnabled = await effectiveDashboardAttentionBell();
+  let followDefaultEnabled = await effectiveDashboardFollowDefault();
   const attentionNotifyEnabled = await effectiveDashboardAttentionNotify();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
@@ -671,6 +672,13 @@ export async function runTui(): Promise<void> {
       async setAttentionBell(enabled) {
         await setDashboardAttentionBell(enabled);
         attentionBellEnabled = enabled;
+      },
+    },
+    followPreference: {
+      followDefault: () => followDefaultEnabled,
+      async setFollowDefault(enabled) {
+        await setDashboardFollowDefault(enabled);
+        followDefaultEnabled = enabled;
       },
     },
     favorites: {

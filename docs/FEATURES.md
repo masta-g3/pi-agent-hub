@@ -86,7 +86,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `t` | Preview and configure the dashboard theme |
 | `v` | Toggle Status / Repo fleet grouping |
 | `S` | Visit the workflow board or return to the chosen fleet grouping |
-| Click / double-click | Select / open a session; double-click folds a section header |
+| Click / double-click | Select / open a session; double-click folds a section header. In dialogs, click selects, double-click confirms, and footer hints are tappable; Delete and Finish choices need keys |
 
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
@@ -239,6 +239,7 @@ Press `o` with a live session selected, no pins open, and at least 100 columns. 
 - Follow view and pins do not mix: `o` asks you to close pins first, and pin keys ask you to leave follow view first.
 - Below 100 columns the pane hides like pins and returns, still following, when the window widens.
 - `o` again closes the pane. Pi keeps running.
+- Follow view is on by default. It opens when the dashboard starts, and it reopens on the next live selection after you archive, stop, or delete the session it shows. After `o` closes it, it stays closed until you press `o` again. It does not open while pins or Conversation are open. Use **Follow view by default: On/Off** in the `:` palette to change the default; see [Follow view default](CONFIG.md#follow-view-default).
 
 Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
 

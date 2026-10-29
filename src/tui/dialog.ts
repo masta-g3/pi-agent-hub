@@ -141,6 +141,11 @@ export interface AttentionDeliveryActions {
   setAttentionBell: (enabled: boolean) => void | Promise<void>;
 }
 
+export interface FollowPreferenceActions {
+  followDefault: () => boolean;
+  setFollowDefault: (enabled: boolean) => void | Promise<void>;
+}
+
 /** Composition-bound action bag. Groups are optional; members are required when supplied. */
 export interface SessionsViewActions {
   interactionTarget?: (session: import("../core/types.js").RuntimeSession) => InteractionTarget | undefined;
@@ -156,6 +161,7 @@ export interface SessionsViewActions {
   navigationActions?: Partial<NavigationActions>;
   shortcutActions?: Partial<DashboardShortcutActions>;
   attentionDelivery?: Partial<AttentionDeliveryActions>;
+  followPreference?: FollowPreferenceActions;
 
   initialViewState?: SessionsViewState;
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */

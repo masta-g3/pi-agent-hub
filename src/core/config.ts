@@ -22,6 +22,7 @@ export interface SessionsConfig {
     shortcuts?: DashboardShortcut[];
     attentionBell?: boolean;
     attentionNotify?: boolean;
+    followDefault?: boolean;
   };
 }
 
@@ -84,6 +85,10 @@ export async function effectiveDashboardAttentionNotify(env: NodeJS.ProcessEnv =
   return (await loadSessionsConfig(env)).dashboard?.attentionNotify ?? false;
 }
 
+export async function effectiveDashboardFollowDefault(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  return (await loadSessionsConfig(env)).dashboard?.followDefault ?? true;
+}
+
 export async function setSkillPoolDirs(poolDirs: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const cleaned = poolDirs.map((dir) => dir.trim()).filter(Boolean);
   if (!cleaned.length) throw new Error("skill pool dir cannot be blank");
@@ -136,6 +141,10 @@ export async function setDashboardAttentionBell(enabled: boolean, env: NodeJS.Pr
   await updateSessionsConfig((config) => ({ ...config, dashboard: { ...config.dashboard, attentionBell: enabled } }), env);
 }
 
+export async function setDashboardFollowDefault(enabled: boolean, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  await updateSessionsConfig((config) => ({ ...config, dashboard: { ...config.dashboard, followDefault: enabled } }), env);
+}
+
 function sessionsConfigStore(env: NodeJS.ProcessEnv): JsonStore<SessionsConfig> {
   return {
     path: configPath(env),
@@ -161,6 +170,7 @@ function validateConfig(config: SessionsConfig): void {
   if (config.dashboard?.theme !== undefined && typeof config.dashboard.theme !== "string") throw new Error("Invalid dashboard.theme in pi-agent-hub config");
   if (config.dashboard?.attentionBell !== undefined && typeof config.dashboard.attentionBell !== "boolean") throw new Error("Invalid dashboard.attentionBell in pi-agent-hub config");
   if (config.dashboard?.attentionNotify !== undefined && typeof config.dashboard.attentionNotify !== "boolean") throw new Error("Invalid dashboard.attentionNotify in pi-agent-hub config");
+  if (config.dashboard?.followDefault !== undefined && typeof config.dashboard.followDefault !== "boolean") throw new Error("Invalid dashboard.followDefault in pi-agent-hub config");
   validateDashboardShortcuts(config.dashboard?.shortcuts);
 }
 

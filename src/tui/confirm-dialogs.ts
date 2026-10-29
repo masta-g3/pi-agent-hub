@@ -5,7 +5,8 @@ import { isWorktreeSession, primaryWorktree } from "../core/worktree.js";
 import type { ManagedSession, SessionClosure } from "../core/types.js";
 import { errorMessage, isPromise, type ConfirmDialogContext } from "./dialog.js";
 import { renderDialog } from "./layout.js";
-import { styleToken, type SessionsTheme } from "./theme.js";
+import { stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
+import { DIALOG_CONTENT_X, footerHits, type DialogHit } from "./dialog-mouse.js";
 
 interface BoundedConfirmation {
   scroll: number;
@@ -92,14 +93,14 @@ export function handleArchiveInput(dialog: ArchiveDialog, data: string, ctx: Con
   return undefined;
 }
 
-export function renderArchiveDialog(dialog: ArchiveDialog, width: number, ctx: ConfirmDialogContext): string[] {
+export function renderArchiveDialog(dialog: ArchiveDialog, width: number, ctx: ConfirmDialogContext, hits?: DialogHit[]): string[] {
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
   const choice = (key: string, label: string, detail: string, token: "success" | "muted" | "text") => {
     const text = `${key}  ${label.padEnd(14)}${detail}`;
     return ctx.theme ? styleToken(ctx.theme, token, text) : text;
   };
   const innerWidth = Math.max(20, Math.min(width - 2, 86));
-  return renderDialog("Archive session", [
+  const rows = [
     target ? target.title : "target unavailable",
     "",
     choice("d", "Done", "Finished what I needed", "success"),
@@ -109,7 +110,13 @@ export function renderArchiveDialog(dialog: ArchiveDialog, width: number, ctx: C
     ...wrapTextWithAnsi("Moves to Archived. Keeps workflow and conversation.", innerWidth),
     ...wrapTextWithAnsi("Does not stop Pi or running children. U reopens.", innerWidth),
     hintLine("Esc Cancel", ctx.theme),
-  ], width, ctx.theme);
+  ];
+  if (hits) {
+    // renderDialog adds the top border, title and rule above the rows.
+    ["d", "x", "a"].forEach((key, index) => hits.push({ id: `archive:${key}`, row: 5 + index, key }));
+    hits.push(...footerHits(2 + rows.length, rows.at(-1)!, DIALOG_CONTENT_X, innerWidth));
+  }
+  return renderDialog("Archive session", rows, width, ctx.theme);
 }
 
 function archiveTargetAvailable(target: ManagedSession | undefined, piSessionId: string | undefined): boolean {
@@ -174,11 +181,14 @@ function readConfirmation<T extends BoundedConfirmation>(dialog: T, review: Conf
     readThrough: review.start <= readThrough ? Math.max(readThrough, review.end) : readThrough };
 }
 
-export function renderConfirmDialog(dialog: ConfirmDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext): ConfirmationRender {
-  return dialog.purpose === "delete" ? renderDeleteDialog(dialog, width, height, ctx) : renderFinishDialog(dialog, width, height, ctx);
+/** Delete and Finish expose only the Esc tap; their destructive choices stay keyboard-only. */
+export function renderConfirmDialog(dialog: ConfirmDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext, hits?: DialogHit[]): ConfirmationRender {
+  const rendered = dialog.purpose === "delete" ? renderDeleteDialog(dialog, width, height, ctx) : renderFinishDialog(dialog, width, height, ctx);
+  hits?.push(...confirmationHits(rendered, []).filter((hit) => hit.id === "key:\u001b"));
+  return rendered;
 }
 
-export function renderRestartDialog(dialog: RestartDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext): ConfirmationRender {
+export function renderRestartDialog(dialog: RestartDialog, width: number, height: number | undefined, ctx: ConfirmDialogContext, hits?: DialogHit[]): ConfirmationRender {
   const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
   const body = [
     target ? `target  ${target.title}` : "target  unavailable",
@@ -191,7 +201,23 @@ export function renderRestartDialog(dialog: RestartDialog, width: number, height
     confirmLine("warning", "a Restart active", ctx.theme),
     hintLine(`Esc Cancel ${glyphs.pendingStep} PgUp/PgDn Read`, ctx.theme),
   ];
-  return renderBoundedConfirmation("Restart session", body, controls, dialog, width, height, ctx.theme, Boolean(target && target.kind !== "subagent"), dialog.targetId, targetReviewKey(target, []));
+  const rendered = renderBoundedConfirmation("Restart session", body, controls, dialog, width, height, ctx.theme, Boolean(target && target.kind !== "subagent"), dialog.targetId, targetReviewKey(target, []));
+  hits?.push(...confirmationHits(rendered, ["r", "n", "a"]));
+  return rendered;
+}
+
+/** Maps rendered `<primary glyph> <key> <label>` control rows and the closing `Esc Cancel` hint to taps. */
+function confirmationHits(rendered: ConfirmationRender, keys: string[]): DialogHit[] {
+  const marker = `${glyphs.primary} `;
+  const hits: DialogHit[] = [];
+  rendered.lines.forEach((line, row) => {
+    // Drop the left border column before reading the row text.
+    const text = stripAnsi(line).slice(1).trimEnd();
+    const choice = text.startsWith(marker) && text[marker.length + 1] === " " ? text[marker.length]! : undefined;
+    if (choice && keys.includes(choice)) hits.push({ id: `confirm:${choice}`, row, key: choice });
+    else if (text.startsWith("  Esc Cancel")) hits.push(...footerHits(row, text, DIALOG_CONTENT_X, text.length));
+  });
+  return hits;
 }
 
 function scrollConfirmation<T extends BoundedConfirmation>(dialog: T, delta: number): T {
