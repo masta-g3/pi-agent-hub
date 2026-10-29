@@ -1342,7 +1342,7 @@
   plan_file: agent-work/history/20261027_inbox-001_official_answer_protocol.md
   completed_at: '2026-10-27'
 - id: inbox-002
-  status: pending
+  status: done
   title: Inbox design lab
   subtitle: Approved mockups for inbox-first dashboard
   description: An HTML design deck grounded in supervisory-control and calm-technology
@@ -1351,6 +1351,8 @@
   created_at: '2026-10-27'
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261028_inbox-002_inbox_design_lab.md
+  completed_at: '2026-10-28'
 - id: inbox-003
   status: pending
   title: Self-explaining cards
