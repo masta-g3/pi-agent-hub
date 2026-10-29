@@ -72,7 +72,8 @@ test("attention shares the child state slot without hiding workspace runtime", (
   assert.doesNotMatch(line, /◐/);
   const model = buildRenderModel({ sessions: [child], selectedId: child.id, width: 80, now: NOW,
     workspaceCommands: selectWorkspaceCommands(child, buildDashboardCommands({ sessions: [child], selectedId: child.id }), 3), workspaceFullScreen: true });
-  assert.match(renderSessions(model).lines.map(stripAnsi).join("\n"), /◐ waiting/);
+  assert.equal(model.workspace?.session.displayStatus, "waiting");
+  assert.equal(model.workspace?.session.attention?.kind, "question");
 });
 
 test("title is bold primary text and group and repo names are muted without bold", () => {

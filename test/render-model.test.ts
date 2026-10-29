@@ -49,7 +49,8 @@ function workspaceModel(input: BuildRenderModelInput) {
   return buildRenderModel({
     ...input,
     workspaceCommands: selectWorkspaceCommands(selected, commands, 3),
-    workspaceFullScreen: input.width < 120,
+    workspaceEvidenceVisible: input.workspaceEvidenceVisible ?? true,
+    workspaceFullScreen: input.grouping === "stage" && input.width < 120,
   });
 }
 
@@ -61,8 +62,7 @@ test("new-user coaching teaches the real empty tiers and daily-loop footer", () 
     });
     assert.deepEqual(model.sections.map((section) => section.title), ["NEEDS YOU", "HEALTH", "NEW", "ACTIVE", "QUIET"]);
     assert.equal(model.guidance.coach, true);
-    assert.match(model.footer, /Enter Open/);
-    assert.match(model.footer, /Ctrl\+Q Return/);
+    assert.match(model.footer, /\] Next request · : All actions/);
     const rendered = renderSessions(model, darkTheme);
     assert.equal(rendered.lines.every((line) => visibleWidth(line) <= width), true);
     const text = stripAnsi(rendered.lines.join("\n"));
@@ -103,7 +103,7 @@ test("coaching stays width-safe at short heights and yields to real selected row
   assert.equal(rendered.lines.every((line) => visibleWidth(line) <= 60), true);
   const text = stripAnsi(rendered.lines.join("\n"));
   assert.match(text, /api/);
-  assert.match(text, /Enter Open/);
+  assert.match(text, /\] Next request/);
 });
 
 test("coaching stays out of board pin filter and full-screen workspace modes", () => {
@@ -113,7 +113,7 @@ test("coaching stays out of board pin filter and full-screen workspace modes", (
     buildRenderModel({ sessions: [active], width: 120, grouping: "stage", cockpitOnboarding: coaching }),
     buildRenderModel({ sessions: [active], width: 120, pinSlots: ["api"], cockpitOnboarding: coaching }),
     buildRenderModel({ sessions: [active], width: 120, filter: "api", cockpitOnboarding: coaching }),
-    buildRenderModel({ sessions: [active], width: 80, workspaceFullScreen: true, cockpitOnboarding: coaching }),
+    buildRenderModel({ sessions: [active], width: 80, grouping: "stage", workspaceFullScreen: true, cockpitOnboarding: coaching }),
   ]) assert.equal(model.guidance.coach, false);
 });
 
@@ -141,7 +141,7 @@ test("release cue follows project-mode suppression rules", () => {
     buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, grouping: "stage" }),
     buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, pinSlots: ["api"] }),
     buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, filter: "api" }),
-    buildRenderModel({ sessions: [active], width: 80, releaseCueEnabled: true, workspaceFullScreen: true }),
+    buildRenderModel({ sessions: [active], width: 80, releaseCueEnabled: true, grouping: "stage", workspaceFullScreen: true }),
     buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, guidanceHidden: true }),
   ]) assert.equal(model.guidance.releaseCue, undefined);
 });
@@ -414,7 +414,7 @@ test("steady-state chrome names every mode and right-aligns primary owner signal
   assert.match(pinned[1] ?? "", /^│PINNED FLEET\s+2 sessions · 1 pinned · 1 needs you · 1 health\s*│$/);
 
   const workspace = renderSessions(workspaceModel({ sessions, selectedId: "needs", width: 100 })).lines.map(stripAnsi);
-  assert.match(workspace[1] ?? "", /^│Needs\s+◐ waiting│$/);
+  assert.match(workspace.join("\n"), /Needs[\s\S]*LIVE DETAILS/);
 });
 
 test("selecting a parent or child paints the whole visible owner tree", () => {
@@ -512,7 +512,7 @@ test("mode labels survive every 40-column signal combination", () => {
     ["FLEET", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, filter: "Needs" })],
     ["WORKFLOW", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, grouping: "stage" })],
     ["PINNED FLEET", buildRenderModel({ sessions: [needs, health], selectedId: "needs", width: 40, pinSlots: ["needs"], pinCapacity: 0 })],
-    ["Needs", workspaceModel({ sessions: [needs, health], selectedId: "needs", width: 40 })],
+    ["FLEET", workspaceModel({ sessions: [needs, health], selectedId: "needs", width: 40 })],
   ] as const;
   for (const [mode, model] of modes) {
     const header = stripAnsi(renderSessions(model).lines[0] ?? "");
@@ -533,7 +533,7 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
     const target = collapsedLayout.rowTargets[index];
     return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === "parent";
   }).join("\n");
-  assert.match(collapsedCard, /Parent[\s\S]*\[app\] \?1 ⚙︎1 · 8m[\s\S]*✓\s+◉\s+·\s+·\s+·/);
+  assert.match(collapsedCard, /Parent[\s\S]*\[app\].*8m \?1 ⚙︎1[\s\S]*✓\s+◉\s+·\s+·\s+·/);
 
   const expanded = renderSessions(buildRenderModel({
     sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1, expandedProjectParentIds: new Set(["parent"]),
@@ -691,7 +691,7 @@ test("board card markers are positional for direct, complete, terminal, and repl
   }
 
   const replaced = { ...WORKFLOW, activeIndex: 0, currentStepComplete: false, activity: { id: "start", label: "Inspecting" }, updatedAt: 2 };
-  const text = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow: replaced }], selectedId: "a", width: 40 })).lines.map(stripAnsi).join("\n");
+  const text = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "waiting"), workflow: replaced }], selectedId: "a", width: 40, grouping: "stage" })).lines.map(stripAnsi).join("\n");
   assert.match(text, /◉\s+·\s+·\s+·\s+·/);
   assert.doesNotMatch(text, /✓CM|✓✓✓✓✓/);
 });
@@ -702,8 +702,8 @@ test("sidebar workflow stages use the theme accent color", () => {
   const rows = renderSessions(model, theme).lines;
   const metadataRow = rows.find((line) => stripAnsi(line).includes("[default]")) ?? "";
 
-  assert.match(metadataRow, /\u001b\[38;2;1;2;3m◉/);
-  assert.doesNotMatch(metadataRow, /\u001b\[38;2;4;5;6m◉/);
+  assert.match(metadataRow, /\u001b\[38;2;1;2;3m · Execute/);
+  assert.doesNotMatch(metadataRow, /\u001b\[38;2;4;5;6m · Execute/);
 });
 
 test("project rows show group lifecycle workflow and age metadata by priority", () => {
@@ -730,7 +730,7 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
   assert.doesNotMatch(card("idle"), /\bEX\b|FOC/);
   assert.match(row("backlog"), /backlog/);
   assert.match(rendered, /default/);
-  assert.match(rendered, /14m/);
+  assert.doesNotMatch(rendered, /14m/);
 });
 
 test("workspace states workflow position in plain language", () => {
@@ -831,20 +831,20 @@ test("closed workspace explains closure, last workflow, runtime and live childre
   for (const width of [100, 120, 160]) {
     const text = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width, height: 30, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(text, /✓ Closed · Done · ⚙︎1 running/, `${width}`);
-    assert.match(text, /⠋ running/, `${width}`);
+    assert.match(text, /result → running/, `${width}`);
     assert.match(text, /Commit · step 5 of 5/, `${width}`);
-    assert.match(text, /▌ Reopen\s+U/, `${width}`);
+    assert.match(text, /U Reopen/, `${width}`);
     assert.equal(text.match(/Reopen/g)?.length, 1, `${width}`);
   }
   const abandoned = archivedRow("gone", "Gone work", { closure: "abandoned" });
   const abandonedText = renderSessions(workspaceModel({ sessions: [abandoned], selectedId: "gone", width: 120, height: 30, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
   assert.match(abandonedText, /⊘ Closed · Abandoned/);
-  assert.match(abandonedText, /- stopped/);
+  assert.match(abandonedText, /result → stopped/);
   assert.doesNotMatch(abandonedText, /Restart to continue/);
   for (const height of [8, 10, 12]) {
     const short = renderSessions(workspaceModel({ sessions: [closed, child], selectedId: "closed", width: 100, height, now: ARCHIVE_NOW })).lines.map(stripAnsi).join("\n");
     assert.match(short, /✓ Closed · Done/, `height ${height}`);
-    assert.match(short, /▌ Reopen\s+U/, `height ${height}`);
+    assert.match(short, /U Reopen/, `height ${height}`);
   }
 });
 
@@ -1128,7 +1128,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
   assert.match(threeText, /api\s+● running/);
   assert.match(threeText, /Adaptive cockpit/);
   assert.doesNotMatch(threeText, /no explicit request|running · ACTIVE/);
-  assert.match(threeText, /▌ Open\s+Enter/);
+  assert.match(threeText, /▌ Open in Pi\s+Enter/);
   assert.doesNotMatch(threeText, /Open · : Actions/);
   assert.deepEqual(three.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
   assert.equal(three.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "api").length, 1);
@@ -1139,7 +1139,7 @@ test("pinned cockpit uses deterministic decision strip pruning and visible exact
 
   const twoText = renderAt(9).lines.map(stripAnsi).join("\n");
   assert.doesNotMatch(twoText, /no explicit request|running · ACTIVE/);
-  assert.match(twoText, /api\s+● running[\s\S]*▌ Open\s+Enter/);
+  assert.match(twoText, /api\s+● running[\s\S]*▌ Open in Pi\s+Enter/);
   const one = renderAt(8);
   assert.doesNotMatch(one.lines.map(stripAnsi).join("\n"), /no explicit request|running · ACTIVE/);
   assert.deepEqual(one.workspaceRowTargets.filter(Boolean), ["action:api:open"]);
@@ -1175,8 +1175,9 @@ test("layout hit map marks only rendered session rows", () => {
 test("workspace uses frozen responsive geometry", () => {
   const planned = { ...session("planned", "default", "idle"), workflow: WORKFLOW };
   assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 100 })).listWidth, 98);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 83);
-  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 113);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120 })).listWidth, 118);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 160 })).listWidth, 158);
+  assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120, grouping: "stage" })).listWidth, 83);
 });
 
 test("layout hit maps handle empty and persistent workspace layouts", () => {
@@ -1187,8 +1188,8 @@ test("layout hit maps handle empty and persistent workspace layouts", () => {
   const wide = renderSessions(workspaceModel({ sessions: [session("a", "default", "idle")], selectedId: "a", width: 120 }));
   assert.equal(wide.lines.length, wide.rowTargets.length);
   assert.equal(wide.lines.length, wide.workspaceRowTargets.length);
-  assert.equal(wide.listWidth, 83);
-  assert.ok(wide.workspaceRowTargets.some(Boolean));
+  assert.equal(wide.listWidth, 118);
+  assert.ok(wide.cardCommandHits.some(hit => hit.commandId === "action:a:open"));
 });
 
 function manySessions(count: number): ManagedSession[] {
@@ -1222,17 +1223,17 @@ test("height-bounded empty and no-match states fit terminal rows", () => {
 
 test("height-bounded list keeps a top selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s0", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(7).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(8).map((item) => item.id));
 });
 
 test("height-bounded list keeps a bottom selection and nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s19", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(13).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(12).map((item) => item.id));
 });
 
 test("height-bounded list centers a middle selection among nearby titles", () => {
   const layout = renderSessions(buildRenderModel({ sessions: manySessions(20), selectedId: "s10", width: 100, height: 15 }));
-  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(7, 14).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(layout), manySessions(20).slice(6, 14).map((item) => item.id));
 });
 
 test("height-bounded list handles exact and one-over capacity", () => {
@@ -1251,8 +1252,8 @@ test("height-bounded list derives its adaptive window from selection", () => {
   const first = renderSessions(buildRenderModel({ sessions, selectedId: "s10", width: 100, height: 15 }));
   const next = renderSessions(buildRenderModel({ sessions, selectedId: "s11", width: 100, height: 15, listScrollTop: 99 }));
 
-  assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(7, 14).map((item) => item.id));
-  assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(8, 15).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(first), manySessions(30).slice(6, 14).map((item) => item.id));
+  assert.deepEqual(renderedSessionIds(next), manySessions(30).slice(8, 16).map((item) => item.id));
 });
 
 test("project view defaults to cockpit tiers with Backlog as row metadata", () => {
@@ -1332,7 +1333,7 @@ test("cockpit flattens groups into row tags and keeps Archived chronological", (
   assert.deepEqual(model.sections[1]?.groups[0]?.sessions.map((row) => row.id), ["archive-new", "archive-old"]);
   assert.equal(model.selected?.archivedAge, "1d");
   assert.equal(model.selected?.archiveRetentionIn, "6d");
-  assert.match(model.footer, /: Actions/);
+  assert.match(model.footer, /: All actions/);
 
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(rendered, /QUIET/);
@@ -1423,13 +1424,13 @@ test("session order puts unread waiting before running and idle rows", () => {
 test("narrow layout hides preview and uses readable compact footer", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 42 });
   assert.equal(model.showWorkspace, false);
-  assert.equal(model.footer, "Enter Open · i Workspace · : Actions · / Filter · ? Help");
+  assert.equal(model.footer, "] Next request · : All actions · ? Help");
 });
 
 
 test("wide footer groups keys by intent", () => {
   const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "] Next request · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
 });
 
 test("footer request count follows the visible projection at medium and wide widths", () => {
@@ -1438,7 +1439,7 @@ test("footer request count follows the visible projection at medium and wide wid
   for (const width of [80, 160]) {
     const sessions = [request, session("quiet", "default", "idle")];
     assert.match(buildRenderModel({ sessions, width }).footer, /\] Next request/);
-    assert.doesNotMatch(buildRenderModel({ sessions, width, filter: "quiet" }).footer, /\] Next request/);
+    assert.match(buildRenderModel({ sessions, width, filter: "quiet" }).footer, /\] Next request/);
   }
 });
 
@@ -1447,7 +1448,7 @@ test("wide footer stays stable for worktree sessions", () => {
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
     width: 120,
   });
-  assert.equal(model.footer, "↑↓ Move · Enter Open · n New · / Filter · b Hide backlog · v Group · S Board · : Actions · ? Help");
+  assert.equal(model.footer, "] Next request · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
 });
 
 test("footer controls survive layout fitting at each responsive boundary", () => {
@@ -1458,9 +1459,8 @@ test("footer controls survive layout fitting at each responsive boundary", () =>
       const layout = renderSessions(buildRenderModel({ sessions: [{ ...session("a", "default", "idle"), context }], width, height: 24 }));
       assert.ok(layout.lines.every((line) => visibleWidth(line) === width), `${width}`);
       const footer = stripAnsi(layout.lines[layout.footerRow!]!);
-      assert.match(footer, /Enter Open/);
-      if (width < 120) assert.match(footer, /i Workspace/);
-      assert.equal(layout.footerItems.some((item) => item.key === "]"), requested);
+      assert.match(footer, /\] Next request · : All actions · \? Help/);
+      assert.ok(layout.footerItems.some((item) => item.key === "]"));
     }
   }
 });
@@ -1622,7 +1622,7 @@ test("filter bar shifts exact mouse targets without owning a target", () => {
   const workspace = renderSessions(workspaceModel({ sessions: [sessions[0]!], selectedId: "api", width: 120 }));
   const filteredWorkspace = renderSessions(workspaceModel({ sessions: [sessions[0]!], selectedId: "api", width: 120, filter: "default" }));
   const openTarget = "action:api:open";
-  assert.equal(filteredWorkspace.workspaceRowTargets.indexOf(openTarget), workspace.workspaceRowTargets.indexOf(openTarget) + 1);
+  assert.equal(filteredWorkspace.cardCommandHits.find(hit => hit.commandId === openTarget)!.row, workspace.cardCommandHits.find(hit => hit.commandId === openTarget)!.row + 1);
 });
 
 
@@ -1811,7 +1811,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
 
 
 test("selected title and status render inline on the same line", () => {
-  const model = workspaceModel({ sessions: [session("a", "default", "running", "c-bridge")], selectedId: "a", width: 200 });
+  const model = workspaceModel({ sessions: [session("a", "default", "running", "c-bridge")], selectedId: "a", width: 200, grouping: "stage" });
   const rendered = renderSessions(model).lines.map(stripAnsi).join("\n");
   const titleLine = rendered.split("\n").find((line) => /│c-bridge\s+● running/.test(line));
   assert.ok(titleLine, "expected an inline title row in the right pane");
@@ -1820,7 +1820,7 @@ test("selected title and status render inline on the same line", () => {
 
 
 test("long selected title preserves inline status", () => {
-  const model = workspaceModel({ sessions: [session("a", "default", "waiting", "selected-title-".repeat(10))], selectedId: "a", width: 80 });
+  const model = workspaceModel({ sessions: [session("a", "default", "waiting", "selected-title-".repeat(10))], selectedId: "a", width: 80, grouping: "stage" });
   const lines = renderSessions(model).lines;
   const titleLine = lines.find((line) => line.includes("◐ waiting") && !line.includes("▌"));
   assert.ok(titleLine, "expected selected details to keep the status badge");
@@ -2029,8 +2029,8 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   assert.match(text, /Stored session 3/);
   assert.match(text, /Stored session [24]/);
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
-  // Metadata, activity and repo: the selected card stays whole.
-  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 3);
+  // Metadata includes repo; activity stays on its own line.
+  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 2);
   assert.match(text, /Activity 3/);
   assert.equal(layout.lines.length, 12);
 
@@ -2143,14 +2143,14 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
-    const positions = ["Approve the package rollout?", "Package the macOS release", "Execute · step 2 of 5", "Answer in the Pi session.", "▌ Open in Pi", "LIVE DETAILS"].map((label) => text.indexOf(label));
+    const positions = ["Package the macOS release", "Approve the package rollout?", "Answer in the Pi session.", "Enter Open in Pi", "Execute · step 2 of 5", "LIVE DETAILS"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
     assert.doesNotMatch(text, /Ship once notarization/, `${width}: description must not trail a complete subtitle`);
-    assert.match(text, /Hide details\s+i/);
-    assert.match(text, /All actions\s+:/);
-    assert.ok(layout.workspaceRowTargets.filter(Boolean).length >= 3);
+    if (width >= 60) assert.match(text, /i Details/);
+    assert.match(text, /: All actions/);
+    assert.ok(layout.cardCommandHits.length >= (width >= 60 ? 3 : 1));
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
 
@@ -2177,7 +2177,7 @@ test("workspace evidence preserves workflow provenance without duplicating Expla
     },
   };
   const text = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now: 20_000, workspaceEvidenceVisible: true })).lines.map(stripAnsi).join("\n");
-  assert.equal(text.match(/Hide details/g)?.length, 1);
+  assert.equal(text.match(/i Details/g)?.length, 1);
   assert.match(text, /flow\s+· step 2\/5 · Execute ·[\s\S]*retained from[\s\S]*last fresh heartbeat/);
   assert.doesNotMatch(text, /running; owner is running/);
 });
@@ -2189,7 +2189,7 @@ test("attention-only context shows the request without provenance narration", ()
     context: { version: 1 as const, updatedAt: 20_000, attention: { kind: "question" as const, text: "Choose the rollout" } },
   };
   const text = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })).lines.map(stripAnsi).join("\n");
-  assert.match(text, /\? “Choose the rollout”/);
+  assert.match(text, /\? Choose the rollout/);
   assert.doesNotMatch(text, /producer|CONTEXT|no explicit request|RECOMMENDED/);
 });
 
@@ -2201,10 +2201,10 @@ test("handoff workspace shows recommendation and evidence rows only when present
     context: { version: 1 as const, updatedAt: 20_000, attention: { requestId: "r1", kind: "ready" as const, text: "Send form supports Steer", recommendation: "Commit, then reload idle sessions", artifact } },
   };
   const lines = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })).lines.map(stripAnsi);
-  const request = lines.findIndex((line) => /✓ “Send form supports Steer”/.test(line));
+  const request = lines.findIndex((line) => /✓ Send form supports Steer/.test(line));
   assert.ok(request >= 0);
   assert.match(lines[request + 1] ?? "", /→ Commit, then reload idle sessions/);
-  assert.match(lines[request + 2] ?? "", /▤ …\S*cockpit-014\/validation\.md/);
+  assert.match(lines[request + 2] ?? "", /▤ \/Users\/someone\/Code\/agents\/pi-agent-hub\/agent-work\/tickets\/cockpit-014\/validation\.md/);
 
   const plain = { ...selected, context: { ...selected.context, attention: { kind: "ready" as const, text: "Send form supports Steer" } } };
   const plainText = renderSessions(workspaceModel({ sessions: [plain], selectedId: "api", width: 160, now })).lines.map(stripAnsi).join("\n");
@@ -2225,10 +2225,10 @@ test("subagent workspace folds task and owner into the shared hierarchy", () => 
 test("workspace height pruning preserves primary action and requested evidence targets", () => {
   const selected = session("api", "default", "idle", "api");
   for (const height of [8, 12, 18]) {
-    const layout = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 60, height, workspaceEvidenceVisible: true }));
+    const layout = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 60, height, workspaceEvidenceVisible: true, grouping: "stage" }));
     assert.equal(layout.lines.length, height);
     const text = layout.lines.map(stripAnsi).join("\n");
-    assert.match(text, /▌ Open\s+Enter/);
+    assert.match(text, /▌ Open in Pi\s+Enter/);
     assert.match(text, /live evidence unavailable/);
     assert.doesNotMatch(text, /no explicit request|next[: ·]|running · ACTIVE/);
     assert.equal(layout.lines.length, layout.workspaceRowTargets.length);
@@ -2280,7 +2280,7 @@ test("generic context and producer attention define canonical parent hierarchy",
   assert.equal(output.match(/Reviewing implementation \(pass 2\) · Phase 2\/4 · Hub bridge/g)?.length, 1);
   assert.doesNotMatch(output, /ticket:/);
   assert.doesNotMatch(output, /Use one generic[\s\S]*contract/);
-  assert.match(output, /\? “Choose the rollout order”/);
+  assert.match(output, /\? Choose the rollout order/);
   assert.doesNotMatch(output, /CONTEXT|bounded producer|producer context/);
 });
 
@@ -2330,7 +2330,7 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
 
   assert.match(text, /▌│ ▾ \? .*Release decision/);
-  assert.match(text, /“Use the approved card hierarchy\?”/);
+  assert.match(text, /\? Use the approved card hierarchy\?/);
   assert.doesNotMatch(text, /#cockpit-008/);
   assert.equal(text.match(/agents/g)?.length, 1);
   assert.match(text, /└─ ● frontend-designer Review cockpit hierarchy geometry/);
@@ -2378,7 +2378,8 @@ test("Execute plan counts stay in fleet metadata without changing row height", (
     const layout = renderSessions(buildRenderModel({ sessions: [row], selectedId: row.id, width }));
     const baseline = renderSessions(buildRenderModel({ sessions: [{ ...row, workflow: WORKFLOW }], selectedId: row.id, width }));
     const metadata = layout.rowTargets.findIndex((target) => target?.kind === "session-continuation" && target.id === row.id);
-    assert.match(stripAnsi(layout.lines[metadata]), /7\/12 tasks/);
+    if (width >= 160) assert.match(stripAnsi(layout.lines[metadata]), /7\/12 tasks/);
+    else assert.doesNotMatch(stripAnsi(layout.lines[metadata]), /7\/12 tasks/);
     assert.equal(layout.lines.length, baseline.lines.length);
     assert.deepEqual(layout.rowTargets, baseline.rowTargets);
     assert.doesNotMatch(stripAnsi(layout.lines.join("\n")), /■|□/);
@@ -2412,7 +2413,7 @@ test("Execute workspace shows producer phase, task count and next unchecked text
   }
   const compact = renderSessions(workspaceModel({ sessions: [row], selectedId: row.id, width: 60, height: 10 }));
   assert.match(stripAnsi(compact.lines.join("\n")), /Plan progress/);
-  assert.ok(compact.workspaceRowTargets.some((target) => target?.includes("open")));
+  assert.ok(compact.cardCommandHits.some(hit => hit.commandId.includes("open")));
 });
 
 test("board places producer phase above the existing task bar and hides both below 100 columns", () => {
@@ -2496,10 +2497,11 @@ test("only the selected running row animates with the render clock; rows retain 
   assert.deepEqual(symbols(), { long: "●", fresh: "●", wait: "◐" });
 
   for (const grouping of ["project", "stage"] as const) {
-    const lines = renderSessions(buildRenderModel({ sessions, width: 120, now, grouping }), darkTheme).lines.map(stripAnsi);
+    const lines = renderSessions(buildRenderModel({ sessions, width: 160, now, grouping }), darkTheme).lines.map(stripAnsi);
     const owner = (title: string) => lines.slice(lines.findIndex((line) => line.includes(title)), lines.findIndex((line) => line.includes(title)) + 2).join("\n");
     assert.match(owner("Long task"), /3m/, grouping);
-    assert.doesNotMatch(owner("Fresh task"), /\bnow\b/, grouping);
+    if (grouping === "project") assert.match(owner("Fresh task"), /\bnow\b/);
+    else assert.doesNotMatch(owner("Fresh task"), /\bnow\b/);
     assert.match(owner("Waiting task"), /5m/, grouping);
     assert.equal(new Set(lines.map((line) => visibleWidth(line))).size, 1, grouping);
   }

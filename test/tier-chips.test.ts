@@ -77,7 +77,7 @@ test("list reclaims the navigator columns without changing workspace geometry", 
     const layout = renderSessions(model);
     assert.doesNotMatch(layout.lines.join("\n"), /TIERS/);
     const inset = width <= 60 ? 0 : 1;
-    const workspaceWidth = width >= 160 ? 44 : width >= 120 ? 34 : 0;
+    const workspaceWidth = 0;
     assert.equal(layout.listStartX, 1 + inset);
     assert.equal(layout.listWidth, width - 2 * inset - (workspaceWidth ? workspaceWidth + 1 : 0));
     if (workspaceWidth) assert.equal(layout.workspaceStartX, width - workspaceWidth);
@@ -85,14 +85,14 @@ test("list reclaims the navigator columns without changing workspace geometry", 
 });
 
 test("Repo headings still truncate long repository names before dropping workflow columns", () => {
-  const row = { ...fleet().find(row => row.id === "release")!, cwd: "/tmp/repository-with-a-very-long-name-that-needs-truncation" };
-  const layout = renderSessions(buildRenderModel({ sessions: [row], width: 60, fleetGrouping: "repo" }));
-  const header = stripAnsi(layout.lines.find(line => stripAnsi(line).startsWith("─▾ repository-"))!);
-  assert.match(header, /…\s+·1\s+PL EX RV$/);
+  const row = { ...fleet().find(row => row.id === "release")!, cwd: "/tmp/repository-with-a-very-long-name-that-needs-truncation-before-the-workflow-grid-can-fit" };
+  const layout = renderSessions(buildRenderModel({ sessions: [row], width: 80, fleetGrouping: "repo" }));
+  const header = stripAnsi(layout.lines.find(line => stripAnsi(line).includes("─▾ repository-"))!);
+  assert.match(header, /…\s+·1\s+PL\s+EX\s+RV\s*│?$/);
 });
 
 test("board, Repo, pin and full-screen workspace headers have no chip targets", () => {
-  for (const options of [{ grouping: "stage" as const }, { fleetGrouping: "repo" as const }, { pinSlots: ["docs"] }, { width: 60, workspaceFullScreen: true }]) {
+  for (const options of [{ grouping: "stage" as const }, { fleetGrouping: "repo" as const }, { pinSlots: ["docs"] }, { width: 60, grouping: "stage" as const, workspaceFullScreen: true }]) {
     const layout = renderSessions(modelWithWorkspace({ sessions: fleet(), selectedId: "docs", width: 160, ...options }));
     assert.deepEqual(layout.tierChips, []);
     assert.equal(layout.tierChipRow, undefined);

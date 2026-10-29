@@ -44,45 +44,38 @@ test("phone widths drop the outer frame and start content at the first column", 
   assert.equal(wide.layout.listStartX, 2);
 });
 
-test("phone grid uses three-cell columns and narrow phones show the current step instead", () => {
-  const { layout, lines } = render({ width: 44, height: 30 });
-  const header = lines.find((line) => line.includes("PL EX RV RF CM"));
-  assert.ok(header, lines.join("\n"));
-  for (const session of sessions) {
-    const index = titleIndex(layout, session.id);
-    const active = session.workflow!.activeIndex;
-    assert.equal(lines[index + 1]![header.indexOf(steps[active]!.short)], "◉", lines[index + 1]);
+test("phone metadata shows the plain step instead of a grid", () => {
+  for (const width of [30, 36, 44, 60]) {
+    const { layout, lines } = render({ width, height: 30 });
+    assert.ok(!lines.some(line => /PL\s+EX/.test(line)));
+    for (const session of sessions) {
+      const index = titleIndex(layout, session.id);
+      assert.ok(lines[index + 1]!.includes(`· ${steps[session.workflow!.activeIndex]!.label}`), lines[index + 1]);
+    }
   }
-
-  const narrow = render({ width: 36, height: 30 });
-  assert.equal(narrow.lines.some((line) => /PL\s+EX/.test(line)), false);
-  const index = titleIndex(narrow.layout, "s1");
-  assert.match(narrow.lines[index + 1]!, /◉EX/);
 });
 
 test("short phone windows use one-line rows and keep metadata only for the selected row", () => {
   const { layout, lines } = render({ width: 44, height: 14, selectedId: "s1" });
-  const header = lines.find((line) => line.includes("PL EX RV RF CM"))!;
   for (const session of sessions) {
     const index = titleIndex(layout, session.id);
     if (index < 0) continue;
-    assert.equal(lines[index]![header.indexOf(steps[session.workflow!.activeIndex]!.short)], "◉", lines[index]);
     const next = layout.rowTargets[index + 1];
     if (session.id === "s1") {
       assert.deepEqual(next, { kind: "session-continuation", id: "s1" });
       assert.match(lines[index + 1]!, /\[agent-atlas\]/);
     } else assert.notDeepEqual(next, { kind: "session-continuation", id: session.id });
   }
-  assert.equal(lines.some((line) => line.includes("Task explanation")), false);
+  assert.ok(lines.some((line) => line.includes("Task explanation")), lines.join("\n"));
 });
 
 test("phone footer drops whole items and exposes tap targets for each key", () => {
   const { layout, lines } = render({ width: 44, height: 22 });
   const footer = lines.at(-1)!;
-  assert.equal(footer.trimEnd(), "Enter Open · i Workspace · : Actions");
+  assert.equal(footer.trimEnd(), "] Next request · : All actions · ? Help");
   assert.equal(layout.footerRow, lines.length - 1);
   const keys = layout.footerItems.map((item) => item.key);
-  assert.deepEqual(keys, ["Enter", "i", ":"]);
+  assert.deepEqual(keys, ["]", ":", "?"]);
   for (const item of layout.footerItems) assert.equal(footer.slice(item.x - 1, item.x - 1 + item.key.length), item.key);
 
   const tiny = render({ width: 30, height: 22 });
@@ -102,7 +95,7 @@ test("hidden pins keep slot markers but leave pin mode", () => {
 test("full-screen workspace on a phone is frameless with a tappable Back control", () => {
   const selected = sessions[0]!;
   const commands = buildDashboardCommands({ sessions, selectedId: selected.id, capabilities: { openSession: true } });
-  const model = buildRenderModel({ sessions, selectedId: "s0", now: 1, width: 44, height: 20, workspaceFullScreen: true,
+  const model = buildRenderModel({ sessions, selectedId: "s0", now: 1, width: 44, height: 20, grouping: "stage", workspaceFullScreen: true,
     workspaceCommands: selectWorkspaceCommands(selected, commands, 3) });
   const layout = renderSessions(model);
   const lines = layout.lines.map(stripAnsi);

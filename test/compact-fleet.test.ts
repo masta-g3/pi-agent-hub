@@ -133,14 +133,13 @@ test("crowded fleet panels keep progress with every visible title", () => {
   }
 });
 
-test("selected metadata takes priority over task text at minimum card height", () => {
+test("selected task survives at minimum card height beside plain step metadata", () => {
   const withTask = { ...sessions[0], context: { version: 1 as const, updatedAt: 1, ticket: { id: "task-001", subtitle: "Task explanation" } } };
   const rendered = renderSessions(buildRenderModel({ sessions: [withTask], selectedId: "s0", width: 60, height: 7 }));
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session");
   assert.ok(index >= 0);
-  assert.match(stripAnsi(rendered.lines[index]), /✓\s+◉\s+·/);
-  assert.match(stripAnsi(rendered.lines[index + 1]), /\[.*\]/);
-  assert.equal(rendered.lines.map(stripAnsi).some((line) => line.includes("Task explanation")), false);
+  assert.match(stripAnsi(rendered.lines[index + 1]), /\[.*\].*· Execute/);
+  assert.ok(rendered.lines.map(stripAnsi).some((line) => line.includes("Task explanation")));
 });
 
 test("short pinned panels retain exact selected title and bounded hit targets", () => {

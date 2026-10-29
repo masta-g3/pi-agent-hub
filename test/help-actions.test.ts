@@ -27,12 +27,12 @@ for (const width of [30, 80, 120, 160]) {
     const text = stripAnsi(lines.join("\n"));
     assert.equal(text, stripAnsi(help([selected]).join("\n")));
     for (const section of ["Session actions", "Pins", "Views", "Filters"]) assert.ok(text.includes(section));
-    assert.match(text, /Open(?: · [^\n│]*?)?\s+Enter/);
+    assert.match(text, /Open in Pi(?: · [^\n│]*?)?\s+Enter/);
     assert.match(text, /Pin next free slot(?: · [^\n│]*?)?\s+P/);
     assert.match(text, /Focus slot 4(?: · [^\n│]*?)?\s+Alt\+4/);
     assert.match(text, /Summarize\s+(?:· send \/summary\s+)?Ctrl\+O/);
     assert.equal(text.match(/via : palette/g)?.length, 1);
-    assert.doesNotMatch(text, /unavailable:|Open in Pi|C-m|C-j|Alt\+N|Ctrl\+…|Alt\+…/);
+    assert.doesNotMatch(text, /unavailable:|C-m|C-j|Alt\+N|Ctrl\+…|Alt\+…/);
     for (const line of lines) assert.ok(visibleWidth(line) <= width, line);
     const filterRow = lines.map(stripAnsi).find(line => line.includes("Lifecycle: Active"))!;
     assert.doesNotMatch(filterRow, /Active\s+:/);
@@ -68,7 +68,7 @@ for (const width of [30, 40, 60]) {
     const view = new SessionsView(new SessionsController(), () => {}, { terminalRows: () => 300 }, darkTheme);
     view.handleInput("?");
     const row = view.render(width).find(line => stripAnsi(line).startsWith("│  Open "))!;
-    assert.match(stripAnsi(row), /^│  Open\s+Enter│$/);
+    assert.match(stripAnsi(row), /^│  Open in Pi\s+Enter│$/);
     assert.ok(row.includes(styleToken(darkTheme, "accent", "Enter")));
   });
 }
@@ -103,7 +103,7 @@ for (const width of [40, 100, 120, 160]) {
   for (const pinned of [false, true]) {
     test(`${width}-column ${pinned ? "pinned strip" : "workspace"} uses label-first, right-aligned action rows`, () => {
       const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: { restart: true } });
-      const model = buildRenderModel({ sessions: [selected], selectedId: selected.id, width,
+      const model = buildRenderModel({ sessions: [selected], selectedId: selected.id, width, grouping: pinned ? "project" : "stage",
         workspaceCommands: selectWorkspaceCommands(selected, commands, 3), workspaceFullScreen: !pinned && width < 120,
         ...(pinned ? { pinSlots: [selected.id], pinCapacity: 2, height: 30 } : {}),
       });

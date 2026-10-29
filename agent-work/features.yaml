@@ -1354,7 +1354,7 @@
   plan_file: agent-work/history/20261028_inbox-002_inbox_design_lab.md
   completed_at: '2026-10-28'
 - id: inbox-003
-  status: pending
+  status: done
   title: Self-explaining cards
   subtitle: Cards show what, where, and next
   description: Active cards answer what the session is about, where it is, and what
@@ -1366,6 +1366,8 @@
   - inbox-002
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261028_inbox-003_self_explaining_cards.md
+  completed_at: '2026-10-28'
 - id: inbox-004
   status: pending
   title: Reply from card
