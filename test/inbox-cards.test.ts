@@ -148,3 +148,26 @@ test("short fleet retains selected task and request rather than dense compaction
   assert.ok(layout.lines.some(line => line.includes("Taller fleet cards")), layout.lines.join("\n"));
   assert.ok(layout.lines.some(line => line.includes("? Choose the boundary")), layout.lines.join("\n"));
 });
+
+test("selected fleet cards wrap complete task and handoff text through card scrolling", () => {
+  const taskTail = "TASK-END";
+  const recommendationTail = "RECOMMENDATION-END";
+  const evidenceTail = "EVIDENCE-END";
+  const selected = { ...asking, context: { ...asking.context!, ticket: { id: "cards-001", subtitle: `${"Complete task context ".repeat(8)}${taskTail}` },
+    attention: { kind: "ready" as const, text: `${"Review handoff context ".repeat(8)}REQUEST-END`, requestId: "request",
+      recommendation: `${"Use the recommended path ".repeat(8)}${recommendationTail}`,
+      artifact: `/tmp/${"evidence-path/".repeat(8)}${evidenceTail}` } } };
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: { openSession: true } });
+  const input = { sessions: [selected], selectedId: selected.id, width: 60, height: 10, now, guidanceHidden: true,
+    workspaceCommands: selectWorkspaceCommands(selected, commands, 3) };
+  const pages = [0, 6, 12, 18, 24].map(cardScrollOffset => renderSessions(buildRenderModel({ ...input, cardScrollOffset })).lines.join("\n")).join("\n");
+  for (const tail of [taskTail, "REQUEST-END", recommendationTail, evidenceTail]) assert.match(pages, new RegExp(tail), pages);
+});
+
+test("narrow board cards retain receipts when the optional board detail rows are hidden", () => {
+  const commands = buildDashboardCommands({ sessions: [asking], selectedId: asking.id, capabilities: { openSession: true } });
+  const layout = renderSessions(buildRenderModel({ sessions: [asking], selectedId: asking.id, width: 80, height: 24, now,
+    grouping: "stage", guidanceHidden: true, deliveryResults: new Map([[asking.id, "Delivery unknown · Check Pi before retrying"]]),
+    workspaceCommands: selectWorkspaceCommands(asking, commands, 3) }));
+  assert.ok(layout.lines.some(line => line.includes("Delivery unknown · Check Pi before retrying")), layout.lines.join("\n"));
+});

@@ -137,6 +137,15 @@ test("30-column busy controls use the deck's complete reserved key rows, includi
   assert.ok(rows().includes("Enter Queue for later"));
 });
 
+test("30-column fleet reply reserves its retained receipt ahead of optional card context", async () => {
+  const { view, controller } = await setup({ busy: true, ready: true, error: DELIVERY_UNCONFIRMED, height: 12 });
+  controller.snapshot().sessions[0]!.context!.ticket = { id: "cards-004", subtitle: "A long task subtitle that competes with the retained delivery receipt" };
+  view.handleInput("p"); type(view, "keep this"); view.handleInput("\r"); await tick();
+  const rendered = text(view, 30);
+  assert.match(rendered, /Delivery unknown · Check Pi/);
+  assert.match(rendered, /Enter Steer now/);
+});
+
 for (const [error, expected] of [["Producer refused", /Rejected · Producer refused/], [DELIVERY_UNCONFIRMED, /Delivery unknown · Check Pi before retrying/]] as const) test(`reply retains draft and receipt: ${error}`, async () => {
   const { view } = await setup({ error }); view.handleInput("p"); type(view, "keep this"); view.handleInput("\r"); await tick();
   assert.match(text(view, 120), expected); assert.match(text(view), /keep this█/);

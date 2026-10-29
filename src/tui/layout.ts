@@ -547,7 +547,7 @@ interface SessionListContent {
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
   priorityIndexes?: number[];
-  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string };
+  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string };
   cardScrollOffset?: number;
 }
 
@@ -655,7 +655,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         const bodyStart = lines.length;
         for (const line of workspace.panel.body) append(typeof line === "string" ? line : renderCursorValue(line.value, line.cursor, Math.max(1, width - indent.length), "start"));
         for (const line of workspace.panel.keyLine.split("\n")) append(line);
-        panel = { bodyStart, content: workspace.panel, width, indent };
+        panel = { bodyStart, content: workspace.panel, width, indent,
+          ...(workspace.session.deliveryResult ? { retainedText: plainAttentionText(workspace.session.deliveryResult) } : {}) };
       }
     }
     if (session.selected) selectedEndIndex = lines.length - 1;
@@ -867,7 +868,13 @@ function windowList(list: SessionListContent, capacity: number, scrollTop: numbe
 
 function windowPanel(list: SessionListContent, capacity: number | undefined, styles: LayoutStyles): ListWindow {
   const panel = list.panel!;
-  const rendered = renderFocusedPanel(list.lines[list.selectedIndex]!, list.lines.slice(list.selectedIndex + 1, panel.bodyStart), panel.content, panel.width, capacity, styles, panel.indent);
+  const context = list.lines.slice(list.selectedIndex + 1, panel.bodyStart);
+  const retainedLine = panel.retainedText
+    ? stripAnsi(truncate(panel.retainedText, Math.max(1, panel.width - panel.indent.length)))
+    : undefined;
+  const optionalContext = retainedLine ? context.filter((line) => stripAnsi(line).trim() !== retainedLine) : context;
+  const retained = panel.retainedText ? [styles.accent(panel.retainedText)] : [];
+  const rendered = renderFocusedPanel(list.lines[list.selectedIndex]!, optionalContext, panel.content, panel.width, capacity, styles, panel.indent, retained);
   const id = list.targets[list.selectedIndex];
   const ownerId = id && "id" in id ? id.id : undefined;
   const meta = list.lineMeta[list.selectedIndex];
@@ -1103,13 +1110,16 @@ function adaptiveCardLines(
   inbox = true,
 ): { line: string; priority: number }[] {
   if (board) {
-    if (terminalWidth < 100) return [];
+    const receipt = session.deliveryResult
+      ? [{ line: styles.accent(truncate(plainAttentionText(session.deliveryResult), width)), priority: 0 }]
+      : [];
+    if (terminalWidth < 100) return receipt;
     const lines: { line: string; priority: number }[] = [];
     const context = session.ticketId
       ? `#${session.ticketId}${session.ticketSubtitle ? ` ${glyphs.pendingStep} ${session.ticketSubtitle}` : ""}`
       : session.ticketSubtitle;
     if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
-    if (session.deliveryResult) lines.push({ line: styles.accent(truncate(plainAttentionText(session.deliveryResult), width)), priority: 0 });
+    lines.push(...receipt);
     const activityText = activityLabel(session.workflow?.activity);
     const phase = planPhaseLabel(session.plan);
     if (phase) lines.push({ line: styles.muted(truncate(phase, width)), priority: 0 });
@@ -1127,7 +1137,10 @@ function adaptiveCardLines(
     return summary ? [{ line: styles.muted(truncate(session.attention ? `${glyphs.quoteLeft}${summary}${glyphs.quoteRight}` : summary, width)), priority: 0 }] : [];
   }
   const summary = session.ticketSubtitle ?? session.ticketDescription;
-  if (summary) lines.push({ line: styles.muted(truncate(summary, width)), priority: 0 });
+  if (summary) {
+    const taskLines = session.selected ? wrapWords(plainAttentionText(summary), width, width) : [truncate(summary, width)];
+    for (const line of taskLines) lines.push({ line: styles.muted(line), priority: 0 });
+  }
   const attention = session.attention;
   const question = session.selected ? session.pendingQuestion : undefined;
   if (attention || question) {
@@ -1136,9 +1149,21 @@ function adaptiveCardLines(
     if (question && displayWidth(question.header) + 4 > width) {
       for (const line of prefixedWorkspaceText(attentionGlyph(kind, styles), plainAttentionText(question.header), width)) lines.push({ line, priority: 0 });
       lines.push({ line: truncate(`${glyphs.pendingStep} ${plainAttentionText(question.question)}`, width), priority: 0 });
+    } else if (session.selected && !question) {
+      for (const line of prefixedWorkspaceText(attentionGlyph(kind, styles), plainAttentionText(text), width)) lines.push({ line, priority: 0 });
     } else lines.push({ line: truncate(`${attentionGlyph(kind, styles)} ${plainAttentionText(text)}`, width), priority: 0 });
-    if (attention?.recommendation) lines.push({ line: styles.muted(truncate(`${glyphs.right} ${plainAttentionText(attention.recommendation)}`, width)), priority: 0 });
-    if (attention?.artifact) lines.push({ line: styles.muted(truncate(`${glyphs.artifact} ${plainAttentionText(attention.artifact)}`, width)), priority: 0 });
+    if (attention?.recommendation) {
+      const recommendation = session.selected
+        ? prefixedWorkspaceText(glyphs.right, plainAttentionText(attention.recommendation), width)
+        : [truncate(`${glyphs.right} ${plainAttentionText(attention.recommendation)}`, width)];
+      for (const line of recommendation) lines.push({ line: styles.muted(line), priority: 0 });
+    }
+    if (attention?.artifact) {
+      const artifact = session.selected
+        ? prefixedWorkspaceText(glyphs.artifact, plainAttentionText(attention.artifact), width)
+        : [truncate(`${glyphs.artifact} ${plainAttentionText(attention.artifact)}`, width)];
+      for (const line of artifact) lines.push({ line: styles.muted(line), priority: 0 });
+    }
   }
   if (session.deliveryResult) lines.push({ line: styles.accent(truncate(plainAttentionText(session.deliveryResult), width)), priority: 0 });
   if (terminalWidth < 100) return lines;
@@ -1217,13 +1242,14 @@ interface WorkspaceBlock extends WorkspaceRendered {
   key: "identity" | "closure" | "request" | "receipt" | "task" | "workflow" | "guidance" | "actions" | "evidence";
 }
 
-function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = ""): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
+function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = "", retained: string[] = []): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
   const contentWidth = Math.max(1, width - indent.length);
   const body = panel.body.flatMap(line => typeof line === "string"
     ? wrapTextWithAnsi(line, contentWidth).map(part => indent + part)
     : [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))]);
   const keys = panel.keyLine.split("\n").map(line => indent + fitFooter(line, contentWidth));
-  const reserved = 1 + keys.length;
+  const retainedLines = retained.map(line => indent + truncate(line, contentWidth));
+  const reserved = 1 + retainedLines.length + keys.length;
   const capacity = maxRows ?? body.length + context.length + reserved + (panel.statusLine ? 1 : 0);
   if (capacity < reserved + 1) return { lines: [styles.accent("Enter Open in Pi")], panelViewport: { pageSize: 1, maxOffset: 0, fallback: true }, fallback: true };
   const status = panel.statusLine && capacity > reserved + 1 ? [indent + styles.muted(truncate(plainAttentionText(panel.statusLine), contentWidth))] : [];
@@ -1231,7 +1257,7 @@ function renderFocusedPanel(title: string, context: string[], panel: NonNullable
   const bodyCapacity = Math.max(0, capacity - keptContext.length - reserved - status.length);
   const maxOffset = Math.max(0, body.length - bodyCapacity);
   const offset = Math.max(0, Math.min(panel.offset, maxOffset));
-  return { lines: [truncate(title, width), ...keptContext, ...status, ...body.slice(offset, offset + bodyCapacity), ...keys],
+  return { lines: [truncate(title, width), ...keptContext, ...retainedLines, ...status, ...body.slice(offset, offset + bodyCapacity), ...keys],
     panelViewport: { pageSize: Math.max(1, bodyCapacity), maxOffset }, fallback: false };
 }
 
@@ -1287,8 +1313,8 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
 
 function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles, pinned = false): WorkspaceRendered {
   if (workspace.panel) {
-    const context = workspace.session.deliveryResult ? [styles.accent(plainAttentionText(workspace.session.deliveryResult))] : [];
-    const rendered = renderFocusedPanel(titleStatusRow(workspace.session, width, styles), context, workspace.panel, width, maxRows, styles);
+    const retained = workspace.session.deliveryResult ? [styles.accent(plainAttentionText(workspace.session.deliveryResult))] : [];
+    const rendered = renderFocusedPanel(titleStatusRow(workspace.session, width, styles), [], workspace.panel, width, maxRows, styles, "", retained);
     return { ...rendered, targets: rendered.lines.map((_, index) => rendered.fallback && index === 0 ? `action:${workspace.session.id}:open` : undefined) };
   }
   const blocks = actionWorkspaceBlocks(workspace, width, now, styles, pinned);
