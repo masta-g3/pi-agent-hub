@@ -1284,8 +1284,10 @@ function workspaceFooter(workspace: RenderWorkspace): string {
   return `Esc Back ${glyphs.pendingStep} ${evidenceKey} Details ${glyphs.pendingStep} ${moreKey} Actions`;
 }
 
+/** Static glyph: a second spinner here makes the main-screen diff repaint every row between it and the selected row. */
 function titleStatusRow(session: RenderSession, width: number, styles: LayoutStyles): string {
-  const status = styles.status(session.displayStatus, `${session.symbol} ${session.displayStatus}`);
+  const symbol = session.displayStatus === "running" ? glyphs.running : session.symbol;
+  const status = styles.status(session.displayStatus, `${symbol} ${session.displayStatus}`);
   const statusWidth = displayWidth(status);
   if (statusWidth >= width) return truncate(status, width);
   const title = truncate(styles.accent(session.title), Math.max(0, width - statusWidth - 2));
