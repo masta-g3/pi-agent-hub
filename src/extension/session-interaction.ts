@@ -131,7 +131,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       throw new Error(`Answer rejected: ${typeof reply.reason === "string" ? reply.reason : String(reply.code)}`);
     }
     if (request.kind === "send-message") {
-      if (request.delivery === "send" && !adapter.isIdle()) throw new Error("Pi started working; reopen Send and choose Steer now or Queue for later");
+      if (request.delivery === "send" && !adapter.isIdle()) throw new Error("Pi started working; choose Steer now or Queue for later");
       checkRequest();
       adapter.sendUserMessage(request.text, {
         deliverAs: request.delivery === "followUp" ? "followUp" : "steer",

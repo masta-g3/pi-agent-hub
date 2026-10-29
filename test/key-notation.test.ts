@@ -5,7 +5,7 @@ import type { RuntimeSession } from "../src/core/types.js";
 import { formatKey } from "../src/tui/dashboard-shortcuts.js";
 import { buildDashboardCommands, dashboardFooter, pinnedDashboardFooter, conversationDashboardFooter } from "../src/tui/dashboard-commands.js";
 import type { DialogContext } from "../src/tui/dialog.js";
-import { openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, openSendForm, renderFormDialog } from "../src/tui/form-dialogs.js";
+import { openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, renderFormDialog } from "../src/tui/form-dialogs.js";
 import { openNewSessionDialog, renderNewSessionDialog } from "../src/tui/new-session-dialog.js";
 import { createPickerDialog, renderPickerDialog } from "../src/tui/picker-dialog.js";
 import { createThemeDialog, renderThemeDialog } from "../src/tui/theme-dialog.js";
@@ -32,7 +32,6 @@ function context(width: number): DialogContext {
         rename: () => ({ version: 1, favorites: [] }), remove: () => ({ version: 1, favorites: [] }) } },
     theme: darkTheme, now: () => 0, close: () => {}, setDialog: () => {}, dialog: () => undefined,
     setMessage: () => {}, message: () => undefined, flashMessage: () => {}, runAction: () => {}, attachSession: () => {}, stop: () => {},
-    interactionState: { questionProtocol: true, pending: [], messageDelivery: "idle" },
   };
 }
 
@@ -75,7 +74,7 @@ for (const width of [80, 160]) {
     view.render(width);
     view.handleInput("i");
     consistent(view.render(width), "Workspace");
-    for (const open of [openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, openSendForm]) {
+    for (const open of [openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog]) {
       const dialog = open(ctx)!;
       assert.ok(dialog, open.name);
       consistent(renderFormDialog(dialog, width, ctx, 100), dialog.purpose);
@@ -111,7 +110,7 @@ for (const width of [80, 160]) {
 
 test("phone footers keep the inbox loop instead of duplicating selected-card controls", () => {
   for (const width of [30, 40, 60, 80, 119]) {
-    assert.match(dashboardFooter(width), /^\] Next(?: request)? · : (?:All actions|Actions)/);
+    assert.match(dashboardFooter(width), /^\] Next(?: request)? · p Reply · : (?:All actions|Actions)/);
     assert.doesNotMatch(dashboardFooter(width), /Workspace|Enter/);
   }
 });

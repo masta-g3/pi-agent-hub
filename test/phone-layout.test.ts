@@ -72,10 +72,10 @@ test("short phone windows use one-line rows and keep metadata only for the selec
 test("phone footer drops whole items and exposes tap targets for each key", () => {
   const { layout, lines } = render({ width: 44, height: 22 });
   const footer = lines.at(-1)!;
-  assert.equal(footer.trimEnd(), "] Next request · : All actions · ? Help");
+  assert.equal(footer.trimEnd(), "] Next request · p Reply · : All actions");
   assert.equal(layout.footerRow, lines.length - 1);
   const keys = layout.footerItems.map((item) => item.key);
-  assert.deepEqual(keys, ["]", ":", "?"]);
+  assert.deepEqual(keys, ["]", "p", ":"]);
   for (const item of layout.footerItems) assert.equal(footer.slice(item.x - 1, item.x - 1 + item.key.length), item.key);
 
   const tiny = render({ width: 30, height: 22 });

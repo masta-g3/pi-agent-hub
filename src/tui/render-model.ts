@@ -170,7 +170,8 @@ export interface BoardHiddenCounts {
 }
 
 export interface RenderCardPanel {
-  body: string[];
+  body: (string | { value: string; cursor: number })[];
+  /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
   keyLine: string;
   offset: number;
   /** Action messages stay inside the focused surface, never over its local keys. */
