@@ -1383,7 +1383,7 @@
   plan_file: agent-work/history/20261028_inbox-004_reply_from_card.md
   completed_at: '2026-10-28'
 - id: inbox-005
-  status: pending
+  status: done
   title: Answer from card
   subtitle: Pick question options directly on cards
   description: Pending rpiv questions render on the card with numbered options and
@@ -1396,6 +1396,8 @@
   - inbox-003
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261028_inbox-005_answer_from_card.md
+  completed_at: '2026-10-28'
 - id: inbox-006
   status: done
   title: Dashboard agent note

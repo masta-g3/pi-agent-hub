@@ -56,7 +56,7 @@ export function cockpitOnboardingMoments(): Record<"empty" | "first" | "request"
     request: { sessions: [request], selectedId: request.id, cockpitOnboarding: learning },
     returned: { sessions: [request], selectedId: request.id, cockpitOnboarding: { cohort: "new", phase: "complete" } },
     updated: { sessions: [active], selectedId: active.id, releaseCueEnabled: true },
-    dismissed: { sessions: [active], selectedId: active.id, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-daily-loop-v1" },
+    dismissed: { sessions: [active], selectedId: active.id, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-inbox-loop-v1" },
   };
 }
 

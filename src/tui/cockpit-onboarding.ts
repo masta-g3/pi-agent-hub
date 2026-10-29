@@ -1,8 +1,7 @@
-import { glyphs } from "./glyphs.js";
 export const COCKPIT_RELEASE_CUE = {
-  id: "cockpit-daily-loop-v1",
+  id: "cockpit-inbox-loop-v1",
   label: "NEW DAILY LOOP",
-  text: `NEEDS YOU is explicit ${glyphs.pendingStep} Enter Open ${glyphs.pendingStep} Ctrl+Q Return`,
+  text: "Tab opens an answer; p writes a reply; Enter opens Pi.\nEsc leaves answer focus without declining the question.\nAlt+W finds the next request while inside Pi.",
 } as const;
 
 export type CockpitOnboardingState =
@@ -34,7 +33,7 @@ export function coachingActive(state: CockpitOnboardingState | undefined): boole
 }
 
 export function releaseCueVisible(state: CockpitOnboardingState | undefined, dismissedCueId: string | undefined): boolean {
-  return state === undefined && dismissedCueId !== COCKPIT_RELEASE_CUE.id;
+  return !coachingActive(state) && dismissedCueId !== COCKPIT_RELEASE_CUE.id;
 }
 
 function boundedId(value: unknown): value is string {

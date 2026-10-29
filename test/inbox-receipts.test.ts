@@ -77,6 +77,27 @@ test("an early-return narrow notice clears expanded-card action hits", async () 
   assert.deepEqual(opened, []);
 });
 
+test("the shared panel retains its exact receipt workspace on a narrow board after closing", async () => {
+  const controller = new SessionsController({ version: 1, sessions: [session] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 24, interactionTarget, initialViewState: { grouping: "stage" } });
+  view.setCardPanel(interactionTarget(session)!, { body: ["Panel body"], keyLine: "Enter Send   Esc Keep draft", offset: 0 }, () => {});
+  view.render(60);
+  await view.writeInteraction(interactionTarget(session)!, "Answer sent", () => {});
+  view.clearCardPanel();
+  assert.match(stripAnsi(view.render(60).join("\n")), /Accepted · Answer sent/);
+});
+
+test("short focused panels drop a status message before hiding all editor content", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 4, interactionTarget });
+  view.setMessage("Bookkeeping warning");
+  view.setCardPanel(interactionTarget(session)!, { body: ["Editable content"], keyLine: "Enter Send   Esc Keep draft", offset: 0 }, () => {});
+  const rendered = stripAnsi(view.render(30).join("\n"));
+  assert.match(rendered, /Editable content/);
+  assert.match(rendered, /Enter Send/);
+  assert.doesNotMatch(rendered, /Bookkeeping warning/);
+});
+
 test("writes time out once and do not resubmit while delivery is pending", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const controller = new SessionsController({ version: 1, sessions: [session] });

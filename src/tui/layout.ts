@@ -1,5 +1,5 @@
 import { glyphs } from "./glyphs.js";
-import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import { alwaysExpanded, type CockpitTier, type RenderModel, type RenderSession, type RenderWorkspace } from "./render-model.js";
@@ -665,14 +665,15 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   const pushReleaseCue = () => {
     if (!releaseCue || releaseCueRendered) return;
     const prefix = releaseCue.selected ? `${styles.accent(glyphs.selected)} ` : "  ";
-    const detail = model.width >= 160 ? ` ${glyphs.pendingStep} ? Explain ${glyphs.pendingStep} : Find actions ${glyphs.pendingStep} Enter Dismiss` : model.width >= 100 ? ` ${glyphs.pendingStep} ? Explain ${glyphs.pendingStep} : Find actions` : "";
-    const copy = `${styles.accent(releaseCue.label)}  ${styles.muted(releaseCue.text)}${styles.muted(detail)}`;
+    const copy = [styles.accent(`${releaseCue.label} ${glyphs.pendingStep} Enter Dismiss`),
+      ...releaseCue.text.split("\n").flatMap(line => wrapWords(line, Math.max(1, width - 2), Math.max(1, width - 2))).map(styles.muted)];
     if (lines.length) pushLine("");
     if (releaseCue.selected) {
       selectedIndex = lines.length;
       selectedEndIndex = lines.length;
     }
-    pushLine(`${prefix}${truncate(copy, Math.max(0, width - 2))}`, { kind: "release-cue" });
+    for (const [index, line] of copy.entries()) pushLine(`${index === 0 ? prefix : "  "}${truncate(line, Math.max(0, width - 2))}`, { kind: "release-cue" });
+    if (releaseCue.selected) selectedEndIndex = lines.length - 1;
     releaseCueRendered = true;
   };
   let firstSection = true;
@@ -1218,22 +1219,14 @@ interface WorkspaceBlock extends WorkspaceRendered {
 
 function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = ""): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
   const contentWidth = Math.max(1, width - indent.length);
-  const body = panel.body.flatMap(line => {
-    if (typeof line !== "string") return [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))];
-    const wrapped: string[] = [];
-    const length = displayWidth(line);
-    for (let column = 0; column < length;) {
-      const part = sliceByColumn(line, column, contentWidth, true);
-      wrapped.push(indent + part);
-      column += displayWidth(part);
-    }
-    return wrapped.length ? wrapped : [indent];
-  });
+  const body = panel.body.flatMap(line => typeof line === "string"
+    ? wrapTextWithAnsi(line, contentWidth).map(part => indent + part)
+    : [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))]);
   const keys = panel.keyLine.split("\n").map(line => indent + fitFooter(line, contentWidth));
   const reserved = 1 + keys.length;
   const capacity = maxRows ?? body.length + context.length + reserved + (panel.statusLine ? 1 : 0);
-  if (capacity < reserved) return { lines: [styles.accent("Enter Open in Pi")], panelViewport: { pageSize: 1, maxOffset: 0, fallback: true }, fallback: true };
-  const status = panel.statusLine && capacity > reserved ? [indent + styles.muted(truncate(plainAttentionText(panel.statusLine), contentWidth))] : [];
+  if (capacity < reserved + 1) return { lines: [styles.accent("Enter Open in Pi")], panelViewport: { pageSize: 1, maxOffset: 0, fallback: true }, fallback: true };
+  const status = panel.statusLine && capacity > reserved + 1 ? [indent + styles.muted(truncate(plainAttentionText(panel.statusLine), contentWidth))] : [];
   const keptContext = context.slice(0, Math.max(0, capacity - reserved - 2 - status.length));
   const bodyCapacity = Math.max(0, capacity - keptContext.length - reserved - status.length);
   const maxOffset = Math.max(0, body.length - bodyCapacity);

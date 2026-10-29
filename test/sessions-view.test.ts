@@ -1151,7 +1151,7 @@ test("existing-user release cue is target-safe and dismisses without changing se
   view.handleInput("\r");
 
   assert.equal(controller.snapshot().selectedId, selectedId);
-  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-inbox-loop-v1");
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
 });
 
@@ -1170,7 +1170,7 @@ test("release cue double-click dismisses the exact synthetic row", () => {
   now += 50;
   rendered = view.render(100);
   view.handleInput(mousePressAtLine(rendered.findIndex((line) => stripAnsi(line).includes("NEW DAILY LOOP"))));
-  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-inbox-loop-v1");
 });
 
 test("v inside filter mode edits the filter instead of toggling views", () => {

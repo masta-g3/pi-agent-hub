@@ -168,6 +168,7 @@ export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = 
   }));
   return [
     { label: "Session actions", commands: [
+      { label: "Answer pending question", hint: "answer on the selected card; Esc leaves without declining", displayKey: "Tab" },
       ...actionSpecs.filter(spec => !isPin(spec) && !isFollowFocus(spec)).map(reference),
       ...shortcuts.map(shortcut => ({ label: shortcut.label ?? shortcut.send, hint: `send ${shortcut.send}`, displayKey: formatKey(shortcut.key) })),
     ] },
@@ -182,7 +183,7 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
   const selected = input.selectedId ? input.sessions.find((session) => session.id === input.selectedId) : undefined;
   if (selected) {
     if (input.capabilities?.answerQuestion && input.interactionState?.questionProtocol && selected.interaction && isLive(selected) && selected.kind !== "subagent" && input.interactionState.pending.length) commands.push(makeCommand({
-      id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire", targetSessionId: selected.id,
+      id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire on its card", displayKey: "Tab", bindings: [{ key: "Tab" }], targetSessionId: selected.id,
       enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "answer question questionnaire",
     }));
     if (input.deliveryResult && input.deliveryResult !== "submitting") commands.push(makeCommand({

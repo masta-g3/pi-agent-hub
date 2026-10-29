@@ -124,7 +124,7 @@ test("existing-user release cue stays below real attention and survives an empty
   const active = session("active", "app", "running", "Active");
   for (const sessions of [[needs, active], []]) {
     const model = buildRenderModel({ sessions, width: 100, releaseCueEnabled: true });
-    assert.equal(model.guidance.releaseCue?.id, "cockpit-daily-loop-v1");
+    assert.equal(model.guidance.releaseCue?.id, "cockpit-inbox-loop-v1");
     const text = stripAnsi(renderSessions(model, darkTheme).lines.join("\n"));
     assert.match(text, /NEW DAILY LOOP/);
     if (sessions.length) {
@@ -148,8 +148,8 @@ test("release cue follows project-mode suppression rules", () => {
 
 test("release cue is version-scoped and never co-renders with coaching", () => {
   const active = session("api", "app", "running");
-  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-daily-loop-v1" }).guidance.releaseCue, undefined);
-  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "older-cue" }).guidance.releaseCue?.id, "cockpit-daily-loop-v1");
+  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-inbox-loop-v1" }).guidance.releaseCue, undefined);
+  assert.equal(buildRenderModel({ sessions: [active], width: 120, releaseCueEnabled: true, dismissedReleaseCueId: "cockpit-daily-loop-v1" }).guidance.releaseCue?.id, "cockpit-inbox-loop-v1");
   const coached = buildRenderModel({ sessions: [active], width: 120, cockpitOnboarding: { cohort: "new", phase: "learning" } });
   assert.equal(coached.guidance.coach, true);
   assert.equal(coached.guidance.releaseCue, undefined);
