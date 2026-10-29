@@ -1246,9 +1246,15 @@ interface WorkspaceBlock extends WorkspaceRendered {
 
 function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = "", retained: string[] = []): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
   const contentWidth = Math.max(1, width - indent.length);
-  const body = panel.body.flatMap(line => typeof line === "string"
-    ? wrapTextWithAnsi(line, contentWidth).map(part => indent + part)
-    : [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))]);
+  const body = panel.body.flatMap((line, index) => {
+    if (typeof line !== "string") return [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))];
+    const wrapped = wrapTextWithAnsi(line, contentWidth);
+    const hangingIndent = Math.max(0, Math.min(contentWidth - 1, panel.hangingIndents?.[index] ?? 0));
+    if (!hangingIndent || wrapped.length < 2) return wrapped.map(part => indent + part);
+    const continuationWidth = Math.max(1, contentWidth - hangingIndent);
+    return [indent + wrapped[0], ...wrapped.slice(1).flatMap(part => wrapTextWithAnsi(part.replace(/^((?:\x1b\[[0-9;]*m)*) +/u, "$1"), continuationWidth)
+      .map(continuation => indent + " ".repeat(hangingIndent) + continuation))];
+  });
   const keys = panel.keyLine.split("\n").map(line => indent + fitFooter(line, contentWidth));
   const retainedLines = retained.map(line => indent + truncate(line, contentWidth));
   const reserved = 1 + retainedLines.length + keys.length;

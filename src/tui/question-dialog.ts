@@ -1,5 +1,5 @@
 import { glyphs } from "./glyphs.js";
-import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { AnswerInput, InteractionTarget, PendingQuestion } from "../core/session-interaction.js";
 import { createForm, editField, setValue, type FormState } from "./form.js";
 import { createTextInput, insertText, isEnterKey } from "./text-input.js";
@@ -118,28 +118,35 @@ export function renderQuestionPanel(dialog: QuestionDialog, width: number, theme
   const styled = (text: string) => theme ? styleToken(theme, "muted", text) : text;
   const question = dialog.request.params.questions[dialog.page];
   const body: string[] = [];
-  if (dialog.request.params.questions.length > 1) body.push(styled(`${glyphs.left} ${dialog.request.params.questions.map((q, i) => i === dialog.page ? `[${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}]` : `${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}`).join("   ")} ${glyphs.right}`));
+  const hangingIndents: number[] = [];
+  const push = (line: string, hangingIndent = 0) => { body.push(line); hangingIndents.push(hangingIndent); };
+  if (dialog.request.params.questions.length > 1) push(styled(`${glyphs.left} ${dialog.request.params.questions.map((q, i) => i === dialog.page ? `[${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}]` : `${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}`).join("   ")} ${glyphs.right}`));
   if (question) {
-    body.push(...cleanMarkdown(question.question).split("\n"));
+    for (const line of cleanMarkdown(question.question).split("\n")) push(line);
     if (dialog.custom) {
       const field = dialog.custom.fields.answer;
-      body.push(styled("Type something."), ...cleanMarkdown(field.value.slice(0, field.cursor) + glyphs.cursor + field.value.slice(field.cursor)).split("\n"));
+      push(styled("Type something."));
+      for (const line of cleanMarkdown(field.value.slice(0, field.cursor) + glyphs.cursor + field.value.slice(field.cursor)).split("\n")) push(line);
     } else {
       question.options.forEach((option, index) => {
-        body.push(cleanMarkdown(`${index === dialog.choice ? glyphs.primary : " "} ${index + 1}. ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label}`));
-        if ((width >= 100 || index === dialog.choice) && option.description) body.push(styled(cleanMarkdown(`   ${option.description}`)));
+        const prefix = `${index === dialog.choice ? glyphs.primary : " "} ${index + 1}. ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}`;
+        push(cleanMarkdown(`${prefix}${option.label}`), visibleWidth(prefix));
+        if ((width >= 100 || index === dialog.choice) && option.description) push(styled(cleanMarkdown(`   ${option.description}`)), 3);
       });
-      body.push(`${dialog.choice === question.options.length ? glyphs.primary : " "} ${question.options.length + 1}. Type something.`);
+      const customPrefix = `${dialog.choice === question.options.length ? glyphs.primary : " "} ${question.options.length + 1}. `;
+      push(`${customPrefix}Type something.`, visibleWidth(customPrefix));
       const option = question.options[dialog.choice];
-      if (option?.preview !== undefined) body.push(styled("Preview"), ...cleanMarkdown(option.preview).split("\n"));
-      else if (option?.hasPreview) body.push(styled("preview in Pi"));
+      if (option?.preview !== undefined) {
+        push(styled("Preview"));
+        for (const line of cleanMarkdown(option.preview).split("\n")) push(`  ${line}`, 2);
+      } else if (option?.hasPreview) push(styled("  preview in Pi"), 2);
     }
   }
-  if (!dialog.available) body.push("Question availability not confirmed; Open in Pi");
-  if (dialog.error) body.push(cleanMarkdown(dialog.error));
+  if (!dialog.available) push("Question availability not confirmed; Open in Pi");
+  if (dialog.error) push(cleanMarkdown(dialog.error));
   const final = dialog.page === dialog.request.params.questions.length - 1;
   const keys = [final ? "Enter Send" : "Enter Next", `Esc ${dialog.custom ? "Options" : "Fleet"}`,
     ...(!dialog.custom && question ? [`1${glyphs.range}${question.options.length}${question.multiSelect ? "/Space Toggle" : " Choose"}`, "t Type"] : []),
     ...(dialog.request.params.questions.length > 1 && !dialog.custom ? [`${glyphs.left}/${glyphs.right} Questions`] : []), "PgUp/PgDn Read"];
-  return { body, keyLine: dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Esc Fleet" : keys.join(` ${glyphs.pendingStep} `), offset: dialog.scroll };
+  return { body, hangingIndents, keyLine: dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Esc Fleet" : keys.join(` ${glyphs.pendingStep} `), offset: dialog.scroll };
 }

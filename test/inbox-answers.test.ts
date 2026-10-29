@@ -97,6 +97,34 @@ test("the shared panel wraps question prose at words without clipping or word fr
   assert.ok(lines.some(line => line.includes("request is long?")));
 });
 
+test("wrapped answer labels, descriptions and previews keep their hanging indent", async () => {
+  const wrapped = { ...request, params: { questions: [{ ...question, options: [{
+    label: "One shared shell (Recommended) with a deliberately long label tail",
+    description: "Reply and answer reuse one panel, so every view behaves the same.",
+    preview: "One preview line stays aligned when its deliberately long content reaches the preview tail.", hasPreview: true,
+  }, question.options[1]!] }] } };
+  for (const width of [60, 30]) {
+    const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 40, interactionTarget,
+      loadInteractionState: async () => ({ questionProtocol: true, pending: [wrapped] }), submitAnswer: async () => {},
+    });
+    view.render(width); await view.refreshInteraction(); view.handleInput("\t");
+    const lines = text(view, width).split("\n");
+    const range = (start: string, end: string) => {
+      const first = lines.findIndex(line => line.includes(start));
+      const last = lines.findIndex((line, index) => index > first && line.includes(end));
+      assert.ok(first >= 0 && last > first, `${width}: missing ${start}..${end}\n${lines.join("\n")}`);
+      return lines.slice(first, last);
+    };
+    const label = range("▶ 1.", "Reply and answer");
+    const description = range("Reply and answer", "2. Second");
+    const preview = range("One preview line", "Enter Send");
+    for (const line of label.slice(1)) assert.equal(line.search(/\S/), label[0]!.indexOf("One shared shell"), `${width}: option label`);
+    for (const line of description.slice(1)) assert.equal(line.search(/\S/), description[0]!.indexOf("Reply and answer"), `${width}: description`);
+    for (const line of preview.slice(1)) assert.equal(line.search(/\S/), preview[0]!.indexOf("One preview line"), `${width}: preview`);
+    assert.ok(view.render(width).every(line => visibleWidth(line) <= width));
+  }
+});
+
 test("rpiv-style numbered options, question tabs, descriptions and real previews", () => {
   const dialog = createQuestionDialog(target, session.title, { ...request, params: { questions: [question, question] } });
   const wide = stripAnsi(renderQuestionPanel(dialog, 120).body.join("\n"));
@@ -104,7 +132,7 @@ test("rpiv-style numbered options, question tabs, descriptions and real previews
   assert.match(wide, /▶ 1\. First/);
   assert.match(wide, /3\. Type something\./);
   assert.match(wide, /First description/); assert.match(wide, /Second description/);
-  assert.match(wide, /Preview\nReal option preview/);
+  assert.match(wide, /Preview\n  Real option preview/);
   const narrow = stripAnsi(renderQuestionPanel(dialog, 80).body.join("\n"));
   assert.match(narrow, /First description/); assert.doesNotMatch(narrow, /Second description/);
   handleQuestionInput(dialog, "2");

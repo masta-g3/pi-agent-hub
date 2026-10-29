@@ -172,6 +172,8 @@ export interface BoardHiddenCounts {
 export interface RenderCardPanel {
   kind?: "answer" | "reply";
   body: (string | { value: string; cursor: number })[];
+  /** Body-row continuation indentation, applied by the shared panel wrapper. */
+  hangingIndents?: number[];
   /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
   keyLine: string;
   offset: number;
