@@ -11,7 +11,7 @@ import { createPickerDialog, renderPickerDialog } from "../src/tui/picker-dialog
 import { createThemeDialog, renderThemeDialog } from "../src/tui/theme-dialog.js";
 import { createCommandPalette, renderCommandPalette } from "../src/tui/command-palette-dialog.js";
 import { openDeleteDialog, openFinishDialog, openArchiveDialog, createRestartDialog, renderConfirmDialog, renderArchiveDialog, renderRestartDialog } from "../src/tui/confirm-dialogs.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionDialog } from "../src/tui/question-dialog.js";
+import { createQuestionDialog, handleQuestionInput, renderQuestionPanel } from "../src/tui/question-dialog.js";
 import { openFavoritesDialog, renderFavoritesDialog } from "../src/tui/session-favorites-dialog.js";
 import { createRepoPicker, renderRepoPicker } from "../src/tui/repo-picker.js";
 import { createTextInput } from "../src/tui/text-input.js";
@@ -102,9 +102,9 @@ for (const width of [80, 160]) {
     const question = createQuestionDialog({ managedId: "one", piSessionId: "pi-one", instanceId: "instance" }, "Session", {
       toolCallId: "call", params: { questions: [{ question: "Which?", header: "Choice", options: [{ label: "First", description: "First option" }] }] },
     });
-    consistent(renderQuestionDialog(question, width, 100, darkTheme), "Question");
+    consistent([...renderQuestionPanel(question, width, darkTheme).body, renderQuestionPanel(question, width).keyLine], "Question");
     handleQuestionInput(question, "t");
-    consistent(renderQuestionDialog(question, width, 100, darkTheme), "Custom answer");
+    consistent([...renderQuestionPanel(question, width, darkTheme).body, renderQuestionPanel(question, width).keyLine], "Custom answer");
   });
 }
 

@@ -14,7 +14,7 @@ import { darkTheme, stripAnsi, styleToken, styleBgToken, effectiveDashboardTheme
 import { SessionsController } from './dist/src/app/controller.js';
 import { SessionsView } from './dist/src/tui/sessions-view.js';
 import { ConversationReader, renderConversationPane, renderMarkdown } from './dist/src/tui/conversation.js';
-import { createQuestionDialog, renderQuestionDialog } from './dist/src/tui/question-dialog.js';
+import { createQuestionDialog, renderQuestionPanel } from './dist/src/tui/question-dialog.js';
 import { glyphs, ascii, worktreeGlyph } from './dist/src/tui/glyphs.js';
 const steps = [{id:'plan', short:'PL'}, {id:'execute',short:'EX'}, {id:'review',short:'RV'}];
 const sessions = ['running','waiting','idle','error','stopped'].map((status,i) => ({
@@ -54,7 +54,7 @@ for (const width of [80,160]) {
   const question = createQuestionDialog({managedId:'s0',piSessionId:'pi-s0',instanceId:'i'},'Choose',
     {toolCallId:'call',params:{questions:[{header:'Choice',question:'Which option?',multiSelect:true,options:[{label:'First',description:'A choice'}]}]}});
   question.selected.add(0);
-  frames.push(...renderQuestionDialog(question,width,10,darkTheme));
+  frames.push(...renderQuestionPanel(question,width,darkTheme).body);
 }
 `;
 

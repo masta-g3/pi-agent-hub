@@ -1,11 +1,11 @@
 import { glyphs } from "./glyphs.js";
-import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Key, matchesKey } from "@earendil-works/pi-tui";
 import type { AnswerInput, InteractionTarget, PendingQuestion } from "../core/session-interaction.js";
 import { createForm, editField, setValue, type FormState } from "./form.js";
-import { fitFooter, footerItems, renderForm, type FooterItem } from "./layout.js";
 import { createTextInput, insertText, isEnterKey } from "./text-input.js";
-import { cleanMarkdown, renderMarkdown } from "./conversation.js";
-import { styleToken, styleBgToken, type SessionsTheme } from "./theme.js";
+import { cleanMarkdown } from "./conversation.js";
+import { styleToken, type SessionsTheme } from "./theme.js";
+import type { RenderCardPanel } from "./render-model.js";
 
 export interface QuestionDialog {
   target: InteractionTarget;
@@ -13,35 +13,42 @@ export interface QuestionDialog {
   request: PendingQuestion;
   attentionRequestId?: string;
   answers: AnswerInput[];
+  staged: { choice: number; selected: Set<number>; text: string; cursor: number }[];
   page: number;
   choice: number;
   selected: Set<number>;
   custom?: FormState<"answer">;
   scroll: number;
-  pageSize: number;
-  revealChoice: boolean;
   submitting: boolean;
   uncertain: boolean;
   error?: string;
-  usable: boolean;
   available: boolean;
-  rowTargets: (number | "submit" | "next" | "back" | undefined)[];
-  footerItems: FooterItem[];
 }
 export function createQuestionDialog(target: InteractionTarget, title: string, request: PendingQuestion, attentionRequestId?: string): QuestionDialog {
   return { target: { ...target }, title, request: structuredClone(request), attentionRequestId,
-    answers: [], page: 0, choice: 0, selected: new Set(), scroll: 0, pageSize: 1, revealChoice: true, submitting: false, uncertain: false, usable: true, available: true, rowTargets: [], footerItems: [] };
+    answers: [], staged: [], page: 0, choice: 0, selected: new Set(), scroll: 0, submitting: false, uncertain: false, available: true };
+}
+function stage(dialog: QuestionDialog): void {
+  const field = dialog.custom?.fields.answer;
+  const previous = dialog.staged[dialog.page];
+  dialog.staged[dialog.page] = { choice: dialog.choice, selected: new Set(dialog.selected), text: field?.value ?? previous?.text ?? "", cursor: field?.cursor ?? previous?.cursor ?? 0 };
+}
+function editCustom(dialog: QuestionDialog): void {
+  delete dialog.answers[dialog.page];
+  const previous = dialog.staged[dialog.page];
+  dialog.choice = dialog.request.params.questions[dialog.page]!.options.length;
+  dialog.custom = createForm([{ key: "answer", label: "Answer", value: previous?.text ?? "", hint: "Your custom answer" }]);
+  if (previous) dialog.custom = setValue(dialog.custom, "answer", previous.text, previous.cursor);
 }
 export function handleQuestionInput(dialog: QuestionDialog, data: string): "changed" | "close" | "submit" {
-  if (matchesKey(data, Key.escape)) return dialog.submitting ? "changed" : "close";
-  if (!dialog.usable || !dialog.available || dialog.submitting || dialog.uncertain) return "changed";
-  const question = dialog.request.params.questions[dialog.page];
-  if (matchesKey(data, Key.pageUp)) { dialog.scroll = Math.max(0, dialog.scroll - dialog.pageSize); return "changed"; }
-  if (matchesKey(data, Key.pageDown)) { dialog.scroll += dialog.pageSize; return "changed"; }
-  if (matchesKey(data, Key.left) && !dialog.custom) {
-    showQuestionPage(dialog, Math.max(0, dialog.page - 1));
-    return "changed";
+  if (matchesKey(data, Key.escape)) {
+    if (dialog.submitting) return "changed";
+    stage(dialog);
+    if (dialog.custom) { dialog.custom = undefined; return "changed"; }
+    return "close";
   }
+  if (!dialog.available || dialog.submitting || dialog.uncertain) return "changed";
+  const question = dialog.request.params.questions[dialog.page];
   if (!question) return "changed";
   if (dialog.custom) {
     if ([...data].length === 1 && /[\u0080-\u009f]/u.test(data)) return "changed";
@@ -57,22 +64,30 @@ export function handleQuestionInput(dialog: QuestionDialog, data: string): "chan
     } else dialog.custom = editField(dialog.custom, data) ?? dialog.custom;
     return "changed";
   }
+  if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) {
+    showQuestionPage(dialog, Math.max(0, Math.min(dialog.request.params.questions.length - 1, dialog.page + (matchesKey(data, Key.left) ? -1 : 1))));
+    return "changed";
+  }
   const numeric = /^[1-9]$/.test(data) ? Number(data) - 1 : -1;
+  if (numeric === question.options.length || data === "t") { editCustom(dialog); return "changed"; }
   if (numeric >= 0 && numeric < question.options.length) {
-    dialog.choice = numeric; dialog.revealChoice = true;
+    dialog.choice = numeric;
+    delete dialog.answers[dialog.page];
     if (question.multiSelect) {
       if (dialog.selected.has(numeric)) dialog.selected.delete(numeric); else dialog.selected.add(numeric);
     }
     return "changed";
   }
-  if (data === "t") { dialog.custom = createForm([{ key: "answer", label: "Answer", value: "", hint: "Your custom answer" }]); dialog.revealChoice = true; return "changed"; }
-  if (matchesKey(data, Key.up)) { dialog.choice = Math.max(0, dialog.choice - 1); dialog.revealChoice = true; }
-  if (matchesKey(data, Key.down)) { dialog.choice = Math.min(question.options.length, dialog.choice + 1); dialog.revealChoice = true; }
+  const previousChoice = dialog.choice;
+  if (matchesKey(data, Key.up)) dialog.choice = Math.max(0, dialog.choice - 1);
+  if (matchesKey(data, Key.down)) dialog.choice = Math.min(question.options.length, dialog.choice + 1);
+  if (!question.multiSelect && dialog.choice !== previousChoice) delete dialog.answers[dialog.page];
   if (matchesKey(data, Key.space) && question.multiSelect && dialog.choice < question.options.length) {
+    delete dialog.answers[dialog.page];
     if (dialog.selected.has(dialog.choice)) dialog.selected.delete(dialog.choice); else dialog.selected.add(dialog.choice);
   }
   if (isEnterKey(data)) {
-    if (dialog.choice === question.options.length) { dialog.custom = createForm([{ key: "answer", label: "Answer", value: "", hint: "Your custom answer" }]); dialog.revealChoice = true; }
+    if (dialog.choice === question.options.length) editCustom(dialog);
     else return commit(dialog, question.multiSelect
       ? { questionIndex: dialog.page, kind: "multi", optionIndices: [...dialog.selected].sort((a, b) => a - b) }
       : { questionIndex: dialog.page, kind: "option", optionIndex: dialog.choice });
@@ -81,50 +96,50 @@ export function handleQuestionInput(dialog: QuestionDialog, data: string): "chan
 }
 function commit(dialog: QuestionDialog, answer: AnswerInput): "changed" | "submit" {
   dialog.answers[dialog.page] = answer;
-  if (dialog.page === dialog.request.params.questions.length - 1) return "submit";
-  showQuestionPage(dialog, dialog.page + 1);
+  stage(dialog);
+  if (dialog.page === dialog.request.params.questions.length - 1) {
+    const missing = dialog.request.params.questions.findIndex((_, index) => !dialog.answers[index]);
+    if (missing === -1) return "submit";
+    showQuestionPage(dialog, missing);
+    dialog.error = "First unanswered question; confirm every answer before sending";
+  } else showQuestionPage(dialog, dialog.page + 1);
   return "changed";
 }
 function showQuestionPage(dialog: QuestionDialog, page: number): void {
-  dialog.page = page; dialog.revealChoice = true; dialog.choice = 0; dialog.selected.clear(); dialog.custom = undefined; dialog.scroll = 0; dialog.error = undefined;
-  const previous = dialog.answers[page];
-  if (previous?.kind === "option") dialog.choice = previous.optionIndex;
-  else if (previous?.kind === "multi") dialog.selected = new Set(previous.optionIndices);
-  else if (previous?.kind === "custom") dialog.custom = createForm([{ key: "answer", label: "Answer", value: previous.text }]);
+  stage(dialog);
+  dialog.page = page; dialog.custom = undefined; dialog.scroll = 0; dialog.error = undefined;
+  const staged = dialog.staged[page];
+  dialog.choice = staged?.choice ?? 0;
+  dialog.selected = new Set(staged?.selected);
 }
-export function renderQuestionDialog(dialog: QuestionDialog, width: number, height: number, theme?: SessionsTheme, focused = true): string[] {
-  dialog.rowTargets = [];
-  dialog.footerItems = [];
-  dialog.usable = width >= 40 && height >= 6;
-  if (!dialog.usable) return [truncateToWidth(`${dialog.title} ${glyphs.pendingStep} Resize to answer (40 ${glyphs.error} 6 minimum)`, width)];
+
+/** Body and local keys only. The shared card slot owns identity, geometry and scrolling. */
+export function renderQuestionPanel(dialog: QuestionDialog, width: number, theme?: SessionsTheme): RenderCardPanel & { body: string[] } {
+  const styled = (text: string) => theme ? styleToken(theme, "muted", text) : text;
   const question = dialog.request.params.questions[dialog.page];
-  const position = `Question ${Math.min(dialog.page + 1, dialog.request.params.questions.length)} of ${dialog.request.params.questions.length}`;
-  const heading = `? ANSWER NEEDED ${glyphs.pendingStep} ${position}`;
-  const rows: { text: string; target?: number | "submit" | "back"; field?: boolean }[] = [];
+  const body: string[] = [];
+  if (dialog.request.params.questions.length > 1) body.push(styled(`${glyphs.left} ${dialog.request.params.questions.map((q, i) => i === dialog.page ? `[${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}]` : `${dialog.answers[i] ? glyphs.progressFilled : glyphs.progressEmpty} ${cleanMarkdown(q.header)}`).join("   ")} ${glyphs.right}`));
   if (question) {
-    rows.push(...renderMarkdown(question.question, width, theme).map(text => ({ text })));
+    body.push(...cleanMarkdown(question.question).split("\n"));
     if (dialog.custom) {
-      rows.push(...renderForm({ title: "Custom answer", fields: Object.values(dialog.custom.fields), focus: "answer", footer: "" }, width, theme).map(text => ({ text, field: text.includes(glyphs.focus) })));
+      const field = dialog.custom.fields.answer;
+      body.push(styled("Type something."), ...cleanMarkdown(field.value.slice(0, field.cursor) + glyphs.cursor + field.value.slice(field.cursor)).split("\n"));
     } else {
-      const choices = [...question.options.map((option, index) => ({ text: `${index === dialog.choice ? glyphs.focus : " "} ${index + 1} ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label} ${glyphs.dash} ${option.description}${option.hasPreview ? " (preview in Pi)" : ""}`, target: index })), { text: `${dialog.choice === question.options.length ? glyphs.focus : " "} t Type something${glyphs.ellipsis}`, target: question.options.length }];
-      rows.push(...choices.flatMap(choice => wrapTextWithAnsi(cleanMarkdown(choice.text), width).map(text => ({ text, target: choice.target }))));
+      question.options.forEach((option, index) => {
+        body.push(cleanMarkdown(`${index === dialog.choice ? glyphs.primary : " "} ${index + 1}. ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}${option.label}`));
+        if ((width >= 100 || index === dialog.choice) && option.description) body.push(styled(cleanMarkdown(`   ${option.description}`)));
+      });
+      body.push(`${dialog.choice === question.options.length ? glyphs.primary : " "} ${question.options.length + 1}. Type something.`);
+      const option = question.options[dialog.choice];
+      if (option?.preview !== undefined) body.push(styled("Preview"), ...cleanMarkdown(option.preview).split("\n"));
+      else if (option?.hasPreview) body.push(styled("preview in Pi"));
     }
   }
-  const status = dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Delivery not confirmed; checking Pi before retrying" : !dialog.available ? "Question availability not confirmed; Open in Pi" : dialog.error;
-  const capacity = height - (status ? 3 : 2);
-  dialog.pageSize = Math.max(1, capacity - 1);
-  dialog.scroll = Math.min(dialog.scroll, Math.max(0, rows.length - capacity));
-  if (question && dialog.revealChoice) {
-    dialog.revealChoice = false;
-    const focused = rows.findIndex(row => dialog.custom ? row.field : row.target === dialog.choice);
-    if (focused >= 0 && (focused < dialog.scroll || focused >= dialog.scroll + capacity)) dialog.scroll = Math.max(0, focused - capacity + 1);
-  }
-  const visible = rows.slice(dialog.scroll, dialog.scroll + capacity);
+  if (!dialog.available) body.push("Question availability not confirmed; Open in Pi");
+  if (dialog.error) body.push(cleanMarkdown(dialog.error));
   const final = dialog.page === dialog.request.params.questions.length - 1;
-  const actionHint = !focused ? `Tab Answer ${glyphs.pendingStep} c Hide` : dialog.custom ? `${final ? "Enter Send" : "Enter Next"} ${glyphs.pendingStep} Editing answer` : `${final ? "Enter Send" : "Enter Next"}${question?.multiSelect ? ` ${glyphs.pendingStep} Numbers/Space Toggle` : ` ${glyphs.pendingStep} 1${glyphs.range}${question?.options.length} Choose`} ${glyphs.pendingStep} t Type`;
-  const footer = fitFooter(`${actionHint} ${glyphs.pendingStep} Tab Focus ${glyphs.pendingStep} Esc Fleet ${glyphs.pendingStep} PgUp/PgDn Read ${glyphs.pendingStep} ${glyphs.left} Previous question`, width);
-  dialog.footerItems = footerItems(footer, width, 1).filter(item => item.key === "Enter" || item.key === "Esc");
-  dialog.rowTargets = [undefined, ...visible.map(row => row.target), ...(status ? [undefined] : []), focused && !dialog.submitting && !dialog.uncertain && dialog.available ? final ? "submit" : "next" : undefined];
-  const styled = (token: "accent" | "muted" | "error" | "warning", text: string) => theme ? styleToken(theme, token, text) : text;
-  return [styled("warning", heading), ...visible.map(row => theme && row.target === dialog.choice ? styleBgToken(theme, "selectedBg", row.text) : row.text), ...(status ? [styled(dialog.error ? "error" : "muted", status)] : []), styled("accent", footer)].map(line => truncateToWidth(line, width));
+  const keys = [final ? "Enter Send" : "Enter Next", `Esc ${dialog.custom ? "Options" : "Fleet"}`,
+    ...(!dialog.custom && question ? [`1${glyphs.range}${question.options.length}${question.multiSelect ? "/Space Toggle" : " Choose"}`, "t Type"] : []),
+    ...(dialog.request.params.questions.length > 1 && !dialog.custom ? [`${glyphs.left}/${glyphs.right} Questions`] : []), "PgUp/PgDn Read"];
+  return { body, keyLine: dialog.submitting ? `Submitting${glyphs.ellipsis}` : dialog.uncertain ? "Esc Fleet" : keys.join(` ${glyphs.pendingStep} `), offset: dialog.scroll };
 }

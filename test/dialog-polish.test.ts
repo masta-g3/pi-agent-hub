@@ -6,7 +6,7 @@ import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "../src/tui/new-session-dialog.js";
 import { setRepoValue, toggleWorktree } from "../src/tui/new-form.js";
 import type { NewSessionDialogContext } from "../src/tui/dialog.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionDialog } from "../src/tui/question-dialog.js";
+import { createQuestionDialog, handleQuestionInput, renderQuestionPanel } from "../src/tui/question-dialog.js";
 
 function newSessionContext(): NewSessionDialogContext {
   return { actions: { newFormContext: () => ({ cwd: "/code/web" }) }, viewport: { width: 100, height: 28 }, theme: darkTheme } as NewSessionDialogContext;
@@ -63,39 +63,21 @@ function questionDialog() {
   return createQuestionDialog(target, "Session", { toolCallId: "call", params: { questions: [{ question: "Which?", header: "Choice", options: [{ label: "First", description: "One" }, { label: "Second", description: "Two" }] }] } });
 }
 
-test("question card has one fitted hint line and only real status adds a row", () => {
-  const allHints = ["Enter Send", "1–2 Choose", "t Type", "Tab Focus", "Esc Fleet", "PgUp/PgDn Read", "← Previous question"];
-  for (const width of [40, 80, 160]) {
-    const dialog = questionDialog();
-    const lines = renderQuestionDialog(dialog, width, 20).map(stripAnsi);
-    assert.equal(lines.length, 6, `no idle status row at ${width}`);
-    const hint = lines.at(-1)!;
-    const items = hint.split(" · ");
-    assert.deepEqual(items, allHints.slice(0, items.length));
-    assert.equal(lines.filter(line => /Enter Send|Tab Focus|Esc Fleet|PgUp\/PgDn Read/.test(line)).length, 1);
-    assert.equal(dialog.rowTargets.length, lines.length);
-    assert.deepEqual(dialog.rowTargets, [undefined, undefined, 0, 1, 2, "submit"]);
-    assert.ok(lines.every(line => visibleWidth(line) <= width));
-    dialog.error = "Try again";
-    const errorLines = renderQuestionDialog(dialog, width, 20).map(stripAnsi);
-    assert.equal(errorLines.length, lines.length + 1);
-    assert.equal(errorLines.at(-2), "Try again");
-    assert.deepEqual(dialog.rowTargets.slice(-2), [undefined, "submit"]);
-    dialog.submitting = true;
-    assert.equal(renderQuestionDialog(dialog, width, 20).map(stripAnsi).at(-2), "Submitting…");
-    assert.equal(dialog.rowTargets.at(-1), undefined);
-  }
+test("question panel leaves local keys and status to the shared card shell", () => {
+  const dialog = questionDialog();
+  const panel = renderQuestionPanel(dialog, 80);
+  assert.match(panel.keyLine, /^Enter Send · Esc Fleet/);
+  assert.doesNotMatch(panel.body.join("\n"), /Tab Focus|Esc Fleet|Enter Send/);
+  dialog.error = "Try again";
+  assert.equal(renderQuestionPanel(dialog, 80).body.at(-1), "Try again");
+  dialog.submitting = true;
+  assert.equal(renderQuestionPanel(dialog, 80).keyLine, "Submitting…");
 });
 
-test("custom answer keeps only the outer hint and unfocused question hints stay on one row", () => {
-  for (const width of [40, 80, 160]) {
-    const dialog = questionDialog();
-    handleQuestionInput(dialog, "t");
-    const lines = renderQuestionDialog(dialog, width, 30).map(stripAnsi);
-    assert.equal(lines.filter(line => /Enter (Send|Next)|Esc (Fleet|Back)|Tab Focus/.test(line)).length, 1);
-    assert.match(lines.at(-1)!, /^Enter Send · Editing answer/);
-    const unfocused = renderQuestionDialog(questionDialog(), width, 20, undefined, false).map(stripAnsi);
-    assert.match(unfocused.at(-1)!, /^Tab Answer · c Hide/);
-    assert.equal(unfocused.filter(line => /Tab Answer|Esc Fleet|Tab Focus/.test(line)).length, 1);
-  }
+test("custom answer has one local key row and no Conversation focus hint", () => {
+  const dialog = questionDialog();
+  handleQuestionInput(dialog, "t");
+  const panel = renderQuestionPanel(dialog, 80);
+  assert.match(panel.keyLine, /^Enter Send · Esc Options/);
+  assert.doesNotMatch(panel.body.join("\n"), /Tab Focus|Esc Fleet|Enter Send/);
 });

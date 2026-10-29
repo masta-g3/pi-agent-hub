@@ -4,8 +4,23 @@ import { createConnection, createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { isErrno } from "../core/atomic-json.js";
 import { effectiveDashboardShortcuts } from "../core/config.js";
-import { readConversation } from "../core/conversation.js";
-import { INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState } from "../core/session-interaction.js";
+import { conversationText, questionCallArguments, readConversation } from "../core/conversation.js";
+import { OPTION_PREVIEW_BYTE_CAP, INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState } from "../core/session-interaction.js";
+
+function boundedPreview(source: string, bytes: number): string | undefined {
+  if (bytes < 2) return;
+  const text = conversationText(source);
+  if (Buffer.byteLength(JSON.stringify(text)) <= bytes) return text;
+  let low = 0;
+  let high = Math.min(text.length, bytes);
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(JSON.stringify(text.slice(0, mid))) <= bytes) low = mid;
+    else high = mid - 1;
+  }
+  if (low > 0 && /[\uD800-\uDBFF]/u.test(text[low - 1]!)) low--;
+  return text.slice(0, low);
+}
 
 export interface InteractionAdapter {
   managedId: string; piSessionId: string; env?: NodeJS.ProcessEnv;
@@ -50,6 +65,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       if (data.toolCallId === undefined) { legacyProducer = true; return; }
       const pending = parsePendingQuestions([{ toolCallId: data.toolCallId, params: { questions: data.questions } }]);
       if (!pending || Buffer.byteLength(JSON.stringify(pending)) > INTERACTION_BYTE_CAP - 2048) return;
+      for (const question of pending[0]!.params.questions) for (const option of question.options) delete option.preview;
       questionnaires.set(pending[0]!.toolCallId, pending[0]!);
       questionProtocol = true;
     }),
@@ -109,8 +125,31 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       return readConversation(branch, { branchId: generation, before: request.before, limit: request.limit });
     }
     if (request.kind === "state") {
-      const pending = pendingQuestions();
-      return { questionProtocol, pending, questionUnavailableReason: unavailableReason(), shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" } satisfies SessionInteractionState;
+      const pending = structuredClone(pendingQuestions());
+      const state: SessionInteractionState = { questionProtocol, pending, questionUnavailableReason: unavailableReason(), shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" };
+      // Include the full response envelope, including the caller's ID, in the preview budget.
+      let budget = INTERACTION_BYTE_CAP - Buffer.byteLength(JSON.stringify({ version: 1, id: request.id, ...target, ok: true, result: state })) - 1;
+      const branch = adapter.getBranch();
+      checkRequest();
+      for (const request of pending) {
+        const args = questionCallArguments(branch, request.toolCallId);
+        const sources = args?.questions;
+        if (!Array.isArray(sources)) continue;
+        request.params.questions.forEach((question, qi) => {
+          const source = sources[qi];
+          if (!isObject(source) || source.question !== question.question || !Array.isArray(source.options)) return;
+          const options = source.options;
+          question.options.forEach((option, oi) => {
+            const original = options[oi];
+            if (!isObject(original) || original.label !== option.label || typeof original.preview !== "string") return;
+            const preview = boundedPreview(original.preview, Math.min(OPTION_PREVIEW_BYTE_CAP, budget - 11));
+            if (preview === undefined) return;
+            option.preview = preview;
+            budget -= Buffer.byteLength(JSON.stringify(preview)) + 11;
+          });
+        });
+      }
+      return state;
     }
     if (request.kind === "submit-answer") {
       if (unsupported.has(request.toolCallId)) throw new Error("This prompt can only be answered in Pi");

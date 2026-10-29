@@ -6,7 +6,7 @@ import { createQuestionDialog, handleQuestionInput } from "../src/tui/question-d
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { validateDashboardShortcuts } from "../src/core/dashboard-shortcuts.js";
 import { SelectedInteractionObserver } from "../src/tui/conversation.js";
-import { renderQuestionDialog } from "../src/tui/question-dialog.js";
+import { renderQuestionPanel } from "../src/tui/question-dialog.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { SessionsController } from "../src/app/controller.js";
 import { interactionTarget } from "../src/app/session-interaction.js";
@@ -101,7 +101,7 @@ test("observer permits one request and drops state from the previous target", as
 
 test("official preview flags show a Pi marker without disabling the option", () => {
   const dialog = createQuestionDialog(target, "Login", request);
-  assert.match(stripAnsi(renderQuestionDialog(dialog, 80, 12).join("\n")), /Email.*preview in Pi/);
+  assert.match(stripAnsi(renderQuestionPanel(dialog, 80).body.join("\n")), /preview in Pi/);
   assert.equal(handleQuestionInput(dialog, "1"), "changed");
   assert.equal(handleQuestionInput(dialog, "\r"), "submit");
   assert.deepEqual(dialog.answers, [{ questionIndex: 0, kind: "option", optionIndex: 0 }]);
@@ -124,15 +124,13 @@ test("Page Down reads every history paragraph in a short conversation panel", as
   assert.deepEqual([...seen], Array.from({ length: 40 }, (_, i) => `Paragraph${i}`));
 });
 
-test("official questions stay width bounded and short layouts expose no hidden targets", () => {
+test("question panels keep complete option text for the shared shell to wrap", () => {
   const dialog = createQuestionDialog(target, "Login", request);
-  for (const width of [40, 80, 119, 120, 160, 200]) {
-    for (const height of [5, 10, 24]) {
-      const lines = renderQuestionDialog(dialog, width, height);
-      assert.ok(lines.length <= height);
-      assert.ok(lines.every(line => visibleWidth(line) <= width));
-      assert.ok(dialog.rowTargets.length <= lines.length);
-    }
+  for (const width of [30, 40, 80, 119, 120, 160, 200]) {
+    const panel = renderQuestionPanel(dialog, width);
+    assert.match(panel.body.join("\n"), /Choose sign-in/);
+    assert.match(panel.body.join("\n"), /2\. Password/);
+    assert.match(panel.keyLine, /Enter Send/);
   }
 });
 
@@ -202,8 +200,8 @@ test("inline question submits once to its exact selected session", async () => {
     submitAnswer: async target => { writes.push(target.managedId); await new Promise<void>(resolve => { settle = resolve; }); },
     terminalRows: () => 16,
   });
-  await view.refreshInteraction(); view.render(80); view.handleInput("c"); await tick();
-  assert.match(view.render(80).join("\n"), /ANSWER NEEDED.*Question 1 of 1/);
+  await view.refreshInteraction(); view.render(80); view.handleInput("\t"); await tick();
+  assert.match(view.render(80).join("\n"), /1\. Email/);
   view.handleInput("\r");
   assert.deepEqual(writes, ["a"]);
   settle(); await tick();
@@ -229,7 +227,7 @@ test("unsupported_host removes the inline form and shows the specific Pi-only re
       : { questionProtocol: true, pending: [request] },
     submitAnswer: async () => { unsupported = true; throw new Error("This prompt can only be answered in Pi"); }, terminalRows: () => 24,
   });
-  view.render(120); view.handleInput("c"); await tick(); view.render(120); view.handleInput("\r"); await tick();
+  view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.render(120); view.handleInput("\r"); await tick();
   const text = stripAnsi(view.render(120).join("\n"));
   assert.match(text, /This prompt can only be answered in Pi/);
   assert.match(text, /Open in Pi/);
@@ -303,7 +301,7 @@ test("unconfirmed answer waits for fresh producer validity and native completion
   view.handleInput(":"); for (const char of "answer") view.handleInput(char); view.handleInput("\r");
   view.render(80); view.handleInput("\r"); await tick();
   assert.equal(writes, 1);
-  assert.match(view.render(80).join("\n"), /Delivery not confirmed/);
+  assert.match(view.render(80).join("\n"), /Delivery unknown/);
   view.handleInput("\r"); assert.equal(writes, 1);
   fresh({ questionProtocol: true, pending: [] }); await tick();
   assert.doesNotMatch(view.render(80).join("\n"), /ANSWER NEEDED/);

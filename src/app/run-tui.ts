@@ -537,7 +537,6 @@ export async function runTui(): Promise<void> {
     loadConversation: loadSessionConversation,
     async submitAnswer(target, toolCallId, answers) {
       await submitSessionAnswer(target, toolCallId, answers);
-      await touchSession(target.managedId);
     },
     requestRender: () => tui.requestRender(),
     initialViewState,

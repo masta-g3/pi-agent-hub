@@ -9,7 +9,7 @@ import { createCommandPalette, renderCommandPalette } from "../src/tui/command-p
 import { renderConversationPane } from "../src/tui/conversation.js";
 import { buildDashboardCommands, selectWorkspaceCommands, type DashboardCommand } from "../src/tui/dashboard-commands.js";
 import { renderForm, renderSessions } from "../src/tui/layout.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionDialog } from "../src/tui/question-dialog.js";
+import { createQuestionDialog, handleQuestionInput, renderQuestionPanel } from "../src/tui/question-dialog.js";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 
@@ -157,9 +157,9 @@ for (const width of [80, 120, 160]) {
       toolCallId: "call", params: { questions: [{ question: "Read [the guide](https://example.com) first. Which?", header: "Choice",
         options: [{ label: "First", description: "First option", hasPreview: true }] }] },
     });
-    decorationOnly(renderQuestionDialog(dialog, width, 16, theme));
+    decorationOnly(renderQuestionPanel(dialog, width, theme).body);
     handleQuestionInput(dialog, "t");
-    decorationOnly(renderQuestionDialog(dialog, width, 16, theme));
+    decorationOnly(renderQuestionPanel(dialog, width, theme).body);
     decorationOnly(renderConversationPane({ width, height: 10, title: "Session conversation", transcript: [],
       transcriptHeight: 3, status: "Connected", actions: [], focusedAction: "" }, theme).lines);
   });

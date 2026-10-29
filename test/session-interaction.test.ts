@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { EventEmitter, once } from "node:events";
 import { startSessionInteraction, type InteractionAdapter } from "../src/extension/session-interaction.js";
-import { requestSessionInteraction, interactionSocketPath, parseInteractionRequest, type InteractionRequest, type SessionInteractionState } from "../src/core/session-interaction.js";
+import { requestSessionInteraction, interactionSocketPath, parseInteractionRequest, parsePendingQuestions, INTERACTION_BYTE_CAP, type InteractionRequest, type SessionInteractionState } from "../src/core/session-interaction.js";
 
 test("bridge binds identities, pages branches, and guards/replays configured dispatch", async () => {
   const dir = await mkdtemp("/tmp/hc13.");
@@ -91,6 +91,52 @@ test("official prompts ignore append-only fields and keep a snapshot of producer
     f.bus.emit("rpiv:ask-user:prompt", payload);
     payload.questions[0]!.question = "changed later";
     assert.deepEqual((await f.request({ kind: "state" }) as SessionInteractionState).pending, pending);
+  } finally { await f.close(); }
+});
+
+test("preview contract validates optional bounded text", () => {
+  const value = structuredClone(pending);
+  Object.assign(value[0]!.params.questions[0]!.options[0]!, { preview: "Real preview" });
+  assert.equal(parsePendingQuestions(value)?.[0]?.params.questions[0]?.options[0]?.preview, "Real preview");
+  Object.assign(value[0]!.params.questions[0]!.options[0]!, { preview: 1 });
+  assert.equal(parsePendingQuestions(value), undefined);
+  Object.assign(value[0]!.params.questions[0]!.options[0]!, { preview: "x".repeat(INTERACTION_BYTE_CAP) });
+  assert.equal(parsePendingQuestions(value), undefined);
+});
+
+test("state reads sanitized previews only from the exact current-branch tool call and bounds the full frame", async () => {
+  let branch: unknown[] = [];
+  const f = await fixture({ getBranch: () => branch });
+  const state = () => f.request({ kind: "state" }) as Promise<SessionInteractionState>;
+  const entry = (id: string, preview: string) => ({ type: "message", id: "entry", message: { role: "assistant", content: [{ type: "toolCall", name: "ask_user_question", id, arguments: { questions: pending[0]!.params.questions.map(q => ({ ...q, options: q.options.map(o => ({ ...o, preview })) })) } }] } });
+  try {
+    prompt(f);
+    branch = [entry("other", "wrong")];
+    assert.equal((await state()).pending[0]?.params.questions[0]?.options[0]?.preview, undefined);
+    branch = [entry("call", "real\u001b]52;c;secret\u0007 preview")];
+    assert.equal((await state()).pending[0]?.params.questions[0]?.options[0]?.preview, "real preview");
+    branch = [entry("call", "界\"\\\n".repeat(INTERACTION_BYTE_CAP))];
+    const large = await state();
+    assert.ok(large.pending[0]?.params.questions[0]?.options[0]?.preview?.length);
+    assert.ok(Buffer.byteLength(JSON.stringify({ version: 1, id: "x".repeat(128), ...f.server.target, ok: true, result: large })) + 1 <= INTERACTION_BYTE_CAP);
+    branch = [];
+    assert.equal((await state()).pending[0]?.params.questions[0]?.options[0]?.preview, undefined);
+    f.server.branchChanged();
+    assert.deepEqual((await state()).pending, []);
+  } finally { await f.close(); }
+});
+
+test("all sixteen previews share the remaining full-state byte budget", async () => {
+  const questions = Array.from({ length: 4 }, (_, i) => ({ question: `Question ${i} ` + "q".repeat(48_000), header: `Tab ${i}`, options: Array.from({ length: 4 }, (_, j) => ({ label: `Option ${j}`, description: "Description", hasPreview: true })) }));
+  const args = { questions: questions.map(q => ({ ...q, options: q.options.map(o => ({ ...o, preview: "\"\\\n界".repeat(INTERACTION_BYTE_CAP) })) })) };
+  const f = await fixture({ getBranch: () => [{ type: "message", id: "entry", message: { role: "assistant", content: [{ type: "toolCall", name: "ask_user_question", id: "call", arguments: args }] } }] });
+  try {
+    f.bus.emit("rpiv:ask-user:prompt", { toolCallId: "call", questions });
+    const state = await f.request({ kind: "state" }, "x".repeat(128)) as SessionInteractionState;
+    assert.equal(state.pending[0]?.params.questions.length, 4);
+    assert.ok(state.pending[0]?.params.questions[0]?.options[0]?.preview);
+    assert.ok(Buffer.byteLength(JSON.stringify({ version: 1, id: "x".repeat(128), ...f.server.target, ok: true, result: state })) + 1 <= INTERACTION_BYTE_CAP);
+    assert.ok(parsePendingQuestions(state.pending));
   } finally { await f.close(); }
 });
 
