@@ -47,6 +47,14 @@ test("p opens the shared card editor; literal keys and paste submit to the exact
   view.handleInput("p"); assert.doesNotMatch(text(view), /qj:pS/);
 });
 
+test("ready handoff context stays visible above the focused reply editor", async () => {
+  const { view } = await setup({ ready: true });
+  view.handleInput("p");
+  const rendered = text(view, 80);
+  assert.match(rendered, /→ Run the checks/);
+  assert.match(rendered, /Go ahead: Run the checks█/);
+});
+
 test("blank input stays focused; Esc preserves edited and intentionally empty drafts", async () => {
   const { view, sent } = await setup({ ready: true });
   view.handleInput("p"); assert.match(text(view), /Go ahead: Run the checks█/); assert.equal(sent.length, 0);

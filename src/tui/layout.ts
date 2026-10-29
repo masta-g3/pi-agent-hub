@@ -623,7 +623,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       continuationPriorities.set(lines.length - 1, -1);
     }
     if (shape === "full-parent" && !model.compactRows && !oneLine) {
-      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), rowStyles, board, model.width, model.fleetGrouping === "repo" && !board, inbox)) {
+      const hideFocusedQuestion = session.selected && model.workspace?.session.id === session.id && model.workspace.panel?.kind === "answer";
+      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), rowStyles, board, model.width, model.fleetGrouping === "repo" && !board, inbox, hideFocusedQuestion)) {
         pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
       }
@@ -1108,6 +1109,7 @@ function adaptiveCardLines(
   terminalWidth: number,
   repoMode: boolean,
   inbox = true,
+  hideFocusedQuestion = false,
 ): { line: string; priority: number }[] {
   if (board) {
     const receipt = session.deliveryResult
@@ -1143,7 +1145,7 @@ function adaptiveCardLines(
   }
   const attention = session.attention;
   const question = session.selected ? session.pendingQuestion : undefined;
-  if (attention || question) {
+  if ((attention || question) && !(hideFocusedQuestion && question)) {
     const kind = question ? "question" : attention!.kind;
     const text = question ? `${question.header} ${glyphs.pendingStep} ${question.question}` : attention!.text;
     if (question && displayWidth(question.header) + 4 > width) {

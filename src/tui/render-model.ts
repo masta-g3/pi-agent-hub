@@ -170,6 +170,7 @@ export interface BoardHiddenCounts {
 }
 
 export interface RenderCardPanel {
+  kind?: "answer" | "reply";
   body: (string | { value: string; cursor: number })[];
   /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
   keyLine: string;

@@ -503,7 +503,7 @@ export class SessionsView implements Component {
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
       workspaceFullScreen: this.grouping === "stage" && width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
-      cardPanel: this.cardPanel ? { ...this.cardPanel.panel, statusLine: this.message ?? this.flash?.text } : undefined,
+      cardPanel: this.cardPanel ? { ...this.cardPanel.panel, kind: answering ? "answer" : "reply", statusLine: this.message ?? this.flash?.text } : undefined,
       deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
       selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? this.interaction.state.pending[0]?.params.questions[0] : undefined,
       height: fleetHeight,

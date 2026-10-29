@@ -270,7 +270,12 @@ export function selectWorkspaceCommands(
       .filter((command) => command.group === "actions" && command.targetSessionId === session.id && command.enabled)
       .map((command) => [command.id.slice(`action:${session.id}:`.length).split(":")[0]!, command]),
   );
-  if (actionsByName.has("answer")) actionNames = ["answer", "open", ...actionNames.filter(name => name !== "answer" && name !== "open")];
+  if (actionsByName.has("answer") && !actionNames.includes("answer")) actionNames = ["answer", "open", ...actionNames.filter(name => name !== "open")];
+  if (attention?.kind === "question" && actionsByName.has("answer")) {
+    actionNames = ["answer", "send", "open", "mark-read"];
+    guidance = undefined;
+    guidanceAction = undefined;
+  }
   const selectedActions = actionNames.map((name) => actionsByName.get(name)).filter((command): command is DashboardCommand => command !== undefined);
   const reopen = closed ? actionsByName.get("restore") : undefined;
   // Live requests and errors keep their primary action; Reopen stays reachable just behind it.

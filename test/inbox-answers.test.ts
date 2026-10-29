@@ -58,6 +58,36 @@ test("moving a confirmed single choice requires confirmation again before sendin
   assert.deepEqual(dialog.answers[0], { questionIndex: 0, kind: "option", optionIndex: 1 });
 });
 
+test("supported questions use the approved key line without fallback guidance", async () => {
+  const selected = { ...session, context: { version: 1 as const, updatedAt: 1,
+    attention: { kind: "question" as const, text: "Should the card shell own the answer form?", requestId: "request" } } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, { terminalRows: () => 28, interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: true, pending: [request], messageDelivery: "idle" }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
+  });
+  view.render(80); await view.refreshInteraction();
+  const rendered = text(view, 80);
+  assert.match(rendered, /Tab Answer\s+p Reply\s+Enter Open in Pi/);
+  assert.doesNotMatch(rendered, /Answer in the Pi session/);
+  assert.doesNotMatch(rendered, /a Mark read/);
+});
+
+test("focused answers replace the collapsed question and restore it after Escape", async () => {
+  const selected = { ...session, context: { version: 1 as const, updatedAt: 1,
+    attention: { kind: "question" as const, text: "Should the card shell own the answer form?", requestId: "request" } } };
+  const pending = { ...request, params: { questions: [{ ...question, header: "Boundary", question: "Should the card shell own the answer form?" }] } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, { terminalRows: () => 28, interactionTarget,
+    loadInteractionState: async () => ({ questionProtocol: true, pending: [pending] }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
+  });
+  view.render(80); await view.refreshInteraction();
+  assert.match(text(view, 80), /\? Boundary · Should the card shell own the answer form\?/);
+  view.handleInput("\t");
+  const focused = text(view, 80);
+  assert.doesNotMatch(focused, /\? Boundary · Should the card shell own the answer form\?/);
+  assert.equal(focused.match(/Should the card shell own the answer form\?/g)?.length, 1);
+  view.handleInput("\x1b");
+  assert.match(text(view, 80), /\? Boundary · Should the card shell own the answer form\?/);
+});
+
 test("the shared panel wraps question prose at words without clipping or word fragments", async () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 28, interactionTarget,
     loadInteractionState: async () => ({ questionProtocol: true, pending: [{ ...request, params: { questions: [{ ...question, question: "Should we keep the ticket subtitle above the request line, even when the request is long?" }] } }] }), submitAnswer: async () => {},
