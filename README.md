@@ -2,7 +2,7 @@
 
 Pi-native tmux hub for long-running coding-agent sessions, skills, and MCP.
 
-Use `pi-hub` to see what needs you, keep live sessions side by side, and jump between agents from one terminal dashboard.
+Use `pi-hub` to supervise agents, answer questions, and reply from one session list. Open Pi when you need to work inside a session.
 
 New here? See [Features](docs/FEATURES.md) for the daily workflow and full key map.
 
@@ -20,7 +20,8 @@ Pi runs the agents. tmux keeps them alive. Hub gives you one keyboard-driven das
 | Repository view | Group sessions by their source repo, including worktrees and multi-repo sessions. |
 | Pinned live sessions | Keep up to four Pi sessions beside the dashboard and focus them by number. |
 | Actions and search | Find sessions, send a message, or run an action without leaving the dashboard. |
-| Conversation | Read completed messages below the fleet and answer supported questions inline. |
+| Card answers and replies | Answer supported questions with `Tab`, or write a reply with `p`. |
+| Conversation | Read completed messages and question/answer history below the fleet. |
 | Optional workflow board | See workflow position, task progress, and nested subagents from compatible Pi extensions. |
 | Project skills and MCP | Choose capabilities for the selected session's primary repo. |
 | Multi-repo workspaces | Give one session access to several repos without moving the source folders. |
@@ -37,7 +38,8 @@ pi-hub doctor
 pi-hub
 ```
 
-Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agents keep running while you use the dashboard.
+Press `n` to create a session. Use `]` for the next request, `Tab` Answer or `p` Reply, then `]` to move on.
+Use `Enter` to open Pi, `Ctrl+Q` to return, and `i` for Details. Inside Pi, `Alt+W` opens the next request.
 
 | Key | Action |
 | --- | --- |
@@ -48,9 +50,10 @@ Press `n` to create a session, `Enter` to open it, and `Ctrl+Q` to return. Agent
 | `Alt+1`–`Alt+4` | Focus an occupied pin |
 | `x` | Close the selected session's pin without stopping Pi |
 | `/` / `:` | Filter sessions / search actions, sessions, and filters |
-| `p` | Send a one-line message to the selected live session |
+| `]` / `Tab` | Select the next request / answer a supported question on its card |
+| `p` | Reply on the selected live parent's card, using Send, Steer, or Queue |
 | `c` | Show or hide the selected live session's Conversation panel |
-| `i` | Show task context, actions, and live status details |
+| `i` | Toggle Details inside the selected card |
 | `v` / `S` | Switch Status/Repo view / visit the workflow board |
 | `←` / `→` | Collapse / expand a subagent tree; use `Shift+←` / `Shift+→` for all trees |
 | `r` / `R` | Restart choices / rename |
@@ -69,11 +72,11 @@ Each parent session shows its `[group]` after the title. Press `v` to browse by 
 
 `A` opens Archive session: `d` marks Done, `x` marks Abandoned, `a` archives without an outcome, and `Esc` cancels. Archive never stops Pi or completes its workflow. `U` reopens a closed session; `A` and `B` require reopening first. See [Session closure](docs/FEATURES.md#session-closure) for archived icons and conversation behavior.
 
-The selected-session workspace shows task context and available actions. It stays beside the list in wide terminals; `i` opens it full-width in smaller terminals and toggles live details. `Enter` and double-click open the selected session directly at every width. Hub does not read or display raw pane output or conversation text in this workspace.
+The selected fleet card expands in place with task context, the request, and actions. `i` toggles Details at every width. Only the workflow board keeps a side panel or a full-width view below 120 columns. `Enter` and double-click open Pi directly. Card context comes from producer metadata, never raw pane output or conversation search.
 
-Press `c` to read completed messages below the fleet. Compatible question extensions also let you answer inline; otherwise, use **Open in Pi**. Conversation does not store a second transcript or search message content. See [Conversation](docs/FEATURES.md#conversation) for controls and [question integration](docs/CONFIG.md#inline-questions) for setup.
+Press `Tab` to answer a supported question on its card. Unsupported prompts offer **Open in Pi**. Press `c` for read-only completed messages and question/answer history below the fleet. Conversation does not store a second transcript or search message content. See [Answer from a card](docs/FEATURES.md#answer-from-a-card) and [question integration](docs/CONFIG.md#inline-questions).
 
-Use `P` to pin a live session beside the dashboard. Terminals 100–159 columns wide support two slots; wider terminals support four. An occupied slot is never replaced. `Alt+1`–`Alt+4` focuses a pin, `Ctrl+Q` returns, and `+` / `-` adjusts the split. `Alt+Q` stays available to Pi for editing the last message.
+Pins and follow view are opt-in. Use `o` for a pane that follows selection, or `P` to pin a live session beside the dashboard. Terminals 100–159 columns wide support two slots; wider terminals support four. An occupied slot is never replaced. `Alt+1`–`Alt+4` focuses a pin, `Ctrl+Q` returns, and `+` / `-` adjusts the split. `Alt+Q` stays available to Pi for editing the last message.
 
 Press `:` to find an action or session. Selecting a session result reveals it without opening or marking it read. Fresh explicit requests also produce a short notification; select **Locate newest request** to find one, or **Attention bell** to enable the optional sound.
 
@@ -84,6 +87,7 @@ New sessions start as `New · repository`; forks start as `Fork · source name`.
 Hub works on its own. Pi extensions can add task context, explicit requests, workflow progress, and subagent rows.
 
 - [Rules](https://github.com/masta-g3/rules) supplies skills and a workflow runtime for Plan → Execute → Review → Reflect → Commit. Hub displays its ticket context, requests, and progress. Press `S` for the read-only workflow board.
+- [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) 2.15.0+ enables card answers through its official events. See [Inline questions](docs/CONFIG.md#inline-questions) for installation.
 - [pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) runs child agents in tmux. Hub shows them under their parent session.
 - Your own Pi extensions can publish the supported context and workflow metadata. Configured dashboard shortcuts can send Pi commands to the selected session.
 

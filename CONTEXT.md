@@ -2,9 +2,9 @@
 
 ## Purpose
 
-`pi-agent-hub` is a small Pi-native control center for running many long-lived Pi coding-agent sessions through tmux. It exists to make the maintainer's daily agent workflow calm, visible, keyboard-fast, and recoverable while staying close to Pi instead of replacing it.
+`pi-agent-hub` is a small Pi-native dashboard for supervising long-lived coding agents from one session list. It makes the daily agent workflow calm, visible, keyboard-fast, and recoverable while staying close to Pi. Agents ask questions, hand off results, report blockers, and get replies on their cards.
 
-The hub should help a user see what sessions exist, jump between them, restart or reorganize them, send small commands, and attach project-local capabilities such as Skills and MCP without turning into a separate agent runtime.
+The daily loop is `]` Next request, `Tab` Answer or `p` Reply, then `]` again. `Enter` opens Pi, `i` toggles Details, and `Alt+W` opens the next request from inside Pi. Pins and follow view are opt-in for hands-on work. Pi runs the agents; tmux keeps them alive. Hub also organizes sessions and attaches project-local Skills and MCP.
 
 ## Target User
 
@@ -24,6 +24,7 @@ This is a TypeScript npm package, CLI/TUI, and Pi extension. It is local-first t
 
 The project is successful when:
 
+- The user supervises agents from one list where they ask, hand off results, and get replies without opening each session.
 - `pi-hub` is the fastest, most reliable way for the primary user to manage many Pi sessions from one terminal.
 - Session state is understandable, recoverable, and does not surprise the user.
 - Pi remains the agent runtime and tmux remains the durable process substrate.
@@ -60,6 +61,8 @@ Use these terms consistently:
 - **Pi session**: the underlying Pi coding-agent conversation/process.
 - **Managed session**: a Pi session tracked by Hub and backed by a tmux session.
 - **Dashboard**: the `pi-hub` terminal UI for viewing and controlling managed sessions.
+- **Request**: an explicit agent question, ready handoff, or blocker.
+- **Reply**: text sent from the selected card through Pi's bridge, using Send, Steer, or Queue.
 - **Registry**: Hub's local record of managed sessions.
 - **Heartbeat**: live state reported from the Pi extension into Hub state.
 - **Group**: a simple session label used for dashboard organization.

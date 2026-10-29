@@ -10,10 +10,10 @@ Use this section while developing. Move entries into a versioned section before 
 
 - Add an attention-first Status view, repository grouping with `v`, and a read-only workflow board with `S`.
 - Add selected-session task context and actions, live status evidence with `i`, and `pi-hub explain`.
-- Add a Conversation panel with completed messages, a working indicator, and inline answers through compatible question extensions.
+- Add read-only Conversation with completed messages, question/answer history, and a working indicator.
 - Add `:` search for actions, sessions, and filters, plus notifications for fresh explicit requests.
 - Add up to four live session pins with stable slots, `Alt+1`–`Alt+4` focus, and `x` to close the selected session's pin.
-- Add follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it. It is on by default and reopens after you archive, stop, or delete the followed session. Turn the default off with **Follow view by default** in the `:` palette (`dashboard.followDefault`).
+- Add opt-in follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it. **Follow view by default** in `:` enables startup and reopening after archive, stop, or delete via `dashboard.followDefault`.
 - Add producer-owned workflow progress, completion markers, and optional focus-mode display.
 - Add dashboard theme preview and Pi theme synchronization.
 - Document optional Rules and subagent setup and refresh the dashboard image.
@@ -25,7 +25,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
 - Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
-- Open sessions directly with `Enter` at every width; use `i` for the full-width workspace in narrow terminals.
+- Use an inbox-first loop: `]` Next request, `Tab` Answer through stock rpiv 2.15+ events, or `p` Reply with Send/Steer/Queue and retained drafts. Fleet cards expand in place with task, request, delivery feedback, and `i` Details; `Enter` opens Pi and `Alt+W` opens the next request from inside Pi. Managed parents receive dashboard guidance. Only the board keeps a side/full-width workspace.
 - Use distinct initial session/fork names and preserve linked ticket titles.
 - Keep the dashboard responsive while compact forks prepare; expose retry and cancellation for failed preparation.
 - Send configured commands through Pi's guarded input pipeline instead of simulated keystrokes.

@@ -1,22 +1,18 @@
 # pi-agent-hub Features
 
-`pi-agent-hub` keeps Pi coding-agent sessions alive in tmux and gives you one keyboard-driven dashboard to manage them.
+`pi-agent-hub` keeps Pi agents alive in tmux. Supervise them and reply from one session list.
 
 ## Daily loop
 
+Start `pi-hub` and press `n` to create a session. Then work from the list:
+
 ```text
-pi-hub
-  ↓
-pick a session or press n to create one
-  ↓
-Enter to open it
-  ↓
-work in Pi
-  ↓
-Ctrl+Q returns to the dashboard
+] Next request → Tab Answer or p Reply → ] Next request
 ```
 
-Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns to the session list. Or press `o` for follow view: one pane beside the list that always shows the selected session.
+Read the task and request on the selected card. `i` toggles Details. `Enter` opens Pi when you need it; `Ctrl+Q` returns. Inside Pi, `Alt+W` opens the next request from another session.
+
+Pins and follow view are opt-in. Use `P` to keep a live session beside the list, or `o` for one pane that follows selection. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns.
 
 ## Core capabilities
 
@@ -28,10 +24,11 @@ Use `P` to keep a live session beside the dashboard instead. `Alt+1`–`Alt+4` f
 | Live pins | `1`–`4` assigns a free slot; `P` chooses the first free one. |
 | Follow view | `o` shows the selected session beside the list and follows the selection. |
 | Search and actions | `/` filters; `:` finds actions, sessions, and named filters. |
-| Task context | The selected-session workspace shows requests, task text, workflow position, and actions. |
-| Conversation | `c` shows completed messages and supported inline questions below the fleet. |
+| Task context | Fleet cards keep the task and request separate, with workflow position and selected-session actions. |
+| Card answers | `Tab` answers supported questions without opening Pi. |
+| Conversation | `c` shows read-only completed messages and question/answer history below the fleet. |
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
-| Direct send | `p` opens a message form: Send while idle, or Steer/Queue while busy. |
+| Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Multi-repo sessions | `Ctrl+R` adds a repo in the new-session form. |
@@ -58,12 +55,13 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `/` | Filter sessions |
 | `b` | Show or hide Backlog in the current filter |
 | `:` | Search actions, sessions, and named filters |
-| `]` | Select the next visible session that needs you; `Enter` opens it |
-| `p` | Open the selected live session's Send / Steer / Queue form |
+| `]` | Select the next visible session that needs you, without opening it |
+| `Tab` | Answer a supported pending question on the selected card |
+| `p` | Reply on the selected live parent's card |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
-| `i` | Toggle live details in the action workspace; open it full-width in a narrow terminal |
+| `i` | Toggle Details in the selected fleet card or pinned strip; below 120 columns the board opens its full-width view |
 | `↑↓` / `j` / `k` | Move selection |
 | `←` / `→` | Collapse / expand the selected subagent tree |
 | `Shift+←` / `Shift+→` | Collapse / expand all trees in the current view |
@@ -94,29 +92,37 @@ Press `?` for a static reference grouped into Session actions, Pins, Views, and 
 
 ## Conversation
 
-Press `c` to read the selected live parent session below the fleet. Close pinned panes or leave follow view first. `YOU` and `PI` headings separate completed messages. `PgUp` / `PgDn` scroll the focused history or question area; `End` returns history to the latest messages. An animated working indicator appears while Pi runs.
+Press `c` to read the selected live parent's completed messages below the fleet. Close pinned panes or leave follow view first. `YOU` and `PI` headings separate messages. `PgUp` / `PgDn` scroll history; `End` returns to the latest messages. A working indicator appears while Pi runs.
 
-Supported pending questions appear under `? ANSWER NEEDED`. Press `Tab` from the fleet to focus the answer area. Number keys select options or toggle multiple selections; `t` opens a custom answer. `Enter` advances to the next question or sends the final answers. `←` revisits a previous question when not editing text. `Esc` returns focus to the fleet without cancelling the question.
+Conversation is read-only. It shows completed text and validated question/answer history, not tools, thinking, or streaming fragments. It reads the live bridge without saving a second transcript or searching messages. Opening or hiding it neither answers nor cancels a request. Stopped sessions require Restart. After updating Hub, reopen the dashboard and run `/reload` in existing idle Pi sessions if their extension changed.
 
-Direct answers require [`@juicesharp/rpiv-ask-user-question` 2.15.0+](CONFIG.md#inline-questions) and use its official answer channel. Hub shows labels and descriptions; **preview in Pi** marks options whose previews are available only in Pi. These options remain answerable from Hub. Unsupported prompts show the reason and **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. If delivery is not confirmed, check Pi before retrying. Opening or hiding Conversation neither answers nor cancels a request.
+## Answer from a card
 
-Conversation shows completed text and question/answer exchanges, not tools, thinking, or streaming fragments. It reads the live session without saving a second transcript or searching messages. Stopped sessions require Restart. After updating Hub, reopen the dashboard and reload idle Pi sessions with `/reload` if their extension changed.
+Press `Tab` on a supported pending question. The selected card opens numbered options and a **Type something.** row. Answering closes Conversation if it is open. The same panel works on the board and in pin/follow strips.
 
-## Send, steer, or queue
+- Use numbers or `↑` / `↓` to choose. Multi-select questions use numbers or `Space` to toggle.
+- Press `t`, or choose **Type something.**, to write a custom answer. Text input keeps literal keys.
+- Use `←` / `→` to visit questions when not editing text. `Enter` confirms and advances, or sends when every question has a confirmed answer.
+- `Esc` leaves custom input for the options, then leaves answer focus without declining. Choices stay staged for that exact request. Reopen with `Tab`.
+- `PgUp` / `PgDn` scroll long text. At 100+ columns all option descriptions appear; narrower panels show the cursor option's description. The selected option's preview appears when available from the exact live tool call. **preview in Pi** means Hub has no preview body for that option; it remains answerable.
 
-Press `p` to open a message form for the selected live parent. Its title names the recipient. `Enter` sends from the message field; `Esc` cancels without sending.
+Direct answers require [`@juicesharp/rpiv-ask-user-question` 2.15.0+](CONFIG.md#inline-questions) and use its official events. Unsupported prompts and subagents offer **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. The card keeps **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown** feedback. Accepted does not move selection. Unknown delivery never retries automatically; check Pi before retrying.
 
-When Pi is busy, delivery starts at **Steer now**: Pi uses the message before its next model call, after current tool calls finish. Press `Tab` to focus delivery, then `←`/`→`, `Space`, or `Enter` to switch to **Queue for later**: Pi uses the message after the current run finishes. `Tab` back to the message field and press `Enter` to submit. Idle Pi shows only **Send**.
+## Reply
 
-Messages go through Pi's exact-session bridge without changing its editor draft. Busy messages are literal text; idle Send expands Pi commands and prompt templates. Delivery confirmations report dispatch, not completion of the requested work. If Pi starts working after an idle form opens, reopen the form to choose Steer or Queue. If a delivery is not confirmed, check Pi before retrying.
+Press `p` to edit a reply on the selected live parent's card. `Enter` sends; `Esc` leaves focus and keeps the draft in dashboard memory. `Ctrl+U` clears it. Reopening restores the draft for the exact Pi conversation and bridge instance; restart or replacement drops it. A new draft for a ready handoff starts with `Go ahead: <recommendation>` when one exists. Nothing sends until you press `Enter`.
 
-After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessions once idle to enable message delivery. New sessions load the bridge automatically.
+Idle Pi offers **Send**. Busy Pi starts with **Steer now**, which delivers before its next model call after current tool calls finish. Press `Tab` to focus delivery and `←` / `→` to choose **Queue for later**, which delivers after the run. Press `Tab` back to the text and `Enter` to submit. If idle Pi becomes busy before submission, Hub rejects the send without losing text and exposes the busy choices.
+
+Replies use Pi's exact-session bridge without changing its editor draft. Idle Send expands commands and prompt templates; busy Steer/Queue send literal text. Card feedback uses **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown**. Accepted means dispatch, not task completion. Unknown delivery never retries automatically; check Pi before retrying. Use `]` to move on.
+
+After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessions once idle to enable the bridge. New sessions load it automatically.
 
 ## Repo grouping
 
 Press `v` for alphabetical repository sections. Each section contains complete parent/child trees: errors and unanswered requests first, then every other tree by last interaction, newest-first. Opening, pinning into focus, answering, or sending to a session counts as interaction. Archived sessions stay separate and newest-first. Active parents show their chosen `[group]` badge below the title. Backlog and Archived rows keep it before the title.
 
-Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The action workspace shows the actual path.
+Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The selected card shows repository context.
 
 Select a repo header and press `Enter`, or double-click it, to fold the section. Header counts show parent sessions and requests; hidden child requests have a separate count. Filters temporarily reveal matching repos. Hub saves the Status/Repo choice, but repo folds reset on dashboard launch.
 
@@ -171,19 +177,19 @@ Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its fi
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` and `NEW` stay expanded. Other Status sections can fold, and Hub saves those preferences. A folded `ACTIVE` or `QUIET` header shows `◐ N unread` when it hides parents with an unread finished reply (the yellow `◐`). Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. A parent you have not opened yet shows a `new` badge after its title until your first open, pin focus, answer, or send; Status omits it under the `NEW` heading, and Repo, board, and pinned views keep it. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. The action workspace explains owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` and `NEW` stay expanded. Other Status sections can fold, and Hub saves those preferences. A folded `ACTIVE` or `QUIET` header shows `◐ N unread` when it hides parents with an unread finished reply (the yellow `◐`). Filters reveal matching rows without changing their classification. Active fleet parents give titles their own line, including in the pinned sidebar. The next line shows `[group]`, `⧉ N` for multiple repos, an Execute task count when reported and space allows, and workflow markers aligned under shared step labels. A parent you have not opened yet shows a `new` badge after its title until your first open, pin focus, answer, or send; Status omits it under the `NEW` heading, and Repo, board, and pinned views keep it. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. When worktree lifecycle evidence is present, selected-session controls show owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `⚙︎N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
-### Action workspace
+### Details
 
-Select a session to see its identity, closure outcome if present, explicit request, task text, workflow position, and available actions. During Execute, a reported plan also shows its phase, task progress bar, and first unchecked task. The first unchecked task does not prove what the agent is working on. Missing information takes no space. Action rows put the label first and the key at the right. An accent `▌` and bold label identify the primary action, including in the pinned decision strip. **All actions** opens the `:` palette.
+The selected fleet card expands in place. It keeps the task and request separate and adds whole `key Label` actions that fit the width. **All actions** opens `:`. `Enter` and double-click open, switch, or restart Pi at every width. Action items also accept a single click.
 
-At 120+ columns, the workspace stays beside the list. In smaller terminals, `i` opens it full-width and `Esc` returns. `Enter` and session-row double-click open, switch, or restart directly at every width. Workspace action rows also accept a single click.
+Press `i` to toggle `LIVE DETAILS` inside the card. Details show tmux presence, heartbeat, read state, and the evidence behind runtime status and placement. The CLI equivalent is `pi-hub explain <exact-id-or-unique-prefix>`; it observes the fleet without updating the registry. Neither view captures pane tails or searches conversations.
 
-Press `i` to show or hide `LIVE DETAILS`: tmux presence, heartbeat, read state, and the evidence behind runtime status and dashboard placement. The CLI equivalent is `pi-hub explain <exact-id-or-unique-prefix>`. It observes the fleet without updating the registry. Neither view captures pane tails or conversation text.
+Only the board keeps a side workspace at 120+ columns. Below 120, `i` opens its full-width view and `Esc` returns. Board and pin actions put labels first and keys on the right; an accent `▌` and bold label mark the primary action. They retain identity, closure, request, task, workflow, and available actions when present. During Execute, a reported plan adds phase, counts and the first unchecked task, not proof of current activity. Progress bars stay on the board.
 
 ### Requests and notifications
 
-Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only, in place of the runtime glyph. The action workspace still shows the runtime status. A handoff can add a recommendation (`→`) and an evidence path or URL (`▤`) below the request; press `y` or choose **Copy path** to copy that path on macOS. On other systems, copy the visible path manually. Rules publishes `✓` and `!` only when the agent calls its `hand_off` tool. For supported pending questionnaires, **Answer** opens the inline answer area in Conversation. Other questions use the native Pi session. **Open in Pi** remains available when direct answering is unsupported.
+Optional extension attention uses `✓` for a ready handoff, `?` for a question, and `!` for a blocker. Hub displays it on waiting/idle rows only, in place of the runtime glyph. Runtime status remains separate in Details. A handoff can add a recommendation (`→`) and an evidence path or URL (`▤`) below the request; press `y` or choose **Copy path** to copy that path on macOS. On other systems, copy the visible path manually. Rules publishes `✓` and `!` only when the agent calls its `hand_off` tool. For supported pending questionnaires, **Tab Answer** opens the card panel. Other questions and subagents offer **Open in Pi**. Selecting, reading, or marking a handoff read never approves it; a reply approves only what it says.
 
 While you work inside a managed session, its bottom bar shows `⚑ N need you · alt+w next` when other sessions need you. `Alt+W` opens the top one, the same way `Enter` does from the dashboard.
 
@@ -191,7 +197,9 @@ Opening or explicitly focusing a waiting session marks it read. Pin creation, se
 
 Fresh requests with producer-supplied IDs can show a six-second notification band and a tmux message when you are elsewhere. Click the band or choose **Locate newest request** in `:` to reveal the session without opening it. **Attention bell** and desktop notifications (`dashboard.attentionNotify`, see [Configuration](CONFIG.md#desktop-notifications)) are optional and off by default. Requests already present when Hub starts do not announce themselves again.
 
-An empty first-run dashboard teaches create, open a request, and return with `Ctrl+Q`. That coaching ends after the first successful request round trip.
+Managed parent sessions always receive a dashboard agent note that asks them to use `ask_user_question` and `hand_off` when available, with context, a recommendation, and handoff evidence.
+
+An empty first-run dashboard teaches create, open a request, and return with `Ctrl+Q`. That coaching ends after the first successful request round trip. The dismissible daily-loop cue teaches `Tab`, `p`, `Enter`, safe `Esc`, and `Alt+W`.
 
 ### Workflow board
 
@@ -201,7 +209,7 @@ Rules supplies Plan → Execute → Review → Reflect → Commit. Other produce
 
 Step checks show position, not an execution audit. Earlier positions are checked; the current position is active until the producer reports it complete. Later positions remain pending. A stopped session can retain its last workflow position.
 
-At wider sizes, board cards show activity and plan progress when available, with the reported phase above the task bar. At 100+ columns, Active fleet cards also show the live activity and plan phase while the current step is in progress, plus the repo name and worktree branch; short panes drop those lines from neighboring cards first. At 61+ columns, if two-line fleet rows still do not fit, unselected Active parents use one line before scrolling; the selected tree keeps more detail when space permits. When the whole fleet fits, a blank line separates cards in a group. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
+At wider sizes, board cards show activity and plan progress when available, with the reported phase above the task bar. Full no-pin Active cards show title, group/repo/branch metadata, task, then request. Branch drops before repo as width shrinks. The workflow grid appears at 80+ columns, a plain step below 80, and task counts/age at 160+. At 100+ columns, incomplete live activity and plan phase appear below the request. Selected task/request text scrolls instead of being dropped; short panes drop optional neighbor lines first. At 61+ columns, if two-line fleet rows still do not fit, unselected Active parents use one line before scrolling; the selected tree keeps more detail when space permits. When the whole fleet fits, a blank line separates cards in a group. Rules' active focus mode displays `FOC` without creating another workflow lane. Task progress, workflow position, runtime status, and requests remain separate facts.
 
 Subagent trees start collapsed in both fleet and board. Use `←` / `→` for one tree, Shift with those arrows for all trees, or `Space` on the board. Filtering reveals matching child context without changing saved section preferences. Each visible child remains independently selectable.
 
@@ -234,7 +242,7 @@ Press `o` with a live session selected, no pins open, and at least 100 columns. 
 
 - `Enter` or double-click on a live row moves typing into the pane, like focusing a pin. It marks a waiting session read. `Ctrl+Q` returns to the list.
 - `Enter` on a stopped or error row restarts it, as usual. The pane keeps the last live session, and its title names the selected row's state.
-- Open in the action workspace or `:` palette still opens the session full screen.
+- The Open action in the selected-session controls or `:` palette still opens Pi full screen.
 - Switching the pane never marks a session read, changes its order, or counts as interaction.
 - Follow view and pins do not mix: `o` asks you to close pins first, and pin keys ask you to leave follow view first.
 - Below 100 columns the pane hides like pins and returns, still following, when the window widens.
@@ -255,9 +263,9 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 - Below 100 columns, Hub hides open pins and gives the dashboard the whole window. Pins keep running. Rows keep their `▢N` markers, and the header shows `N pins hidden`.
 - `Enter` or `Alt+1`–`Alt+4` opens a hidden pin full screen. Back on a desktop-size window, Hub restores the pin layout.
-- At 60 columns or less the dashboard drops its frame. The footer lists `Enter Open · i Workspace · : Actions · / Filter · ? Help` and drops whole items when space runs out. During first-run coaching, visible requests can add `] Next` before Help if both fit. Tap a footer item to run its key. In the full-screen workspace, tap `Esc Back`.
-- Below 40 columns rows show the current workflow step instead of the step grid. The dashboard works down to 30 columns.
-- Below 100 columns and 20 rows, for example with the on-screen keyboard open, fleet sessions use one line. The selected session keeps its detail line. The workflow board is unchanged.
+- At 60 columns or less the dashboard drops its frame. The normal fleet footer starts with `] Next request · p Reply · : All actions · ? Help`. Below 40 it uses `] Next · p Reply · : Actions`. Whole trailing items drop when needed. Tap a footer item to run its key.
+- No-pin fleet cards use a plain workflow step below 80 columns. Board/pin rows switch below 40. The dashboard works down to 30 columns, including answering and replying.
+- Below 100 columns and 20 rows, unselected fleet neighbors use one line. The selected card keeps task/request content. Focused Answer/Reply panels reserve identity and local keys while their body scrolls. If no body row fits, use **Open in Pi**. The narrow board alone has a tappable `Esc Back` full-width view.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.
 
 ## Return shortcuts
@@ -321,13 +329,13 @@ Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; 
 
 Archived shows five recent parent trees by default. Select the older-items row and press `Enter` to show more. After seven days, dashboard cleanup can forget an archived tree only when every parent/child tmux session is confirmed gone. It removes Hub records and owned symlink workspaces, not Pi conversations or worktrees.
 
-Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line text such as `/session-name-refresh` to a selected live session without opening it. They are Pi commands, not shell macros. Configured commands require an idle session with no queued messages, blocking prompt, or editor draft. They use Pi's input pipeline; `p` remains a separate one-line send.
+Configured [dashboard shortcuts](CONFIG.md#dashboard-shortcuts) send one-line text such as `/session-name-refresh` to a selected live session without opening it. They are Pi commands, not shell macros. Configured commands require an idle session with no queued messages, blocking prompt, or editor draft. They use Pi's input pipeline; `p` opens the card Reply editor instead.
 
 ### Session closure
 
 Press `A` on an open parent to choose `d` **Done**, `x` **Abandoned**, or `a` **Archive only**; `Esc` cancels. Every choice archives the session and closes its pin without stopping Pi or running children. It does not complete the workflow, edit the ticket, or delete conversations or worktrees. Archive only records no outcome, and workflow completion never closes a session. On an open archived parent, `A` can still record Done or Abandoned; Archive only changes nothing.
 
-Press `U` on a closed parent to clear its outcome and return it to Active. `A` and `B` are unavailable until you reopen, so changing an outcome means Reopen, then Archive again. Closure survives dashboard restart and refresh. Opening or resuming the conversation keeps it closed; choosing a new conversation in Restart choices clears the old outcome but keeps its bucket. Archive and Reopen are also available in the command palette and selected-session workspace.
+Press `U` on a closed parent to clear its outcome and return it to Active. `A` and `B` are unavailable until you reopen, so changing an outcome means Reopen, then Archive again. Closure survives dashboard restart and refresh. Opening or resuming the conversation keeps it closed; choosing a new conversation in Restart choices clears the old outcome but keeps its bucket. Archive and Reopen are also available in the command palette and selected-session controls.
 
 Archived rows keep their runtime icon on the left. The right-side meaning is separate:
 
@@ -339,7 +347,7 @@ Archived rows keep their runtime icon on the left. The right-side meaning is sep
 | `⊘` | Explicitly closed as Abandoned |
 | None | No explicit closure and no workflow reported |
 
-Step names come from the workflow producer. Closed rows show only the outcome marker; the workspace retains the last workflow position, runtime status, and running-child count. A narrow row drops age before the marker and omits a workflow label and marker together if they cannot fit. Existing archives have no guessed outcome.
+Step names come from the workflow producer. Closed rows show only the outcome marker; selected-session controls retain the last workflow position, runtime status, and running-child count. A narrow row drops age before the marker and omits a workflow label and marker together if they cannot fit. Existing archives have no guessed outcome.
 
 ## Project-scoped Skills and MCP
 

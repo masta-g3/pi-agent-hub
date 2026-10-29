@@ -2705,7 +2705,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: 
     `  ${glyphs.worktree} active worktree     ${glyphs.worktreePending} awaits merge     ${glyphs.worktreeWarning} cleanup/check needed     ${glyphs.worktreeDone} cleanup verified`,
     "  zero counts are hidden from tier and top summaries",
     "",
-    heading("Action workspace"),
+    heading("Selected card and Details"),
     `  selected session: request ${glyphs.pendingStep} task ${glyphs.pendingStep} workflow position ${glyphs.pendingStep} exceptional guidance ${glyphs.pendingStep} actions`,
     `  ${glyphs.selected} marks the primary action; i Append or hide live Details`,
     "  Enter/double-click Open or switch directly at every width",

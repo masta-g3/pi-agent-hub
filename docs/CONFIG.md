@@ -8,7 +8,7 @@ Hub manages sessions without Rules or subagent tooling. Install these only for t
 
 ### Rules workflow
 
-[Rules](https://github.com/masta-g3/rules) supplies workflow skills and the `workflow-runtime` Pi extension. It reports linked tickets, explicit requests, workflow position, and plan progress. Hub displays those facts in the session list, action workspace, and `S` board. Rules owns workflow execution; Hub does not advance steps.
+[Rules](https://github.com/masta-g3/rules) supplies workflow skills and the `workflow-runtime` Pi extension. It reports linked tickets, explicit requests, workflow position, and plan progress. Hub displays those facts on session cards and the `S` board. Rules owns workflow execution; Hub does not advance steps.
 
 Rules currently deploys through a repository sync script, not a Hub plugin installer. Before running it, review its [setup instructions](https://github.com/masta-g3/rules#setup) and back up your agent configuration. The script copies global instructions, skills, agents, and extensions into Claude, Cursor, and Pi directories; prunes managed assets, including Codex workflow assets; and updates Pi settings. It targets `~/.pi/agent`, not a custom `PI_CODING_AGENT_DIR`.
 
@@ -38,7 +38,7 @@ Rules' sync also adds this package to Pi settings. You do not need a second inst
 
 ### Inline questions
 
-Conversation can display completed messages without an extra question package. Answering questionnaires inside Hub requires `@juicesharp/rpiv-ask-user-question` 2.15.0+:
+Read-only Conversation needs no extra question package. Answering questionnaires on a card with `Tab` requires stock `@juicesharp/rpiv-ask-user-question` 2.15.0+:
 
 ```bash
 pi install npm:@juicesharp/rpiv-ask-user-question
@@ -46,9 +46,11 @@ pi install npm:@juicesharp/rpiv-ask-user-question
 
 Reload or restart the managed Pi session after installation. Hub uses the package's official answer events. Rules' attention metadata alone does not enable answering.
 
-Hub shows option labels and descriptions. Options with previews stay answerable; their **preview in Pi** marker means the preview itself is available only in Pi. Older package versions show an update notice. Prompts that cannot accept external answers show **This prompt can only be answered in Pi** and **Open in Pi**.
+Hub shows option labels and descriptions, plus the selected option's preview when the exact pending tool call is available on the live branch. Otherwise **preview in Pi** marks that option; it remains answerable. Older package versions show an update notice. Prompts that cannot accept external answers show **This prompt can only be answered in Pi** and **Open in Pi**.
 
-See [Conversation](FEATURES.md#conversation) for dashboard controls.
+See [Answer from a card](FEATURES.md#answer-from-a-card) for controls. Conversation remains read-only.
+
+Managed parent sessions always receive a dashboard agent note asking them to use `ask_user_question` and `hand_off` when available, with context, a recommendation, and handoff evidence; it has no off switch and does not apply to subagents or unmanaged Pi.
 
 ### Your own integrations
 
@@ -229,7 +231,7 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
 
 ## Dashboard shortcuts
 
-`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line Pi input for the selected live session. Commands use Pi's input/template pipeline and require an idle session with no queued messages, blocking prompt, or editor draft. There is no tmux-paste fallback; `p` remains a separate send path. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line Pi input for the selected live session. Commands use Pi's input/template pipeline and require an idle session with no queued messages, blocking prompt, or editor draft. There is no tmux-paste fallback; `p` opens the card Reply editor instead. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
 
 ```json
 {
