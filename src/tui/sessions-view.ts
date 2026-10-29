@@ -120,6 +120,9 @@ export class SessionsView implements Component {
   private selectedRowAnimating = false;
   private followTarget: string | undefined;
   private followTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Follow view should reopen on the live selection after its pane closes; `o` and the saved default set it. */
+  private followWanted: boolean;
+  private followRefused: string | undefined;
   private tierChipRow: number | undefined;
   private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
@@ -160,6 +163,7 @@ export class SessionsView implements Component {
     this.cockpitOnboarding = actions.initialViewState?.cockpitOnboarding;
     this.dismissedReleaseCueId = actions.initialViewState?.dismissedReleaseCueId;
     this.releaseCueEnabled = actions.initialViewState !== undefined;
+    this.followWanted = actions.followPreference?.followDefault() ?? false;
   }
 
   setTheme(theme: SessionsTheme): void {
@@ -964,6 +968,7 @@ export class SessionsView implements Component {
       focusFollow: Boolean(this.actions.focusFollow),
       acknowledge: true,
       attentionBell: Boolean(this.actions.attentionDelivery?.setAttentionBell),
+      followDefault: Boolean(this.actions.followPreference),
     };
     return buildDashboardCommands({
       sessions: this.commandSessions(snapshot),
@@ -977,6 +982,7 @@ export class SessionsView implements Component {
       capabilities,
       attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
       attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
+      followDefaultEnabled: this.actions.followPreference?.followDefault() ?? false,
       visibleRequestCount: this.visibleRequestIds().length,
       pinState: {
         slots: this.pinState().slots,
@@ -1198,6 +1204,7 @@ export class SessionsView implements Component {
       case "view:follow": this.toggleFollow(command.targetSessionId); return;
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
+      case "view:follow-default": this.toggleFollowDefault(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
@@ -1365,21 +1372,60 @@ export class SessionsView implements Component {
     return this.pinState().following === true;
   }
 
-  /** Retargets the follow pane once the exact live selection has been stable for FOLLOW_SETTLE_MS. */
+  /**
+   * Once the exact live selection has been stable for FOLLOW_SETTLE_MS, retargets the follow pane,
+   * or reopens follow view when it is wanted but its pane closed (archive, stop, delete, or startup).
+   */
   private scheduleFollowRetarget(): void {
-    const retarget = this.actions.retargetFollow;
     const selected = this.controller.selected();
-    const target = retarget && this.followView() && !this.pinState().hidden && selected && this.selectedSessionTarget === selected.id
-      && selected.status !== "stopped" && selected.status !== "error" ? selected.id : undefined;
+    const live = selected && this.selectedSessionTarget === selected.id && selected.status !== "stopped" && selected.status !== "error" ? selected : undefined;
+    if (live?.id !== this.followRefused) this.followRefused = undefined;
+    const pins = this.pinState();
+    const retarget = this.actions.retargetFollow;
+    const follow = this.actions.followSidePane;
+    const target = !live ? undefined
+      : this.followView() ? (retarget && !pins.hidden ? `retarget:${live.id}` : undefined)
+      : this.followWanted && follow && !this.followRefused && !this.busy && !this.conversationOpen
+        && !pins.slots.some(Boolean) && pins.capacity > 0 ? `follow:${live.id}` : undefined;
     if (target === this.followTarget) return;
-    if (this.followTimer) clearTimeout(this.followTimer);
-    this.followTimer = undefined;
+    this.cancelFollowSchedule();
     this.followTarget = target;
-    if (!target || !retarget) return;
+    if (!target || !live) return;
+    const sessionId = live.id;
     this.followTimer = setTimeout(() => {
       this.followTimer = undefined;
-      void Promise.resolve(retarget(target)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
+      if (target.startsWith("retarget:")) {
+        void Promise.resolve(retarget!(sessionId)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
+        return;
+      }
+      void Promise.resolve(follow!(sessionId)).then(
+        (result) => { if (result.kind === "refused") this.followRefused = sessionId; },
+        (error) => { this.followRefused = sessionId; this.message = errorMessage(error); },
+      ).finally(() => this.actions.requestRender?.());
     }, FOLLOW_SETTLE_MS);
+  }
+
+  private cancelFollowSchedule(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = undefined;
+    this.followTarget = undefined;
+  }
+
+  private toggleFollowDefault() {
+    const preference = this.actions.followPreference;
+    if (!preference) {
+      this.message = "follow default setting unavailable";
+      return;
+    }
+    const next = !preference.followDefault();
+    this.runAction(
+      () => preference.setFollowDefault(next),
+      "saving follow default...",
+      () => {
+        this.followWanted = next;
+        this.flashMessage(`follow view by default ${glyphs.pendingStep} ${next ? "On" : "Off"}`);
+      },
+    );
   }
 
   private toggleFollow(sessionId: string | undefined) {
@@ -1394,6 +1440,8 @@ export class SessionsView implements Component {
       return;
     }
     if (!following) this.closeConversation();
+    this.followWanted = !following;
+    this.cancelFollowSchedule();
     const pending = following ? "leaving follow view..." : "opening follow view...";
     runSyncAsyncAction<FollowSidePaneResult | CloseSidePaneResult>(() => following ? unfollow() : follow(sessionId!), {
       pending,

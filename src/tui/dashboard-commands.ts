@@ -60,6 +60,7 @@ export interface DashboardCommandCapabilities {
   focusFollow?: boolean;
   acknowledge?: boolean;
   attentionBell?: boolean;
+  followDefault?: boolean;
   answerQuestion?: boolean;
   copyPath?: boolean;
 }
@@ -87,6 +88,7 @@ export interface DashboardCommandInput {
   pinState?: DashboardPinState;
   attentionRequests?: readonly { sessionId: string; requestId: string }[];
   attentionBellEnabled?: boolean;
+  followDefaultEnabled?: boolean;
   visibleRequestCount?: number;
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
@@ -486,6 +488,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   })] : [];
   const bellEnabled = input.capabilities?.attentionBell === true;
   const bellOn = input.attentionBellEnabled === true;
+  const followDefaultOn = input.followDefaultEnabled === true;
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", helpLabel: "Show/hide conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.following ? FOLLOWING_REASON : input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
@@ -540,6 +543,17 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       enabled: bellEnabled,
       disabledReason: input.capabilities?.attentionBell === true ? undefined : "attention bell setting unavailable",
       searchText: `attention bell sound ${bellOn ? "on disable off" : "off enable on"}`,
+    }),
+    makeCommand({
+      id: "view:follow-default",
+      group: "views",
+      label: `Follow view by default: ${followDefaultOn ? "On" : "Off"}`,
+      helpLabel: "Follow view by default",
+      helpHint: "open follow view on start and keep it after archive or stop",
+      hint: `turn ${followDefaultOn ? "off" : "on"} automatic follow view`,
+      enabled: input.capabilities?.followDefault === true,
+      disabledReason: input.capabilities?.followDefault === true ? undefined : "follow default setting unavailable",
+      searchText: `follow view by default automatic o ${followDefaultOn ? "on disable off" : "off enable on"}`,
     }),
     ...[1, 2, 3, 4].map((slot) => {
       const sessionId = input.pinState?.slots?.[slot - 1];

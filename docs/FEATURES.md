@@ -239,6 +239,7 @@ Press `o` with a live session selected, no pins open, and at least 100 columns. 
 - Follow view and pins do not mix: `o` asks you to close pins first, and pin keys ask you to leave follow view first.
 - Below 100 columns the pane hides like pins and returns, still following, when the window widens.
 - `o` again closes the pane. Pi keeps running.
+- Follow view is on by default. It opens when the dashboard starts, and it reopens on the next live selection after you archive, stop, or delete the session it shows. After `o` closes it, it stays closed until you press `o` again. It does not open while pins or Conversation are open. Use **Follow view by default: On/Off** in the `:` palette to change the default; see [Follow view default](CONFIG.md#follow-view-default).
 
 Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are bottom-left/bottom-right. Empty rows or columns give their space to occupied ones. `▢N` marks a pin; `▣N` marks the focused pin. `+` / `-` changes the main split in ten-point steps within 30/70.
 

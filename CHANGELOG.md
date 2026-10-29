@@ -13,7 +13,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Add a Conversation panel with completed messages, a working indicator, and inline answers through compatible question extensions.
 - Add `:` search for actions, sessions, and filters, plus notifications for fresh explicit requests.
 - Add up to four live session pins with stable slots, `Alt+1`–`Alt+4` focus, and `x` to close the selected session's pin.
-- Add follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it.
+- Add follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it. It is on by default and reopens after you archive, stop, or delete the followed session. Turn the default off with **Follow view by default** in the `:` palette (`dashboard.followDefault`).
 - Add producer-owned workflow progress, completion markers, and optional focus-mode display.
 - Add dashboard theme preview and Pi theme synchronization.
 - Document optional Rules and subagent setup and refresh the dashboard image.
