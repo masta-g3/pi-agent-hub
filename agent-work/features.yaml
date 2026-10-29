@@ -1412,7 +1412,7 @@
   plan_file: agent-work/history/20261027_inbox-006_dashboard_agent_note.md
   completed_at: '2026-10-27'
 - id: inbox-007
-  status: pending
+  status: done
   title: Inbox-first docs
   subtitle: Docs describe inbox-first supervision model
   description: CONTEXT.md, AGENTS.md, and FEATURES.md describe the inbox-first model
@@ -1426,3 +1426,5 @@
   - inbox-006
   references:
   - agent-work/plans/inbox-000.md
+  plan_file: agent-work/history/20261028_inbox-007_inbox_first_docs.md
+  completed_at: '2026-10-28'
