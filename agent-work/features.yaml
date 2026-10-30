@@ -1439,3 +1439,14 @@
   created_at: '2026-10-28'
   references:
   - bdadf3e
+- id: inbox-008
+  status: pending
+  title: Card design lab
+  subtitle: Approved framed cards for long requests
+  description: An HTML design deck approves framed request cards, question-first structure
+    with folded context, option tiles, and calm delivery feedback, tested on real
+    long questions.
+  priority: 2
+  created_at: '2026-10-29'
+  references:
+  - agent-work/plans/inbox-000.md
