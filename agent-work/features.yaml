@@ -1428,3 +1428,14 @@
   - agent-work/plans/inbox-000.md
   plan_file: agent-work/history/20261028_inbox-007_inbox_first_docs.md
   completed_at: '2026-10-28'
+- id: dashboard-polish-002
+  status: pending
+  title: Alt-screen renderer
+  subtitle: Repaint only changed dashboard rows
+  description: The dashboard uses the pi-tui alt-screen renderer so distant row changes
+    no longer repaint every row between them, with mouse, attach/return, and resize
+    behavior unchanged.
+  priority: 2
+  created_at: '2026-10-28'
+  references:
+  - bdadf3e

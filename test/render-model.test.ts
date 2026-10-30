@@ -825,6 +825,21 @@ test("archived meaning fits atomically, drops age first, and keeps hidden child 
   assert.ok(sawMeaningWithoutAge);
 });
 
+test("spinner frames repaint only the selected row, not the action workspace", () => {
+  const parent: RuntimeSession = { ...session("parent", "default", "running", "Parent work") };
+  const fillers = Array.from({ length: 4 }, (_, index) => session(`child${index}`, "default", "idle", `filler-${index}`));
+  const child: RuntimeSession = { ...session("child", "default", "running", "runner-child"), kind: "subagent", parentId: "parent" };
+  const sessions = [parent, ...fillers.map((row) => ({ ...row, kind: "subagent" as const, parentId: "parent" })), child];
+  for (const width of [120, 160]) {
+    const frame = (now: number) => renderSessions(workspaceModel({ sessions, selectedId: "child", width, height: 30, now, expandedProjectParentIds: new Set(["parent"]) })).lines.map(stripAnsi);
+    const before = frame(ARCHIVE_NOW);
+    const after = frame(ARCHIVE_NOW + 250);
+    const changed = before.flatMap((line, index) => line === after[index] ? [] : [line]);
+    assert.equal(changed.length, 1, `${width}: ${changed.join("\n")}`);
+    assert.match(changed[0]!, /▌[│└] └─ ⠋ /, `${width}`);
+  }
+});
+
 test("closed workspace explains closure, last workflow, runtime and live children with one primary Reopen", () => {
   const closed = archivedRow("closed", "Closed work", { status: "running", closure: "done", workflow: { ...WORKFLOW, activeIndex: 4, currentStepComplete: true } });
   const child: RuntimeSession = { ...session("child", "default", "running", "child"), kind: "subagent", parentId: "closed", bucket: "archived" };
