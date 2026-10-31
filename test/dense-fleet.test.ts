@@ -35,7 +35,7 @@ for (const width of [120, 160]) {
     test(`30 parents fit as dense rows while selection keeps its card at ${width} in ${fleetGrouping}`, () => {
       const layout = render(fleet(30), { width, fleetGrouping });
       assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 30);
-      assert.equal(continuations(layout, "s0"), fleetGrouping === "repo" ? 2 : 3);
+      assert.equal(continuations(layout, "s0"), 3);
       for (let index = 1; index < 30; index += 1) assert.equal(continuations(layout, `s${index}`), 0);
       assert.equal(layout.listScrollTop, 0);
       assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more/);
@@ -82,8 +82,8 @@ test("eight parents retain richer rows when two-line neighbors fit", () => {
 });
 
 test("density changes only below the exact two-line fit boundary", () => {
-  // Four-line selected card + seven title/metadata pairs + tier heading = 19 list rows.
-  // Framing, summary, and footer reserve five more rows.
+  // Four-line framed selected card + seven title/metadata pairs + tier heading = 19 list rows.
+  // Summary and footer reserve five more rows.
   for (const height of [23, 24, 25]) {
     const layout = render(fleet(8), { height });
     assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 8);
@@ -113,9 +113,9 @@ test("dense rows retain trailing worktree and new markers after the bold title",
 });
 
 test("age drops before the aligned grid when the title reaches its readable minimum", () => {
-  const steps = Array.from({ length: 5 }, (_, index) => ({ id: `step-${index}`, short: `STEP0${index}`, label: `Step ${index}` }));
+  const steps = Array.from({ length: 7 }, (_, index) => ({ id: `step-${index}`, short: index === 0 ? `STEP000${index}` : `STEP00${index}`, label: `Step ${index}` }));
   const sessions = fleet(30).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
-  const layout = render(sessions, { width: 61 });
+  const layout = render(sessions, { width: 80 });
   const header = layout.lines.map(stripAnsi).find((line) => line.includes("STEP00"))!;
   const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
   assert.match(row, /Readable/);
@@ -162,9 +162,12 @@ test("selected short-window rows keep group and age only on their retained metad
     const title = stripAnsi(layout.lines[index]!);
     const metadata = stripAnsi(layout.lines[index + 1]!);
     assert.match(title, /Readable title without repeated group/);
-    assert.doesNotMatch(title, /core|23m/);
-    assert.match(title, /✓\s+◉\s+·/);
-    assert.match(metadata, /\[core\].*23m/);
+    assert.match(title, /\[core\]/);
+    assert.doesNotMatch(title, /23m/);
+    assert.doesNotMatch(metadata, /\[core\]|23m/);
+    // Directly under its section header, the framed card's markers ride the top edge.
+    if (width >= 80) assert.match(title, /✓\s+◉\s+·/);
+    else assert.match(metadata, /· Execute/);
     assert.deepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: "s0" });
   }
 });

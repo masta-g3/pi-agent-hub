@@ -64,6 +64,9 @@ export interface RenderSession {
   ticketSubtitle?: string;
   ticketDescription?: string;
   attention?: SessionAttention;
+  pendingQuestion?: { header: string; question: string };
+  deliveryResult?: string;
+  deliveryEmphasis?: boolean;
   boardDescendantCount?: number;
   boardExpanded?: boolean;
   runningSubagentCount?: number;
@@ -167,12 +170,27 @@ export interface BoardHiddenCounts {
   nonActive: number;
 }
 
+export interface RenderCardPanel {
+  kind?: "answer" | "reply";
+  body: (string | { value: string; cursor: number })[];
+  /** Body-row continuation indentation, applied by the shared panel wrapper. */
+  hangingIndents?: number[];
+  /** Logical option rows whose complete wrapped extent holds the cursor. */
+  focusRows?: number[];
+  /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
+  keyLine: string;
+  offset: number;
+  /** Action messages stay inside the focused surface, never over its local keys. */
+  statusLine?: string;
+}
+
 export interface RenderWorkspace extends WorkspaceCommandSelection {
   session: RenderSession;
   owner?: RenderSession;
   descendants: RenderSession[];
   evidenceVisible: boolean;
   fullScreen: boolean;
+  panel?: RenderCardPanel;
 }
 
 export interface AttentionAnnouncement {
@@ -191,6 +209,7 @@ export interface RenderModel {
   now: number;
   height?: number;
   listScrollTop?: number;
+  cardScrollOffset?: number;
   empty: boolean;
   noMatches: boolean;
   noBoardSessions: boolean;
@@ -548,11 +567,16 @@ export interface BuildRenderModelInput {
   width: number;
   height?: number;
   listScrollTop?: number;
+  cardScrollOffset?: number;
   filter?: string;
   filterEditing?: TextInputState;
   workspaceCommands?: WorkspaceCommandSelection;
   workspaceEvidenceVisible?: boolean;
   workspaceFullScreen?: boolean;
+  selectedQuestion?: { header: string; question: string };
+  deliveryResults?: ReadonlyMap<string, string>;
+  deliveryEmphasis?: ReadonlySet<string>;
+  cardPanel?: RenderCardPanel;
   grouping?: "project" | "stage";
   fleetGrouping?: "status" | "repo";
   now?: number;
@@ -595,7 +619,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const pinned = new Set(pinSlots.filter((id): id is string => Boolean(id)));
   const slotBySession = new Map(pinSlots.flatMap((id, index) => id ? [[id, index + 1] as const] : []));
   const pinMode = pinned.size > 0 && !input.pinsHidden;
-  const guidanceVisible = !input.guidanceHidden && !board && fleetGrouping === "status" && !pinMode && !filterActive && !input.workspaceFullScreen;
+  const guidanceVisible = !input.guidanceHidden && !board && fleetGrouping === "status" && !pinMode && !filterActive;
   const coach = guidanceVisible && coachingActive(input.cockpitOnboarding);
   const showReleaseCue = guidanceVisible && input.releaseCueEnabled === true
     && releaseCueVisible(input.cockpitOnboarding, input.dismissedReleaseCueId);
@@ -622,6 +646,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       !(statusFleet && tier === "new"),
     );
   });
+  for (const session of allMapped) {
+    session.deliveryResult = input.deliveryResults?.get(session.id);
+    session.deliveryEmphasis = input.deliveryEmphasis?.has(session.id);
+    if (session.id === selectedId) session.pendingQuestion = input.selectedQuestion;
+  }
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.selectedRepo && !input.releaseCueSelected;
   const mapped = visible.flatMap((session) => {
@@ -648,7 +677,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const selected = (board ? mapped : allMapped).find((session) => session.id === selectedId);
   const selectedSource = selected ? allTree.get(selected.id) : undefined;
   const ownerSource = selectedSource ? allTree.trace(selectedSource).owner : undefined;
-  const workspace = selected && input.workspaceCommands && !input.releaseCueSelected && !input.selectedRepo ? {
+  const workspace = selected && input.workspaceCommands && listSelected ? {
     ...input.workspaceCommands,
     session: selected,
     ...(ownerSource && ownerSource.id !== selected.id ? { owner: mappedById.get(ownerSource.id) } : {}),
@@ -657,7 +686,8 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       return rendered ? [rendered] : [];
     }) : [],
     evidenceVisible: input.workspaceEvidenceVisible ?? false,
-    fullScreen: input.workspaceFullScreen ?? false,
+    fullScreen: board && Boolean(input.workspaceFullScreen || (input.cardPanel && input.width < 120)),
+    panel: input.cardPanel,
   } : undefined;
   const boardParents = mapped.filter((session) => session.kind !== "subagent");
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
@@ -667,7 +697,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     empty: input.sessions.length === 0,
     noMatches: input.sessions.length > 0 && (allRows.length === 0 || noBoardMatches),
     noBoardSessions: board && !filterActive && mapped.length === 0,
-    showWorkspace: Boolean(workspace && !pinMode && (input.width >= 120 || input.workspaceFullScreen)),
+    showWorkspace: Boolean(board && workspace && !pinMode && (input.width >= 120 || workspace.fullScreen)),
     compactFooter,
     sections,
     cockpitNavigation: cockpitNavigation.map((entry) => ({
@@ -686,6 +716,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     boardHidden: boardProjection.hidden,
     ...(input.height ? { height: input.height } : {}),
     ...(input.listScrollTop ? { listScrollTop: input.listScrollTop } : {}),
+    cardScrollOffset: input.cardScrollOffset,
     selected,
     ...(workspace ? { workspace } : {}),
     footer: pinMode && input.following ? followDashboardFooter(input.width) : pinMode ? pinnedDashboardFooter(input.width) : dashboardFooter(input.width, {
@@ -1115,9 +1146,14 @@ function activityAge(lastActivityAt: number | undefined, now: number | undefined
 
 export function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
   if (session.status !== "waiting" && session.status !== "idle") return undefined;
+  const attention = session.context?.attention;
+  // Reading an open question or blocker does not answer it; only an explicit mark-read of that exact request does.
+  if (attention?.requestId && (attention.kind === "question" || attention.kind === "blocked")) {
+    return session.dismissedRequestId === attention.requestId ? undefined : attention;
+  }
   if (session.acknowledgedAt !== undefined && session.context !== undefined
     && session.acknowledgedAt >= session.context.updatedAt) return undefined;
-  return session.context?.attention;
+  return attention;
 }
 
 function ticketDisplay(session: RuntimeSession): Pick<RenderSession, "ticketId" | "ticketSubtitle" | "ticketDescription"> {

@@ -1,7 +1,7 @@
 import { glyphs } from "./glyphs.js";
-import { ConversationReader, renderConversationHeading, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
-import { sameInteractionTarget } from "../core/session-interaction.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionDialog, type QuestionDialog } from "./question-dialog.js";
+import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
+import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
+import { collapsedQuestion, createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
@@ -23,8 +23,8 @@ import {
   type CommandPaletteRowTarget,
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
-import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure } from "./render-model.js";
-import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
+import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure, type RenderCardPanel } from "./render-model.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type PanelViewport, type CardCommandHit, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { DOWN, PAGE_DOWN, PAGE_UP, UP, hitAt, type DialogHit } from "./dialog-mouse.js";
 import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -63,8 +63,8 @@ function runSyncAsyncAction<T>(action: AsyncAction<T>, handlers: {
   }
 }
 import { handlePromptInput, openFilterPrompt, promptFilterValue } from "./prompt-dialog.js";
-import { isEnterKey } from "./text-input.js";
-import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, openSendForm, renderFormDialog } from "./form-dialogs.js";
+import { createTextInput, editTextInput, isEnterKey, type TextInputState } from "./text-input.js";
+import { handleFormDialogInput, openForkCompactDialog, openForkDialog, openMoveGroupDialog, openRenameGroupDialog, openRenameSessionForm, renderFormDialog } from "./form-dialogs.js";
 import { createRestartDialog, handleArchiveInput, handleRestartDialogInput, handleConfirmInput, openArchiveDialog, openDeleteDialog, openFinishDialog, renderArchiveDialog, renderConfirmDialog, renderRestartDialog, type ConfirmationReview, type RestartDialog } from "./confirm-dialogs.js";
 import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from "./picker-dialog.js";
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
@@ -77,18 +77,32 @@ const DOUBLE_CLICK_MS = 400;
 /** Follow view waits for the selection to settle so held j/k does not retarget per row. */
 const FOLLOW_SETTLE_MS = 200;
 
+interface ReplyDraft {
+  target: InteractionTarget;
+  input: TextInputState;
+  delivery: MessageDelivery;
+  deliveryFocus: boolean;
+  submitting?: boolean;
+}
+
 export class SessionsView implements Component {
+  private replyDrafts = new Map<string, ReplyDraft>();
+  private replyEditor: ReplyDraft | undefined;
+  private deliveryResults = new Map<string, { target: InteractionTarget; state: "submitting" | "accepted" | "rejected" | "unknown"; text: string; status: RuntimeSession["status"]; emphasis?: boolean; settle?: ReturnType<typeof setTimeout> }>();
+  private cardPanel: { target: InteractionTarget; panel: RenderCardPanel; handleInput: (data: string) => void } | undefined;
+  private panelViewport: PanelViewport = { pageSize: 1, maxOffset: 0 };
   private conversationOpen = false;
   private conversationGeneration = 0;
   private interactionStopped = false;
   private conversationFocus: string = "fleet";
   private inlineQuestion: QuestionDialog | undefined;
+  private questionDrafts = new Map<string, QuestionDialog>();
+  private questionPanelInput = (data: string) => this.handleQuestion(data);
   private conversationReader = new ConversationReader();
   private interaction = new SelectedInteractionObserver();
   private conversationActions: DashboardCommand[] = [];
   private conversationActionRows: (string | undefined)[] = [];
   private conversationStartY = 1;
-  private conversationTranscriptEndY = 1;
   private olderConversationRequested = false;
   private dialog: SessionDialog | undefined;
   private helpScroll = 0;
@@ -98,6 +112,8 @@ export class SessionsView implements Component {
   private flash: { text: string; expiresAt: number } | undefined;
   private workspaceSessionId: string | undefined;
   private workspaceEvidenceSessionId: string | undefined;
+  private cardScrollOffset = 0;
+  private cardScrollSessionId: string | undefined;
   private lastWidth = 120;
   private grouping: "project" | "stage";
   private fleetGrouping: "status" | "repo";
@@ -120,9 +136,13 @@ export class SessionsView implements Component {
   private selectedRowAnimating = false;
   private followTarget: string | undefined;
   private followTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Follow view should reopen on the live selection after its pane closes; `o` and the saved default set it. */
+  private followWanted: boolean;
+  private followRefused: string | undefined;
   private tierChipRow: number | undefined;
   private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
+  private cardCommandHits: CardCommandHit[] = [];
   private announcementRowTargets: (string | undefined)[] = [];
   private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
   private listStartX = 2;
@@ -160,6 +180,22 @@ export class SessionsView implements Component {
     this.cockpitOnboarding = actions.initialViewState?.cockpitOnboarding;
     this.dismissedReleaseCueId = actions.initialViewState?.dismissedReleaseCueId;
     this.releaseCueEnabled = actions.initialViewState !== undefined;
+    this.followWanted = actions.followPreference?.followDefault() ?? false;
+  }
+
+  /** Reply and answer surfaces use this shell instead of adding a modal or renderer. */
+  setCardPanel(target: InteractionTarget, panel: RenderCardPanel, handleInput: (data: string) => void): void {
+    this.replyEditor = undefined;
+    this.cardPanel = { target, panel, handleInput };
+    this.workspaceSessionId = target.managedId;
+    this.panelViewport = { pageSize: 1, maxOffset: 0 };
+    this.actions.requestRender?.();
+  }
+
+  clearCardPanel(): void {
+    this.replyEditor = undefined;
+    this.cardPanel = undefined;
+    this.actions.requestRender?.();
   }
 
   setTheme(theme: SessionsTheme): void {
@@ -175,6 +211,7 @@ export class SessionsView implements Component {
   }
 
   handleInput(data: string): void {
+    if (this.grouping !== "stage") this.workspaceSessionId = undefined;
     if (this.workspaceSessionId && this.controller.selected()?.id !== this.workspaceSessionId) this.closeWorkspace();
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
     if (isMouseSequence(data)) {
@@ -221,6 +258,31 @@ export class SessionsView implements Component {
       return;
     }
 
+    this.reconcileCardPanel();
+    if (this.cardPanel) {
+      if (this.panelViewport.fallback && isEnterKey(data)) {
+        this.executeDashboardCommand(`action:${this.cardPanel.target.managedId}:open`);
+        return;
+      }
+      if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown)) {
+        const step = this.panelViewport.pageSize;
+        this.cardPanel.panel.offset = Math.max(0, Math.min(this.panelViewport.maxOffset, this.cardPanel.panel.offset + (matchesKey(data, Key.pageUp) ? -step : step)));
+      } else this.cardPanel.handleInput(data);
+      return;
+    }
+    if (!this.conversationOpen && this.grouping === "project" && !this.pinMode() && (matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown))) {
+      this.cardScrollOffset = Math.max(0, this.cardScrollOffset + (matchesKey(data, Key.pageUp) ? -1 : 1));
+      return;
+    }
+    if (matchesKey(data, Key.tab) && (!this.conversationOpen || this.conversationFocus === "fleet")) {
+      const answer = commandForKey(this.dashboardCommands(), data);
+      if (answer?.id.startsWith(`action:${this.selectedSessionTarget}:answer:`)) { this.executeDashboardCommand(answer.id); return; }
+      const selected = this.selectedInteractionSession();
+      const questionAttention = selected && (selected.status === "waiting" || selected.status === "idle") && selected.context?.attention?.kind === "question";
+      const pendingQuestion = selected && sameInteractionTarget(this.interaction.target, this.actions.interactionTarget?.(selected))
+        && (this.interaction.state?.pending.length || this.interaction.state?.questionUnavailableReason);
+      if (questionAttention || pendingQuestion) { this.openQuestion(); return; }
+    }
     if (this.conversationOpen && this.handleConversationInput(data)) return;
 
     if (this.workspaceSessionId) {
@@ -328,6 +390,8 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
+    this.reconcileDeliveryResults();
+    this.cardCommandHits = [];
     this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
@@ -341,6 +405,11 @@ export class SessionsView implements Component {
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
     this.scheduleFollowRetarget();
     const selectedId = this.controller.selected()?.id;
+    if (this.cardScrollSessionId !== selectedId) {
+      this.cardScrollSessionId = selectedId;
+      this.cardScrollOffset = 0;
+    }
+    if (this.grouping !== "stage") this.workspaceSessionId = undefined;
     if (this.revealedSessionId && selectedId !== this.revealedSessionId) this.revealedSessionId = undefined;
     if (this.workspaceSessionId && selectedId !== this.workspaceSessionId) this.closeWorkspace();
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
@@ -348,11 +417,11 @@ export class SessionsView implements Component {
     if (this.workspaceEvidenceSessionId && selectedId !== this.workspaceEvidenceSessionId) this.workspaceEvidenceSessionId = undefined;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
+      this.panelViewport = { pageSize: 1, maxOffset: 0, fallback: true };
       this.paletteRowTargets = [];
       this.paletteDetailRegion = undefined;
       this.conversationActionRows = [];
       this.conversationActions = [];
-      if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
       this.rowTargets = [];
       this.workspaceRowTargets = [];
       this.announcementRowTargets = [];
@@ -408,12 +477,20 @@ export class SessionsView implements Component {
     }
     this.normalizeListSelection();
     const snapshot = this.controller.snapshot();
+    this.reconcileCardPanel();
+    this.updateReplyPanel();
     const selected = this.controller.selected();
     const now = this.actions.now?.() ?? Date.now();
     const sidePaneState = this.pinState();
     const filter = (this.dialog?.kind === "prompt" ? (promptFilterValue(this.dialog) ?? snapshot.filter) : snapshot.filter)?.trim() || undefined;
     const structuralProjection = this.dashboardProjection(snapshot);
     const workspaceSelected = selected && structuralProjection.visible.some((session) => session.id === selected.id) ? selected : undefined;
+    const answering = this.cardPanel?.handleInput === this.questionPanelInput;
+    if (answering && this.inlineQuestion && this.cardPanel) {
+      const panel = renderQuestionPanel(this.inlineQuestion, width, this.theme);
+      panel.offset = this.cardPanel.panel.offset;
+      this.cardPanel.panel = panel;
+    }
     const panelHeight = this.conversationOpen ? Math.max(0, Math.min(Math.ceil((height || 24) * 0.65), (height || 24) - 4)) : 0;
     const fleetHeight = this.conversationOpen ? Math.max(4, (height || 24) - panelHeight) : height;
     const model = buildRenderModel({
@@ -426,12 +503,18 @@ export class SessionsView implements Component {
       filterDisclosure: this.filterDisclosure,
       filterEditing: this.dialog?.kind === "prompt" && this.dialog.purpose === "filter" ? this.dialog.draft : undefined,
       workspaceCommands: workspaceSelected && !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo
-        ? selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3)
+        ? { ...selectWorkspaceCommands(workspaceSelected, this.dashboardCommands(), 3),
+          ...(sameInteractionTarget(this.interaction.target, this.actions.interactionTarget?.(workspaceSelected)) && this.interaction.state?.questionUnavailableReason ? { guidance: `${this.interaction.state.questionUnavailableReason}; Open in Pi` } : {}) }
         : undefined,
       workspaceEvidenceVisible: workspaceSelected?.id === this.workspaceEvidenceSessionId,
-      workspaceFullScreen: width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
+      workspaceFullScreen: this.grouping === "stage" && width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
+      cardPanel: this.cardPanel ? { ...this.cardPanel.panel, kind: answering ? "answer" : "reply", statusLine: this.message ?? this.flash?.text } : undefined,
+      deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
+      deliveryEmphasis: new Set([...this.deliveryResults].flatMap(([id, result]) => result.emphasis ? [id] : [])),
+      selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? questionSummary(this.interaction.state.pending[0]?.params.questions[0]) : undefined,
       height: fleetHeight,
       listScrollTop: this.listScrollTop,
+      cardScrollOffset: this.cardScrollOffset,
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
       now,
@@ -461,6 +544,8 @@ export class SessionsView implements Component {
     if (this.conversationOpen) { model.showWorkspace = false; model.workspace = undefined; model.footer = ""; }
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
+    this.cardCommandHits = layout.cardCommandHits;
+    this.panelViewport = layout.panelViewport ?? { pageSize: 1, maxOffset: 0 };
     this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
       && (selected?.status === "running" || selected?.status === "starting")
       && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
@@ -490,7 +575,7 @@ export class SessionsView implements Component {
       const selectedRow = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === selected?.id);
       if (overlay.bounds && selectedRow >= overlay.bounds.start && selectedRow <= overlay.bounds.end) this.selectedRowAnimating = false;
     }
-    const final = this.conversationOpen ? withFooter : this.message
+    const final = this.conversationOpen || model.workspace?.panel ? withFooter : this.message
       ? replaceFooter(withFooter, this.message, this.theme)
       : this.flash
         ? replaceFooter(withFooter, this.flash.text, this.theme)
@@ -501,6 +586,7 @@ export class SessionsView implements Component {
   disposeInteraction(): void {
     if (this.followTimer) clearTimeout(this.followTimer);
     this.followTimer = undefined;
+    for (const result of this.deliveryResults.values()) clearTimeout(result.settle);
     this.interactionStopped = true; this.closeConversation(); this.interaction.setTarget(undefined);
   }
 
@@ -509,7 +595,7 @@ export class SessionsView implements Component {
     this.normalizeListSelection();
     const question = this.inlineQuestion;
     const selected = this.selectedInteractionSession();
-    const target = question?.target ?? (selected && this.actions.interactionTarget?.(selected));
+    const target = selected && this.actions.interactionTarget?.(selected);
     if (!sameInteractionTarget(target, this.interaction.target)) {
       this.interaction.setTarget(target);
       this.conversationReader.clear();
@@ -524,21 +610,17 @@ export class SessionsView implements Component {
       const current = this.selectedInteractionSession();
       if (this.conversationOpen && generation === this.conversationGeneration && sameInteractionTarget(bound, current && this.actions.interactionTarget?.(current))) this.conversationReader.accept(page, older);
     } : undefined);
-    if (question && this.inlineQuestion === question && !question.submitting) {
+    if (question && this.inlineQuestion === question && sameInteractionTarget(question.target, target) && !question.submitting) {
       const current = this.controller.snapshot().sessions.find(session => session.id === question.target.managedId);
       if (!sameInteractionTarget(question.target, current && this.actions.interactionTarget?.(current)) || (this.interaction.state && !this.interaction.state.pending.some(request => request.toolCallId === question.request.toolCallId))) {
+        this.questionDrafts.delete(question.target.managedId);
         this.inlineQuestion = undefined;
-        this.conversationFocus = "content";
-        this.message = "Question answered elsewhere or no longer available";
-      } else if (this.interaction.state) { question.uncertain = false; question.available = true; }
+        if (this.cardPanel?.handleInput === this.questionPanelInput) this.clearCardPanel();
+        this.message = this.interaction.state?.questionUnavailableReason
+          ? `${this.interaction.state.questionUnavailableReason}; Open in Pi`
+          : "Question answered elsewhere or no longer available";
+      } else if (this.interaction.state) { question.available = true; }
       else if (this.interaction.error) question.available = false;
-    }
-    if (!this.inlineQuestion && this.conversationOpen) {
-      const pending = this.interaction.state?.pending[0];
-      if (selected && target && pending && this.actions.submitAnswer) {
-        this.inlineQuestion = createQuestionDialog(target, selected.title, pending, selected.context?.attention?.requestId);
-        if (this.conversationFocus !== "fleet" && !this.dialog) this.conversationFocus = "question";
-      }
     }
     this.actions.requestRender?.();
   }
@@ -555,7 +637,7 @@ export class SessionsView implements Component {
   }
 
   get conversationWorking(): boolean {
-    if (!this.conversationOpen || this.inlineQuestion || this.interaction.error || this.interaction.state?.pending.length) return false;
+    if (!this.conversationOpen || this.interaction.error || this.interaction.state?.pending.length) return false;
     const selected = this.selectedInteractionSession();
     const target = selected && this.actions.interactionTarget?.(selected);
     return selected?.status === "running" && !!target && sameInteractionTarget(target, this.interaction.target);
@@ -581,7 +663,6 @@ export class SessionsView implements Component {
     this.conversationOpen = false;
     this.conversationGeneration++;
     this.conversationReader.clear();
-    this.inlineQuestion = undefined;
     this.conversationFocus = "fleet";
     this.conversationActions = [];
     this.conversationActionRows = [];
@@ -591,17 +672,12 @@ export class SessionsView implements Component {
   private handleConversationInput(data: string): boolean {
     if (matchesKey(data, Key.escape)) { this.conversationFocus = "fleet"; return true; }
     if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
-      const cycle = ["fleet", ...(this.inlineQuestion ? ["question"] : []), "content", ...this.conversationActions.map(command => command.id)];
+      const cycle = ["fleet", "content", ...this.conversationActions.map(command => command.id)];
       this.conversationFocus = cycle[(cycle.indexOf(this.conversationFocus) + (matchesKey(data, Key.shift("tab")) ? -1 : 1) + cycle.length) % cycle.length]!;
       return true;
     }
     if (this.conversationFocus === "fleet") return false;
     if (this.lastWidth < MIN_RENDER_WIDTH || (this.actions.terminalRows?.() ?? 24) < 12) return data !== "c" && data !== "q";
-    if (data === "c" && this.conversationFocus === "question" && !this.inlineQuestion?.custom) { this.closeConversation(); return true; }
-    if (this.conversationFocus === "question" && this.inlineQuestion) {
-      this.handleQuestion(data);
-      return true;
-    }
     if (this.conversationFocus !== "content" && isEnterKey(data)) {
       this.executeDashboardCommand(this.conversationFocus);
       return true;
@@ -629,12 +705,6 @@ export class SessionsView implements Component {
   private handleConversationMouse(event: MouseEvent): boolean {
     if (event.y === undefined || event.y < this.conversationStartY) return false;
     const localY = event.y - this.conversationStartY;
-    if (this.inlineQuestion && localY >= this.conversationTranscriptEndY) {
-      this.conversationFocus = "question";
-      if (event.kind === "wheel") this.inlineQuestion.scroll = Math.max(0, this.inlineQuestion.scroll + event.delta * 3);
-      else this.handleQuestionMouse({ ...event, y: localY - this.conversationTranscriptEndY + 1 });
-      return true;
-    }
     if (event.kind === "wheel") { this.conversationFocus = "content"; this.scrollConversation(event.delta * 3); return true; }
     const command = this.conversationActionRows[localY];
     this.conversationFocus = "content";
@@ -645,37 +715,24 @@ export class SessionsView implements Component {
   private renderConversation(fleet: string[], width: number, height: number): string[] {
     if (height < 8) {
       this.conversationActionRows = [];
-      if (this.inlineQuestion) { this.inlineQuestion.usable = false; this.inlineQuestion.rowTargets = []; }
       return [...fleet, truncateToWidth("Resize to read Conversation", width)];
     }
     const selected = this.selectedInteractionSession();
     const target = selected && this.actions.interactionTarget?.(selected);
     if (!sameInteractionTarget(target, this.interaction.target)) {
-      this.interaction.setTarget(target); this.conversationReader.clear(); this.inlineQuestion = undefined; this.olderConversationRequested = false;
+      this.interaction.setTarget(target); this.conversationReader.clear(); this.olderConversationRequested = false;
       if (this.conversationFocus !== "fleet") void this.refreshInteraction();
     }
     this.conversationStartY = fleet.length + 1;
     this.workspaceRowTargets = [];
     const commands = this.dashboardCommands();
     this.conversationActions = selected ? commands.filter(command => command.enabled && (command.id === `action:${selected.id}:open` || command.id.startsWith(`shortcut:${selected.id}:`))) : [];
-    if (this.conversationFocus !== "fleet" && this.conversationFocus !== "content" && this.conversationFocus !== "question" && !this.conversationActions.some(command => command.id === this.conversationFocus)) this.conversationFocus = "content";
+    if (this.conversationFocus !== "fleet" && this.conversationFocus !== "content" && !this.conversationActions.some(command => command.id === this.conversationFocus)) this.conversationFocus = "content";
     const title = `CONVERSATION ${glyphs.pendingStep} ${selected ? `${selected.title} [${selected.group}]` : "Select a session"}`;
-    if (this.inlineQuestion) {
-      const transcriptLimit = height >= 12 ? Math.max(3, height - 12) : 0;
-      const transcript = target && transcriptLimit ? this.conversationReader.render(width, transcriptLimit, this.theme, this.inlineQuestion.request.toolCallId) : [];
-      this.conversationTranscriptEndY = 1 + transcript.length + (transcript.length ? 1 : 0);
-      const answerHeight = height - this.conversationTranscriptEndY;
-      const heading = renderConversationHeading(title, width, this.theme);
-      const separator = this.theme ? styleToken(this.theme, "border", glyphs.horizontal.repeat(width)) : glyphs.horizontal.repeat(width);
-      const answer = renderQuestionDialog(this.inlineQuestion, width, answerHeight, this.theme, this.conversationFocus === "question");
-      this.conversationActionRows = [];
-      return [...fleet, truncateToWidth(heading, width), ...transcript, ...(transcript.length ? [truncateToWidth(separator, width)] : []), ...answer].slice(0, fleet.length + height);
-    }
     const actionHeight = Math.min(2, this.conversationActions.length);
     const actions = this.conversationActions.slice(0, actionHeight);
-    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? `Direct answering unavailable ${glyphs.pendingStep} Open in Pi` : this.interaction.state?.shortcutDisabledReason);
+    const reason = !selected ? "Select a session" : !target ? selected.kind === "subagent" ? "Open in Pi for this subagent" : "Restart this session to enable Conversation" : this.interaction.error ?? (this.interaction.state?.questionUnavailableReason ? `${this.interaction.state.questionUnavailableReason} ${glyphs.pendingStep} Open in Pi` : selected.context?.attention?.kind === "question" && this.interaction.state?.questionProtocol === false ? `Direct answering unavailable ${glyphs.pendingStep} Open in Pi` : this.interaction.state?.shortcutDisabledReason);
     const transcriptHeight = Math.max(0, height - actions.length - 3);
-    this.conversationTranscriptEndY = transcriptHeight + 1;
     const workingAt = this.conversationWorking ? (this.actions.now?.() ?? Date.now()) : undefined;
     const transcript = target ? this.conversationReader.render(width, transcriptHeight - (workingAt === undefined ? 0 : 1), this.theme) : [];
     const layout = renderConversationPane({ width, height, title, transcript, transcriptHeight, workingAt,
@@ -688,55 +745,56 @@ export class SessionsView implements Component {
     const selected = this.selectedInteractionSession();
     const target = selected && this.actions.interactionTarget?.(selected);
     const request = this.interaction.state?.pending[0];
-    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer) { this.message = "Direct answering unavailable; Open in Pi"; return; }
-    if (!this.conversationOpen) this.conversationOpen = true;
-    this.inlineQuestion = createQuestionDialog(target, selected.title, request, selected.context?.attention?.requestId);
-    this.conversationFocus = "question";
+    const reason = answerUnavailableReason(this.interaction.state);
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer || reason) { this.message = `${reason ?? "Direct answering unavailable"}; Open in Pi`; return; }
+    const staged = this.questionDrafts.get(target.managedId);
+    this.inlineQuestion = sameInteractionTarget(staged?.target, target) && staged?.request.toolCallId === request.toolCallId
+      ? staged : createQuestionDialog(target, selected.title, request, selected.context?.attention?.requestId);
+    this.inlineQuestion.request = structuredClone(request);
+    this.inlineQuestion.available = true;
+    this.questionDrafts.set(target.managedId, this.inlineQuestion);
+    this.closeConversation();
     this.closeWorkspace();
+    this.setCardPanel(target, renderQuestionPanel(this.inlineQuestion, this.lastWidth, this.theme), this.questionPanelInput);
   }
 
   private handleQuestion(data: string): void {
     const dialog = this.inlineQuestion;
     if (!dialog) return;
+    dialog.scroll = this.cardPanel?.panel.offset ?? 0;
+    const page = dialog.page;
+    const editing = Boolean(dialog.custom || dialog.noteEditor);
     const result = handleQuestionInput(dialog, data);
-    dialog.rowTargets = [];
-    if (result === "close") this.conversationFocus = "fleet";
+    if (this.cardPanel && page !== dialog.page) this.cardPanel.panel.offset = 0;
+    else if (this.cardPanel && !editing && (dialog.custom || dialog.noteEditor)) this.cardPanel.panel.offset = Number.MAX_SAFE_INTEGER;
+    if (result === "close") { this.clearCardPanel(); this.closeWorkspace(); }
     if (result === "submit") void this.submitQuestion(dialog);
-  }
-
-  private handleQuestionMouse(event: MouseEvent): void {
-    const dialog = this.inlineQuestion;
-    if (!dialog) return;
-    if (event.kind === "wheel") { dialog.scroll = Math.max(0, dialog.scroll + event.delta * 3); return; }
-    if (!dialog.usable || dialog.submitting) return;
-    const target = dialog.rowTargets[event.y - 1];
-    const footerItem = event.y === dialog.rowTargets.length
-      ? dialog.footerItems.find(item => event.x >= item.x && event.x < item.x + item.width)
-      : undefined;
-    if (target === "back" || footerItem?.key === "Esc") { this.handleQuestion("\x1b"); return; }
-    if (!dialog.available || dialog.uncertain) return;
-    if (typeof target === "number") this.handleQuestion(target < dialog.request.params.questions[dialog.page]!.options.length ? String(target + 1) : "t");
-    else if ((target === "next" || target === "submit") && footerItem?.key === "Enter") this.handleQuestion("\r");
-
   }
 
   private async submitQuestion(dialog: QuestionDialog): Promise<void> {
     if (dialog.submitting || dialog.uncertain || !dialog.available || !this.actions.submitAnswer) return;
     const current = this.selectedInteractionSession();
     if (!sameInteractionTarget(dialog.target, current && this.actions.interactionTarget?.(current))) {
-      this.inlineQuestion = undefined; this.conversationFocus = "content"; this.message = "Question is no longer available"; return;
+      this.inlineQuestion = undefined; this.clearCardPanel(); this.message = "Question is no longer available"; return;
     }
     dialog.submitting = true;
     try {
-      await this.actions.submitAnswer(dialog.target, dialog.request.toolCallId, dialog.answers);
-      if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.conversationFocus = "content"; }
+      await this.writeInteraction(dialog.target, "Answer sent", () => this.actions.submitAnswer!(dialog.target, dialog.request.toolCallId, dialog.answers));
+      this.questionDrafts.delete(dialog.target.managedId);
+      if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.clearCardPanel(); }
+      // Acknowledgement, like activity bookkeeping, cannot turn confirmed delivery into rejection.
       const session = this.controller.snapshot().sessions.find(session => session.id === dialog.target.managedId);
-      if (dialog.attentionRequestId && session?.context?.attention?.requestId === dialog.attentionRequestId && sameInteractionTarget(dialog.target, this.actions.interactionTarget?.(session))) await this.acknowledgeSession(session.id, dialog.attentionRequestId);
-      this.message = undefined;
-      this.flashMessage("Answer accepted");
+      if (dialog.attentionRequestId && session?.context?.attention?.requestId === dialog.attentionRequestId && sameInteractionTarget(dialog.target, this.actions.interactionTarget?.(session))) {
+        try { await this.acknowledgeSession(session.id, dialog.attentionRequestId, true); }
+        catch (error) { this.message = `Accepted, but acknowledgement failed: ${errorMessage(error)}`; }
+      }
     } catch (error) {
       dialog.error = errorMessage(error);
-      if (/stale|answered elsewhere|no longer|unavailable/i.test(dialog.error)) { if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.conversationFocus = "content"; } this.message = dialog.error; }
+      if (/stale|answered elsewhere|no longer|unavailable|only be answered in Pi/i.test(dialog.error)) {
+        this.questionDrafts.delete(dialog.target.managedId);
+        if (this.inlineQuestion === dialog) { this.inlineQuestion = undefined; this.clearCardPanel(); }
+        this.message = `${dialog.error}; Open in Pi`;
+      }
       else if (/not confirmed|timeout|timed out/i.test(dialog.error)) { dialog.uncertain = true; this.interaction.state = undefined; }
     } finally {
       dialog.submitting = false; this.interaction.invalidate();
@@ -811,7 +869,7 @@ export class SessionsView implements Component {
         this.message = "status evidence unavailable after refresh";
         return;
       }
-      if (this.lastWidth < 120) this.workspaceSessionId = selectedId;
+      if (this.grouping === "stage" && this.lastWidth < 120) this.workspaceSessionId = selectedId;
       this.workspaceEvidenceSessionId = selectedId;
     };
     const refresh = this.actions.navigationActions?.refreshStatusEvidence ?? this.actions.refreshStatusEvidence;
@@ -827,6 +885,7 @@ export class SessionsView implements Component {
   private closeWorkspace(): void {
     this.workspaceSessionId = undefined;
     this.workspaceEvidenceSessionId = undefined;
+    this.cardScrollOffset = 0;
   }
 
   private dialogContext(): DialogContext {
@@ -835,7 +894,6 @@ export class SessionsView implements Component {
       controller: this.controller,
       actions: this.actions,
       theme: this.theme,
-      interactionState: sameInteractionTarget(this.interaction.target, this.controller.selected() && this.actions.interactionTarget?.(this.controller.selected()!)) ? this.interaction.state : undefined,
       now: () => this.actions.now?.() ?? Date.now(),
       close: () => { this.dialog = undefined; },
       setDialog: (dialog) => { this.dialog = dialog; },
@@ -964,10 +1022,12 @@ export class SessionsView implements Component {
       focusFollow: Boolean(this.actions.focusFollow),
       acknowledge: true,
       attentionBell: Boolean(this.actions.attentionDelivery?.setAttentionBell),
+      followDefault: Boolean(this.actions.followPreference),
     };
     return buildDashboardCommands({
       sessions: this.commandSessions(snapshot),
       selectedId: selectedVisible?.id,
+      deliveryResult: selectedVisible ? this.deliveryResults.get(selectedVisible.id)?.state : undefined,
       filter: snapshot.filter,
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
@@ -977,6 +1037,7 @@ export class SessionsView implements Component {
       capabilities,
       attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
       attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
+      followDefaultEnabled: this.actions.followPreference?.followDefault() ?? false,
       visibleRequestCount: this.visibleRequestIds().length,
       pinState: {
         slots: this.pinState().slots,
@@ -1116,7 +1177,7 @@ export class SessionsView implements Component {
       return;
     }
     if (!command.enabled) {
-      this.message = command.disabledReason ?? "command unavailable";
+      this.message = `${command.disabledReason ?? "command unavailable"}${command.id.endsWith(":send") ? "; Open in Pi" : ""}`;
       return;
     }
     if (command.id.startsWith("session:")) {
@@ -1145,6 +1206,7 @@ export class SessionsView implements Component {
     if (command.id.startsWith("action:") && command.targetSessionId) {
       const prefix = `action:${command.targetSessionId}:`;
       const action = command.id.slice(prefix.length);
+      if (action.startsWith("dismiss-result:")) { this.deliveryResults.delete(command.targetSessionId); return; }
       if (action.startsWith("answer:")) { this.openQuestion(); return; }
       if (action.startsWith("copy-path:")) { this.copyHandoffPath(command.targetSessionId); return; }
       const slot = action.match(/^slot-([1-4])$/)?.[1];
@@ -1157,7 +1219,7 @@ export class SessionsView implements Component {
         case "focus-follow": this.focusFollow(command.targetSessionId!); return;
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
-        case "send": this.startSendDialog(); return;
+        case "send": this.startReply(); return;
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
@@ -1178,7 +1240,7 @@ export class SessionsView implements Component {
         case "info": this.toggleInfo(); return;
         case "mark-read": {
           const requestId = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId)?.context?.attention?.requestId;
-          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId), "marking read...");
+          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId, true), "marking read...");
           return;
         }
         case "reorder-up": this.reorderSelected(-1); return;
@@ -1198,6 +1260,7 @@ export class SessionsView implements Component {
       case "view:follow": this.toggleFollow(command.targetSessionId); return;
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
+      case "view:follow-default": this.toggleFollowDefault(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
@@ -1207,6 +1270,79 @@ export class SessionsView implements Component {
       case "view:quit": this.stop(); return;
     }
     this.message = "command is not implemented";
+  }
+
+  private reconcileCardPanel(): void {
+    const sessions = this.controller.snapshot().sessions;
+    for (const [id, draft] of this.replyDrafts) {
+      const session = sessions.find(row => row.id === id);
+      if (!sameInteractionTarget(draft.target, session && this.actions.interactionTarget?.(session))) this.replyDrafts.delete(id);
+    }
+    for (const [id, draft] of this.questionDrafts) {
+      const session = sessions.find(row => row.id === id);
+      if (!sameInteractionTarget(draft.target, session && this.actions.interactionTarget?.(session))) this.questionDrafts.delete(id);
+    }
+    if (!this.cardPanel) return;
+    const selected = this.controller.selected();
+    if (this.archiveDisclosureSelected || this.selectedSection || this.selectedRepo || this.releaseCueSelected || !sameInteractionTarget(this.cardPanel.target, selected && this.actions.interactionTarget?.(selected))) {
+      if (this.cardPanel.handleInput === this.questionPanelInput) this.inlineQuestion = undefined;
+      this.cardPanel = undefined;
+      this.replyEditor = undefined;
+    }
+  }
+
+  private reconcileDeliveryResults(): void {
+    const sessions = this.controller.snapshot().sessions;
+    for (const [id, result] of this.deliveryResults) {
+      const session = sessions.find(row => row.id === id);
+      const target = session && this.actions.interactionTarget?.(session);
+      if (!session || !sameInteractionTarget(result.target, target) || (result.state === "accepted" && session.status === "running" && result.status !== "running")) this.deliveryResults.delete(id);
+      else result.status = session.status;
+    }
+  }
+
+  /** All card writers (including reply/answer panels) share the same exact-target receipt. */
+  async writeInteraction(target: InteractionTarget, what: string, write: () => unknown): Promise<unknown> {
+    this.reconcileDeliveryResults();
+    if (this.deliveryResults.get(target.managedId)?.state === "submitting") throw new Error("write is submitting");
+    const session = this.controller.snapshot().sessions.find(row => row.id === target.managedId);
+    if (!session || !sameInteractionTarget(target, this.actions.interactionTarget?.(session))) throw new Error("write target changed");
+    clearTimeout(this.deliveryResults.get(target.managedId)?.settle);
+    const result: NonNullable<ReturnType<typeof this.deliveryResults.get>> = { target, state: "submitting", text: `Submitting${glyphs.ellipsis}`, status: session.status };
+    this.deliveryResults.set(target.managedId, result);
+    this.actions.requestRender?.();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let value: unknown;
+    try {
+      value = await Promise.race([Promise.resolve(write()), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(DELIVERY_UNCONFIRMED)), INTERACTION_TIMEOUT_MS);
+      })]);
+      result.state = "accepted";
+      result.text = `${glyphs.ready} Sent ${glyphs.pendingStep} Accepted ${glyphs.pendingStep} ${what}`;
+      if (!noColor() && process.env.PI_AGENT_HUB_REDUCED_MOTION !== "1") {
+        result.emphasis = true;
+        result.settle = setTimeout(() => {
+          result.emphasis = false;
+          if (this.deliveryResults.get(target.managedId) === result) this.actions.requestRender?.();
+        }, 600);
+        result.settle.unref?.();
+      }
+    } catch (error) {
+      const reason = errorMessage(error);
+      const unknown = reason === DELIVERY_UNCONFIRMED || /timeout|timed out/i.test(reason);
+      result.state = unknown ? "unknown" : "rejected";
+      result.text = unknown ? `Delivery unknown ${glyphs.pendingStep} Check Pi before retrying` : `Rejected ${glyphs.pendingStep} ${reason}`;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      this.actions.requestRender?.();
+    }
+    try {
+      await this.actions.afterInteractionWrite?.(target);
+    } catch (error) {
+      this.message = `Accepted, but activity update failed: ${errorMessage(error)}`;
+    }
+    return value;
   }
 
   private runConfiguredCommand(command: DashboardCommand): void {
@@ -1232,7 +1368,11 @@ export class SessionsView implements Component {
       return;
     }
     this.runAction(
-      () => this.actions.runDashboardShortcut?.(target.id, shortcut),
+      () => {
+        const identity = this.actions.interactionTarget?.(target);
+        if (!identity) throw new Error("shortcut target is no longer available");
+        return this.writeInteraction(identity, shortcut.label ?? shortcut.send, () => this.actions.runDashboardShortcut!(target.id, shortcut));
+      },
       "running shortcut...",
       () => { this.flashMessage(`${shortcut.label ?? "shortcut sent"} ${glyphs.right} ${target.title}`); },
     );
@@ -1307,8 +1447,90 @@ export class SessionsView implements Component {
     return true;
   }
 
-  private startSendDialog() {
-    this.openDialog(openSendForm);
+  private startReply(): void {
+    this.reconcileCardPanel();
+    const selected = this.controller.selected();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !this.interaction.state?.messageDelivery) {
+      this.message = "Reload Pi in this session to enable message delivery; Open in Pi";
+      return;
+    }
+    let draft = this.replyDrafts.get(selected.id);
+    if (!draft) {
+      const attention = visibleAttention(selected);
+      draft = { target, input: createTextInput(attention?.kind === "ready" && attention.recommendation ? `Go ahead: ${stripAnsi(attention.recommendation)}` : ""),
+        delivery: this.interaction.state.messageDelivery === "busy" ? "steer" : "send", deliveryFocus: false };
+      this.replyDrafts.set(selected.id, draft);
+    } else {
+      draft.delivery = this.interaction.state.messageDelivery === "idle" ? "send" : draft.delivery === "send" ? "steer" : draft.delivery;
+      draft.deliveryFocus = false;
+    }
+    this.closeConversation();
+    this.message = undefined;
+    this.clearFlash();
+    this.setCardPanel(target, { body: [], keyLine: "", offset: 0 }, data => this.handleReplyInput(draft!, data));
+    this.replyEditor = draft;
+    this.updateReplyPanel();
+  }
+
+  private updateReplyPanel(): void {
+    const draft = this.replyEditor;
+    if (!draft || !this.cardPanel) return;
+    const title = stripAnsi(this.controller.snapshot().sessions.find(row => row.id === draft.target.managedId)!.title);
+    const label = draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer now" : "Queue for later";
+    const narrow = this.lastWidth < 60;
+    this.cardPanel.panel.body = [
+      ["REPLY", ...(!narrow ? [title] : []), label].join(` ${glyphs.pendingStep} `),
+      draft.input,
+      ...(draft.delivery === "send" || narrow ? [] : [
+        `${draft.deliveryFocus ? glyphs.selected : " "} Tab Delivery: ${glyphs.left} ${label} ${glyphs.right}`,
+        draft.delivery === "steer" ? "Use before the next model call, after current tools" : "Use after the current run",
+      ]),
+    ];
+    this.cardPanel.panel.keyLine = narrow && draft.delivery !== "send" ? [
+      `Tab Delivery${draft.deliveryFocus ? ` ${glyphs.selected}` : ""}`,
+      `${glyphs.left}/${glyphs.right} Steer/Queue`,
+      `Enter ${label}`,
+      "Esc Keep draft",
+    ].join("\n") : `Enter ${draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer" : "Queue"} ${glyphs.pendingStep} Esc Keep draft ${glyphs.pendingStep} Ctrl+U Clear${draft.delivery === "send" ? "" : ` ${glyphs.pendingStep} Tab Delivery ${glyphs.pendingStep} ${glyphs.left}/${glyphs.right} Steer/Queue`}`;
+  }
+
+  private handleReplyInput(draft: ReplyDraft, data: string): void {
+    if (matchesKey(data, Key.escape)) { this.clearCardPanel(); this.closeWorkspace(); this.message = undefined; return; }
+    if (draft.submitting || this.deliveryResults.get(draft.target.managedId)?.state === "submitting") return;
+    if (matchesKey(data, Key.ctrl("u"))) draft.input = createTextInput();
+    else if (isEnterKey(data)) { this.submitReply(draft); return; }
+    else if (draft.delivery !== "send" && matchesKey(data, Key.tab)) draft.deliveryFocus = !draft.deliveryFocus;
+    else if (draft.deliveryFocus) {
+      if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) draft.delivery = draft.delivery === "steer" ? "followUp" : "steer";
+    } else draft.input = editTextInput(data, draft.input) ?? draft.input;
+    this.message = undefined;
+    this.updateReplyPanel();
+  }
+
+  private submitReply(draft: ReplyDraft): void {
+    if (!draft.input.value.trim()) { this.message = "message is required"; return; }
+    const command = this.dashboardCommands().find(command => command.id === `action:${draft.target.managedId}:send`);
+    const busyRace = draft.delivery === "send" && this.interaction.state?.messageDelivery === "busy";
+    const label = draft.delivery === "send" ? "Sent" : draft.delivery === "steer" ? "Steer requested" : "Queued";
+    draft.submitting = true;
+    void this.writeInteraction(draft.target, label, () => {
+      if (!command?.enabled) throw new Error(command?.disabledReason ?? "reply target is no longer available");
+      if (busyRace) throw new Error("Pi started working; choose Steer now or Queue for later");
+      return this.actions.sendMessage!(draft.target, draft.input.value, draft.delivery);
+    }).then(() => {
+      draft.input = createTextInput();
+      draft.delivery = "send";
+      draft.deliveryFocus = false;
+      if (this.replyEditor === draft) this.clearCardPanel();
+    }).catch(error => {
+      if (/Pi started working/.test(errorMessage(error))) { draft.delivery = "steer"; draft.deliveryFocus = false; }
+      this.reconcileCardPanel();
+      this.updateReplyPanel();
+    }).finally(() => {
+      draft.submitting = false;
+      this.actions.requestRender?.();
+    });
   }
 
   private pinSidePane(sessionId: string) {
@@ -1365,21 +1587,60 @@ export class SessionsView implements Component {
     return this.pinState().following === true;
   }
 
-  /** Retargets the follow pane once the exact live selection has been stable for FOLLOW_SETTLE_MS. */
+  /**
+   * Once the exact live selection has been stable for FOLLOW_SETTLE_MS, retargets the follow pane,
+   * or reopens follow view when it is wanted but its pane closed (archive, stop, delete, or startup).
+   */
   private scheduleFollowRetarget(): void {
-    const retarget = this.actions.retargetFollow;
     const selected = this.controller.selected();
-    const target = retarget && this.followView() && !this.pinState().hidden && selected && this.selectedSessionTarget === selected.id
-      && selected.status !== "stopped" && selected.status !== "error" ? selected.id : undefined;
+    const live = selected && this.selectedSessionTarget === selected.id && selected.status !== "stopped" && selected.status !== "error" ? selected : undefined;
+    if (live?.id !== this.followRefused) this.followRefused = undefined;
+    const pins = this.pinState();
+    const retarget = this.actions.retargetFollow;
+    const follow = this.actions.followSidePane;
+    const target = !live ? undefined
+      : this.followView() ? (retarget && !pins.hidden ? `retarget:${live.id}` : undefined)
+      : this.followWanted && follow && !this.followRefused && !this.busy && !this.conversationOpen
+        && !pins.slots.some(Boolean) && pins.capacity > 0 ? `follow:${live.id}` : undefined;
     if (target === this.followTarget) return;
-    if (this.followTimer) clearTimeout(this.followTimer);
-    this.followTimer = undefined;
+    this.cancelFollowSchedule();
     this.followTarget = target;
-    if (!target || !retarget) return;
+    if (!target || !live) return;
+    const sessionId = live.id;
     this.followTimer = setTimeout(() => {
       this.followTimer = undefined;
-      void Promise.resolve(retarget(target)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
+      if (target.startsWith("retarget:")) {
+        void Promise.resolve(retarget!(sessionId)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
+        return;
+      }
+      void Promise.resolve(follow!(sessionId)).then(
+        (result) => { if (result.kind === "refused") this.followRefused = sessionId; },
+        (error) => { this.followRefused = sessionId; this.message = errorMessage(error); },
+      ).finally(() => this.actions.requestRender?.());
     }, FOLLOW_SETTLE_MS);
+  }
+
+  private cancelFollowSchedule(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = undefined;
+    this.followTarget = undefined;
+  }
+
+  private toggleFollowDefault() {
+    const preference = this.actions.followPreference;
+    if (!preference) {
+      this.message = "follow default setting unavailable";
+      return;
+    }
+    const next = !preference.followDefault();
+    this.runAction(
+      () => preference.setFollowDefault(next),
+      "saving follow default...",
+      () => {
+        this.followWanted = next;
+        this.flashMessage(`follow view by default ${glyphs.pendingStep} ${next ? "On" : "Off"}`);
+      },
+    );
   }
 
   private toggleFollow(sessionId: string | undefined) {
@@ -1394,6 +1655,8 @@ export class SessionsView implements Component {
       return;
     }
     if (!following) this.closeConversation();
+    this.followWanted = !following;
+    this.cancelFollowSchedule();
     const pending = following ? "leaving follow view..." : "opening follow view...";
     runSyncAsyncAction<FollowSidePaneResult | CloseSidePaneResult>(() => following ? unfollow() : follow(sessionId!), {
       pending,
@@ -1549,6 +1812,12 @@ export class SessionsView implements Component {
     if (tierChip) {
       this.lastMouseClick = undefined;
       this.jumpToCockpitTier(tierChip.tier);
+      return;
+    }
+    const cardHit = this.cardCommandHits.find(hit => hit.row === event.y - 1 && event.x >= hit.x && event.x < hit.x + hit.width);
+    if (cardHit) {
+      this.lastMouseClick = undefined;
+      this.executeDashboardCommand(cardHit.commandId);
       return;
     }
     const workspaceTarget = this.workspaceStartX !== undefined && event.x >= this.workspaceStartX && event.x < this.lastWidth
@@ -1788,10 +2057,10 @@ export class SessionsView implements Component {
     } else if (result) this.startAttentionReturnTrip(request.sessionId, request.requestId);
   }
 
-  private acknowledgeSession(sessionId: string, requestId?: string): unknown {
-    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId, requestId);
+  private acknowledgeSession(sessionId: string, requestId?: string, dismiss = false): unknown {
+    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId, requestId, dismiss);
     if (this.actions.acknowledge) return this.actions.acknowledge();
-    return this.controller.acknowledgeSession(sessionId, undefined, requestId);
+    return this.controller.acknowledgeSession(sessionId, undefined, requestId, dismiss);
   }
 
   private attachSession(selected: ManagedSession): boolean | Promise<boolean> {
@@ -2455,7 +2724,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: 
     `  ${glyphs.worktree} active worktree     ${glyphs.worktreePending} awaits merge     ${glyphs.worktreeWarning} cleanup/check needed     ${glyphs.worktreeDone} cleanup verified`,
     "  zero counts are hidden from tier and top summaries",
     "",
-    heading("Action workspace"),
+    heading("Selected card and Details"),
     `  selected session: request ${glyphs.pendingStep} task ${glyphs.pendingStep} workflow position ${glyphs.pendingStep} exceptional guidance ${glyphs.pendingStep} actions`,
     `  ${glyphs.selected} marks the primary action; i Append or hide live Details`,
     "  Enter/double-click Open or switch directly at every width",
@@ -2518,4 +2787,8 @@ function replaceFooter(lines: string[], message: string, theme?: SessionsTheme):
 function truncateVisible(value: string, width: number): string {
   if (width <= 1) return "";
   return truncateToWidth(value, width, glyphs.ellipsis);
+}
+
+function questionSummary(question?: { header: string; question: string }): { header: string; question: string } | undefined {
+  return question ? collapsedQuestion(question) : undefined;
 }

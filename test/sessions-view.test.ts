@@ -11,7 +11,7 @@ import type { SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
   const start = 1;
-  const width = 83;
+  const width = lines.some(line => /^│WORKFLOW/.test(stripAnsi(line))) ? 83 : visibleWidth(lines[0] ?? "") - 2;
   return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
     .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
@@ -91,11 +91,11 @@ test("footer request navigation reflects visible requests and backlog state", ()
   const controller = new SessionsController({ version: 1, sessions: [request, session("quiet", "Quiet")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
   for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Hide backlog/);
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
   view.handleInput("b");
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Show backlog/);
+  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
   controller.setFilter("Quiet");
-  for (const width of [80, 160]) assert.doesNotMatch(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
 });
 
 test("persisted new-user state reaches the live empty SessionsView", () => {
@@ -139,12 +139,12 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   view.render(60);
   view.handleInput("i");
   let workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /\? Project API/);
   assert.match(workspace, /LIVE DETAILS/);
-  assert.match(workspace, /\? “Choose rollout order”/);
+  assert.match(workspace, /\? Choose rollout order/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
-  assert.match(workspace, /Project API\s+◐ waiting/);
+  assert.match(workspace, /\? Project API/);
   assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
   assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
@@ -367,7 +367,7 @@ test("filter editor is visible with an empty draft and slash leaves narrow works
   const view = new SessionsView(controller, () => {}, { now: () => 0 });
   view.render(60);
   view.handleInput("i");
-  assert.doesNotMatch(stripAnsi(view.render(60).join("\n")), /FLEET/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /FLEET/);
   view.handleInput("/");
   const lines = view.render(60).map(stripAnsi);
   assert.match(lines[1]!, /FILTERING.*█.*Enter Apply.*Esc Cancel/);
@@ -387,8 +387,7 @@ test("slash closes narrow evidence state without clearing wide evidence", () => 
     view.handleInput("/");
     view.handleInput("\r");
     const text = stripAnsi(view.render(120).join("\n"));
-    if (width === 60) assert.doesNotMatch(text, /LIVE DETAILS/);
-    else assert.match(text, /LIVE DETAILS/);
+    assert.match(text, /LIVE DETAILS/);
   }
 });
 
@@ -941,7 +940,7 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\[default\][\s\S]*\?1/);
   view.handleInput("\u001b[C");
   assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
@@ -1052,6 +1051,7 @@ test("Space remains configurable outside board mode but is reserved for board di
 
   view.handleInput(" ");
   assert.equal(calls, 1);
+  await new Promise(done => setImmediate(done));
   view.handleInput("S");
   view.handleInput(" ");
   assert.equal(calls, 1);
@@ -1151,7 +1151,7 @@ test("existing-user release cue is target-safe and dismisses without changing se
   view.handleInput("\r");
 
   assert.equal(controller.snapshot().selectedId, selectedId);
-  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-inbox-loop-v1");
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /NEW DAILY LOOP/);
 });
 
@@ -1170,7 +1170,7 @@ test("release cue double-click dismisses the exact synthetic row", () => {
   now += 50;
   rendered = view.render(100);
   view.handleInput(mousePressAtLine(rendered.findIndex((line) => stripAnsi(line).includes("NEW DAILY LOOP"))));
-  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-daily-loop-v1");
+  assert.equal(saved.at(-1)?.dismissedReleaseCueId, "cockpit-inbox-loop-v1");
 });
 
 test("v inside filter mode edits the filter instead of toggling views", () => {
@@ -1647,8 +1647,8 @@ test("persistent workspace double-click obeys the catalog availability guard", (
   view.handleInput(apiClick);
 
   const workspace = stripAnsi(view.render(120).join("\n"));
-  assert.match(workspace, /▌ Archive…\s+A/);
-  assert.doesNotMatch(workspace, /▌ Open\s+Enter/);
+  assert.match(workspace, /A Archive…/);
+  assert.doesNotMatch(workspace, /Enter Open in Pi/);
 });
 
 test("navigation follows the shared projection across lifecycle sections and subagents", () => {
@@ -2034,20 +2034,21 @@ test("mouse section headers block stale actions and session rows restore exact w
   const before = controller.snapshot().selectedId;
 
   const headerIndex = rendered.findIndex((line) => /─▾ QUIET 2/.test(stripAnsi(line)));
-  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
-  assert.notEqual(openIndex, -1, "missing workspace Open action");
+  assert.notEqual(openIndex, -1, "missing card Open action");
   view.handleInput(mousePressAtLine(headerIndex));
   assert.equal(controller.snapshot().selectedId, before);
   assert.deepEqual(switched, []);
-  view.handleInput(mousePressAtLine(openIndex, 110));
+  view.handleInput(mousePressAtLine(openIndex, openColumn));
   assert.deepEqual(switched, []);
 
   const sectionSelected = view.render(120);
   view.handleInput(mousePressAtLine(rowIndexFor(sectionSelected, "api")));
   const sessionSelected = view.render(120);
-  const currentOpenIndex = sessionSelected.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
-  view.handleInput(mousePressAtLine(currentOpenIndex, 110));
+  const currentOpenIndex = sessionSelected.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentOpenIndex, stripAnsi(sessionSelected[currentOpenIndex]!).indexOf("Enter Open in Pi") + 1));
   assert.deepEqual(switched, ["pi-agent-hub-api"]);
 });
 
@@ -2058,19 +2059,20 @@ test("workspace More commands click opens the palette and stale action IDs stay 
     switchInsideTmux: (tmuxSession) => { switched.push(tmuxSession); },
   });
   const rendered = view.render(120);
-  const openIndex = rendered.findIndex((line) => /▌ Open\s+Enter/.test(stripAnsi(line)));
-  const actionsIndex = rendered.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
+  const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
+  const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
+  const actionsIndex = rendered.findIndex((line) => /: All actions/.test(stripAnsi(line)));
   assert.notEqual(openIndex, -1);
   assert.notEqual(actionsIndex, -1);
 
   controller.selectSession("docs");
-  view.handleInput(mousePressAtLine(openIndex, 110));
+  view.handleInput(mousePressAtLine(openIndex, openColumn));
   assert.deepEqual(switched, []);
   assert.match(stripAnsi(view.render(120).join("\n")), /command target changed and is no longer available/);
 
   const current = view.render(120);
-  const currentActions = current.findIndex((line) => /All actions\s+:/.test(stripAnsi(line)));
-  view.handleInput(mousePressAtLine(currentActions, 110));
+  const currentActions = current.findIndex((line) => /: All actions/.test(stripAnsi(line)));
+  view.handleInput(mousePressAtLine(currentActions, stripAnsi(current[currentActions]!).indexOf(": All actions") + 1));
   assert.match(stripAnsi(view.render(120).join("\n")), /ACTIONS/);
 });
 
@@ -2157,7 +2159,7 @@ test("mouse hit map follows scrolled list window", () => {
   assert.equal(controller.snapshot().selectedId, "s15");
 });
 
-test("mouse clicks on list scroll indicators are ignored", () => {
+test("mouse clicks outside the selected card remain inert in short windows", () => {
   const opened: string[] = [];
   const sessions: RuntimeSession[] = manyViewSessions(20);
   sessions[0]!.context = { version: 1, updatedAt: 1, ticket: { id: "dense-001", subtitle: "Selected card context" } };
@@ -2167,8 +2169,8 @@ test("mouse clicks on list scroll indicators are ignored", () => {
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
-  const indicator = rendered.findIndex((line) => /↓ \d+ more/.test(stripAnsi(line)));
-  assert.notEqual(indicator, -1, "missing scroll indicator");
+  const indicator = rendered.findIndex((line) => /^│─+│$/.test(stripAnsi(line)));
+  assert.notEqual(indicator, -1, "missing inert footer separator");
 
   view.handleInput(mousePressAtLine(indicator));
 
@@ -2184,7 +2186,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌.*\s+○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /╭─ ○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {
@@ -2237,7 +2239,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /Enter Open .* i Workspace .* : Actions .* \? Help/);
+    assert.match(rendered, /\] Next request · p Reply · : All actions · \? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -3372,7 +3374,7 @@ const messageActions = {
   loadInteractionState: async () => ({ questionProtocol: false, pending: [], messageDelivery: "idle" as const }),
 };
 
-test("p opens a send form and submits message to selected live session", async () => {
+test("p opens a reply editor and submits message to selected live session", async () => {
   const sent: unknown[] = [];
   let now = 100;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
@@ -3385,21 +3387,21 @@ test("p opens a send form and submits message to selected live session", async (
   view.handleInput("p");
   const rawPrompt = view.render(100).join("\n");
   const prompt = stripAnsi(rawPrompt);
-  assert.match(prompt, /Send to api/);
-  assert.match(prompt, /▎ message\s+█/);
-  assert.match(prompt, /Enter Send · Esc Cancel/);
-  assert.doesNotMatch(prompt, /FLEET|send to api:/);
+  assert.match(prompt, /REPLY · api · Send/);
+  assert.match(prompt, /█/);
+  assert.match(prompt, /Enter Send · Esc Keep draft/);
+  assert.doesNotMatch(prompt, /Send to api/);
   for (const char of "fix it") view.handleInput(char);
   view.handleInput("\r");
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "fix it", delivery: "send" }]);
-  assert.match(stripAnsi(view.render(100).join("\n")), /sent → api/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Accepted · Sent/);
   now = 3_000;
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /sent → api/);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Accepted · Sent/);
 });
 
-test("send form keeps input, recipient and controls visible in narrow themed layouts", async () => {
+test("reply editor keeps input, recipient and controls visible in narrow themed layouts", async () => {
   const theme = { ...darkTheme, muted: "#010203", border: "#040506" };
   for (const width of [40, 50, 80, 120]) {
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
@@ -3408,21 +3410,20 @@ test("send form keeps input, recipient and controls visible in narrow themed lay
     }, theme);
     await view.refreshInteraction();
     view.handleInput("p");
-    for (const char of "界".repeat(52)) view.handleInput(char);
+    for (const char of "界".repeat(100)) view.handleInput(char);
     const rows = view.render(width);
     const rendered = stripAnsi(rows.join("\n"));
-    assert.match(rendered, /Send to api/);
-    assert.match(rendered, /message/);
+    assert.match(rendered, width < 60 ? /REPLY · Send/ : /REPLY · api · Send/);
     assert.match(rendered, /….*█/);
     assert.match(rendered, /enter send|Enter Send/);
-    assert.match(rendered, /Esc Cancel/);
+    assert.match(rendered, /Esc Keep draft/);
     assert.match(rows.join("\n"), /\u001b\[38;2;1;2;3m/);
     assert.ok(rows.length <= 12);
     for (const row of rows) assert.ok(visibleWidth(row) <= width, row);
   }
 });
 
-test("send form validates blank message and escape cancels", async () => {
+test("reply editor validates blank message and escape leaves focus", async () => {
   const sent: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
     ...messageActions,
@@ -3436,7 +3437,7 @@ test("send form validates blank message and escape cancels", async () => {
   view.handleInput("\u001b");
 
   assert.deepEqual(sent, []);
-  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Send to api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /REPLY · api · Send/);
 });
 
 test("send shortcut blocks subagent stopped and error rows", () => {
@@ -3466,7 +3467,7 @@ test("send shortcut allows all live statuses with a ready bridge", async () => {
     });
     await view.refreshInteraction();
     view.handleInput("p");
-    assert.match(stripAnsi(view.render(100).join("\n")), new RegExp(`Send to ${status}`));
+    assert.match(stripAnsi(view.render(100).join("\n")), new RegExp(`REPLY · ${status} · Send`));
   }
 });
 
@@ -3479,7 +3480,7 @@ test("send shortcut reports unavailable without a transport action", () => {
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Send to api/);
 });
 
-test("send form edits and pastes text while preserving its original recipient", async () => {
+test("reply edits and pastes text while preserving its exact-target draft", async () => {
   const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api"), readySession("web", "web")] });
   controller.selectSession("api");
   const sent: unknown[] = [];
@@ -3493,13 +3494,15 @@ test("send form edits and pastes text while preserving its original recipient", 
   view.handleInput("\u001b[D");
   view.handleInput("\u001b[200~b\nline\u001b[201~");
   controller.selectSession("web");
-  assert.match(stripAnsi(view.render(100).join("\n")), /Send to api/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /REPLY · api/);
+  controller.selectSession("api");
+  view.handleInput("p");
   view.handleInput("\r");
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "ab linec" }]);
 });
 
-test("send form does not send after its recipient disappears", async () => {
+test("reply does not send after its recipient disappears", async () => {
   const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api"), readySession("web", "web")] });
   controller.selectSession("api");
   const sent: unknown[] = [];
@@ -3512,7 +3515,7 @@ test("send form does not send after its recipient disappears", async () => {
   assert.deepEqual(sent, []);
 });
 
-test("busy send form exposes steer and queue while preserving text and bounded layout", async () => {
+test("busy reply exposes steer and queue while preserving text and bounded layout", async () => {
   for (const queue of [false, true]) {
     const sent: unknown[] = [];
     // Pi's busy state, not the dashboard's waiting label, controls delivery choices.
@@ -3537,11 +3540,11 @@ test("busy send form exposes steer and queue while preserving text and bounded l
     assert.ok(rows.length <= 12);
     for (const row of rows) assert.ok(visibleWidth(row) <= 40);
     assert.match(stripAnsi(rows.join("\n")), queue ? /Enter Queue/ : /Enter Steer/);
-    assert.match(stripAnsi(rows.join("\n")), /Esc Cancel/);
+    assert.match(stripAnsi(rows.join("\n")), /Esc Keep draft/);
     view.handleInput("\r");
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(sent, [{ target: interactionTarget(readySession("api", "api")), message: "continue here", delivery: queue ? "followUp" : "steer" }]);
-    assert.match(stripAnsi(view.render(100).join("\n")), queue ? /queue requested → api/ : /steer requested → api/);
+    assert.match(stripAnsi(view.render(100).join("\n")), queue ? /Accepted · Queued/ : /Accepted · Steer requested/);
   }
 });
 
@@ -3565,10 +3568,10 @@ test("send requires a message-capable bridge and rejects a replaced Pi instance"
   selected.interaction = { version: 1, instanceId: "replacement" };
   view.handleInput("\r");
   assert.equal(sends, 0);
-  assert.match(stripAnsi(view.render(100).join("\n")), /send target changed/);
+  assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /REPLY/);
 });
 
-test("send action errors show in footer", async () => {
+test("reply action errors show on the card", async () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [readySession("api", "api")] }), () => {}, {
     ...messageActions,
     sendMessage: async () => { throw new Error("send failed"); },
@@ -4118,8 +4121,7 @@ test("colon opens the bottom command ledger and Escape returns to the cockpit", 
   const palette = stripAnsi(view.render(100).join("\n"));
   assert.match(palette, /Search actions, sessions, filters/);
   assert.match(palette, /ACTIONS/);
-  assert.match(palette, /Actions/);
-  assert.match(palette, /Enter Open.*i Workspace.*: Actions.*\? Help/);
+  assert.match(palette, /Enter\s+Open in Pi/);
 
   view.handleInput("\u001b");
   assert.doesNotMatch(stripAnsi(view.render(100).join("\n")), /Search actions, sessions, filters/);
@@ -4305,10 +4307,12 @@ test("palette and direct configured keys execute dashboard shortcuts", async () 
 
   view.render(100);
   view.handleInput("z");
+  await new Promise(done => setImmediate(done));
   view.handleInput(":");
   for (const char of "summarize") view.handleInput(char);
   view.handleInput("\r");
 
+  await new Promise(done => setImmediate(done));
   assert.deepEqual(sent, ["api:/verify", "api:/summary"]);
 });
 
@@ -4417,10 +4421,10 @@ test("palette and workspace Archive rows open the same target-bound chooser", ()
   view.handleInput("x");
 
   const wide = view.render(120);
-  const archiveRow = wide.findIndex((line) => /Archive…\s+A/.test(stripAnsi(line)));
+  const archiveRow = wide.findIndex((line) => /A Archive…/.test(stripAnsi(line)));
   assert.notEqual(archiveRow, -1);
   assert.doesNotMatch(stripAnsi(wide.join("\n")), /Close session/);
-  view.handleInput(mousePressAtLine(archiveRow, 110));
+  view.handleInput(mousePressAtLine(archiveRow, stripAnsi(wide[archiveRow]!).indexOf("A Archive…") + 1));
   assert.match(stripAnsi(view.render(120).join("\n")), /Archive only/);
   view.handleInput("d");
 
@@ -4627,15 +4631,11 @@ function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
 
 test("phone footer taps follow the same dashboard key paths", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 22, now: () => 0 });
-  tapFooterKey(view, view.render(60), "/");
-  assert.match(stripAnsi(view.render(60).join("\n")), /FILTERING/);
+  tapFooterKey(view, view.render(60), ":");
+  assert.match(stripAnsi(view.render(60).join("\n")), /ACTIONS/);
   view.handleInput("\u001b");
-
-  tapFooterKey(view, view.render(44), "i");
-  const workspace = view.render(44);
-  assert.doesNotMatch(stripAnsi(workspace.join("\n")), /^FLEET/m);
-  tapFooterKey(view, workspace, "Esc");
-  assert.match(stripAnsi(view.render(44)[0] ?? ""), /^FLEET/);
+  tapFooterKey(view, view.render(60), "?");
+  assert.match(stripAnsi(view.render(60).join("\n")), /Session actions/);
 });
 
 test("phone coaching Next footer tap selects the next request without opening or acknowledging", () => {
@@ -4678,16 +4678,22 @@ test("hidden pins leave pin mode so phones can open the workspace", () => {
   const fleet = view.render(44).map(stripAnsi);
   assert.match(fleet[0] ?? "", /^FLEET .*1 pin hidden/);
   view.handleInput("i");
-  assert.doesNotMatch(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
+  assert.match(stripAnsi(view.render(44).join("\n")), /^FLEET/m);
+  assert.match(stripAnsi(view.render(44).join("\n")), /LIVE DETAILS/);
 });
 
-function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[] } = {}) {
+function followView(options: { sessions?: ManagedSession[]; following?: boolean; capacity?: number; slots?: (string | undefined)[]; events?: string[]; followDefault?: boolean } = {}) {
   const events = options.events ?? [];
   const controller = new SessionsController({ version: 1, sessions: options.sessions ?? [session("api", "api"), session("docs", "docs"), session("more", "more")] });
   let following = options.following ?? true;
+  let followDefault = options.followDefault ?? false;
   const state = () => ({ slots: options.slots ?? (following ? ["api", undefined, undefined, undefined] : [undefined, undefined, undefined, undefined]),
     capacity: options.capacity ?? 2, constrained: false, splitPercent: 50, following });
   const view = new SessionsView(controller, () => {}, {
+    ...(options.followDefault === undefined ? {} : { followPreference: {
+      followDefault: () => followDefault,
+      setFollowDefault: async (next: boolean) => { events.push(`follow-default:${next}`); followDefault = next; },
+    } }),
     sidePaneState: state,
     followSidePane: (id) => { events.push(`follow:${id}`); following = true; return { kind: "following" }; },
     unfollowSidePane: () => { events.push("unfollow"); following = false; return { kind: "closed" }; },
@@ -4702,8 +4708,64 @@ function followView(options: { sessions?: ManagedSession[]; following?: boolean;
     closeSidePane: (id) => { events.push(`close:${id}`); return { kind: "closed" }; },
     resizeSidePane: () => { events.push("resize"); return { kind: "resized", splitPercent: 60 }; },
   });
-  return { controller, view, events };
+  return { controller, view, events, setFollowing: (value: boolean) => { following = value; } };
 }
+
+test("follow view opens by default and reopens on the live selection after its pane goes away", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const off = { ...session("off", "off"), status: "stopped" as const };
+  const { controller, view, events, setFollowing } = followView({ following: false, followDefault: true,
+    sessions: [session("api", "api"), session("docs", "docs"), off] });
+  controller.selectSession("api");
+  view.render(100);
+  t.mock.timers.tick(200);
+  assert.deepEqual(events, ["follow:api"]);
+
+  // Archive, stop, or delete closes the follow pane; the next live selection gets it back.
+  events.length = 0;
+  setFollowing(false);
+  controller.selectSession("off");
+  view.render(100);
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, [], "a non-live selection waits");
+  controller.selectSession("docs");
+  view.render(100);
+  t.mock.timers.tick(200);
+  assert.deepEqual(events, ["follow:docs"]);
+
+  // Leaving with o is sticky until o is pressed again.
+  events.length = 0;
+  view.handleInput("o");
+  view.render(100);
+  t.mock.timers.tick(500);
+  assert.deepEqual(events, ["unfollow"]);
+});
+
+test("follow default stays off when disabled and never auto-opens beside pins or below 100 columns", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const options of [
+    { followDefault: false },
+    { followDefault: true, slots: ["api", undefined, undefined, undefined] },
+    { followDefault: true, capacity: 0 },
+  ]) {
+    const { view, events } = followView({ following: false, ...options });
+    view.render(100);
+    t.mock.timers.tick(500);
+    assert.deepEqual(events, [], JSON.stringify(options));
+  }
+});
+
+test("command palette toggles the persisted follow default", async () => {
+  const { view, events } = followView({ following: false, followDefault: true, capacity: 0 });
+  view.render(100);
+  view.handleInput(":");
+  for (const char of "follow view by default") view.handleInput(char);
+  assert.match(stripAnsi(view.render(100).join("\n")), /Follow view by default: On/);
+  view.handleInput("\r");
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(events, ["follow-default:false"]);
+  assert.match(stripAnsi(view.render(100).join("\n")), /follow view by default · Off/);
+});
 
 test("follow view retargets once after the selection settles and skips non-live rows", (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

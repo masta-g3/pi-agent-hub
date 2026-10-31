@@ -8,7 +8,7 @@ Hub manages sessions without Rules or subagent tooling. Install these only for t
 
 ### Rules workflow
 
-[Rules](https://github.com/masta-g3/rules) supplies workflow skills and the `workflow-runtime` Pi extension. It reports linked tickets, explicit requests, workflow position, and plan progress. Hub displays those facts in the session list, action workspace, and `S` board. Rules owns workflow execution; Hub does not advance steps.
+[Rules](https://github.com/masta-g3/rules) supplies workflow skills and the `workflow-runtime` Pi extension. It reports linked tickets, explicit requests, workflow position, and plan progress. Hub displays those facts on session cards and the `S` board. Rules owns workflow execution; Hub does not advance steps.
 
 Rules currently deploys through a repository sync script, not a Hub plugin installer. Before running it, review its [setup instructions](https://github.com/masta-g3/rules#setup) and back up your agent configuration. The script copies global instructions, skills, agents, and extensions into Claude, Cursor, and Pi directories; prunes managed assets, including Codex workflow assets; and updates Pi settings. It targets `~/.pi/agent`, not a custom `PI_CODING_AGENT_DIR`.
 
@@ -38,33 +38,19 @@ Rules' sync also adds this package to Pi settings. You do not need a second inst
 
 ### Inline questions
 
-Conversation can display completed messages without an extra question package. Answering questionnaires inside Hub requires a producer that supports its external-answer protocol. Rules' attention metadata alone does not provide this.
-
-The verified integration is the `2.10.1-hub.1` fork of `@juicesharp/rpiv-ask-user-question`. It retains the original package name. Do not assume the ordinary npm release supports this protocol or load both copies together.
-
-Download the [verified tarball](https://github.com/masta-g3/pi-agent-hub/raw/afa0fa7549b8e1b2804b0308f6ed8f3187f46fa8/agent-work/tickets/cockpit-013/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz). Its SHA-256 is `e91e010cf2f12c609c1ea1689a89616fbc126006f2ec50a5d129b4546ec6744c`. Review the included `package/docs/hosts.md` before installation. Extensions run with your user's permissions.
-
-Install the verified archive into a new versioned directory, not over a running package:
+Read-only Conversation needs no extra question package. Answering questionnaires on a card with `Tab` requires stock `@juicesharp/rpiv-ask-user-question` 2.15.0+:
 
 ```bash
-shasum -a 256 /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
-# Continue only if the checksum matches above.
-PATCH_HOME="$HOME/.local/share/pi-hub-questions/2.10.1-hub.1"
-mkdir -p "$PATCH_HOME"
-cp /path/to/juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz "$PATCH_HOME/"
-cd "$PATCH_HOME"
-npm install --save-exact ./juicesharp-rpiv-ask-user-question-2.10.1-hub.1.tgz
+pi install npm:@juicesharp/rpiv-ask-user-question
 ```
 
-Close running Pi sessions and back up Pi settings. Use `pi list` to find the existing questionnaire source. If present, remove it with `pi remove <original-source>` and remove any explicit extension path that also loads it. Then register the replacement directory:
+Reload or restart the managed Pi session after installation. Hub uses the package's official answer events. Rules' attention metadata alone does not enable answering.
 
-```bash
-pi install "$PATCH_HOME/node_modules/@juicesharp/rpiv-ask-user-question"
-```
+Hub shows option labels and descriptions, plus the selected option's preview when the exact pending tool call is available on the live branch. Otherwise **preview in Pi** marks that option; it remains answerable. Older package versions show an update notice. Prompts that cannot accept external answers show **This prompt can only be answered in Pi** and **Open in Pi**.
 
-Do not pass the `.tgz` directly to `pi install`; Pi treats local files as extension source. Restart Pi and verify that exactly one `ask_user_question` tool is available. Keep `package.json`, `package-lock.json`, and the archive together. To reproduce this dependency set in a new directory or on another machine, copy all three there and run `npm ci` before registering that package directory with Pi. This local installation does not follow upstream updates. To roll back, close Pi, remove the replacement source, and restore the original source from your saved settings.
+See [Answer from a card](FEATURES.md#answer-from-a-card) for controls. Conversation remains read-only.
 
-Without this integration, use **Open in Pi** to answer. See [Conversation](FEATURES.md#conversation) for dashboard controls.
+Managed parent sessions always receive a dashboard agent note asking them to use `ask_user_question` and `hand_off` when available, with context, a recommendation, and handoff evidence; it has no off switch and does not apply to subagents or unmanaged Pi.
 
 ### Your own integrations
 
@@ -203,6 +189,7 @@ Optional global config lives at `config.json` under the global state directory:
     "themeSync": true,
     "attentionBell": false,
     "attentionNotify": false,
+    "followDefault": false,
     "shortcuts": [
       {
         "key": "C-n",
@@ -228,6 +215,10 @@ pi-hub config unset worktree-default
 
 `dashboard.attentionBell` enables a best-effort BEL when a fresh request is delivered externally. It defaults to `false`. Use the unbound **Attention bell: On/Off** action in the `:` palette to persist the setting. BEL remains silent when any attached client is already showing Hub or a request in the fresh batch. Text delivery to other eligible clients still proceeds.
 
+### Follow view default
+
+`dashboard.followDefault` opens follow view (`o`) when the dashboard starts and reopens it after the followed session is archived, stopped, or deleted. It defaults to `false`. Use the unbound **Follow view by default: On/Off** action in the `:` palette to persist the setting; the change applies to the running dashboard at once. Pressing `o` to leave follow view keeps it closed until you press `o` again.
+
 ### Desktop notifications
 
 `dashboard.attentionNotify` raises a desktop notification on each attached tmux client that receives a fresh-request message; requests that arrive together share one notification. It defaults to `false`. Hub writes an OSC 9 escape sequence straight to that client's terminal, so it works while the dashboard pane is hidden and needs no tmux passthrough setting. Ghostty, iTerm2, WezTerm and kitty show it; other terminals ignore it. Some terminals or OS settings hide it while the terminal window is in front. The rules that suppress the text message also suppress the notification, so a client already showing Hub, the requesting session or its pin gets none. Restart the dashboard after changing the setting.
@@ -240,7 +231,7 @@ The lowercase `b` dashboard command toggles Backlog in the saved lifecycle selec
 
 ## Dashboard shortcuts
 
-`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line Pi input for the selected live session. Commands use Pi's input/template pipeline and require an idle session with no queued messages, blocking prompt, or editor draft. There is no tmux-paste fallback; `p` remains a separate send path. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
+`dashboard.shortcuts` binds extra normal-mode dashboard keys to one-line Pi input for the selected live session. Commands use Pi's input/template pipeline and require an idle session with no queued messages, blocking prompt, or editor draft. There is no tmux-paste fallback; `p` opens the card Reply editor instead. Shortcuts are ignored in filters, forms, pickers, help, and other edit modes. Valid shortcuts also appear in the `:` intent palette for the selected live parent session. They cannot target stopped, error, or subagent rows.
 
 ```json
 {
@@ -352,7 +343,9 @@ Set `PI_AGENT_HUB_GLYPHS=ascii` to use ASCII dashboard symbols, borders, navigat
 NO_COLOR=1 PI_AGENT_HUB_GLYPHS=ascii pi-hub
 ```
 
-The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols. Both variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
+Set `PI_AGENT_HUB_REDUCED_MOTION=1` to show the final Accepted receipt without its one-time 600 ms emphasis change. `NO_COLOR` also disables that change. This switch does not change running-session indicators.
+
+The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols. All three variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
 
 ## Theme behavior
 

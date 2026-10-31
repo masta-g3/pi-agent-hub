@@ -43,7 +43,7 @@ test("catalog has deterministic group order, target-bound IDs, and all direct al
   assert.equal(commands.find((command) => command.label === "Rename…")?.targetSessionId, "alpha");
   assert.deepEqual(commands.find((command) => command.label === "Rename…")?.bindings.map((binding) => binding.key), ["R", "e"]);
   assert.deepEqual(commands.find((command) => command.label === "Sync Pi name")?.bindings.map((binding) => binding.key), ["N", "M-n"]);
-  assert.deepEqual(commands.find((command) => command.label === "Open")?.bindings.map((binding) => binding.key), ["Enter", "C-m", "C-j"]);
+  assert.deepEqual(commands.find((command) => command.label === "Open in Pi")?.bindings.map((binding) => binding.key), ["Enter", "C-m", "C-j"]);
   assert.equal(commandForKey(commands, "e")?.id, "action:alpha:rename");
   assert.equal(commandForKey(commands, "F")?.id, "action:alpha:fork-compact");
   assert.equal(commandForKey(commands, "\r")?.id, "action:alpha:open");
@@ -66,46 +66,40 @@ test("Backlog visibility is a catalog-owned toggle distinct from moving a sessio
   assert.equal(buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities }).find((command) => command.id === "action:alpha:backlog")?.displayKey, "B");
 });
 
-test("footer labels Enter and Workspace truthfully and keeps request navigation when space is tight", () => {
+test("footer keeps request navigation and palette first at every width", () => {
   for (const width of [61, 80, 99, 100, 119, 120, 160]) {
     for (const requestCount of [0, 1]) {
       const footer = dashboardFooter(width, { requestCount });
-      assert.match(footer, /Enter Open/);
-      assert.doesNotMatch(footer, /Enter Workspace/);
-      if (width < 120) assert.match(footer, /i Workspace/);
-      if (requestCount) assert.match(footer, /Enter Open · (?:i Workspace · )?\] Next request/);
-      else assert.doesNotMatch(footer, /\] Next request/);
+      assert.match(footer, /^\] Next request · p Reply · : All actions · \? Help/);
+      assert.doesNotMatch(footer, /Enter|Workspace/);
       assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
     }
   }
 });
 
-test("footer backlog toggle uses the catalog label for the current filter", () => {
-  assert.match(dashboardFooter(160), /b Hide backlog/);
-  assert.match(dashboardFooter(160, { filter: "lifecycle:active,archived" }), /b Show backlog/);
+test("footer uses stable Backlog text while catalog labels stay contextual", () => {
+  assert.match(dashboardFooter(160), /b Backlog/);
+  assert.match(dashboardFooter(160, { filter: "lifecycle:active,archived" }), /b Backlog/);
 });
 
 test("phone request hint keeps the existing tap-target order and only uses spare space", () => {
   assert.equal(dashboardFooter(44, { requestCount: 1 }), dashboardFooter(44));
-  assert.equal(dashboardFooter(60, { requestCount: 1 }), "Enter Open · i Workspace · : Actions · / Filter · ? Help");
+  assert.equal(dashboardFooter(60, { requestCount: 1 }), "] Next request · p Reply · : All actions · ? Help");
 });
 
 test("configured shortcuts cannot shadow lowercase Backlog visibility", () => {
   assert.throws(() => validateDashboardShortcuts([{ key: "b", send: "status" }]), /conflicts with a built-in/);
 });
 
-test("coaching footer keeps the approved daily-loop controls in catalog ownership", () => {
-  assert.equal(dashboardFooter(40, { coaching: true }), "Enter Open · Ctrl+Q Return · : · ?");
-  assert.equal(dashboardFooter(60, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
-  assert.equal(dashboardFooter(160, { coaching: true }), "Enter Open · Ctrl+Q Return · : Actions · ? Help");
+test("coaching does not replace the stable inbox footer", () => {
+  for (const width of [30, 40, 60, 80, 120, 160]) assert.equal(dashboardFooter(width, { coaching: true }), dashboardFooter(width));
+  assert.equal(dashboardFooter(30), "] Next · p Reply · : Actions");
 });
 
 test("coaching retains truthful workspace and request hints", () => {
   for (const width of [61, 80, 100, 160]) {
     const footer = dashboardFooter(width, { coaching: true, requestCount: 1 });
-    assert.match(footer, /Enter Open/);
-    assert.match(footer, /\] Next request/);
-    if (width < 120) assert.match(footer, /i Workspace/);
+    assert.match(footer, /^\] Next request · p Reply · : All actions · \? Help/);
     assert.ok(visibleWidth(footer) <= width - 2, `${width}: ${footer}`);
   }
 });
@@ -175,7 +169,7 @@ test("selected action availability mirrors row and capability guards with reason
   const byLabel = (label: string) => commands.find((command) => command.label === label)!;
   assert.deepEqual([byLabel("Restart").enabled, byLabel("Restart").disabledReason], [false, "restart transport unavailable"]);
   assert.deepEqual([byLabel("Rename…").enabled, byLabel("Rename…").disabledReason], [false, "restart the Pi session before renaming"]);
-  assert.deepEqual([byLabel("Send text…").enabled, byLabel("Send text…").disabledReason], [false, "session is not live"]);
+  assert.deepEqual([byLabel("Reply").enabled, byLabel("Reply").disabledReason], [false, "session is not live"]);
   assert.deepEqual([byLabel("Finish worktree…").enabled, byLabel("Finish worktree…").disabledReason], [false, "no Hub-owned worktree"]);
 
   const child = session("child", { kind: "subagent", parentId: "owner" });
@@ -308,19 +302,19 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     actions: string[];
     primaryLabel: string;
   }> = [
-    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
-    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open" },
-    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Send text…" },
+    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, actions: ["open", "send", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, actions: ["send", "open", "mark-read"], primaryLabel: "Reply" },
     { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open", "archive"], primaryLabel: "Details" },
     { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore", "archive"], primaryLabel: "Restart" },
-    { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open" },
-    { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "archive", "restore"], primaryLabel: "Open" },
-    { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open" },
-    { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open" },
-    { name: "active", values: { status: "running" }, actions: ["open", "pin", "archive"], primaryLabel: "Open" },
+    { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open in Pi" },
+    { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "archive", "restore"], primaryLabel: "Open in Pi" },
+    { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open in Pi" },
+    { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open in Pi" },
+    { name: "active", values: { status: "running" }, actions: ["open", "pin", "archive"], primaryLabel: "Open in Pi" },
     { name: "closed-stopped", values: { status: "stopped", closure: "done", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
     { name: "closed-running", values: { status: "running", closure: "abandoned", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
-    { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "restore", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["open", "restore", "mark-read"], primaryLabel: "Open in Pi" },
     { name: "closed-error", values: { status: "error", closure: "done", bucket: "archived" }, guidance: "Check Details before restarting.", actions: ["info", "restore", "open"], primaryLabel: "Details" },
   ];
 
@@ -384,7 +378,7 @@ test("workspace selection reuses exact enabled descriptors and respects the acti
   assert.strictEqual(workspace.moreCommand, palette);
   assert.ok(workspace.actions.every((command) => command.enabled && command.targetSessionId === selected.id));
   assert.equal(workspace.actions.some((command) => command.id === "action:exact:send"), false);
-  assert.equal(workspace.guidance, "Answer in the Pi session.");
+  assert.equal(workspace.guidance, undefined);
   assert.equal(open.label, "Open in Pi");
   assert.equal(open.hint, "focus the real Pi questionnaire");
   assert.deepEqual(

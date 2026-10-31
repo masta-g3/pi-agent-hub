@@ -5,13 +5,13 @@ import type { RuntimeSession } from "../src/core/types.js";
 import { formatKey } from "../src/tui/dashboard-shortcuts.js";
 import { buildDashboardCommands, dashboardFooter, pinnedDashboardFooter, conversationDashboardFooter } from "../src/tui/dashboard-commands.js";
 import type { DialogContext } from "../src/tui/dialog.js";
-import { openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, openSendForm, renderFormDialog } from "../src/tui/form-dialogs.js";
+import { openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, renderFormDialog } from "../src/tui/form-dialogs.js";
 import { openNewSessionDialog, renderNewSessionDialog } from "../src/tui/new-session-dialog.js";
 import { createPickerDialog, renderPickerDialog } from "../src/tui/picker-dialog.js";
 import { createThemeDialog, renderThemeDialog } from "../src/tui/theme-dialog.js";
 import { createCommandPalette, renderCommandPalette } from "../src/tui/command-palette-dialog.js";
 import { openDeleteDialog, openFinishDialog, openArchiveDialog, createRestartDialog, renderConfirmDialog, renderArchiveDialog, renderRestartDialog } from "../src/tui/confirm-dialogs.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionDialog } from "../src/tui/question-dialog.js";
+import { createQuestionDialog, handleQuestionInput, renderQuestionPanel } from "../src/tui/question-dialog.js";
 import { openFavoritesDialog, renderFavoritesDialog } from "../src/tui/session-favorites-dialog.js";
 import { createRepoPicker, renderRepoPicker } from "../src/tui/repo-picker.js";
 import { createTextInput } from "../src/tui/text-input.js";
@@ -32,7 +32,6 @@ function context(width: number): DialogContext {
         rename: () => ({ version: 1, favorites: [] }), remove: () => ({ version: 1, favorites: [] }) } },
     theme: darkTheme, now: () => 0, close: () => {}, setDialog: () => {}, dialog: () => undefined,
     setMessage: () => {}, message: () => undefined, flashMessage: () => {}, runAction: () => {}, attachSession: () => {}, stop: () => {},
-    interactionState: { questionProtocol: true, pending: [], messageDelivery: "idle" },
   };
 }
 
@@ -59,7 +58,7 @@ for (const width of [80, 160]) {
     view.handleInput("?");
     const text = stripAnsi(view.render(width).join("\n"));
     consistent(text, "Help");
-    assert.equal((text.match(/Open(?: · [^\n│]*?)?\s+Enter/g) ?? []).length, 1);
+    assert.equal((text.match(/Open in Pi(?: · [^\n│]*?)?\s+Enter/g) ?? []).length, 1);
     assert.match(text, /Custom(?: · send \/custom)?\s+Ctrl\+O/);
     assert.doesNotMatch(text, /C-m|C-j|M-n|Alt\+N|R\/e/);
     assert.match(text, /subagent rows/);
@@ -75,7 +74,7 @@ for (const width of [80, 160]) {
     view.render(width);
     view.handleInput("i");
     consistent(view.render(width), "Workspace");
-    for (const open of [openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog, openSendForm]) {
+    for (const open of [openForkDialog, openForkCompactDialog, openMoveGroupDialog, openRenameSessionForm, openRenameGroupDialog]) {
       const dialog = open(ctx)!;
       assert.ok(dialog, open.name);
       consistent(renderFormDialog(dialog, width, ctx, 100), dialog.purpose);
@@ -103,12 +102,15 @@ for (const width of [80, 160]) {
     const question = createQuestionDialog({ managedId: "one", piSessionId: "pi-one", instanceId: "instance" }, "Session", {
       toolCallId: "call", params: { questions: [{ question: "Which?", header: "Choice", options: [{ label: "First", description: "First option" }] }] },
     });
-    consistent(renderQuestionDialog(question, width, 100, darkTheme), "Question");
+    consistent([...renderQuestionPanel(question, width, darkTheme).body, renderQuestionPanel(question, width).keyLine], "Question");
     handleQuestionInput(question, "t");
-    consistent(renderQuestionDialog(question, width, 100, darkTheme), "Custom answer");
+    consistent([...renderQuestionPanel(question, width, darkTheme).body, renderQuestionPanel(question, width).keyLine], "Custom answer");
   });
 }
 
-test("phone footers name the same Workspace as intermediate widths", () => {
-  for (const width of [30, 40, 60, 80, 119]) assert.match(dashboardFooter(width), /i Workspace/);
+test("phone footers keep the inbox loop instead of duplicating selected-card controls", () => {
+  for (const width of [30, 40, 60, 80, 119]) {
+    assert.match(dashboardFooter(width), /^\] Next(?: request)? · p Reply · : (?:All actions|Actions)/);
+    assert.doesNotMatch(dashboardFooter(width), /Workspace|Enter/);
+  }
 });

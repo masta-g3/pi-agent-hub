@@ -15,7 +15,7 @@ import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTh
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardFollowDefault, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardFollowDefault, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
@@ -388,6 +388,7 @@ export async function runTui(): Promise<void> {
   const tui = new TuiMainScreen(terminal, false);
   const dashboardShortcuts = await effectiveDashboardShortcuts();
   let attentionBellEnabled = await effectiveDashboardAttentionBell();
+  let followDefaultEnabled = await effectiveDashboardFollowDefault();
   const attentionNotifyEnabled = await effectiveDashboardAttentionNotify();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
@@ -536,7 +537,6 @@ export async function runTui(): Promise<void> {
     loadConversation: loadSessionConversation,
     async submitAnswer(target, toolCallId, answers) {
       await submitSessionAnswer(target, toolCallId, answers);
-      await touchSession(target.managedId);
     },
     requestRender: () => tui.requestRender(),
     initialViewState,
@@ -653,24 +653,30 @@ export async function runTui(): Promise<void> {
     },
     async sendMessage(target, text, delivery) {
       await sendSessionMessage(target, text, delivery);
-      await touchSession(target.managedId);
     },
+    afterInteractionWrite: (target) => touchSession(target.managedId),
     dashboardShortcuts,
     async runDashboardShortcut(sessionId, shortcut) {
       const session = controller.snapshot().sessions.find(row => row.id === sessionId);
       const target = session && interactionTarget(session);
       if (!target) throw new Error("Restart this session to enable guarded commands");
       await runSessionShortcut(target, shortcut.key, shortcut.send);
-      await touchSession(sessionId);
     },
-    acknowledgeSession(sessionId, requestId) {
-      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
+    acknowledgeSession(sessionId, requestId, dismiss) {
+      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId, dismiss));
     },
     attentionDelivery: {
       attentionBellEnabled: () => attentionBellEnabled,
       async setAttentionBell(enabled) {
         await setDashboardAttentionBell(enabled);
         attentionBellEnabled = enabled;
+      },
+    },
+    followPreference: {
+      followDefault: () => followDefaultEnabled,
+      async setFollowDefault(enabled) {
+        await setDashboardFollowDefault(enabled);
+        followDefaultEnabled = enabled;
       },
     },
     favorites: {

@@ -14,101 +14,57 @@ const request: PendingQuestion = { toolCallId: "drink", params: { questions: [{ 
 async function setup(holdSubmission = false, height = 28, secondStatus: RuntimeSession["status"] = "idle") {
   let pending = [request];
   let release!: () => void;
-  let now = 0;
-  const later: unknown[] = [];
   const writes: { id: string; answers: readonly AnswerInput[] }[] = [];
   const second: RuntimeSession = { ...session, status: secondStatus, id: "panel-b", title: "Second session", tmuxSession: "panel-b", piSessionId: "pi-b", interaction: { version: 1, instanceId: "instance-b" } };
   const controller = new SessionsController({ version: 1, sessions: [session, second] });
   const view = new SessionsView(controller, () => {}, {
-    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending }),
-    loadConversation: async () => readConversation([{ type: "message", id: "message", message: { role: "assistant", content: [{ type: "text", text: "Here is the earlier conversation." }, { type: "toolCall", id: request.toolCallId, name: "ask_user_question", arguments: request.params }] } }, ...later], { branchId: "branch" }),
-    submitAnswer: async (target, _request, answers) => { writes.push({ id: target.managedId, answers }); if (holdSubmission) await new Promise<void>(resolve => { release = resolve; }); pending = []; }, terminalRows: () => height, now: () => now,
+    interactionTarget, loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending }),
+    loadConversation: async () => readConversation([{ type: "message", id: "message", message: { role: "assistant", content: [{ type: "text", text: "Here is the earlier conversation." }, { type: "toolCall", id: request.toolCallId, name: "ask_user_question", arguments: request.params }] } }], { branchId: "branch" }),
+    submitAnswer: async (target, _request, answers) => { writes.push({ id: target.managedId, answers }); if (holdSubmission) await new Promise<void>(resolve => { release = resolve; }); pending = []; }, terminalRows: () => height,
   });
   view.render(120); view.handleInput("c"); await tick(); view.render(120);
-  return { view, controller, writes, release: () => release(), appendReply: () => {
-    later.push({ type: "message", id: "later", message: { role: "assistant", content: "A later reply" } });
-    now += 2_000;
-  } };
+  return { view, controller, writes, release: () => release() };
 }
+const answer = (view: SessionsView) => { view.handleInput("\x1b"); view.handleInput("\t"); view.render(120); };
 
-test("conversation appears below the fleet and exposes the pending question without opening a dialog", async () => {
+test("Conversation shows completed messages and typed questionnaire history, never an answer area", async () => {
   const { view } = await setup();
   const rows = view.render(120).map(stripAnsi);
   const conversation = rows.findIndex(line => line.includes("CONVERSATION"));
-  assert.ok(conversation > 0, "conversation is below fleet");
-  assert.ok(rows.slice(0, conversation).some(line => line.includes("Panel session")), "fleet stays above conversation");
-  assert.equal(rows.filter(line => line.includes("Which drink would you like?")).length, 1, "pending question appears once, not repeated in history");
-  assert.doesNotMatch(rows.join("\n"), /Review answers/);
+  assert.ok(conversation > 0);
+  assert.ok(rows.slice(0, conversation).some(line => line.includes("Panel session")));
+  assert.equal(rows.filter(line => line.includes("Which drink would you like?")).length, 1);
+  assert.doesNotMatch(rows.join("\n"), /ANSWER NEEDED|Enter Send|Review answers/);
 });
 
-test("answer card docks directly below a short two-message transcript", async () => {
-  const controller = new SessionsController({ version: 1, sessions: [session] });
-  const view = new SessionsView(controller, () => {}, {
-    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
-    loadConversation: async () => ({ branchId: "branch", revision: "1", items: [
-      { id: "user", role: "user", text: "Please choose a drink." },
-      { id: "reply", role: "assistant", text: "The latest message." },
-    ] }), submitAnswer: async () => {}, terminalRows: () => 40,
-  });
-  view.render(120); view.handleInput("c"); await tick();
-  const rows = view.render(120).map(stripAnsi);
-  const latest = rows.findIndex(row => row.includes("The latest message."));
-  const answer = rows.findIndex(row => row.includes("ANSWER NEEDED"));
-  assert.ok(latest >= 0);
-  assert.ok(answer > latest && answer - latest <= 3, "only message spacing and the separator precede the answer");
-  assert.match(rows[answer - 1]!, /^─+$/);
-  assert.ok(rows.length <= 40);
-});
-
-test("long inline transcripts keep their scroll window and speaker while the answer stays visible", async () => {
-  const controller = new SessionsController({ version: 1, sessions: [session] });
-  const view = new SessionsView(controller, () => {}, {
-    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
-    loadConversation: async () => ({ branchId: "branch", revision: "1", items: [
-      { id: "long", role: "assistant", text: Array.from({ length: 40 }, (_, index) => `History${index}`).join("\n\n") },
-    ] }), submitAnswer: async () => {}, terminalRows: () => 40,
-  });
-  view.render(120); view.handleInput("c"); await tick();
-  let rows = view.render(120).map(stripAnsi);
-  assert.ok(rows.some(row => row.includes("History39")));
-  assert.ok(rows.some(row => row === "  PI"), "clipped message still names its speaker");
-  assert.ok(rows.some(row => row.includes("ANSWER NEEDED")));
-  view.handleInput("\x1b"); view.handleInput("\t"); view.handleInput("\t");
-  view.handleInput("\x1b[H");
-  rows = view.render(120).map(stripAnsi);
-  assert.ok(rows.some(row => row.includes("History0")));
-  assert.ok(!rows.some(row => row.includes("History39")));
-  assert.ok(rows.some(row => row.includes("ANSWER NEEDED")));
-  view.handleInput("\x1b[6~");
-  assert.notDeepEqual(view.render(120).map(stripAnsi), rows, "Page Down changes transcript content");
-});
-
-test("number selects and the first Enter submits inline, without a review screen", async () => {
+test("Tab from the fleet opens the card answer, not a Conversation focus target", async () => {
   const { view, writes } = await setup();
+  answer(view);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /CONVERSATION/);
   view.handleInput("2");
   assert.equal(writes.length, 0);
   view.handleInput("\r"); await tick();
   assert.deepEqual(writes, [{ id: "panel-a", answers: [{ questionIndex: 0, kind: "option", optionIndex: 1 }] }]);
 });
 
-test("inline custom input treats c and numbers as text, not dashboard shortcuts", async () => {
+test("card custom input treats c and numbers as literal text", async () => {
   const { view, writes } = await setup();
-  view.handleInput("t"); view.render(120);
+  answer(view); view.handleInput("t"); view.render(120);
   view.handleInput("c"); view.handleInput("2"); view.handleInput("\r"); await tick();
   assert.deepEqual(writes, [{ id: "panel-a", answers: [{ questionIndex: 0, kind: "custom", text: "c2" }] }]);
 });
 
-test("selection changes cannot send the previous session's inline answer", async () => {
+test("selection changes cannot send the previous session's card answer", async () => {
   const { view, controller, writes } = await setup();
-  view.handleInput("2");
+  answer(view); view.handleInput("2");
   controller.selectSession("panel-b");
   view.handleInput("\r");
   assert.deepEqual(writes, []);
 });
 
-test("refresh cannot replace a submitting inline form and admit a second write", async () => {
+test("refresh cannot replace a submitting card form and admit a second write", async () => {
   const { view, writes, release } = await setup(true);
-  view.handleInput("2"); view.handleInput("\r");
+  answer(view); view.handleInput("2"); view.handleInput("\r");
   try {
     await view.refreshInteraction(); view.render(120);
     view.handleInput("1"); view.handleInput("\r");
@@ -116,51 +72,15 @@ test("refresh cannot replace a submitting inline form and admit a second write",
   } finally { release(); await tick(); }
 });
 
-test("short bottom panels retain the visible Send control", async () => {
+test("short card panels retain the visible Send control", async () => {
   const { view } = await setup(false, 12);
-  const rows = view.render(40).map(stripAnsi);
+  answer(view);
+  const rows = view.render(30).map(stripAnsi);
   assert.ok(rows.length <= 12);
   assert.ok(rows.some(row => row.includes("Enter Send")));
 });
 
-test("mouse Send commits the selected inline option before dispatch", async () => {
-  const { view, writes } = await setup();
-  let rows = view.render(120).map(stripAnsi);
-  const choice = rows.findIndex(row => row.includes("2 Coffee"));
-  assert.ok(choice >= 0);
-  view.handleInput(`\x1b[<0;3;${choice + 1}M`);
-  assert.equal(writes.length, 0);
-  rows = view.render(120).map(stripAnsi);
-  const send = rows.findIndex(row => row.includes("Enter Send"));
-  view.handleInput(`\x1b[<0;3;${send + 1}M`); await tick();
-  assert.deepEqual(writes, [{ id: "panel-a", answers: [{ questionIndex: 0, kind: "option", optionIndex: 1 }] }]);
-});
-
-test("merged question hints keep Send and Escape mouse actions separate", async () => {
-  for (const width of [80, 120, 160]) {
-    const { view, writes } = await setup();
-    let rows = view.render(width).map(stripAnsi);
-    let footer = rows.findIndex(row => row.includes("Enter Send"));
-    const choose = rows[footer]!.indexOf("1–2 Choose");
-    assert.ok(choose >= 0);
-    view.handleInput(`\x1b[<0;${choose + 2};${footer + 1}M`);
-    assert.deepEqual(writes, [], "selection hints must not submit");
-    rows = view.render(width).map(stripAnsi);
-    footer = rows.findIndex(row => row.includes("Enter Send"));
-    const escape = rows[footer]!.indexOf("Esc Fleet");
-    assert.ok(escape >= 0);
-    view.handleInput(`\x1b[<0;${escape + 2};${footer + 1}M`);
-    assert.deepEqual(writes, [], "Escape hint must not submit");
-    assert.match(view.render(width).map(stripAnsi).join("\n"), /Tab Answer · c Hide/);
-    view.handleInput("\t");
-    rows = view.render(width).map(stripAnsi);
-    footer = rows.findIndex(row => row.includes("Enter Send"));
-    view.handleInput(`\x1b[<0;3;${footer + 1}M`); await tick();
-    assert.equal(writes.length, 1, "Send hint still submits");
-  }
-});
-
-test("visible fleet tier navigation remains clickable above the conversation", async () => {
+test("visible fleet tier navigation remains clickable above Conversation", async () => {
   const { view, controller } = await setup(false, 28, "running");
   controller.selectSession("panel-a");
   const rows = view.render(120).map(stripAnsi);
@@ -171,20 +91,10 @@ test("visible fleet tier navigation remains clickable above the conversation", a
   assert.equal(controller.selected()?.id, "panel-b");
 });
 
-test("answer confirmation expires so detached readers see later-message cues", async () => {
-  const { view, appendReply } = await setup();
-  view.handleInput("\x1b"); view.handleInput("\t"); view.handleInput("\t");
-  view.handleInput("\x1b[H"); view.handleInput("\x1b[Z");
-  view.handleInput("2"); view.handleInput("\r"); await tick();
-  appendReply(); await view.refreshInteraction();
-  const text = stripAnsi(view.render(120).join("\n"));
-  assert.match(text, /New messages/);
-  assert.doesNotMatch(text, /Answer accepted/);
-});
-
-test("Escape releases answer focus without submitting or cancelling the question", async () => {
+test("Escape releases answer focus without submitting or declining; Tab restores its staged choice", async () => {
   const { view, writes } = await setup();
-  view.handleInput("\x1b"); view.handleInput("2");
+  answer(view); view.handleInput("2"); view.handleInput("\x1b");
   assert.equal(writes.length, 0);
-  assert.match(stripAnsi(view.render(120).join("\n")), /Which drink would you like\?/);
+  view.handleInput("\t");
+  assert.match(stripAnsi(view.render(120).join("\n")), /▶ \[2\] Coffee/);
 });

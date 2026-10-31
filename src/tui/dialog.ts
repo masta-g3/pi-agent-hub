@@ -58,7 +58,7 @@ export interface SessionLifecycleActions {
   reorderSelected: (delta: -1 | 1) => unknown;
   reorderSession: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge: () => unknown;
-  acknowledgeSession: (sessionId: string, requestId?: string) => unknown;
+  acknowledgeSession: (sessionId: string, requestId?: string, dismiss?: boolean) => unknown;
 }
 
 export interface SidePaneViewState {
@@ -141,6 +141,11 @@ export interface AttentionDeliveryActions {
   setAttentionBell: (enabled: boolean) => void | Promise<void>;
 }
 
+export interface FollowPreferenceActions {
+  followDefault: () => boolean;
+  setFollowDefault: (enabled: boolean) => void | Promise<void>;
+}
+
 /** Composition-bound action bag. Groups are optional; members are required when supplied. */
 export interface SessionsViewActions {
   interactionTarget?: (session: import("../core/types.js").RuntimeSession) => InteractionTarget | undefined;
@@ -148,6 +153,8 @@ export interface SessionsViewActions {
   loadConversation?: (target: InteractionTarget, options?: { before?: string; branchId?: string; limit?: number }) => Promise<ConversationPage>;
   submitAnswer?: (target: InteractionTarget, toolCallId: string, answers: AnswerInput[]) => Promise<void>;
   requestRender?: () => void;
+  /** Bookkeeping runs only after delivery is confirmed; it cannot change the receipt. */
+  afterInteractionWrite?: (target: InteractionTarget) => void | Promise<void>;
   sessionLifecycle?: Partial<SessionLifecycleActions>;
   sidePane?: Partial<SidePaneActions>;
   skillActions?: Partial<SkillsActions>;
@@ -156,6 +163,7 @@ export interface SessionsViewActions {
   navigationActions?: Partial<NavigationActions>;
   shortcutActions?: Partial<DashboardShortcutActions>;
   attentionDelivery?: Partial<AttentionDeliveryActions>;
+  followPreference?: FollowPreferenceActions;
 
   initialViewState?: SessionsViewState;
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */
@@ -195,7 +203,7 @@ export interface SessionsViewActions {
   reorderSelected?: (delta: -1 | 1) => unknown;
   reorderSession?: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
-  acknowledgeSession?: (sessionId: string, requestId?: string) => unknown;
+  acknowledgeSession?: (sessionId: string, requestId?: string, dismiss?: boolean) => unknown;
   newFormContext?: () => NewFormContext;
   favorites?: FavoritesActions;
   skills?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;
@@ -225,7 +233,6 @@ export interface DialogContext {
   controller: SessionsController;
   actions: SessionsViewActions;
   theme: SessionsTheme | undefined;
-  interactionState?: SessionInteractionState;
   now(): number;
   close(): void;
   setDialog(dialog: SessionDialog): void;

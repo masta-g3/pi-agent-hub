@@ -124,6 +124,8 @@ export interface ManagedSession {
   sessionFile?: string;
   piSessionId?: string;
   acknowledgedAt?: number;
+  /** Producer request the user explicitly marked read; open questions and blockers stay visible until then. */
+  dismissedRequestId?: string;
   lastActivityAt?: number;
   /** Set on create/fork; removed by the user's first open, pin focus, answer, or send, never by agent activity. */
   unopened?: true;

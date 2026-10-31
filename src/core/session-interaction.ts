@@ -4,18 +4,25 @@ import { sessionsStateDir } from "./paths.js";
 import type { ConversationPage } from "./conversation.js";
 
 export const INTERACTION_BYTE_CAP = 256 * 1024;
+export const OPTION_PREVIEW_BYTE_CAP = 8 * 1024;
 export const INTERACTION_TIMEOUT_MS = 5_000;
 export const DELIVERY_UNCONFIRMED = "Delivery not confirmed; check Pi before retrying";
 export interface InteractionTarget { managedId: string; piSessionId: string; instanceId: string }
 export interface PendingQuestion {
   toolCallId: string;
-  params: { questions: { question: string; header: string; options: { label: string; description: string; preview?: string }[]; multiSelect?: boolean }[] };
+  params: { questions: { question: string; header: string; options: { label: string; description: string; preview?: string; hasPreview?: boolean }[]; multiSelect?: boolean }[] };
 }
-export type AnswerInput = { questionIndex: number; kind: "option"; optionIndex: number }
+export const ANSWER_NOTES_LIMIT = 8192;
+export type AnswerInput = ({ questionIndex: number; kind: "option"; optionIndex: number }
   | { questionIndex: number; kind: "custom"; text: string }
-  | { questionIndex: number; kind: "multi"; optionIndices: number[] };
+  | { questionIndex: number; kind: "multi"; optionIndices: number[] }) & { notes?: string };
 export type MessageDelivery = "send" | "steer" | "followUp";
-export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export interface SessionInteractionState { answerChannel?: "rpiv-events"; questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export function answerUnavailableReason(state?: SessionInteractionState): string | undefined {
+  if (!state) return "Question availability not confirmed";
+  if (!state.answerChannel) return "Reload Pi in this session to answer from Hub";
+  return state.questionUnavailableReason ?? (!state.questionProtocol || !state.pending.length ? "Direct answering unavailable" : undefined);
+}
 export type InteractionRequest = InteractionTarget & { version: 1; id: string } & (
   { kind: "state" } | { kind: "read"; before?: string; branchId?: string; limit?: number }
   | { kind: "submit-answer"; toolCallId: string; answers: AnswerInput[] }
@@ -44,7 +51,7 @@ export function parseInteractionRequest(value: unknown): InteractionRequest | un
     || value.kind === "submit-answer" && text(value.toolCallId) && Array.isArray(value.answers) && value.answers.length <= 4 && value.answers.every(isAnswerInput)) return value as unknown as InteractionRequest;
 }
 function isAnswerInput(value: unknown): boolean {
-  if (!isObject(value) || !Number.isInteger(value.questionIndex) || Number(value.questionIndex) < 0 || Number(value.questionIndex) > 3) return false;
+  if (!isObject(value) || (value.notes !== undefined && (typeof value.notes !== "string" || value.notes.length > ANSWER_NOTES_LIMIT)) || !Number.isInteger(value.questionIndex) || Number(value.questionIndex) < 0 || Number(value.questionIndex) > 3) return false;
   return value.kind === "custom" && typeof value.text === "string" && Boolean(value.text.trim())
     || value.kind === "option" && Number.isInteger(value.optionIndex) && Number(value.optionIndex) >= 0
     || value.kind === "multi" && Array.isArray(value.optionIndices) && value.optionIndices.every((i) => Number.isInteger(i) && i >= 0);
@@ -54,8 +61,11 @@ export function parsePendingQuestions(value: unknown): PendingQuestion[] | undef
     && Array.isArray(p.params.questions) && p.params.questions.length >= 1 && p.params.questions.length <= 4
     && p.params.questions.every((q: unknown) => isObject(q) && typeof q.question === "string" && typeof q.header === "string"
       && (q.multiSelect === undefined || typeof q.multiSelect === "boolean") && Array.isArray(q.options)
-      && q.options.length >= 2 && q.options.length <= 4 && q.options.every((o: unknown) => isObject(o) && typeof o.label === "string" && typeof o.description === "string" && (o.preview === undefined || typeof o.preview === "string"))))) return;
-  return value as PendingQuestion[];
+      && q.options.length >= 2 && q.options.length <= 4 && q.options.every((o: unknown) => isObject(o) && typeof o.label === "string" && typeof o.description === "string" && (o.hasPreview === undefined || typeof o.hasPreview === "boolean") && (o.preview === undefined || typeof o.preview === "string" && Buffer.byteLength(JSON.stringify(o.preview)) <= OPTION_PREVIEW_BYTE_CAP))))) return;
+  return (value as PendingQuestion[]).map(p => ({ toolCallId: p.toolCallId, params: { questions: p.params.questions.map(q => ({
+    question: q.question, header: q.header, ...(q.multiSelect === undefined ? {} : { multiSelect: q.multiSelect }),
+    options: q.options.map(o => ({ label: o.label, description: o.description, ...(o.hasPreview === undefined ? {} : { hasPreview: o.hasPreview }), ...(o.preview === undefined ? {} : { preview: o.preview }) })),
+  })) } }));
 }
 export function requestSessionInteraction(request: InteractionRequest, env: NodeJS.ProcessEnv = process.env): Promise<InteractionResult> {
   const path = interactionSocketPath(request.managedId, env);
@@ -93,7 +103,8 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
 
 function validResult(kind: InteractionRequest["kind"], value: unknown): value is InteractionResult {
   if (!isObject(value)) return false;
-  if (kind === "state") return typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
+  if (kind === "state") return (value.answerChannel === undefined || value.answerChannel === "rpiv-events") && typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
+    && (value.questionUnavailableReason === undefined || typeof value.questionUnavailableReason === "string")
     && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
     && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy");
   if (kind === "read") return typeof value.branchId === "string" && typeof value.revision === "string"

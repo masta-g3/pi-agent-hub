@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
+import { configPath, effectiveDashboardFollowDefault, setDashboardFollowDefault, effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -26,6 +26,16 @@ test("config defaults to the built-in skill pool and MCP catalog", async () => {
   assert.deepEqual(await effectiveDashboardThemePreference(env), { syncPi: true });
   assert.deepEqual(await effectiveDashboardShortcuts(env), []);
   assert.equal(await effectiveDashboardAttentionBell(env), false);
+});
+
+test("follow view is opt-in and the saved preference overrides the default", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-follow-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  assert.equal(await effectiveDashboardFollowDefault(env), false);
+  await setDashboardFollowDefault(true, env);
+  assert.equal(await effectiveDashboardFollowDefault(env), true);
+  await setDashboardFollowDefault(false, env);
+  assert.equal(await effectiveDashboardFollowDefault(env), false);
 });
 
 test("session prelude config is trimmed and validated", async () => {

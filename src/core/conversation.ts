@@ -100,6 +100,16 @@ function answerText(details: unknown, params: Question[]): string | undefined {
   return sections.length ? sections.join("\n\n") : undefined;
 }
 
+/** Exact typed tool-call arguments from the supplied live branch, not a conversation search. */
+export function questionCallArguments(branch: readonly unknown[], toolCallId: string): RecordValue | undefined {
+  for (const entry of branch) {
+    if (!record(entry) || entry.type !== "message" || !record(entry.message) || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) continue;
+    for (const block of entry.message.content) {
+      if (record(block) && block.type === "toolCall" && block.name === "ask_user_question" && block.id === toolCallId && record(block.arguments)) return block.arguments;
+    }
+  }
+}
+
 /** Projects only the supplied active branch. It never reads or mutates Pi session files. */
 export function readConversation(
   branch: readonly unknown[],

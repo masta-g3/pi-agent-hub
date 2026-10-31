@@ -62,6 +62,7 @@ export function dashboardEnv(env: NodeJS.ProcessEnv = process.env): Record<strin
   return compactEnv({
     PI_CODING_AGENT_DIR: env.PI_CODING_AGENT_DIR,
     PI_AGENT_HUB_GLYPHS: env.PI_AGENT_HUB_GLYPHS,
+    PI_AGENT_HUB_REDUCED_MOTION: env.PI_AGENT_HUB_REDUCED_MOTION,
     NO_COLOR: env.NO_COLOR,
     [STATE_ENV]: env[STATE_ENV],
   });

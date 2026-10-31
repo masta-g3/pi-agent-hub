@@ -14,7 +14,7 @@ import { darkTheme, stripAnsi, styleToken, styleBgToken, effectiveDashboardTheme
 import { SessionsController } from './dist/src/app/controller.js';
 import { SessionsView } from './dist/src/tui/sessions-view.js';
 import { ConversationReader, renderConversationPane, renderMarkdown } from './dist/src/tui/conversation.js';
-import { createQuestionDialog, renderQuestionDialog } from './dist/src/tui/question-dialog.js';
+import { createQuestionDialog, renderQuestionPanel } from './dist/src/tui/question-dialog.js';
 import { glyphs, ascii, worktreeGlyph } from './dist/src/tui/glyphs.js';
 const steps = [{id:'plan', short:'PL'}, {id:'execute',short:'EX'}, {id:'review',short:'RV'}];
 const sessions = ['running','waiting','idle','error','stopped'].map((status,i) => ({
@@ -54,7 +54,23 @@ for (const width of [80,160]) {
   const question = createQuestionDialog({managedId:'s0',piSessionId:'pi-s0',instanceId:'i'},'Choose',
     {toolCallId:'call',params:{questions:[{header:'Choice',question:'Which option?',multiSelect:true,options:[{label:'First',description:'A choice'}]}]}});
   question.selected.add(0);
-  frames.push(...renderQuestionDialog(question,width,10,darkTheme));
+  frames.push(...renderQuestionPanel(question,width,darkTheme).body);
+}
+for (const width of [120,80,60,30]) {
+ const selected = sessions[1];
+ const commands = buildDashboardCommands({sessions,selectedId:selected.id,capabilities:{openSession:true}});
+ const question = createQuestionDialog({managedId:selected.id,piSessionId:'pi',instanceId:'i'},selected.title,
+  {toolCallId:'call',params:{questions:[{header:'Scope',question:'Which option?',options:[{label:'First (Recommended)',description:'Full wrapped description '.repeat(8)},{label:'Other',description:''}]}]}});
+ const panel = renderQuestionPanel(question,width,darkTheme);
+ const framed = renderSessions(buildRenderModel({sessions,selectedId:selected.id,width,height:40,guidanceHidden:true,
+  workspaceCommands:selectWorkspaceCommands(selected,commands,3),cardPanel:panel}),darkTheme);
+ assert.ok(framed.lines.every(line=>visibleWidth(line)===width));
+ if (width>=40) assert.ok(framed.lines.some(line=>stripAnsi(line).includes(glyphs.topLeft+glyphs.horizontal)));
+ if (!process.env.NO_COLOR) {
+   const fills = framed.lines.filter(line=>line.includes('48;2;26;27;38m'));
+   assert.ok(fills.length>1, 'cursor fills the wrapped description');
+ }
+ frames.push(...framed.lines);
 }
 `;
 
@@ -106,7 +122,7 @@ test("ASCII fleet, dense rows, board, workspace and form chrome fit exact widths
 });
 
 test("dashboard recreation forwards glyph and no-color preferences", () => {
-  assert.deepEqual(dashboardEnv({ PI_AGENT_HUB_GLYPHS: "ascii", NO_COLOR: "1" }), { PI_AGENT_HUB_GLYPHS: "ascii", NO_COLOR: "1" });
+  assert.deepEqual(dashboardEnv({ PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" }), { PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" });
 });
 
 test("dashboard glyph literals stay in the glyph module", async () => {
