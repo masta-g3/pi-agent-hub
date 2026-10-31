@@ -4,7 +4,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { renderSessions } from "../src/tui/layout.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
-import { darkTheme, stripAnsi } from "../src/tui/theme.js";
+import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { SessionsController } from "../src/app/controller.js";
 import { interactionTarget } from "../src/app/session-interaction.js";
@@ -16,7 +16,7 @@ function render(width: number, extra: Partial<Parameters<typeof buildRenderModel
   const commands = buildDashboardCommands({ sessions: [session], selectedId: "s", capabilities: { openSession: true, sendMessage: true } });
   return renderSessions(buildRenderModel({ sessions: [session], selectedId: "s", width, height: 30, guidanceHidden: true, workspaceCommands: selectWorkspaceCommands(session, commands, 3), ...extra }), darkTheme);
 }
-test("only the selected request/panel/receipt gets a fleet frame in Status and Repo", () => {
+test("every selected parent gets a fleet frame in Status and Repo", () => {
   for (const fleetGrouping of ["status", "repo"] as const) for (const width of [160, 120, 80, 60]) {
     const layout = render(width, { fleetGrouping });
     const rows = layout.lines.map(stripAnsi);
@@ -29,9 +29,46 @@ test("only the selected request/panel/receipt gets a fleet frame in Status and R
     for (let index = top; index <= rows.findIndex((row, i) => i > top && row.includes("╰─")); index++) { const target = layout.rowTargets[index]; assert.ok(target && "id" in target && target.id === "s"); }
     assert.ok(layout.lines.every(row => visibleWidth(row) <= width));
   }
-  for (const extra of [{ grouping: "stage" as const }, { pinSlots: ["s"] }, { selectedId: "other", sessions: [session, { ...session, id: "other", context: undefined }] }, { sessions: [{ ...session, context: undefined }] }]) assert.doesNotMatch(render(120, extra).lines.map(stripAnsi).join("\n"), /╭─ ✓ Selected request/);
-  assert.match(render(120, { sessions: [{ ...session, context: undefined }], deliveryResults: new Map([["s", "✓ Sent · Accepted"]]) }).lines.map(stripAnsi).join("\n"), /╭─ .*Selected request/);
-  assert.match(render(120, { sessions: [{ ...session, context: undefined }], cardPanel: { body: ["Editor"], keyLine: "Enter Send", offset: 0 } }).lines.map(stripAnsi).join("\n"), /╭─ .*Selected request/);
+  const plain = { ...session, title: "Plain working card", status: "running" as const, context: undefined };
+  const plainLayout = render(120, { sessions: [plain] });
+  assert.match(plainLayout.lines.map(stripAnsi).join("\n"), /╭─ ● Plain working card/);
+  assert.ok(plainLayout.lines.some(row => row.includes(styleToken(darkTheme, "border", "╭"))));
+  for (const extra of [{ grouping: "stage" as const }, { pinSlots: ["s"] }]) assert.doesNotMatch(render(120, extra).lines.map(stripAnsi).join("\n"), /╭─ .*Selected request/);
+  const moved = render(120, { selectedId: "other", sessions: [session, { ...session, id: "other", title: "Other", context: undefined }] }).lines.map(stripAnsi);
+  assert.ok(moved.some(row => row.includes("╭─") && row.includes("Other")));
+  assert.ok(moved.some(row => row.includes("Selected request") && !row.includes("╭─")));
+});
+
+test("fleet frame border color carries question, ready, blocker, and error state", () => {
+  const question = render(120, { selectedQuestion: { header: "Scope", question: "Choose one" } });
+  assert.ok(question.lines.some(row => row.includes(styleToken(darkTheme, "warning", "╭"))));
+  const ready = render(120);
+  assert.ok(ready.lines.some(row => row.includes(styleToken(darkTheme, "success", "╭"))));
+  const blocker = render(120, { sessions: [{ ...session, context: { ...session.context!, attention: { kind: "blocked", text: "Cannot continue", requestId: "blocked" } } }] });
+  assert.ok(blocker.lines.some(row => row.includes(styleToken(darkTheme, "error", "╭"))));
+  const error = render(120, { sessions: [{ ...session, status: "error", error: "Pi stopped", context: undefined }] });
+  assert.ok(error.lines.some(row => row.includes(styleToken(darkTheme, "error", "╭"))));
+});
+
+test("plain and request selections keep the same framed content width", () => {
+  const plain = { ...session, id: "plain", title: "Plain", status: "running" as const, context: undefined };
+  const request = { ...session, id: "request", title: "Request" };
+  const sessions = [plain, request];
+  const plainLayout = render(120, { sessions, selectedId: plain.id });
+  const requestLayout = render(120, { sessions, selectedId: request.id });
+  const insideWidth = (lines: string[]) => {
+    const top = lines.map(stripAnsi).find(line => line.includes("╭─"))!;
+    return visibleWidth(top) - 4;
+  };
+  assert.equal(insideWidth(plainLayout.lines), insideWidth(requestLayout.lines));
+});
+
+test("selected subagent micro rows and synthetic headers stay unframed", () => {
+  const child: RuntimeSession = { ...session, id: "child", title: "Child", kind: "subagent", parentId: session.id, agentName: "worker", taskPreview: "Inspect tests" };
+  const childLayout = render(120, { sessions: [session, child], selectedId: child.id, expandedProjectParentIds: new Set([session.id]) });
+  assert.doesNotMatch(childLayout.lines.map(stripAnsi).join("\n"), /╭─/);
+  const synthetic = render(120, { selectedSection: "active" });
+  assert.doesNotMatch(synthetic.lines.map(stripAnsi).join("\n"), /╭─/);
 });
 test("a crowded header moves the group once and aligns its own producer labels and markers", () => {
   const selected = { ...session, title: "A complete readable title before its group", group: "A complete long group", worktreePath: "/tmp/tree", worktreeBranch: "feature" };

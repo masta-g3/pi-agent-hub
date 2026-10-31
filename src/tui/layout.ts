@@ -549,13 +549,18 @@ interface SessionListContent {
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
   priorityIndexes?: number[];
-  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string; frame?: { closed: boolean; focused: boolean; metadata: string; keys?: ReturnType<typeof cardKeyRows> } };
+  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string; frame?: { closed: boolean; focused: boolean; metadata: string; border: (text: string) => string; keys?: ReturnType<typeof cardKeyRows> } };
   framedCard?: NonNullable<SessionListContent["panel"]>;
   cardScrollOffset?: number;
 }
 
 function requestFrameIdentity(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean) {
   const closed = terminalWidth >= 40;
+  const border = session.pendingQuestion ? styles.warning
+    : session.attention?.kind === "ready" ? styles.success
+    : session.attention?.kind === "question" ? styles.warning
+    : session.attention?.kind === "blocked" || session.displayStatus === "error" ? styles.error
+    : styles.border;
   const contentWidth = Math.max(1, width - (closed ? 4 : 2));
   const workflow = session.workflow;
   const grid = terminalWidth >= 80 && workflow && displayWidth(workflowGridHeader(workflow, " ")) + 20 <= contentWidth ? workflow : undefined;
@@ -571,9 +576,9 @@ function requestFrameIdentity(session: RenderSession, width: number, terminalWid
   const groupOnTop = closed && displayWidth(session.title + group) + 2 <= titleRoom;
   const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(marker)}${groupOnTop ? `  ${group}` : ""}`;
   const topText = labels ? twoColumn(title, labels, headerWidth) : title;
-  const top = closed ? `${selectionMarker(styles.accent(glyphs.topLeft))}${styles.accent(`${glyphs.horizontal} `)}${topText} ${styles.accent(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(topText) - 5)) + glyphs.topRight)}`
+  const top = closed ? `${selectionMarker(border(glyphs.topLeft))}${border(`${glyphs.horizontal} `)}${topText} ${border(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(topText) - 5)) + glyphs.topRight)}`
     : `${selectionMarker(styles.accent(glyphs.selected))} ${title}`;
-  return { top, closed, metadata: inboxMetadataLine(session, contentWidth, terminalWidth, styles, cell, repoMode, !groupOnTop) };
+  return { top, closed, border, metadata: inboxMetadataLine(session, contentWidth, terminalWidth, styles, cell, repoMode, !groupOnTop) };
 }
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean, dense = false): SessionListContent {
@@ -636,7 +641,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const cell = titleFirst || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
     const inbox = !board && !model.pinMode;
     const workspace = session.selected && model.workspace?.session.id === session.id ? model.workspace : undefined;
-    const frame = inbox && session.selected && (session.attention || session.pendingQuestion || session.deliveryResult || workspace?.panel)
+    const frame = inbox && session.selected && shape !== "micro-child"
       ? requestFrameIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo") : undefined;
     const indent = frame ? "  " : gutterColumn ? "   " : "  ";
     const contentWidth = Math.max(1, width - (frame?.closed ? 4 : indent.length));
@@ -707,7 +712,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         const index = prefix.findIndex(line => stripAnsi(line).trim() === receipt);
         if (index >= 0) prefix.splice(index, 1);
       }
-      panel = { bodyStart: rowStart + 2, width, indent, frame: { closed: frame.closed, focused: Boolean(workspace?.panel), metadata: frame.metadata, keys: keyRows },
+      panel = { bodyStart: rowStart + 2, width, indent, frame: { closed: frame.closed, focused: Boolean(workspace?.panel), metadata: frame.metadata, border: frame.border, keys: keyRows },
         content: focused ? { ...focused, body: [...prefix, ...focused.body],
           hangingIndents: [...prefix.map(() => 0), ...(focused.hangingIndents ?? focused.body.map(() => 0))],
           focusRows: focused.focusRows?.map(index => index + prefix.length) }
@@ -950,14 +955,15 @@ function windowPanel(list: SessionListContent, capacity: number | undefined, sty
     rendered.lines[0] = list.lines[list.selectedIndex]!;
     rendered.lines.splice(1, 0, panel.indent + panel.frame.metadata);
     if (panel.frame.closed) {
+      const frame = panel.frame;
       rendered.lines = rendered.lines.map((line, index) => {
         if (!index) return line;
         const content = sliceByColumn(line, panel.indent.length, panel.width);
         if (index === rendered.lines.length - 1) {
           const gap = displayWidth(content) < panel.width - 4 ? " " : "";
-          return `${styles.accent(`${glyphs.bottomLeft}${glyphs.horizontal} `)}${content}${gap}${styles.accent(glyphs.horizontal.repeat(Math.max(0, panel.width - displayWidth(content + gap) - 4)) + glyphs.bottomRight)}`;
+          return `${frame.border(`${glyphs.bottomLeft}${glyphs.horizontal} `)}${content}${gap}${frame.border(glyphs.horizontal.repeat(Math.max(0, panel.width - displayWidth(content + gap) - 4)) + glyphs.bottomRight)}`;
         }
-        return `${styles.accent(glyphs.vertical)} ${pad(content, Math.max(1, panel.width - 4))} ${styles.accent(glyphs.vertical)}`;
+        return `${frame.border(glyphs.vertical)} ${pad(content, Math.max(1, panel.width - 4))} ${frame.border(glyphs.vertical)}`;
       });
     }
   }

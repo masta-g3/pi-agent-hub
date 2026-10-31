@@ -20,7 +20,7 @@ const sessions: RuntimeSession[] = [0, 1].map((index) => ({
 for (const width of [40, 50, 60, 100, 120, 160, 220]) {
   test(`compact fleet titles and workflow columns at ${width} columns`, () => {
     const pinSlots = width <= 60 ? ["s0"] : undefined;
-    const rendered = renderSessions(buildRenderModel({ sessions, selectedId: "s0", width, height: 35, pinSlots }), darkTheme);
+    const rendered = renderSessions(buildRenderModel({ sessions, selectedId: "s0", width, height: 35, pinSlots, ...(!pinSlots ? { selectedSection: "active" as const } : {}) }), darkTheme);
     const lines = rendered.lines.map(stripAnsi);
     const header = lines.find((line) => /PL\s+EX\s+RV/.test(line));
     assert.ok(header, "one producer-owned shared header");
@@ -58,7 +58,7 @@ test("five-step pinned grids leave titles readable and fit beside group metadata
 test("completed steps stay checked in their exact shared columns", () => {
   for (const activeIndex of [0, 1, 2]) {
     const complete = { ...sessions[0], status: "stopped" as const, workflow: { ...workflow, activeIndex, currentStepComplete: true } };
-    const rendered = renderSessions(buildRenderModel({ sessions: [complete], selectedId: "s0", width: 100 }));
+    const rendered = renderSessions(buildRenderModel({ sessions: [complete], selectedSection: "quiet", width: 100 }));
     const lines = rendered.lines.map(stripAnsi);
     const header = lines.find((line) => /PL\s+EX\s+RV/.test(line))!;
     const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s0");
@@ -70,14 +70,14 @@ test("completed steps stay checked in their exact shared columns", () => {
 
 test("different pipelines show explicit step labels rather than misleading grid positions", () => {
   const other = { ...sessions[1], workflow: { ...workflow, steps: [{ id: "ship", short: "SHIP", label: "Ship" }], activeIndex: 0 } };
-  const rendered = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedId: "s0", width: 100 }));
+  const rendered = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedSection: "active", width: 100 }));
   const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s1");
   assert.match(stripAnsi(rendered.lines[title + 1]), /◉SHIP/);
 });
 
 test("focus decoration does not move the producer grid columns", () => {
   const focused = { ...sessions[0], workflow: { ...workflow, activeMode: { id: "focus", short: "FOC", label: "Focus" } } };
-  const rendered = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedId: "s0" }));
+  const rendered = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedSection: "active" }));
   const lines = rendered.lines.map(stripAnsi);
   assert.ok(lines.some((line) => /PL\s+EX\s+RV/.test(line)));
   assert.ok(lines.some((line) => line.includes("FOC")));
@@ -138,7 +138,8 @@ test("selected task survives at minimum card height beside plain step metadata",
   const rendered = renderSessions(buildRenderModel({ sessions: [withTask], selectedId: "s0", width: 60, height: 7 }));
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session");
   assert.ok(index >= 0);
-  assert.match(stripAnsi(rendered.lines[index + 1]), /\[.*\].*· Execute/);
+  assert.match(stripAnsi(rendered.lines[index]), /\[.*\]/);
+  assert.match(stripAnsi(rendered.lines[index + 1]), /· Execute/);
   assert.ok(rendered.lines.map(stripAnsi).some((line) => line.includes("Task explanation")));
 });
 

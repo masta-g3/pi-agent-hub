@@ -28,16 +28,17 @@ function titleIndex(layout: ReturnType<typeof renderSessions>, id: string): numb
   return layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
 }
 
-test("phone widths drop the outer frame and start content at the first column", () => {
+test("phone widths drop only the outer frame and start content at the first column", () => {
   for (const width of [30, 36, 44, 60]) {
     const { layout, lines } = render({ width, height: 22 });
     assert.equal(lines.length, 22);
-    assert.ok(lines.every((line) => !/[╭╰│]/.test(line[0] ?? "")), `${width}: framed`);
     assert.match(lines[0]!, /^FLEET/);
     assert.equal(layout.listStartX, 1);
     assert.ok(layout.lines.every((line) => visibleWidth(line) <= width));
     const index = titleIndex(layout, "s0");
     assert.ok(lines[index]!.includes("Product"), `${width}: ${lines[index]}`);
+    if (width >= 40) assert.match(lines[index]!, /^╭─/);
+    else assert.doesNotMatch(lines[index]!, /^╭/);
   }
   const wide = render({ width: 61, height: 22 });
   assert.match(wide.lines[0]!, /^╭/);
@@ -63,7 +64,8 @@ test("short phone windows use one-line rows and keep metadata only for the selec
     const next = layout.rowTargets[index + 1];
     if (session.id === "s1") {
       assert.deepEqual(next, { kind: "session-continuation", id: "s1" });
-      assert.match(lines[index + 1]!, /\[agent-atlas\]/);
+      assert.match(lines[index]!, /\[agent-atlas\]/);
+      assert.doesNotMatch(lines[index + 1]!, /\[agent-atlas\]/);
     } else assert.notDeepEqual(next, { kind: "session-continuation", id: session.id });
   }
   assert.ok(lines.some((line) => line.includes("Task explanation")), lines.join("\n"));

@@ -255,12 +255,12 @@ test("styleBgToken emits background SGR and survives inner resets", () => {
 
 test("renderSessions paints the selected row background across the list column", () => {
   const lines = renderSessions(buildRenderModel({ sessions: [session()], width: 80, selectedId: "s1" }), { ...darkTheme, selectedBg: "#010203" }).lines;
-  const selectedLine = lines.find((line) => stripAnsi(line).includes("▌"));
+  const selectedLine = lines.find((line) => stripAnsi(line).includes("api"));
   assert.ok(selectedLine, "selected row not found");
   assert.match(selectedLine, /\[48;2;1;2;3m/);
 
   const plain = renderSessions(buildRenderModel({ sessions: [session()], width: 80, selectedId: "s1" })).lines;
-  const plainSelected = plain.find((line) => line.includes("▌"));
+  const plainSelected = plain.find((line) => line.includes("api"));
   assert.ok(plainSelected, "plain selected row not found");
   assert.match(plainSelected, /\u001b\[1mapi\u001b\[22m/);
   assert.doesNotMatch(plainSelected.replace(/\u001b\[(?:1|22)m/g, ""), /\u001b\[/);

@@ -10,7 +10,7 @@ Start `pi-hub` and press `n` to create a session. Then work from the list:
 ] Next request → Tab Answer or p Reply → ] Next request
 ```
 
-Selected request, editor and receipt cards frame the no-pin list, open-sided at 30 columns. `i` Details; `Enter` opens Pi; `Ctrl+Q` returns; Pi's `Alt+W` opens the next request.
+Every selected parent session card frames the no-pin list, open-sided at 30 columns. Its border uses the request color when the session needs you, the health color for an error, and a muted color otherwise. `i` Details; `Enter` opens Pi; `Ctrl+Q` returns; Pi's `Alt+W` opens the next request.
 
 Pins and follow view are opt-in. Use `P` to keep a live session beside the list, or `o` for one pane that follows selection. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns.
 
@@ -122,7 +122,7 @@ After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessio
 
 ## Repo grouping
 
-`v` groups complete parent/child trees alphabetically by repository: errors and unanswered requests first, then other trees by last interaction, newest-first. Open, focus, answer and send count as interaction. Archived stays separate, newest-first. `[group]` sits in request frame tops (metadata if needed), below other rich titles, or before Backlog/Archived titles.
+`v` groups complete parent/child trees alphabetically by repository: errors and unanswered requests first, then other trees by last interaction, newest-first. Open, focus, answer and send count as interaction. Archived stays separate, newest-first. `[group]` sits in selected card frame tops (metadata if needed), below other rich titles, or before Backlog/Archived titles.
 
 Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The selected card shows repository context.
 
@@ -265,7 +265,7 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 - Below 100 columns, Hub hides open pins and gives the dashboard the whole window. Pins keep running. Rows keep their `▢N` markers, and the header shows `N pins hidden`.
 - `Enter` or `Alt+1`–`Alt+4` opens a hidden pin full screen. Back on a desktop-size window, Hub restores the pin layout.
-- At ≤60 columns only the outer frame drops; request frames remain, with open sides below 40. The footer starts `] Next request · p Reply · : All actions · ? Help`, or `] Next · p Reply · : Actions` below 40. Trailing items drop whole; tap to run their key.
+- At ≤60 columns only the outer frame drops; the selected parent card frame remains, with open sides below 40. The footer starts `] Next request · p Reply · : All actions · ? Help`, or `] Next · p Reply · : Actions` below 40. Trailing items drop whole; tap to run their key.
 - No-pin fleet cards use a plain workflow step below 80 columns. Board/pin rows switch below 40. The dashboard works down to 30 columns, including answering and replying.
 - Below 100 columns and 20 rows, unselected fleet neighbors use one line. The selected card keeps task/request content. Focused Answer/Reply panels reserve identity and local keys while their body scrolls. If no body row fits, use **Open in Pi**. The narrow board alone has a tappable `Esc Back` full-width view.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.

@@ -29,7 +29,7 @@ for (const width of [44, 80, 120, 160]) {
         ...(["question", "blocked", "ready"] as const).map(kind => session(kind, { status: "waiting",
           context: { version: 1, updatedAt: NOW, attention: { kind, text: "A request", requestId: kind } } })),
         session("parent"), session("child", { kind: "subagent", parentId: "parent", agentName: "critic" })];
-      const layout = render(rows, { width, grouping });
+      const layout = render(rows, { width, grouping, ...(grouping === "project" ? { selectedSection: "quiet" as const } : {}) });
       const columns = rows.filter(row => row.kind !== "subagent").map(row => {
         const line = stripAnsi(titleLine(layout, row.id));
         assert.doesNotMatch(line, /·/);
@@ -82,8 +82,10 @@ test("title is bold primary text and group and repo names are muted without bold
   assert.ok(titleLine(layout, row.id).includes(`\u001b[1m${styleToken(darkTheme, "text", row.title)}\u001b[22m`));
   for (const label of ["team", "repo"]) {
     const line = layout.lines.find(line => stripAnsi(line).includes(label))!;
-    assert.ok(line.includes(styleToken(darkTheme, "muted", label)), label);
-    assert.doesNotMatch(line, /\u001b\[1m/);
+    const styledLabel = label === "team" ? `[${label}]` : label;
+    const muted = styleToken(darkTheme, "muted", styledLabel);
+    assert.ok(line.includes(muted), label);
+    assert.ok(!line.includes(`\u001b[1m${muted}`), label);
   }
 });
 

@@ -940,7 +940,7 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api[^\n]*\n[^\n]*\[default\].*\?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\[default\][\s\S]*\?1/);
   view.handleInput("\u001b[C");
   assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
@@ -2186,7 +2186,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /▌.*\s+○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /╭─ ○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {

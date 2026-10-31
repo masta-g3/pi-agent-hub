@@ -94,7 +94,7 @@ test("narrow board retains the current step when the grid would crowd the title"
 
 test("board grid leaves the Repo Backlog workflow rail unchanged", () => {
   const layout = renderSessions(buildRenderModel({ sessions: [session("backlog", { bucket: "backlog" })],
-    width: 160, fleetGrouping: "repo", now: 100_000 }));
+    width: 160, fleetGrouping: "repo", selectedRepo: "/tmp/data", now: 100_000 }));
   const index = layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "backlog");
   const row = stripAnsi(layout.lines[index]!);
   assert.match(row, /backlog · QUIET · ✓ PL─◉ EX─· RV─· RF─· CM/);

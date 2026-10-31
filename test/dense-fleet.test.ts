@@ -35,7 +35,7 @@ for (const width of [120, 160]) {
     test(`30 parents fit as dense rows while selection keeps its card at ${width} in ${fleetGrouping}`, () => {
       const layout = render(fleet(30), { width, fleetGrouping });
       assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 30);
-      assert.equal(continuations(layout, "s0"), 2);
+      assert.equal(continuations(layout, "s0"), 3);
       for (let index = 1; index < 30; index += 1) assert.equal(continuations(layout, `s${index}`), 0);
       assert.equal(layout.listScrollTop, 0);
       assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more/);
@@ -77,17 +77,17 @@ for (const width of [120, 160]) {
 
 test("eight parents retain richer rows when two-line neighbors fit", () => {
   const layout = render(fleet(8));
-  assert.equal(continuations(layout, "s0"), 2);
+  assert.equal(continuations(layout, "s0"), 3);
   for (let index = 1; index < 8; index += 1) assert.ok(continuations(layout, `s${index}`) >= 1);
 });
 
 test("density changes only below the exact two-line fit boundary", () => {
-  // Three-line selected card + seven title/metadata pairs + tier heading = 18 list rows.
-  // Framing, summary, and footer reserve five more rows.
-  for (const height of [22, 23, 24]) {
+  // Four-line framed selected card + seven title/metadata pairs + tier heading = 19 list rows.
+  // Summary and footer reserve five more rows.
+  for (const height of [23, 24, 25]) {
     const layout = render(fleet(8), { height });
     assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 8);
-    if (height < 23) assert.equal(continuations(layout, "s1"), 0);
+    if (height < 24) assert.equal(continuations(layout, "s1"), 0);
     else assert.ok(continuations(layout, "s1") >= 1, `height ${height}`);
   }
 });
@@ -162,10 +162,9 @@ test("selected short-window rows keep group and age only on their retained metad
     const title = stripAnsi(layout.lines[index]!);
     const metadata = stripAnsi(layout.lines[index + 1]!);
     assert.match(title, /Readable title without repeated group/);
-    assert.doesNotMatch(title, /core|23m/);
-    assert.doesNotMatch(title, /✓\s+◉\s+·/);
-    assert.match(metadata, /\[core\]/);
-    assert.doesNotMatch(metadata, /23m/);
+    assert.match(title, /\[core\]/);
+    assert.doesNotMatch(title, /23m|✓\s+◉\s+·/);
+    assert.doesNotMatch(metadata, /\[core\]|23m/);
     if (width >= 80) assert.match(metadata, /✓\s+◉\s+·/);
     else assert.match(metadata, /· Execute/);
     assert.deepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: "s0" });

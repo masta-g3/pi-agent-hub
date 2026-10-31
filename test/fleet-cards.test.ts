@@ -47,7 +47,10 @@ function cardLines(rendered: ReturnType<typeof render>, id: string): string[] {
   const title = targets.findIndex((target) => target?.kind === "session" && target.id === id);
   if (title < 0) return [];
   const lines: string[] = [];
-  for (let index = title + 1; targets[index]?.kind === "session-continuation" && targetId(targets[index]) === id; index += 1) lines.push(rendered.lines[index]!);
+  for (let index = title + 1; targets[index]?.kind === "session-continuation" && targetId(targets[index]) === id; index += 1) {
+    const line = rendered.lines[index]!;
+    if (!line.includes("Enter Open in Pi") && line.replace(/[│\s]/gu, "")) lines.push(line);
+  }
   return lines;
 }
 
@@ -55,7 +58,8 @@ test("wide active cards show repo beside group, then task and activity", () => {
   const rendered = render([rich]);
   const card = cardLines(rendered, "rich");
   assert.equal(card.length, 3, card.join("\n"));
-  assert.match(card[0]!, /\[cards\].*hub-repo ⎇ feat\/taller-cards/);
+  assert.match(rendered.lines[rendered.layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "rich")]!, /\[cards\]/);
+  assert.match(card[0]!, /hub-repo ⎇ feat\/taller-cards/);
   assert.match(card[1]!, /Taller fleet cards/);
   assert.match(card[2]!, /writing plan \(pass 2\) · Phase 2\/4 · Tests/);
 });
@@ -77,7 +81,7 @@ test("repo grouping shows only the branch and omits the line without one", () =>
 
 test("status grouping without a branch shows the repo label alone", () => {
   const card = cardLines(render([{ ...rich, worktreeBranch: undefined }]), "rich");
-  assert.match(card[0]!, /\[cards\] ◈ hub-repo\s/, card.join("\n"));
+  assert.match(card[0]!, /◈ hub-repo\s/, card.join("\n"));
   assert.ok(!card.some((line) => line.includes("⎇")));
 });
 
@@ -206,8 +210,8 @@ test("muted group and repo names avoid repeating the same identity", () => {
   assert.ok(repoLine && !/◈ hub-repo/.test(repoLine), branched.join("\n"));
   const raw = renderSessions(buildRenderModel({ sessions: [session("same")], selectedId: "same", width: 160, height: 60, now: NOW, guidanceHidden: true }), darkTheme).lines;
   const groupLine = raw.find((line) => stripAnsi(line).includes("[cards]"))!;
-  assert.ok(groupLine.includes(styleToken(darkTheme, "muted", "cards")), "muted group badge");
-  assert.doesNotMatch(groupLine, /\u001b\[1m/);
+  assert.ok(groupLine.includes(styleToken(darkTheme, "muted", "[cards]")), "muted group badge");
+  assert.ok(!groupLine.includes(`\u001b[1m${styleToken(darkTheme, "muted", "[cards]")}`));
   const differing = raw.find((line) => stripAnsi(line).includes("◈ hub-repo"))!;
   assert.ok(differing.includes(styleToken(darkTheme, "accent", "◈")) && differing.includes(styleToken(darkTheme, "muted", "hub-repo")), differing);
   assert.doesNotMatch(differing, /\u001b\[1m/);
@@ -220,7 +224,12 @@ test("narrow and pinned views carry a differing repo name on the metadata line",
     const rendered = render([differing, same], { height: 40, ...input });
     const diffCard = cardLines(rendered, "diff");
     assert.equal(diffCard.length, 1, JSON.stringify(input) + "\n" + diffCard.join("\n"));
-    assert.match(diffCard[0]!, /\[mobile\] ◈ hub-repo/, JSON.stringify(input) + "\n" + diffCard[0]);
+    if (input.pinSlots) assert.match(diffCard[0]!, /\[mobile\] ◈ hub-repo/, JSON.stringify(input) + "\n" + diffCard[0]);
+    else {
+      const title = rendered.lines[rendered.layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "diff")]!;
+      assert.match(title, /\[mobile\]/);
+      assert.match(diffCard[0]!, /◈ hub-repo/);
+    }
     const sameCard = cardLines(rendered, "same");
     assert.doesNotMatch(sameCard[0]!, /◈/, JSON.stringify(input) + "\n" + sameCard[0]);
   }
