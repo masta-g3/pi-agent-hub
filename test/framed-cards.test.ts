@@ -24,7 +24,7 @@ test("every selected parent gets a fleet frame in Status and Repo", () => {
     assert.ok(top >= 0, rows.join("\n"));
     assert.ok(rows.slice(top + 1).some(row => row.includes("╰─")));
     assert.equal(rows.filter(row => row.includes("[cards]")).length, 1);
-    if (width >= 80) assert.match(rows[top]!, /PL EX/);
+    if (width >= 80) assert.match(rows[top - 1]!, /PL\s+EX/, "a card right under its header leaves step labels to the header");
     else assert.ok(rows[top + 1]!.includes("Execute"));
     for (let index = top; index <= rows.findIndex((row, i) => i > top && row.includes("╰─")); index++) { const target = layout.rowTargets[index]; assert.ok(target && "id" in target && target.id === "s"); }
     assert.ok(layout.lines.every(row => visibleWidth(row) <= width));
@@ -72,7 +72,9 @@ test("selected subagent micro rows and synthetic headers stay unframed", () => {
 });
 test("a crowded header moves the group once and aligns its own producer labels and markers", () => {
   const selected = { ...session, title: "A complete readable title before its group", group: "A complete long group", worktreePath: "/tmp/tree", worktreeBranch: "feature" };
-  const rows = render(80, { sessions: [selected] }).lines.map(stripAnsi);
+  // A card below another one in its section names its own steps.
+  const above = { ...session, id: "above", title: "Above", context: { ...session.context!, updatedAt: 5, attention: { kind: "ready" as const, text: "Newer", requestId: "newer" } }, lastActivityAt: 5 };
+  const rows = render(80, { sessions: [above, selected] }).lines.map(stripAnsi);
   const top = rows.findIndex(row => row.includes("╭─"));
   assert.doesNotMatch(rows[top]!, /\[A complete long group\]/);
   assert.match(rows[top]!, /A complete readable title before its group ⎇/);

@@ -662,8 +662,8 @@ export async function runTui(): Promise<void> {
       if (!target) throw new Error("Restart this session to enable guarded commands");
       await runSessionShortcut(target, shortcut.key, shortcut.send);
     },
-    acknowledgeSession(sessionId, requestId) {
-      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId));
+    acknowledgeSession(sessionId, requestId, dismiss) {
+      return mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId, dismiss));
     },
     attentionDelivery: {
       attentionBellEnabled: () => attentionBellEnabled,

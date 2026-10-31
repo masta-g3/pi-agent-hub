@@ -120,11 +120,12 @@ export function markInteracted(session: ManagedSession, now = Date.now()): Manag
   return updateSession(session, { unopened: undefined, lastActivityAt: latestActivityAt(session.lastActivityAt, now) }, now);
 }
 
-export function markAcknowledged(session: ManagedSession, now = Date.now(), allowIdleRequest = false): ManagedSession {
+export function markAcknowledged(session: ManagedSession, now = Date.now(), allowIdleRequest = false, dismissedRequestId?: string): ManagedSession {
   if (session.status !== "waiting" && !(allowIdleRequest && session.status === "idle")) return session;
   return updateSession(session, {
     acknowledgedAt: now,
     status: session.status === "waiting" ? "idle" : session.status,
+    ...(dismissedRequestId ? { dismissedRequestId } : {}),
   }, now);
 }
 

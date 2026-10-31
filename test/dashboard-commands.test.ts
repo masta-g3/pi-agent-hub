@@ -302,9 +302,9 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     actions: string[];
     primaryLabel: string;
   }> = [
-    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
-    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, guidance: "Review the completed result.", actions: ["open", "send", "mark-read"], primaryLabel: "Open in Pi" },
-    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, guidance: "Resolve the reported blocker.", actions: ["send", "open", "mark-read"], primaryLabel: "Reply" },
+    { name: "question", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["open", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "ready", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "ready", text: "Review the result" } } }, actions: ["open", "send", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "blocked", values: { status: "waiting", context: { version: 1, updatedAt: 2, attention: { kind: "blocked", text: "Need access" } } }, actions: ["send", "open", "mark-read"], primaryLabel: "Reply" },
     { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open", "archive"], primaryLabel: "Details" },
     { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore", "archive"], primaryLabel: "Restart" },
     { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open in Pi" },
@@ -314,7 +314,7 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     { name: "active", values: { status: "running" }, actions: ["open", "pin", "archive"], primaryLabel: "Open in Pi" },
     { name: "closed-stopped", values: { status: "stopped", closure: "done", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
     { name: "closed-running", values: { status: "running", closure: "abandoned", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
-    { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, guidance: "Answer in the Pi session.", actions: ["open", "restore", "mark-read"], primaryLabel: "Open in Pi" },
+    { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["open", "restore", "mark-read"], primaryLabel: "Open in Pi" },
     { name: "closed-error", values: { status: "error", closure: "done", bucket: "archived" }, guidance: "Check Details before restarting.", actions: ["info", "restore", "open"], primaryLabel: "Details" },
   ];
 
@@ -378,7 +378,7 @@ test("workspace selection reuses exact enabled descriptors and respects the acti
   assert.strictEqual(workspace.moreCommand, palette);
   assert.ok(workspace.actions.every((command) => command.enabled && command.targetSessionId === selected.id));
   assert.equal(workspace.actions.some((command) => command.id === "action:exact:send"), false);
-  assert.equal(workspace.guidance, "Answer in the Pi session.");
+  assert.equal(workspace.guidance, undefined);
   assert.equal(open.label, "Open in Pi");
   assert.equal(open.hint, "focus the real Pi questionnaire");
   assert.deepEqual(

@@ -549,12 +549,12 @@ interface SessionListContent {
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
   priorityIndexes?: number[];
-  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string; frame?: { closed: boolean; focused: boolean; metadata: string; border: (text: string) => string; keys?: ReturnType<typeof cardKeyRows> } };
+  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string; frame?: { closed: boolean; focused: boolean; metadata?: string; border: (text: string) => string; keys?: ReturnType<typeof cardKeyRows> } };
   framedCard?: NonNullable<SessionListContent["panel"]>;
   cardScrollOffset?: number;
 }
 
-function requestFrameIdentity(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean) {
+function requestFrameIdentity(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean, labelsAbove = false) {
   const closed = terminalWidth >= 40;
   const border = session.pendingQuestion ? styles.warning
     : session.attention?.kind === "ready" ? styles.success
@@ -564,8 +564,10 @@ function requestFrameIdentity(session: RenderSession, width: number, terminalWid
   const contentWidth = Math.max(1, width - (closed ? 4 : 2));
   const workflow = session.workflow;
   const grid = terminalWidth >= 80 && workflow && displayWidth(workflowGridHeader(workflow, " ")) + 20 <= contentWidth ? workflow : undefined;
-  const labels = grid ? styles.muted(workflowGridHeader(grid, " ")) : "";
   const cell = fleetWorkflowCell(session, styles, grid, " ");
+  // A section header directly above already names the steps, so its markers can ride the top edge instead.
+  const markersOnTop = Boolean(grid && labelsAbove && cell.right);
+  const labels = !grid ? "" : markersOnTop ? cell.right : styles.muted(workflowGridHeader(grid, " "));
   const marker = `${session.worktreeMarker ? ` ${session.worktreeMarker}` : ""}${session.unopened ? " new" : ""}`;
   const group = styles.muted(`[${session.group}]`);
   const state = session.attention ? attentionGlyph(session.attention.kind, styles) : styles.status(session.displayStatus, session.symbol);
@@ -574,11 +576,18 @@ function requestFrameIdentity(session: RenderSession, width: number, terminalWid
   const headerWidth = contentWidth - (closed ? 1 : 0);
   const titleRoom = headerWidth - displayWidth(prefix + marker) - (labels ? displayWidth(labels) + 2 : 0);
   const groupOnTop = closed && displayWidth(session.title + group) + 2 <= titleRoom;
-  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(marker)}${groupOnTop ? `  ${group}` : ""}`;
+  // When no repo name shares its line, the branch would sit alone there; it follows the group instead,
+  // without repeating the worktree marker the title already carries.
+  const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
+  const branch = branchName ? styles.muted(` ${glyphs.pendingStep} ${branchName}`) : "";
+  const branchOnTop = groupOnTop && branch !== "" && !repoNameSignal(session, styles, repoMode)
+    && displayWidth(session.title + group + branch) + 2 <= titleRoom;
+  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(marker)}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
   const topText = labels ? twoColumn(title, labels, headerWidth) : title;
   const top = closed ? `${selectionMarker(border(glyphs.topLeft))}${border(`${glyphs.horizontal} `)}${topText} ${border(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(topText) - 5)) + glyphs.topRight)}`
     : `${selectionMarker(styles.accent(glyphs.selected))} ${title}`;
-  return { top, closed, border, metadata: inboxMetadataLine(session, contentWidth, terminalWidth, styles, cell, repoMode, !groupOnTop) };
+  const metadata = inboxMetadataLine(session, contentWidth, terminalWidth, styles, markersOnTop ? { ...cell, right: "" } : cell, repoMode, !groupOnTop, !branchOnTop);
+  return { top, closed, border, metadata: stripAnsi(metadata).trim() ? metadata : undefined };
 }
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean, dense = false): SessionListContent {
@@ -627,6 +636,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     } : undefined));
   };
   let gridWorkflow: WorkflowRuntimeSnapshot | undefined;
+  let labelHeaderIndex = -1;
   const gridGap = !board && !model.pinMode || model.width <= NARROW_LAYOUT_MAX_WIDTH ? " " : "  ";
   const shortRows = !board && model.width < 100 && model.height !== undefined && model.height > 0 && model.height < SHORT_FLEET_HEIGHT;
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
@@ -642,7 +652,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const inbox = !board && !model.pinMode;
     const workspace = session.selected && model.workspace?.session.id === session.id ? model.workspace : undefined;
     const frame = inbox && session.selected && shape !== "micro-child"
-      ? requestFrameIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo") : undefined;
+      ? requestFrameIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo", labelHeaderIndex === lines.length - 1) : undefined;
     const indent = frame ? "  " : gutterColumn ? "   " : "  ";
     const contentWidth = Math.max(1, width - (frame?.closed ? 4 : indent.length));
     const rowStart = lines.length;
@@ -652,9 +662,11 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine, workflowCell: cell });
     pushLine(frame?.top ?? row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (frame) {
+    if (frame?.metadata) {
       pushLine(`${indent}${frame.metadata}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
+    } else if (frame) {
+      // The frame's top edge carries everything the metadata line would show.
     } else if (titleFirst && cell && (!oneLine || (shortRows && session.selected))) {
       const metadataCell = oneLine ? { ...cell, right: "" } : cell;
       // Without card lines, the metadata line is the only place a differing repo name can appear.
@@ -688,7 +700,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       }
       if (workspace.evidenceVisible) {
         for (const block of blocks) {
-          const detail = block.key === "identity" ? block.lines.slice(1, -1) : block.key === "workflow" ? block.lines : [];
+          const detail = block.key === "identity" ? block.lines.slice(1, -1) : block.key === "workflow" || block.key === "lifecycle" ? block.lines : [];
           for (const line of detail) append(line);
         }
         for (const line of workspaceEvidenceLines(workspace, contentWidth, model.now, rowStyles)) append(line);
@@ -702,8 +714,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       }
     }
     if (frame) {
-      const prefix = lines.slice(rowStart + 2, panel?.bodyStart ?? lines.length).flatMap((line, index) => {
-        const originalIndex = rowStart + 2 + index;
+      const bodyStart = rowStart + (frame.metadata ? 2 : 1);
+      const prefix = lines.slice(bodyStart, panel?.bodyStart ?? lines.length).flatMap((line, index) => {
+        const originalIndex = bodyStart + index;
         return keyStart >= 0 && originalIndex >= keyStart && originalIndex < keyStart + (keyRows?.length ?? 0) ? [] : [sliceByColumn(line, indent.length, width)];
       });
       const focused = workspace?.panel;
@@ -712,7 +725,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         const index = prefix.findIndex(line => stripAnsi(line).trim() === receipt);
         if (index >= 0) prefix.splice(index, 1);
       }
-      panel = { bodyStart: rowStart + 2, width, indent, frame: { closed: frame.closed, focused: Boolean(workspace?.panel), metadata: frame.metadata, border: frame.border, keys: keyRows },
+      panel = { bodyStart, width, indent, frame: { closed: frame.closed, focused: Boolean(workspace?.panel), metadata: frame.metadata, border: frame.border, keys: keyRows },
         content: focused ? { ...focused, body: [...prefix, ...focused.body],
           hangingIndents: [...prefix.map(() => 0), ...(focused.hangingIndents ?? focused.body.map(() => 0))],
           focusRows: focused.focusRows?.map(index => index + prefix.length) }
@@ -778,6 +791,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
     );
+    labelHeaderIndex = gridWorkflow ? lines.length - 1 : -1;
     if (model.guidance.coach && model.empty && section.cockpitTier === "needs-you") priorityIndexes.push(sectionHeadingIndex);
     if (section.lesson) pushLine(`  ${styles.muted(truncate(section.lesson, Math.max(0, width - 2)))}`);
     firstSection = false;
@@ -950,10 +964,10 @@ function windowPanel(list: SessionListContent, capacity: number | undefined, sty
   const optionalContext = retainedLine ? context.filter((line) => stripAnsi(line).trim() !== retainedLine) : context;
   const retained = panel.retainedText ? [styles.accent(panel.retainedText)] : [];
   const rendered = renderFocusedPanel(list.lines[list.selectedIndex]!, optionalContext, panel.content,
-    panel.width - (panel.frame?.closed ? 2 : 0), capacity === undefined ? undefined : capacity - (panel.frame ? 1 : 0), styles, panel.indent, retained);
+    panel.width - (panel.frame?.closed ? 2 : 0), capacity === undefined ? undefined : capacity - (panel.frame?.metadata ? 1 : 0), styles, panel.indent, retained);
   if (panel.frame && !rendered.fallback) {
     rendered.lines[0] = list.lines[list.selectedIndex]!;
-    rendered.lines.splice(1, 0, panel.indent + panel.frame.metadata);
+    if (panel.frame.metadata) rendered.lines.splice(1, 0, panel.indent + panel.frame.metadata);
     if (panel.frame.closed) {
       const frame = panel.frame;
       rendered.lines = rendered.lines.map((line, index) => {
@@ -1244,7 +1258,7 @@ function adaptiveCardLines(
   const summary = session.ticketSubtitle ?? session.ticketDescription;
   if (summary) {
     const taskLines = session.selected ? wrapWords(plainAttentionText(summary), width, width) : [truncate(summary, width)];
-    for (const line of taskLines) lines.push({ line: styles.muted(line), priority: 0 });
+    for (const line of taskLines) lines.push({ line: session.selected ? line : styles.muted(line), priority: 0 });
   }
   const attention = session.attention;
   const question = session.selected ? session.pendingQuestion : undefined;
@@ -1272,7 +1286,8 @@ function adaptiveCardLines(
     }
   }
   if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
-  if (terminalWidth < 100) return lines;
+  // While the agent waits on a request, its activity label only restates the wait.
+  if (terminalWidth < 100 || attention || question) return lines;
 
   // Activity is live progress: stale once stopped, and a completed step already shows its checkmark.
   const live = session.status !== "stopped" && session.workflow?.currentStepComplete !== true;
@@ -1345,7 +1360,7 @@ interface WorkspaceRendered {
 }
 
 interface WorkspaceBlock extends WorkspaceRendered {
-  key: "identity" | "closure" | "request" | "receipt" | "task" | "workflow" | "guidance" | "actions" | "evidence";
+  key: "identity" | "closure" | "request" | "receipt" | "task" | "workflow" | "guidance" | "lifecycle" | "actions" | "evidence";
 }
 
 function renderFocusedPanel(title: string, context: string[], panel: NonNullable<RenderWorkspace["panel"]>, width: number, maxRows: number | undefined, styles: LayoutStyles, indent = "", retained: string[] = []): { lines: string[]; panelViewport: PanelViewport; fallback: boolean } {
@@ -1416,11 +1431,12 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
     const verification = item.verifiedAt ? ` ${glyphs.pendingStep} verified ${ageLabel(Math.max(0, now - item.verifiedAt), "now")} ago` : "";
     return wrapWords(`${item.role}: ${state} ${glyphs.pendingStep} ${item.branch}${verification} ${glyphs.pendingStep} ${item.worktreePath} ${glyphs.right} ${item.sourcePath}${item.branchDeleted === false ? ` ${glyphs.pendingStep} branch retained` : ""}${item.issue ? ` ${glyphs.pendingStep} ${item.issue}` : ""}`, width, width);
   }) ?? [];
-  const guidance = block("guidance", [...(guidanceText ? wrapWords(guidanceText, width, width) : []), ...lifecycleLines]);
-  const hasBody = [closure, request, receipt, task, workflow, guidance].some((candidate) => candidate.lines.length > 0);
+  const guidance = block("guidance", guidanceText ? wrapWords(guidanceText, width, width) : []);
+  const lifecycle = block("lifecycle", lifecycleLines);
+  const hasBody = [closure, request, receipt, task, workflow, guidance, lifecycle].some((candidate) => candidate.lines.length > 0);
   const actions = workspaceActionBlock(workspace, width, styles, block, hasBody);
   const evidence = block("evidence", workspaceEvidenceLines(workspace, width, now, styles));
-  return [identity, closure, request, receipt, task, workflow, guidance, actions, evidence];
+  return [identity, closure, request, receipt, task, workflow, guidance, lifecycle, actions, evidence];
 }
 
 function renderActionWorkspace(workspace: RenderWorkspace, width: number, maxRows: number | undefined, now: number, styles: LayoutStyles, pinned = false): WorkspaceRendered {
@@ -1523,7 +1539,7 @@ function compactActionWorkspace(workspace: RenderWorkspace, blocks: WorkspaceBlo
   const reserveEvidence = evidenceFacts.length && maxRows >= 3 ? 1 : 0;
   let budget = Math.max(0, maxRows - 1 - closure.length - reservePrimary - reserveEvidence);
   const identityDetails = identity.lines.slice(1, -1).map((line) => ({ line, target: undefined as string | undefined }));
-  const bodyDetails = blocks.filter((candidate) => ["request", "receipt", "task", "workflow", "guidance"].includes(candidate.key))
+  const bodyDetails = blocks.filter((candidate) => ["request", "receipt", "task", "workflow", "guidance", "lifecycle"].includes(candidate.key))
     .flatMap((candidate) => candidate.lines.map((line, index) => ({ line, target: candidate.targets[index] })));
   const optionalContent = pinned ? [...identityDetails, ...bodyDetails] : [...bodyDetails, ...identityDetails];
   const content = optionalContent.slice(0, budget);
@@ -1599,7 +1615,7 @@ function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: W
   return { right, compatible, gridWidth: grid ? displayWidth(workflowGridHeader(grid, gap)) : 0 };
 }
 
-function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, includeGroup = true): string {
+function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, includeGroup = true, includeBranch = true): string {
   const step = session.workflow?.steps[session.workflow.activeIndex];
   const right = terminalWidth >= 80 ? cell.right : "";
   const stepText = terminalWidth < 80 && step ? styles.accent(` ${glyphs.pendingStep} ${step.label ?? step.short}`) : "";
@@ -1609,7 +1625,7 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
   const group = includeGroup ? renderGroupBadge(session.group, Math.min(24, budget), styles) : "";
   const repo = terminalWidth >= 40 ? repoNameSignal(session, styles, repoMode) : "";
-  const branch = terminalWidth >= 40 && branchName ? styles.muted(`${glyphs.worktree} ${branchName}`) : "";
+  const branch = includeBranch && terminalWidth >= 40 && branchName ? styles.muted(`${glyphs.worktree} ${branchName}`) : "";
   let left = group;
   for (const part of [repo, branch]) {
     if (!part) continue;

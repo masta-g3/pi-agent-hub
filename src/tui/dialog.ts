@@ -58,7 +58,7 @@ export interface SessionLifecycleActions {
   reorderSelected: (delta: -1 | 1) => unknown;
   reorderSession: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge: () => unknown;
-  acknowledgeSession: (sessionId: string, requestId?: string) => unknown;
+  acknowledgeSession: (sessionId: string, requestId?: string, dismiss?: boolean) => unknown;
 }
 
 export interface SidePaneViewState {
@@ -203,7 +203,7 @@ export interface SessionsViewActions {
   reorderSelected?: (delta: -1 | 1) => unknown;
   reorderSession?: (sessionId: string, delta: -1 | 1) => unknown;
   acknowledge?: () => unknown;
-  acknowledgeSession?: (sessionId: string, requestId?: string) => unknown;
+  acknowledgeSession?: (sessionId: string, requestId?: string, dismiss?: boolean) => unknown;
   newFormContext?: () => NewFormContext;
   favorites?: FavoritesActions;
   skills?: (target: ProjectPickerTarget) => PickerItem[] | Promise<PickerItem[]>;

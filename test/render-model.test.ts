@@ -521,7 +521,7 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
     const target = collapsedLayout.rowTargets[index];
     return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === "parent";
   }).join("\n");
-  assert.match(collapsedCard, /Parent.*\[app\][\s\S]*8m \?1 ⚙︎1[\s\S]*✓\s+◉\s+·\s+·\s+·/);
+  assert.match(collapsedCard, /Parent.*\[app\].*✓\s+◉\s+·\s+·\s+·[\s\S]*8m \?1 ⚙︎1/);
 
   const expanded = renderSessions(buildRenderModel({
     sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1, expandedProjectParentIds: new Set(["parent"]),
@@ -557,7 +557,9 @@ test("active workflow mode replaces the Execute short in rows and workspace work
     const target = rendered.rowTargets[index];
     return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === "focus";
   }).map(stripAnsi).join("\n");
-  assert.match(parentCard, /focus.*\bEX\b[\s\S]*FOC/);
+  assert.match(parentCard, /focus[\s\S]*FOC/);
+  // A card right under its section header leaves the step labels to that header.
+  assert.match(rendered.lines.map(stripAnsi)[rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "focus") - 1]!, /\bEX\b/);
 
   const workspace = renderSessions(workspaceModel({ sessions: [focused], selectedId: "focus", width: 160, now: 1_000 })).lines.map(stripAnsi).join("\n");
   assert.match(workspace, /Focus · step 2 of 5/);
@@ -712,7 +714,7 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
 
   assert.match(card("running"), /◉/);
   assert.doesNotMatch(row("running"), /14m/);
-  assert.match(row("running"), /\bEX\b/);
+  assert.match(lines[lines.findIndex((line) => line.includes("running")) - 1]!, /\bEX\b/);
   assert.match(card("waiting"), /◉/);
   assert.match(card("focused"), /FOC/);
   assert.doesNotMatch(card("idle"), /\bEX\b|FOC/);
@@ -2146,7 +2148,7 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = layout.lines.map(stripAnsi).join("\n");
-    const positions = ["Package the macOS release", "Approve the package rollout?", "Answer in the Pi session.", "Execute · step 2 of 5", "LIVE DETAILS", "Enter Open in Pi"].map((label) => text.indexOf(label));
+    const positions = ["Package the macOS release", "Approve the package rollout?", "Execute · step 2 of 5", "LIVE DETAILS", "Enter Open in Pi"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
@@ -2279,8 +2281,8 @@ test("generic context and producer attention define canonical parent hierarchy",
   assert.match(output, /Canonical Name/);
   assert.match(output, /#metadata-redesign-001 · Canonical Name/);
   assert.match(output, /Simplify session context/);
-  // The fleet card carries live activity once; the workspace keeps plain workflow position.
-  assert.equal(output.match(/Reviewing implementation \(pass 2\) · Phase 2\/4 · Hub bridge/g)?.length, 1);
+  // While the agent waits on the question, its activity label would only restate the wait.
+  assert.doesNotMatch(output, /Reviewing implementation/);
   assert.doesNotMatch(output, /ticket:/);
   assert.doesNotMatch(output, /Use one generic[\s\S]*contract/);
   assert.match(output, /\? Choose the rollout order/);

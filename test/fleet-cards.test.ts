@@ -42,6 +42,10 @@ function targetId(target: SessionListTarget | undefined): string | undefined {
 }
 
 /** Continuation lines rendered for one session, in order. */
+function titleLine(rendered: ReturnType<typeof render>, id: string): string {
+  return rendered.lines[rendered.layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id)] ?? "";
+}
+
 function cardLines(rendered: ReturnType<typeof render>, id: string): string[] {
   const targets = rendered.layout.rowTargets;
   const title = targets.findIndex((target) => target?.kind === "session" && target.id === id);
@@ -71,10 +75,10 @@ test("stopped cards omit stale activity", () => {
 });
 
 test("repo grouping shows only the branch and omits the line without one", () => {
-  const grouped = cardLines(render([rich], { fleetGrouping: "repo" }), "rich");
-  const repoLine = grouped.find((line) => line.includes("⎇ feat/taller-cards"));
-  assert.ok(repoLine);
-  assert.ok(!repoLine.includes("hub-repo"), repoLine);
+  // With no repo name beside it, the branch follows the group on the frame's top edge.
+  const groupedRender = render([rich], { fleetGrouping: "repo" });
+  assert.match(titleLine(groupedRender, "rich"), /\[[^\]]+\] · feat\/taller-cards/);
+  assert.ok(!cardLines(groupedRender, "rich").some((line) => line.includes("feat/taller-cards") || line.includes("hub-repo")));
   const branchless = cardLines(render([{ ...rich, worktreeBranch: undefined }], { fleetGrouping: "repo" }), "rich");
   assert.ok(!branchless.some((line) => line.includes("⎇") || line.includes("◈ hub-repo")), branchless.join("\n"));
 });
@@ -205,9 +209,9 @@ test("producer-owned worktrees show their branch until cleaned", () => {
 test("muted group and repo names avoid repeating the same identity", () => {
   const same = cardLines(render([session("same", { group: "Hub Repo" })]), "same");
   assert.equal(same.length, 1, same.join("\n"));
-  const branched = cardLines(render([session("same", { group: "hub-repo", worktreeBranch: "feat/x" })]), "same");
-  const repoLine = branched.find((line) => line.includes("⎇ feat/x"));
-  assert.ok(repoLine && !/◈ hub-repo/.test(repoLine), branched.join("\n"));
+  const branchedRender = render([session("same", { group: "hub-repo", worktreeBranch: "feat/x" })]);
+  assert.match(titleLine(branchedRender, "same"), /\[hub-repo\] · feat\/x/);
+  assert.ok(!cardLines(branchedRender, "same").some((line) => /◈ hub-repo|feat\/x/.test(line)));
   const raw = renderSessions(buildRenderModel({ sessions: [session("same")], selectedId: "same", width: 160, height: 60, now: NOW, guidanceHidden: true }), darkTheme).lines;
   const groupLine = raw.find((line) => stripAnsi(line).includes("[cards]"))!;
   assert.ok(groupLine.includes(styleToken(darkTheme, "muted", "[cards]")), "muted group badge");

@@ -1,7 +1,7 @@
 import { glyphs } from "./glyphs.js";
 import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
 import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
-import { createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
+import { collapsedQuestion, createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
 import type { SessionsController, SyncPiNameResult } from "../app/controller.js";
@@ -511,7 +511,7 @@ export class SessionsView implements Component {
       cardPanel: this.cardPanel ? { ...this.cardPanel.panel, kind: answering ? "answer" : "reply", statusLine: this.message ?? this.flash?.text } : undefined,
       deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
       deliveryEmphasis: new Set([...this.deliveryResults].flatMap(([id, result]) => result.emphasis ? [id] : [])),
-      selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? this.interaction.state.pending[0]?.params.questions[0] : undefined,
+      selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? questionSummary(this.interaction.state.pending[0]?.params.questions[0]) : undefined,
       height: fleetHeight,
       listScrollTop: this.listScrollTop,
       cardScrollOffset: this.cardScrollOffset,
@@ -785,7 +785,7 @@ export class SessionsView implements Component {
       // Acknowledgement, like activity bookkeeping, cannot turn confirmed delivery into rejection.
       const session = this.controller.snapshot().sessions.find(session => session.id === dialog.target.managedId);
       if (dialog.attentionRequestId && session?.context?.attention?.requestId === dialog.attentionRequestId && sameInteractionTarget(dialog.target, this.actions.interactionTarget?.(session))) {
-        try { await this.acknowledgeSession(session.id, dialog.attentionRequestId); }
+        try { await this.acknowledgeSession(session.id, dialog.attentionRequestId, true); }
         catch (error) { this.message = `Accepted, but acknowledgement failed: ${errorMessage(error)}`; }
       }
     } catch (error) {
@@ -1240,7 +1240,7 @@ export class SessionsView implements Component {
         case "info": this.toggleInfo(); return;
         case "mark-read": {
           const requestId = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId)?.context?.attention?.requestId;
-          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId), "marking read...");
+          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId, true), "marking read...");
           return;
         }
         case "reorder-up": this.reorderSelected(-1); return;
@@ -2057,10 +2057,10 @@ export class SessionsView implements Component {
     } else if (result) this.startAttentionReturnTrip(request.sessionId, request.requestId);
   }
 
-  private acknowledgeSession(sessionId: string, requestId?: string): unknown {
-    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId, requestId);
+  private acknowledgeSession(sessionId: string, requestId?: string, dismiss = false): unknown {
+    if (this.actions.acknowledgeSession) return this.actions.acknowledgeSession(sessionId, requestId, dismiss);
     if (this.actions.acknowledge) return this.actions.acknowledge();
-    return this.controller.acknowledgeSession(sessionId, undefined, requestId);
+    return this.controller.acknowledgeSession(sessionId, undefined, requestId, dismiss);
   }
 
   private attachSession(selected: ManagedSession): boolean | Promise<boolean> {
@@ -2787,4 +2787,8 @@ function replaceFooter(lines: string[], message: string, theme?: SessionsTheme):
 function truncateVisible(value: string, width: number): string {
   if (width <= 1) return "";
   return truncateToWidth(value, width, glyphs.ellipsis);
+}
+
+function questionSummary(question?: { header: string; question: string }): { header: string; question: string } | undefined {
+  return question ? collapsedQuestion(question) : undefined;
 }

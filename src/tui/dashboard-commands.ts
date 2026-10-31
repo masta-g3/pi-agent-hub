@@ -231,17 +231,15 @@ export function selectWorkspaceCommands(
   let actionNames: string[];
 
   if (attention) {
+    // The request line already says what is needed; guidance only names a concrete obstacle.
     if (attention.kind === "ready") {
-      guidance = "Review the completed result.";
-      guidanceAction = "open";
       actionNames = ["open", "send", "copy-path", "mark-read"];
     } else if (attention.kind === "question") {
-      guidance = "Answer in the Pi session.";
-      guidanceAction = "open";
+      const answer = commands.find((command) => command.targetSessionId === session.id && command.id.startsWith(`action:${session.id}:answer`));
+      // Why Hub cannot answer stands on its own; it does not depend on which action leads.
+      guidance = answer && !answer.enabled ? answer.disabledReason : undefined;
       actionNames = ["answer", "open", "mark-read"];
     } else {
-      guidance = "Resolve the reported blocker.";
-      guidanceAction = "send";
       actionNames = ["send", "open", "copy-path", "mark-read"];
     }
   } else if (session.status === "error") {
@@ -286,7 +284,7 @@ export function selectWorkspaceCommands(
   const evidenceCommand = commands.find((command) => command.id === `action:${session.id}:info`);
   const moreCommand = commands.find((command) => command.id === "view:palette");
   if (!evidenceCommand || !moreCommand) throw new Error("workspace commands require evidence and palette descriptors");
-  const guidanceIsActionable = guidanceAction !== undefined && actions[0]?.id === `action:${session.id}:${guidanceAction}`;
+  const guidanceIsActionable = guidanceAction === undefined || actions[0]?.id === `action:${session.id}:${guidanceAction}`;
   return { ...(guidance && guidanceIsActionable ? { guidance } : {}), actions, evidenceCommand, moreCommand };
 }
 

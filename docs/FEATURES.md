@@ -72,7 +72,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `d` | Delete or forget the selected session |
 | `f` | Fork the selected session through the group-selection form |
 | `F` | Choose a group, fork, clear inherited ticket/workflow metadata, and compact |
-| `a` | Mark the selected waiting session read |
+| `a` | Mark the selected session read; this also clears an open question or blocker from `NEEDS YOU` |
 | `y` | Copy the selected handoff's evidence path |
 | `A` / `B` / `U` | Archive (Done, Abandoned, or archive only) / move to Backlog / restore or reopen to Active |
 | `w` | Finish the selected hub-owned worktree session |
@@ -183,7 +183,7 @@ A waiting session alone does not enter `NEEDS YOU`. A running child can put its 
 
 ### Details
 
-The selected fleet card expands in place. It keeps the task and request separate and adds whole `key Label` actions that fit the width. **All actions** opens `:`. `Enter` and double-click open, switch, or restart Pi at every width. Action items also accept a single click.
+The selected fleet card expands in place. It keeps the task and request separate and adds whole `key Label` actions that fit the width. A collapsed question leads with its asking sentence. While a request is shown, the activity label is hidden, and a guidance line appears only for a concrete obstacle such as reloading Pi. Under a section header that names the steps, the frame's top edge carries the progress markers, and a branch with no repo name beside it follows the group. Worktree paths appear in Details. **All actions** opens `:`. `Enter` and double-click open, switch, or restart Pi at every width. Action items also accept a single click.
 
 Press `i` to toggle `LIVE DETAILS` inside the card. Details show tmux presence, heartbeat, read state, and the evidence behind runtime status and placement. The CLI equivalent is `pi-hub explain <exact-id-or-unique-prefix>`; it observes the fleet without updating the registry. Neither view captures pane tails or searches conversations.
 
@@ -195,7 +195,7 @@ Optional extension attention uses `✓` for a ready handoff, `?` for a question,
 
 While you work inside a managed session, its bottom bar shows `⚑ N need you · alt+w next` when other sessions need you. `Alt+W` opens the top one, the same way `Enter` does from the dashboard.
 
-Opening or explicitly focusing a waiting session marks it read. Pin creation, search results, and opening details do not. Use `a` to mark it read manually.
+Opening or explicitly focusing a waiting session marks it read. Pin creation, search results, and opening details do not. Use `a` to mark it read manually. Reading does not answer: an open question or blocker stays in `NEEDS YOU` until you answer it, the agent moves on, or you press `a`. A read handoff leaves `NEEDS YOU`.
 
 Fresh requests with producer-supplied IDs can show a six-second notification band and a tmux message when you are elsewhere. Click the band or choose **Locate newest request** in `:` to reveal the session without opening it. **Attention bell** and desktop notifications (`dashboard.attentionNotify`, see [Configuration](CONFIG.md#desktop-notifications)) are optional and off by default. Requests already present when Hub starts do not announce themselves again.
 

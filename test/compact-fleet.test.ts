@@ -125,8 +125,8 @@ test("crowded fleet panels keep progress with every visible title", () => {
           if (target.id !== (selectedId ?? "s0")) assert.notEqual(rendered.rowTargets[index + 1]?.kind, "session-continuation");
           continue;
         }
-        assert.deepEqual(rendered.rowTargets[index + 1], { kind: "session-continuation", id: target.id }, `${width}: ${target.id} lost its progress row`);
-        assert.match(stripAnsi(rendered.lines[index + 1]), /✓\s+◉\s+·/);
+        // A framed card under a header that names the steps carries its markers on the top edge.
+        assert.match(stripAnsi(rendered.lines[index] + rendered.lines[index + 1]), /✓\s+◉\s+·/, `${width}: ${target.id} lost its progress`);
       }
       assert.equal(rendered.lines.length, 18);
     }

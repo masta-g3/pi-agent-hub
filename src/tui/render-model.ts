@@ -1146,9 +1146,14 @@ function activityAge(lastActivityAt: number | undefined, now: number | undefined
 
 export function visibleAttention(session: RuntimeSession): SessionAttention | undefined {
   if (session.status !== "waiting" && session.status !== "idle") return undefined;
+  const attention = session.context?.attention;
+  // Reading an open question or blocker does not answer it; only an explicit mark-read of that exact request does.
+  if (attention?.requestId && (attention.kind === "question" || attention.kind === "blocked")) {
+    return session.dismissedRequestId === attention.requestId ? undefined : attention;
+  }
   if (session.acknowledgedAt !== undefined && session.context !== undefined
     && session.acknowledgedAt >= session.context.updatedAt) return undefined;
-  return session.context?.attention;
+  return attention;
 }
 
 function ticketDisplay(session: RuntimeSession): Pick<RenderSession, "ticketId" | "ticketSubtitle" | "ticketDescription"> {

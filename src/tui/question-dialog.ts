@@ -162,6 +162,13 @@ export function formatQuestionText(original: string): { ask: string; conditions:
   return { ask: ask.slice(0, markers[0]!.index).trim(), conditions: markers.map((match, index) => ask.slice(match.index, markers[index + 1]?.index).trim()), context, original };
 }
 
+/** One-line card summary: the asking sentence, with its numbered conditions counted rather than listed. */
+export function collapsedQuestion(question: { header: string; question: string }): { header: string; question: string } {
+  const formatted = formatQuestionText(question.question);
+  const conditions = formatted.conditions.length ? ` ${glyphs.pendingStep} ${formatted.conditions.length} conditions` : "";
+  return { header: question.header, question: `${formatted.ask}${conditions}` };
+}
+
 const recommendationMarker = /(?<!\S)(?:\(recommended\)|\[recommended\])(?=\s|$|[.,;:!?])/giu;
 function displayOption(option: PendingQuestion["params"]["questions"][number]["options"][number]) {
   const label = option.label.replace(recommendationMarker, "").trim();

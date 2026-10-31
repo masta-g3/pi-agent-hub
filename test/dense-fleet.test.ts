@@ -163,9 +163,10 @@ test("selected short-window rows keep group and age only on their retained metad
     const metadata = stripAnsi(layout.lines[index + 1]!);
     assert.match(title, /Readable title without repeated group/);
     assert.match(title, /\[core\]/);
-    assert.doesNotMatch(title, /23m|✓\s+◉\s+·/);
+    assert.doesNotMatch(title, /23m/);
     assert.doesNotMatch(metadata, /\[core\]|23m/);
-    if (width >= 80) assert.match(metadata, /✓\s+◉\s+·/);
+    // Directly under its section header, the framed card's markers ride the top edge.
+    if (width >= 80) assert.match(title, /✓\s+◉\s+·/);
     else assert.match(metadata, /· Execute/);
     assert.deepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: "s0" });
   }
