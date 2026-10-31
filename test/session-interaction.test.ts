@@ -64,6 +64,7 @@ test("official prompts track multiple questionnaires across dashboard connection
   const state = () => f.request({ kind: "state" }) as Promise<SessionInteractionState>;
   try {
     assert.equal((await state()).questionProtocol, false);
+    assert.equal((await state()).answerChannel, "rpiv-events");
     prompt(f);
     prompt(f, "second");
     assert.equal((await state()).questionProtocol, true);
@@ -92,6 +93,14 @@ test("official prompts ignore append-only fields and keep a snapshot of producer
     payload.questions[0]!.question = "changed later";
     assert.deepEqual((await f.request({ kind: "state" }) as SessionInteractionState).pending, pending);
   } finally { await f.close(); }
+});
+
+test("answer notes are optional bounded strings, never an answer on their own", () => {
+  const request = { version: 1, id: "id", managedId: "managed", piSessionId: "pi", instanceId: "instance", kind: "submit-answer", toolCallId: "call" };
+  const answer = { questionIndex: 0, kind: "option", optionIndex: 0 };
+  for (const notes of [undefined, "", "Qualification", "x".repeat(8192)]) assert.ok(parseInteractionRequest({ ...request, answers: [{ ...answer, notes }] }));
+  for (const notes of [1, null, {}, "x".repeat(8193)]) assert.equal(parseInteractionRequest({ ...request, answers: [{ ...answer, notes }] }), undefined);
+  assert.equal(parseInteractionRequest({ ...request, answers: [{ questionIndex: 0, notes: "Only a note" }] }), undefined);
 });
 
 test("preview contract validates optional bounded text", () => {
@@ -166,16 +175,16 @@ test("official answers map every input, subscribe before emit, and replay duplic
   try {
     prompt(f); prompt(f, "second");
     const body = { kind: "submit-answer", toolCallId: "call", answers: [
-      { questionIndex: 0, kind: "option", optionIndex: 1 },
-      { questionIndex: 1, kind: "multi", optionIndices: [0, 2] },
-      { questionIndex: 2, kind: "custom", text: "My choice" },
+      { questionIndex: 0, kind: "option", optionIndex: 1, notes: "Keep the boundary" },
+      { questionIndex: 1, kind: "multi", optionIndices: [0, 2], notes: "Both" },
+      { questionIndex: 2, kind: "custom", text: "My choice", notes: "Qualification" },
     ] };
     assert.deepEqual(await Promise.all([f.request(body, "answer"), f.request(body, "answer")]), [{ accepted: true }, { accepted: true }]);
     assert.equal(attempts.length, 1);
     assert.equal(attempts[0]!.toolCallId, "call");
     assert.ok(attempts[0]!.requestId);
     assert.deepEqual(attempts[0]!.answers, [
-      { questionIndex: 0, optionIndexes: [1] }, { questionIndex: 1, optionIndexes: [0, 2] }, { questionIndex: 2, text: "My choice" },
+      { questionIndex: 0, optionIndexes: [1], notes: "Keep the boundary" }, { questionIndex: 1, optionIndexes: [0, 2], notes: "Both" }, { questionIndex: 2, text: "My choice", notes: "Qualification" },
     ]);
     assert.deepEqual((await f.request({ kind: "state" }) as SessionInteractionState).pending.map(p => p.toolCallId), ["second"]);
     await assert.rejects(f.request({ ...body, toolCallId: "other" }, "answer"), /already used/);

@@ -1,6 +1,6 @@
 import { glyphs } from "./glyphs.js";
 import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
-import { DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
+import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
 import { createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
@@ -88,7 +88,7 @@ interface ReplyDraft {
 export class SessionsView implements Component {
   private replyDrafts = new Map<string, ReplyDraft>();
   private replyEditor: ReplyDraft | undefined;
-  private deliveryResults = new Map<string, { target: InteractionTarget; state: "submitting" | "accepted" | "rejected" | "unknown"; text: string; status: RuntimeSession["status"] }>();
+  private deliveryResults = new Map<string, { target: InteractionTarget; state: "submitting" | "accepted" | "rejected" | "unknown"; text: string; status: RuntimeSession["status"]; emphasis?: boolean; settle?: ReturnType<typeof setTimeout> }>();
   private cardPanel: { target: InteractionTarget; panel: RenderCardPanel; handleInput: (data: string) => void } | undefined;
   private panelViewport: PanelViewport = { pageSize: 1, maxOffset: 0 };
   private conversationOpen = false;
@@ -276,7 +276,12 @@ export class SessionsView implements Component {
     }
     if (matchesKey(data, Key.tab) && (!this.conversationOpen || this.conversationFocus === "fleet")) {
       const answer = commandForKey(this.dashboardCommands(), data);
-      if (answer?.enabled && answer.id.startsWith(`action:${this.selectedSessionTarget}:answer:`)) { this.executeDashboardCommand(answer.id); return; }
+      if (answer?.id.startsWith(`action:${this.selectedSessionTarget}:answer:`)) { this.executeDashboardCommand(answer.id); return; }
+      const selected = this.selectedInteractionSession();
+      const questionAttention = selected && (selected.status === "waiting" || selected.status === "idle") && selected.context?.attention?.kind === "question";
+      const pendingQuestion = selected && sameInteractionTarget(this.interaction.target, this.actions.interactionTarget?.(selected))
+        && (this.interaction.state?.pending.length || this.interaction.state?.questionUnavailableReason);
+      if (questionAttention || pendingQuestion) { this.openQuestion(); return; }
     }
     if (this.conversationOpen && this.handleConversationInput(data)) return;
 
@@ -505,6 +510,7 @@ export class SessionsView implements Component {
       workspaceFullScreen: this.grouping === "stage" && width < 120 && workspaceSelected !== undefined && workspaceSelected.id === this.workspaceSessionId,
       cardPanel: this.cardPanel ? { ...this.cardPanel.panel, kind: answering ? "answer" : "reply", statusLine: this.message ?? this.flash?.text } : undefined,
       deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
+      deliveryEmphasis: new Set([...this.deliveryResults].flatMap(([id, result]) => result.emphasis ? [id] : [])),
       selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? this.interaction.state.pending[0]?.params.questions[0] : undefined,
       height: fleetHeight,
       listScrollTop: this.listScrollTop,
@@ -580,6 +586,7 @@ export class SessionsView implements Component {
   disposeInteraction(): void {
     if (this.followTimer) clearTimeout(this.followTimer);
     this.followTimer = undefined;
+    for (const result of this.deliveryResults.values()) clearTimeout(result.settle);
     this.interactionStopped = true; this.closeConversation(); this.interaction.setTarget(undefined);
   }
 
@@ -738,7 +745,8 @@ export class SessionsView implements Component {
     const selected = this.selectedInteractionSession();
     const target = selected && this.actions.interactionTarget?.(selected);
     const request = this.interaction.state?.pending[0];
-    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer) { this.message = `${this.interaction.state?.questionUnavailableReason ?? "Direct answering unavailable"}; Open in Pi`; return; }
+    const reason = answerUnavailableReason(this.interaction.state);
+    if (!selected || !target || !sameInteractionTarget(target, this.interaction.target) || !request || !this.actions.submitAnswer || reason) { this.message = `${reason ?? "Direct answering unavailable"}; Open in Pi`; return; }
     const staged = this.questionDrafts.get(target.managedId);
     this.inlineQuestion = sameInteractionTarget(staged?.target, target) && staged?.request.toolCallId === request.toolCallId
       ? staged : createQuestionDialog(target, selected.title, request, selected.context?.attention?.requestId);
@@ -755,8 +763,10 @@ export class SessionsView implements Component {
     if (!dialog) return;
     dialog.scroll = this.cardPanel?.panel.offset ?? 0;
     const page = dialog.page;
+    const editing = Boolean(dialog.custom || dialog.noteEditor);
     const result = handleQuestionInput(dialog, data);
     if (this.cardPanel && page !== dialog.page) this.cardPanel.panel.offset = 0;
+    else if (this.cardPanel && !editing && (dialog.custom || dialog.noteEditor)) this.cardPanel.panel.offset = Number.MAX_SAFE_INTEGER;
     if (result === "close") { this.clearCardPanel(); this.closeWorkspace(); }
     if (result === "submit") void this.submitQuestion(dialog);
   }
@@ -1297,7 +1307,8 @@ export class SessionsView implements Component {
     if (this.deliveryResults.get(target.managedId)?.state === "submitting") throw new Error("write is submitting");
     const session = this.controller.snapshot().sessions.find(row => row.id === target.managedId);
     if (!session || !sameInteractionTarget(target, this.actions.interactionTarget?.(session))) throw new Error("write target changed");
-    const result = { target, state: "submitting" as "submitting" | "accepted" | "rejected" | "unknown", text: `Submitting${glyphs.ellipsis}`, status: session.status };
+    clearTimeout(this.deliveryResults.get(target.managedId)?.settle);
+    const result: NonNullable<ReturnType<typeof this.deliveryResults.get>> = { target, state: "submitting", text: `Submitting${glyphs.ellipsis}`, status: session.status };
     this.deliveryResults.set(target.managedId, result);
     this.actions.requestRender?.();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1307,7 +1318,15 @@ export class SessionsView implements Component {
         timer = setTimeout(() => reject(new Error(DELIVERY_UNCONFIRMED)), INTERACTION_TIMEOUT_MS);
       })]);
       result.state = "accepted";
-      result.text = `Accepted ${glyphs.pendingStep} ${what}`;
+      result.text = `${glyphs.ready} Sent ${glyphs.pendingStep} Accepted ${glyphs.pendingStep} ${what}`;
+      if (!noColor() && process.env.PI_AGENT_HUB_REDUCED_MOTION !== "1") {
+        result.emphasis = true;
+        result.settle = setTimeout(() => {
+          result.emphasis = false;
+          if (this.deliveryResults.get(target.managedId) === result) this.actions.requestRender?.();
+        }, 600);
+        result.settle.unref?.();
+      }
     } catch (error) {
       const reason = errorMessage(error);
       const unknown = reason === DELIVERY_UNCONFIRMED || /timeout|timed out/i.test(reason);

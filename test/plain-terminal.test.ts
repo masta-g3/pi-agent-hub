@@ -56,6 +56,22 @@ for (const width of [80,160]) {
   question.selected.add(0);
   frames.push(...renderQuestionPanel(question,width,darkTheme).body);
 }
+for (const width of [120,80,60,30]) {
+ const selected = sessions[1];
+ const commands = buildDashboardCommands({sessions,selectedId:selected.id,capabilities:{openSession:true}});
+ const question = createQuestionDialog({managedId:selected.id,piSessionId:'pi',instanceId:'i'},selected.title,
+  {toolCallId:'call',params:{questions:[{header:'Scope',question:'Which option?',options:[{label:'First (Recommended)',description:'Full wrapped description '.repeat(8)},{label:'Other',description:''}]}]}});
+ const panel = renderQuestionPanel(question,width,darkTheme);
+ const framed = renderSessions(buildRenderModel({sessions,selectedId:selected.id,width,height:40,guidanceHidden:true,
+  workspaceCommands:selectWorkspaceCommands(selected,commands,3),cardPanel:panel}),darkTheme);
+ assert.ok(framed.lines.every(line=>visibleWidth(line)===width));
+ if (width>=40) assert.ok(framed.lines.some(line=>stripAnsi(line).includes(glyphs.topLeft+glyphs.horizontal)));
+ if (!process.env.NO_COLOR) {
+   const fills = framed.lines.filter(line=>line.includes('48;2;26;27;38m'));
+   assert.ok(fills.length>1, 'cursor fills the wrapped description');
+ }
+ frames.push(...framed.lines);
+}
 `;
 
 function run(source: string, env: NodeJS.ProcessEnv): string {
@@ -106,7 +122,7 @@ test("ASCII fleet, dense rows, board, workspace and form chrome fit exact widths
 });
 
 test("dashboard recreation forwards glyph and no-color preferences", () => {
-  assert.deepEqual(dashboardEnv({ PI_AGENT_HUB_GLYPHS: "ascii", NO_COLOR: "1" }), { PI_AGENT_HUB_GLYPHS: "ascii", NO_COLOR: "1" });
+  assert.deepEqual(dashboardEnv({ PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" }), { PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" });
 });
 
 test("dashboard glyph literals stay in the glyph module", async () => {

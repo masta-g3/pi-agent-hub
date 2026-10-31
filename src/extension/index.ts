@@ -63,6 +63,7 @@ export const DASHBOARD_NOTE = `## Hub dashboard
 The user supervises this session from the pi-hub dashboard and usually does not read this transcript. They see the session title, ticket subtitle, workflow position, and your explicit requests.
 
 - Need a decision: use ask_user_question if available. Make it self-contained: the decision, the context needed to choose, 2-4 concrete options with trade-offs, and your recommended option first. Do not assume the user read earlier chat.
+- Lead with the question in one sentence; put the context needed to choose in option descriptions or previews.
 - Work ready or blocked: use hand_off if available, with the outcome or blocker, the recommended next action, and an evidence path.
 - Do not ask only in plain chat text; it is easy to miss. Do not use these tools for routine progress.
 - A dashboard reply approves only what it says. Follow existing tool and workflow rules.`;

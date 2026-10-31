@@ -343,7 +343,9 @@ Set `PI_AGENT_HUB_GLYPHS=ascii` to use ASCII dashboard symbols, borders, navigat
 NO_COLOR=1 PI_AGENT_HUB_GLYPHS=ascii pi-hub
 ```
 
-The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols. Both variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
+Set `PI_AGENT_HUB_REDUCED_MOTION=1` to show the final Accepted receipt without its one-time 600 ms emphasis change. `NO_COLOR` also disables that change. This switch does not change running-session indicators.
+
+The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols. All three variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
 
 ## Theme behavior
 

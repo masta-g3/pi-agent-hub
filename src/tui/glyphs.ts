@@ -11,7 +11,7 @@ export const unicode = {
   topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
   up: "↑", down: "↓", left: "←", right: "→", fewer: "⌃", ellipsis: "…",
   quoteLeft: "“", quoteRight: "”", dash: "—", range: "–", artifact: "▤", favorite: "★",
-  chevronLeft: "‹", chevronRight: "›", atLeast: "≥",
+  chevronLeft: "‹", chevronRight: "›", atLeast: "≥", note: "✎",
 } as const;
 
 type GlyphSet = { readonly [Key in keyof typeof unicode]: string };
@@ -27,7 +27,7 @@ export const ascii: GlyphSet = {
   topLeft: "+", topRight: "+", bottomLeft: "+", bottomRight: "+",
   up: "^", down: "v", left: "<", right: ">", fewer: "^", ellipsis: "...",
   quoteLeft: '"', quoteRight: '"', dash: "--", range: "-", artifact: "#", favorite: "*",
-  chevronLeft: "<", chevronRight: ">", atLeast: ">=",
+  chevronLeft: "<", chevronRight: ">", atLeast: ">=", note: "*",
 };
 
 export const glyphs: GlyphSet = process.env.PI_AGENT_HUB_GLYPHS === "ascii" ? ascii : unicode;

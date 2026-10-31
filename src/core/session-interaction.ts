@@ -12,11 +12,17 @@ export interface PendingQuestion {
   toolCallId: string;
   params: { questions: { question: string; header: string; options: { label: string; description: string; preview?: string; hasPreview?: boolean }[]; multiSelect?: boolean }[] };
 }
-export type AnswerInput = { questionIndex: number; kind: "option"; optionIndex: number }
+export const ANSWER_NOTES_LIMIT = 8192;
+export type AnswerInput = ({ questionIndex: number; kind: "option"; optionIndex: number }
   | { questionIndex: number; kind: "custom"; text: string }
-  | { questionIndex: number; kind: "multi"; optionIndices: number[] };
+  | { questionIndex: number; kind: "multi"; optionIndices: number[] }) & { notes?: string };
 export type MessageDelivery = "send" | "steer" | "followUp";
-export interface SessionInteractionState { questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export interface SessionInteractionState { answerChannel?: "rpiv-events"; questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export function answerUnavailableReason(state?: SessionInteractionState): string | undefined {
+  if (!state) return "Question availability not confirmed";
+  if (!state.answerChannel) return "Reload Pi in this session to answer from Hub";
+  return state.questionUnavailableReason ?? (!state.questionProtocol || !state.pending.length ? "Direct answering unavailable" : undefined);
+}
 export type InteractionRequest = InteractionTarget & { version: 1; id: string } & (
   { kind: "state" } | { kind: "read"; before?: string; branchId?: string; limit?: number }
   | { kind: "submit-answer"; toolCallId: string; answers: AnswerInput[] }
@@ -45,7 +51,7 @@ export function parseInteractionRequest(value: unknown): InteractionRequest | un
     || value.kind === "submit-answer" && text(value.toolCallId) && Array.isArray(value.answers) && value.answers.length <= 4 && value.answers.every(isAnswerInput)) return value as unknown as InteractionRequest;
 }
 function isAnswerInput(value: unknown): boolean {
-  if (!isObject(value) || !Number.isInteger(value.questionIndex) || Number(value.questionIndex) < 0 || Number(value.questionIndex) > 3) return false;
+  if (!isObject(value) || (value.notes !== undefined && (typeof value.notes !== "string" || value.notes.length > ANSWER_NOTES_LIMIT)) || !Number.isInteger(value.questionIndex) || Number(value.questionIndex) < 0 || Number(value.questionIndex) > 3) return false;
   return value.kind === "custom" && typeof value.text === "string" && Boolean(value.text.trim())
     || value.kind === "option" && Number.isInteger(value.optionIndex) && Number(value.optionIndex) >= 0
     || value.kind === "multi" && Array.isArray(value.optionIndices) && value.optionIndices.every((i) => Number.isInteger(i) && i >= 0);
@@ -97,7 +103,7 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
 
 function validResult(kind: InteractionRequest["kind"], value: unknown): value is InteractionResult {
   if (!isObject(value)) return false;
-  if (kind === "state") return typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
+  if (kind === "state") return (value.answerChannel === undefined || value.answerChannel === "rpiv-events") && typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
     && (value.questionUnavailableReason === undefined || typeof value.questionUnavailableReason === "string")
     && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
     && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy");

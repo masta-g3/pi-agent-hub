@@ -66,6 +66,7 @@ export interface RenderSession {
   attention?: SessionAttention;
   pendingQuestion?: { header: string; question: string };
   deliveryResult?: string;
+  deliveryEmphasis?: boolean;
   boardDescendantCount?: number;
   boardExpanded?: boolean;
   runningSubagentCount?: number;
@@ -174,6 +175,8 @@ export interface RenderCardPanel {
   body: (string | { value: string; cursor: number })[];
   /** Body-row continuation indentation, applied by the shared panel wrapper. */
   hangingIndents?: number[];
+  /** Logical option rows whose complete wrapped extent holds the cursor. */
+  focusRows?: number[];
   /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
   keyLine: string;
   offset: number;
@@ -572,6 +575,7 @@ export interface BuildRenderModelInput {
   workspaceFullScreen?: boolean;
   selectedQuestion?: { header: string; question: string };
   deliveryResults?: ReadonlyMap<string, string>;
+  deliveryEmphasis?: ReadonlySet<string>;
   cardPanel?: RenderCardPanel;
   grouping?: "project" | "stage";
   fleetGrouping?: "status" | "repo";
@@ -644,6 +648,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   });
   for (const session of allMapped) {
     session.deliveryResult = input.deliveryResults?.get(session.id);
+    session.deliveryEmphasis = input.deliveryEmphasis?.has(session.id);
     if (session.id === selectedId) session.pendingQuestion = input.selectedQuestion;
   }
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));

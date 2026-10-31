@@ -62,7 +62,7 @@ test("supported questions use the approved key line without fallback guidance", 
   const selected = { ...session, context: { version: 1 as const, updatedAt: 1,
     attention: { kind: "question" as const, text: "Should the card shell own the answer form?", requestId: "request" } } };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, { terminalRows: () => 28, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [request], messageDelivery: "idle" }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [request], messageDelivery: "idle" }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
   });
   view.render(80); await view.refreshInteraction();
   const rendered = text(view, 80);
@@ -76,7 +76,7 @@ test("focused answers replace the collapsed question and restore it after Escape
     attention: { kind: "question" as const, text: "Should the card shell own the answer form?", requestId: "request" } } };
   const pending = { ...request, params: { questions: [{ ...question, header: "Boundary", question: "Should the card shell own the answer form?" }] } };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [selected] }), () => {}, { terminalRows: () => 28, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [pending] }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [pending] }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
   });
   view.render(80); await view.refreshInteraction();
   assert.match(text(view, 80), /\? Boundary · Should the card shell own the answer form\?/);
@@ -90,7 +90,7 @@ test("focused answers replace the collapsed question and restore it after Escape
 
 test("the shared panel wraps question prose at words without clipping or word fragments", async () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 28, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [{ ...request, params: { questions: [{ ...question, question: "Should we keep the ticket subtitle above the request line, even when the request is long?" }] } }] }), submitAnswer: async () => {},
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [{ ...request, params: { questions: [{ ...question, question: "Should we keep the ticket subtitle above the request line, even when the request is long?" }] } }] }), submitAnswer: async () => {},
   });
   view.render(80); await view.refreshInteraction(); view.handleInput("\t");
   const lines = text(view, 80).split("\n");
@@ -105,7 +105,7 @@ test("wrapped answer labels, descriptions and previews keep their hanging indent
   }, question.options[1]!] }] } };
   for (const width of [60, 30]) {
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 40, interactionTarget,
-      loadInteractionState: async () => ({ questionProtocol: true, pending: [wrapped] }), submitAnswer: async () => {},
+      loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [wrapped] }), submitAnswer: async () => {},
     });
     view.render(width); await view.refreshInteraction(); view.handleInput("\t");
     const lines = text(view, width).split("\n");
@@ -113,10 +113,10 @@ test("wrapped answer labels, descriptions and previews keep their hanging indent
       const first = lines.findIndex(line => line.includes(start));
       const last = lines.findIndex((line, index) => index > first && line.includes(end));
       assert.ok(first >= 0 && last > first, `${width}: missing ${start}..${end}\n${lines.join("\n")}`);
-      return lines.slice(first, last);
+      return lines.slice(first, last).map(line => line.replace(/│/gu, " ")).filter(line => line.trim());
     };
-    const label = range("▶ 1.", "Reply and answer");
-    const description = range("Reply and answer", "2. Second");
+    const label = range("▶ [1]", "Reply and answer");
+    const description = range("Reply and answer", "[2] Second");
     const preview = range("One preview line", "Enter Send");
     for (const line of label.slice(1)) assert.equal(line.search(/\S/), label[0]!.indexOf("One shared shell"), `${width}: option label`);
     for (const line of description.slice(1)) assert.equal(line.search(/\S/), description[0]!.indexOf("Reply and answer"), `${width}: description`);
@@ -129,8 +129,8 @@ test("rpiv-style numbered options, question tabs, descriptions and real previews
   const dialog = createQuestionDialog(target, session.title, { ...request, params: { questions: [question, question] } });
   const wide = stripAnsi(renderQuestionPanel(dialog, 120).body.join("\n"));
   assert.match(wide, /←.*\[□ Scope\].*□ Scope.*→/);
-  assert.match(wide, /▶ 1\. First/);
-  assert.match(wide, /3\. Type something\./);
+  assert.match(wide, /▶ \[1\] First/);
+  assert.match(wide, /\[3\] Type something\./);
   assert.match(wide, /First description/); assert.match(wide, /Second description/);
   assert.match(wide, /Preview\n  Real option preview/);
   const narrow = stripAnsi(renderQuestionPanel(dialog, 80).body.join("\n"));
@@ -146,15 +146,15 @@ for (const host of ["fleet", "board-wide", "board-phone", "pin", "follow"] as co
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30, interactionTarget,
     ...(host.startsWith("board") ? { initialViewState: { grouping: "stage" as const } } : {}),
     ...(host === "pin" || host === "follow" ? { sidePaneState: () => ({ slots: [session.id], capacity: 2, constrained: false, splitPercent: 50, following: host === "follow" }) } : {}),
-    loadInteractionState: async () => ({ questionProtocol: true, pending: writes.length ? [] : [request] }),
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: writes.length ? [] : [request] }),
     submitAnswer: async (bound, call, answers) => { assert.deepEqual(bound, target); assert.equal(call, "call"); writes.push(answers); },
   });
   const width = host === "board-phone" ? 60 : 160;
   view.render(width); await view.refreshInteraction();
-  view.handleInput("\t"); assert.match(text(view, width), /1\. First/);
+  view.handleInput("\t"); assert.match(text(view, width), /\[1\] First/);
   view.handleInput("2"); view.handleInput("\x1b");
   assert.equal(writes.length, 0);
-  view.handleInput("\t"); assert.match(text(view, width), /▶ 2\. Second/);
+  view.handleInput("\t"); assert.match(text(view, width), /▶ \[2\] Second/);
   view.handleInput("\r"); await tick();
   assert.deepEqual(writes, [[{ questionIndex: 0, kind: "option", optionIndex: 1 }]]);
   assert.match(text(view, width), /Accepted · Answer sent/);
@@ -164,7 +164,7 @@ for (const host of ["fleet", "board-wide", "board-phone", "pin", "follow"] as co
 for (const width of [120, 80, 60, 30]) test(`answer form is width-exact and scrollable at ${width}`, async () => {
   const long = { ...request, params: { questions: [{ ...question, question: "Full untruncated question. ".repeat(30) + "QUESTION END" }] } };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 24, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [long] }), submitAnswer: async () => {},
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [long] }), submitAnswer: async () => {},
   });
   view.render(width); await view.refreshInteraction(); view.handleInput("\t");
   let seen = "";
@@ -176,7 +176,7 @@ for (const width of [120, 80, 60, 30]) test(`answer form is width-exact and scro
     view.handleInput("\x1b[6~");
   }
   assert.match(seen.replace(/[│\s]/g, ""), /QUESTIONEND/);
-  assert.match(seen, /1\. First/);
+  assert.match(seen, /\[1\] First/);
   assert.match(seen, /Enter Send/);
 });
 
@@ -188,13 +188,50 @@ for (const [reason, receipt, retained] of [
 ] as const) test(`card receipt: ${reason}`, async () => {
   let writes = 0;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 30, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }),
     submitAnswer: async () => { writes++; throw new Error(reason); },
   });
   view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.render(120); view.handleInput("\r"); await tick();
   assert.ok(text(view).includes(receipt), text(view));
-  assert.equal(text(view).includes("1. First"), retained);
+  assert.equal(text(view).includes("[1] First"), retained);
   if (reason.startsWith("Delivery")) { view.handleInput("\r"); view.handleInput("\x1b"); view.handleInput("\t"); view.handleInput("\r"); await tick(); assert.equal(writes, 1); }
+});
+
+test("opening a note on a long question reveals the editor on a phone", async () => {
+  const long = { ...request, params: { questions: [{ ...question, question: "A long condition ".repeat(80) + "Ship?" }] } };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 24, interactionTarget,
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [long] }), submitAnswer: async () => {},
+  });
+  view.render(30); await view.refreshInteraction(); view.handleInput("\t"); view.handleInput("n"); view.handleInput("Visible note");
+  const rendered = text(view, 30);
+  assert.match(rendered, /Question note/); assert.match(rendered, /Visible note/); assert.match(rendered, /Enter Save note/);
+});
+
+test("notes use the real card input path, survive page/selection/Escape, and reset with the tool call", async () => {
+  let pending = { ...request, params: { questions: [question, question] } };
+  let now = 0;
+  const writes: AnswerInput[][] = [];
+  const controller = new SessionsController({ version: 1, sessions: [structuredClone(session), { ...session, id: "other", piSessionId: "other-pi" }] });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 30, interactionTarget, now: () => now,
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [pending] }),
+    submitAnswer: async (_target, _call, answers) => { writes.push(answers); },
+  });
+  view.render(120); await view.refreshInteraction(); view.handleInput("\t");
+  view.handleInput("2"); view.handleInput("n"); view.handleInput("nCO exact note"); view.handleInput("\x1b");
+  assert.equal(writes.length, 0); assert.match(text(view), /✎ nCO exact note/);
+  view.handleInput("\x1b[C"); view.handleInput("n"); view.handleInput("Second note"); view.handleInput("\r");
+  view.handleInput("\x1b"); controller.selectSession("other"); view.render(120); await view.refreshInteraction();
+  controller.selectSession("s"); view.render(120); await view.refreshInteraction(); view.handleInput("\t");
+  view.handleInput("\x1b[D"); assert.match(text(view), /✎ nCO exact note/);
+  view.handleInput("\r"); view.handleInput("\r"); await tick();
+  assert.deepEqual(writes[0], [{ questionIndex: 0, kind: "option", optionIndex: 1, notes: "nCO exact note" }, { questionIndex: 1, kind: "option", optionIndex: 0, notes: "Second note" }]);
+  view.handleInput("\t"); view.handleInput("n"); view.handleInput("Old note"); view.handleInput("\r"); view.handleInput("\x1b");
+  pending = { ...pending, toolCallId: "replacement" }; now += 2000; await view.refreshInteraction(); view.handleInput("\t");
+  assert.doesNotMatch(text(view), /Old note|Second note|nCO exact note/);
+  view.handleInput("n"); view.handleInput("Old instance"); view.handleInput("\r"); view.handleInput("\x1b");
+  controller.snapshot().sessions.find(row => row.id === "s")!.interaction = { version: 1, instanceId: "new-instance" };
+  view.render(120); now += 2000; await view.refreshInteraction(); view.handleInput("\t");
+  assert.doesNotMatch(text(view), /Old instance/);
 });
 
 test("staged answers and uncertainty are exact-target bound across selection and restarts", async () => {
@@ -202,7 +239,7 @@ test("staged answers and uncertainty are exact-target bound across selection and
   const controller = new SessionsController({ version: 1, sessions: [structuredClone(session), other] });
   let writes = 0;
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }),
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }),
     submitAnswer: async () => { writes++; throw new Error("Delivery not confirmed; check Pi before retrying"); },
   });
   view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.handleInput("2"); view.handleInput("\r"); await tick();
@@ -212,13 +249,13 @@ test("staged answers and uncertainty are exact-target bound across selection and
   assert.equal(writes, 1, "observing the same pending request never licenses retry after uncertainty");
   view.handleInput("\x1b"); controller.snapshot().sessions.find(row => row.id === "s")!.interaction = { version: 1, instanceId: "restarted" };
   view.render(120); await view.refreshInteraction(); view.handleInput("\t");
-  assert.match(text(view), /▶ 1\. First/, "restart drops old staged choice");
+  assert.match(text(view), /▶ \[1\] First/, "restart drops old staged choice");
 });
 
 for (const editor of ["answer", "reply"]) test(`Escape releases the narrow-board ${editor} workspace so fleet navigation works immediately`, async () => {
   const controller = new SessionsController({ version: 1, sessions: [structuredClone(session), { ...session, id: "other", piSessionId: "pi-other" }] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 24, interactionTarget, initialViewState: { grouping: "stage" },
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [request], messageDelivery: "idle" }),
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [request], messageDelivery: "idle" }),
     submitAnswer: async () => { assert.fail("Escape must not answer"); }, sendMessage: async () => { assert.fail("Escape must not reply"); },
   });
   view.render(60); await view.refreshInteraction(); view.handleInput(editor === "answer" ? "\t" : "p"); view.render(60); view.handleInput("\x1b");
@@ -232,14 +269,14 @@ test("a fresh pending snapshot restores an unavailable staged form after visitin
   let disconnected = false;
   let writes = 0;
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 24, interactionTarget, now: () => now,
-    loadInteractionState: async () => { if (disconnected) throw new Error("temporary disconnect"); return { questionProtocol: true, pending: [request] }; },
+    loadInteractionState: async () => { if (disconnected) throw new Error("temporary disconnect"); return { answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }; },
     submitAnswer: async () => { writes++; },
   });
   view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.handleInput("2"); view.render(120);
   disconnected = true; now += 1000; await view.refreshInteraction(); view.handleInput("\x1b");
   disconnected = false; controller.selectSession("other"); view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.render(120); view.handleInput("\x1b");
   controller.selectSession("s"); view.render(120); await view.refreshInteraction(); view.handleInput("\t");
-  assert.match(text(view), /▶ 2\. Second/, "fresh availability keeps the exact staged choice");
+  assert.match(text(view), /▶ \[2\] Second/, "fresh availability keeps the exact staged choice");
   view.handleInput("\r"); await tick();
   assert.equal(writes, 1);
 });
@@ -248,19 +285,19 @@ test("new toolCallId drops staged answers; native closure removes a focused form
   let pending = [request];
   let now = 0;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 30, interactionTarget, now: () => now,
-    loadInteractionState: async () => ({ questionProtocol: true, pending }), submitAnswer: async () => { assert.fail("native closure must not submit"); },
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending }), submitAnswer: async () => { assert.fail("native closure must not submit"); },
   });
   view.render(120); await view.refreshInteraction(); view.handleInput("\t"); view.handleInput("2"); view.handleInput("\x1b");
   pending = [{ ...request, toolCallId: "next-call" }]; now += 1000; await view.refreshInteraction(); view.handleInput("\t");
-  assert.match(text(view), /▶ 1\. First/);
+  assert.match(text(view), /▶ \[1\] First/);
   pending = []; now += 1000; await view.refreshInteraction();
-  assert.doesNotMatch(text(view), /1\. First/);
+  assert.doesNotMatch(text(view), /\[1\] First/);
 });
 
 for (const width of [30, 80, 120]) test(`too-short answer panel opens Pi, not an invisible answer at ${width}`, async () => {
   const opened: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 3, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [request] }), submitAnswer: async () => { assert.fail("invisible answer submitted"); },
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }), submitAnswer: async () => { assert.fail("invisible answer submitted"); },
     acknowledgeSession: () => {}, attachOutsideTmux: tmux => { opened.push(tmux); }, switchInsideTmux: tmux => { opened.push(tmux); },
   });
   view.render(width); await view.refreshInteraction(); view.handleInput("\t");
@@ -271,13 +308,13 @@ for (const width of [30, 80, 120]) test(`too-short answer panel opens Pi, not an
 test("Accepted stays Accepted when activity bookkeeping fails; Conversation is read-only", async () => {
   let writes = 0;
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [structuredClone(session)] }), () => {}, { terminalRows: () => 30, interactionTarget,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: writes ? [] : [request] }),
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: writes ? [] : [request] }),
     loadConversation: async () => ({ branchId: "b", revision: "1", items: [{ id: "m", role: "assistant", text: "Completed history" }] }),
     submitAnswer: async () => { writes++; }, afterInteractionWrite: async () => { throw new Error("disk full"); },
   });
   view.render(120); await view.refreshInteraction(); view.handleInput("c"); await tick();
-  assert.match(text(view), /Completed history/); assert.doesNotMatch(text(view), /ANSWER NEEDED|1\. First/);
-  view.handleInput("\x1b"); view.handleInput("\t"); assert.match(text(view), /1\. First/);
+  assert.match(text(view), /Completed history/); assert.doesNotMatch(text(view), /ANSWER NEEDED|\[1\] First/);
+  view.handleInput("\x1b"); view.handleInput("\t"); assert.match(text(view), /\[1\] First/);
   view.handleInput("\r"); await tick();
   assert.match(text(view), /Accepted · Answer sent/);
   assert.match(text(view), /activity update failed: disk full/);

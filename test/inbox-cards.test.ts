@@ -29,7 +29,7 @@ test("inbox cards retain separate task and request at every approved width", () 
     const task = lines.findIndex(line => line.includes("Taller fleet cards"));
     const request = lines.findIndex(line => line.includes("? Choose the boundary"));
     assert.ok(task >= 0 && request > task, `${width}:\n${lines.join("\n")}`);
-    const metadata = lines.find(line => line.includes("[cards]"))!;
+    const metadata = lines[lines.findIndex(line => line.includes("[cards]")) + (width >= 60 ? 1 : 0)]!;
     if (width >= 60) assert.match(metadata, /◈ hub-repo ⎇ feat\/taller-cards/);
     else assert.doesNotMatch(metadata, /hub-repo|feat\/taller-cards/);
     if (width < 80) assert.match(metadata, /· Execute/);
