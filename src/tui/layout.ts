@@ -342,6 +342,7 @@ interface LayoutStyles {
   strong(text: string): string;
   warning(text: string): string;
   selected(text: string): string;
+  option(text: string): string;
   status(status: RenderSession["displayStatus"], text: string): string;
 }
 
@@ -357,12 +358,13 @@ function createStyles(theme: SessionsTheme): LayoutStyles {
     strong: (text) => text ? `\u001b[1m${styleToken(theme, "text", text)}\u001b[22m` : text,
     warning: (text) => styleToken(theme, "warning", text),
     selected: (text) => styleBgToken(theme, "selectedBg", text),
+    option: (text) => styleBgToken(theme, "statusLineBg", text.replace(/\x1b\[0m/gu, "\x1b[39m")),
     status: (status, text) => styleToken(theme, status === "error" ? "error" : status === "waiting" ? "warning" : status === "running" ? "success" : "muted", text),
   };
 }
 
 function plainStyles(): LayoutStyles {
-  return createStyles({ ...darkTheme, accent: "", border: "", dim: "", error: "", muted: "", success: "", warning: "", selectedBg: "" });
+  return createStyles({ ...darkTheme, accent: "", border: "", dim: "", error: "", muted: "", success: "", warning: "", selectedBg: "", statusLineBg: "" });
 }
 
 function emptyLines(inner: number, styles: LayoutStyles): string[] {
@@ -547,8 +549,31 @@ interface SessionListContent {
   continuationPriorities: Map<number, number>;
   contextIndexes: Map<number, number[]>;
   priorityIndexes?: number[];
-  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string };
+  panel?: { bodyStart: number; content: NonNullable<RenderWorkspace["panel"]>; width: number; indent: string; retainedText?: string; frame?: { closed: boolean; focused: boolean; metadata: string; keys?: ReturnType<typeof cardKeyRows> } };
+  framedCard?: NonNullable<SessionListContent["panel"]>;
   cardScrollOffset?: number;
+}
+
+function requestFrameIdentity(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean) {
+  const closed = terminalWidth >= 40;
+  const contentWidth = Math.max(1, width - (closed ? 4 : 2));
+  const workflow = session.workflow;
+  const grid = terminalWidth >= 80 && workflow && displayWidth(workflowGridHeader(workflow, " ")) + 20 <= contentWidth ? workflow : undefined;
+  const labels = grid ? styles.muted(workflowGridHeader(grid, " ")) : "";
+  const cell = fleetWorkflowCell(session, styles, grid, " ");
+  const marker = `${session.worktreeMarker ? ` ${session.worktreeMarker}` : ""}${session.unopened ? " new" : ""}`;
+  const group = styles.muted(`[${session.group}]`);
+  const state = session.attention ? attentionGlyph(session.attention.kind, styles) : styles.status(session.displayStatus, session.symbol);
+  const disclosure = session.boardExpanded === undefined ? "" : `${session.boardExpanded ? glyphs.expanded : glyphs.collapsed} `;
+  const prefix = `${disclosure}${state} `;
+  const headerWidth = contentWidth - (closed ? 1 : 0);
+  const titleRoom = headerWidth - displayWidth(prefix + marker) - (labels ? displayWidth(labels) + 2 : 0);
+  const groupOnTop = closed && displayWidth(session.title + group) + 2 <= titleRoom;
+  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(marker)}${groupOnTop ? `  ${group}` : ""}`;
+  const topText = labels ? twoColumn(title, labels, headerWidth) : title;
+  const top = closed ? `${selectionMarker(styles.accent(glyphs.topLeft))}${styles.accent(`${glyphs.horizontal} `)}${topText} ${styles.accent(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(topText) - 5)) + glyphs.topRight)}`
+    : `${selectionMarker(styles.accent(glyphs.selected))} ${title}`;
+  return { top, closed, metadata: inboxMetadataLine(session, contentWidth, terminalWidth, styles, cell, repoMode, !groupOnTop) };
 }
 
 function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean, dense = false): SessionListContent {
@@ -610,12 +635,22 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const titleFirst = !board && shape === "full-parent";
     const cell = titleFirst || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
     const inbox = !board && !model.pinMode;
+    const workspace = session.selected && model.workspace?.session.id === session.id ? model.workspace : undefined;
+    const frame = inbox && session.selected && (session.attention || session.pendingQuestion || session.deliveryResult || workspace?.panel)
+      ? requestFrameIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo") : undefined;
+    const indent = frame ? "  " : gutterColumn ? "   " : "  ";
+    const contentWidth = Math.max(1, width - (frame?.closed ? 4 : indent.length));
+    const rowStart = lines.length;
+    let keyRows: ReturnType<typeof cardKeyRows> | undefined;
+    let keyStart = -1;
     const oneLine = titleFirst && (shortRows || (dense && session.cockpitOwnerId !== selectedOwnerId)) && !(inbox && session.selected);
     const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine, workflowCell: cell });
-    pushLine(row, { kind: "session", id: session.id }, session);
+    pushLine(frame?.top ?? row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
-    if (titleFirst && cell && (!oneLine || (shortRows && session.selected))) {
-      const indent = gutterColumn ? "   " : "  ";
+    if (frame) {
+      pushLine(`${indent}${frame.metadata}`, { kind: "session-continuation", id: session.id }, session);
+      continuationPriorities.set(lines.length - 1, -1);
+    } else if (titleFirst && cell && (!oneLine || (shortRows && session.selected))) {
       const metadataCell = oneLine ? { ...cell, right: "" } : cell;
       // Without card lines, the metadata line is the only place a differing repo name can appear.
       const repoInline = model.width < 100 || model.compactRows || oneLine;
@@ -624,15 +659,13 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     if (shape === "full-parent" && !model.compactRows && !oneLine) {
       const hideFocusedQuestion = session.selected && model.workspace?.session.id === session.id && model.workspace.panel?.kind === "answer";
-      for (const continuation of adaptiveCardLines(session, Math.max(0, width - (gutterColumn ? 3 : 2)), rowStyles, board, model.width, model.fleetGrouping === "repo" && !board, inbox, hideFocusedQuestion)) {
-        pushLine(`${styles.border(gutterColumn ? "   " : "  ")}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
+      for (const continuation of adaptiveCardLines(session, contentWidth, rowStyles, board, model.width, model.fleetGrouping === "repo" && !board, inbox, hideFocusedQuestion, spacers)) {
+        pushLine(`${styles.border(indent)}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
       }
     }
     if (inbox && session.selected && model.workspace?.session.id === session.id) {
       const workspace = model.workspace;
-      const indent = gutterColumn ? "   " : "  ";
-      const contentWidth = Math.max(0, width - indent.length);
       const append = (line: string) => pushLine(`${indent}${truncate(line, contentWidth)}`, { kind: "session-continuation", id: session.id }, session);
       const blocks = actionWorkspaceBlocks(workspace, contentWidth, model.now, rowStyles);
       for (const block of blocks) {
@@ -641,9 +674,12 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         }
       }
       if (!workspace.panel) {
-        const keys = cardKeyLine(workspace, contentWidth, rowStyles);
-        append(keys.line);
-        lineMeta[lines.length - 1]!.commands = keys.hits.map(hit => ({ ...hit, x: hit.x + indent.length }));
+        keyRows = cardKeyRows(workspace, contentWidth, rowStyles, Boolean(frame));
+        keyStart = lines.length;
+        for (const keys of keyRows) {
+          append(keys.line);
+          lineMeta[lines.length - 1]!.commands = keys.hits.map(hit => ({ ...hit, x: hit.x + indent.length }));
+        }
       }
       if (workspace.evidenceVisible) {
         for (const block of blocks) {
@@ -659,6 +695,25 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         panel = { bodyStart, content: workspace.panel, width, indent,
           ...(workspace.session.deliveryResult ? { retainedText: plainAttentionText(workspace.session.deliveryResult) } : {}) };
       }
+    }
+    if (frame) {
+      const prefix = lines.slice(rowStart + 2, panel?.bodyStart ?? lines.length).flatMap((line, index) => {
+        const originalIndex = rowStart + 2 + index;
+        return keyStart >= 0 && originalIndex >= keyStart && originalIndex < keyStart + (keyRows?.length ?? 0) ? [] : [sliceByColumn(line, indent.length, width)];
+      });
+      const focused = workspace?.panel;
+      if (focused && session.deliveryResult) {
+        const receipt = stripAnsi(truncate(plainAttentionText(session.deliveryResult), contentWidth)).trim();
+        const index = prefix.findIndex(line => stripAnsi(line).trim() === receipt);
+        if (index >= 0) prefix.splice(index, 1);
+      }
+      panel = { bodyStart: rowStart + 2, width, indent, frame: { closed: frame.closed, focused: Boolean(workspace?.panel), metadata: frame.metadata, keys: keyRows },
+        content: focused ? { ...focused, body: [...prefix, ...focused.body],
+          hangingIndents: [...prefix.map(() => 0), ...(focused.hangingIndents ?? focused.body.map(() => 0))],
+          focusRows: focused.focusRows?.map(index => index + prefix.length) }
+          : { body: prefix.length ? prefix : [""], keyLine: keyRows?.map(row => row.line).join("\n") ?? "Enter Open in Pi", offset: model.cardScrollOffset ?? 0 },
+        ...(focused && session.deliveryResult ? { retainedText: plainAttentionText(session.deliveryResult) } : {}) };
+      for (let index = rowStart; index < lines.length; index++) lineMeta[index] = { ...lineMeta[index]!, richTree: false };
     }
     if (session.selected) selectedEndIndex = lines.length - 1;
   };
@@ -771,8 +826,22 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const meta = lineMeta[index];
     if (meta) meta.treeEnd = true;
   }
-  return { lines, targets, lineMeta, panel, ...(!board && !model.pinMode ? { cardScrollOffset: model.cardScrollOffset ?? 0 } : {}), ...(selectedOwnerId ? { selectedOwnerId } : {}), selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes,
+  const result: SessionListContent = { lines, targets, lineMeta, panel, ...(!board && !model.pinMode ? { cardScrollOffset: model.cardScrollOffset ?? 0 } : {}), ...(selectedOwnerId ? { selectedOwnerId } : {}), selectedIndex, selectedEndIndex, continuationPriorities, contextIndexes,
     ...(priorityIndexes.length ? { priorityIndexes } : {}) };
+  if (panel?.frame && !panel.frame.focused) {
+    const rendered = windowPanel(result, undefined, styles);
+    const delta = rendered.lines.length - (selectedEndIndex - selectedIndex + 1);
+    const shift = (index: number) => index > selectedEndIndex ? index + delta : index;
+    return { ...result, panel: undefined, framedCard: panel,
+      lines: [...lines.slice(0, selectedIndex), ...rendered.lines, ...lines.slice(selectedEndIndex + 1)],
+      targets: [...targets.slice(0, selectedIndex), ...rendered.targets, ...targets.slice(selectedEndIndex + 1)],
+      lineMeta: [...lineMeta.slice(0, selectedIndex), ...rendered.lineMeta, ...lineMeta.slice(selectedEndIndex + 1)],
+      selectedEndIndex: selectedEndIndex + delta,
+      continuationPriorities: new Map([...continuationPriorities].filter(([index]) => index < selectedIndex || index > selectedEndIndex).map(([index, priority]): [number, number] => [shift(index), priority]).concat([[selectedIndex + 1, -1]])),
+      contextIndexes: new Map([...contextIndexes].filter(([index]) => index <= selectedIndex || index > selectedEndIndex).map(([index, context]) => [shift(index), context.map(shift)])),
+      priorityIndexes: priorityIndexes.map(shift) };
+  }
+  return result;
 }
 
 function decorateAttentionSectionCap(
@@ -869,19 +938,38 @@ function windowList(list: SessionListContent, capacity: number, scrollTop: numbe
 
 function windowPanel(list: SessionListContent, capacity: number | undefined, styles: LayoutStyles): ListWindow {
   const panel = list.panel!;
-  const context = list.lines.slice(list.selectedIndex + 1, panel.bodyStart);
+  const context = panel.frame ? [] : list.lines.slice(list.selectedIndex + 1, panel.bodyStart);
   const retainedLine = panel.retainedText
     ? stripAnsi(truncate(panel.retainedText, Math.max(1, panel.width - panel.indent.length)))
     : undefined;
   const optionalContext = retainedLine ? context.filter((line) => stripAnsi(line).trim() !== retainedLine) : context;
   const retained = panel.retainedText ? [styles.accent(panel.retainedText)] : [];
-  const rendered = renderFocusedPanel(list.lines[list.selectedIndex]!, optionalContext, panel.content, panel.width, capacity, styles, panel.indent, retained);
+  const rendered = renderFocusedPanel(list.lines[list.selectedIndex]!, optionalContext, panel.content,
+    panel.width - (panel.frame?.closed ? 2 : 0), capacity === undefined ? undefined : capacity - (panel.frame ? 1 : 0), styles, panel.indent, retained);
+  if (panel.frame && !rendered.fallback) {
+    rendered.lines[0] = list.lines[list.selectedIndex]!;
+    rendered.lines.splice(1, 0, panel.indent + panel.frame.metadata);
+    if (panel.frame.closed) {
+      rendered.lines = rendered.lines.map((line, index) => {
+        if (!index) return line;
+        const content = sliceByColumn(line, panel.indent.length, panel.width);
+        if (index === rendered.lines.length - 1) {
+          const gap = displayWidth(content) < panel.width - 4 ? " " : "";
+          return `${styles.accent(`${glyphs.bottomLeft}${glyphs.horizontal} `)}${content}${gap}${styles.accent(glyphs.horizontal.repeat(Math.max(0, panel.width - displayWidth(content + gap) - 4)) + glyphs.bottomRight)}`;
+        }
+        return `${styles.accent(glyphs.vertical)} ${pad(content, Math.max(1, panel.width - 4))} ${styles.accent(glyphs.vertical)}`;
+      });
+    }
+  }
   const id = list.targets[list.selectedIndex];
   const ownerId = id && "id" in id ? id.id : undefined;
   const meta = list.lineMeta[list.selectedIndex];
   return { lines: rendered.lines, targets: rendered.lines.map((_, index) => index === 0 ? id : ownerId ? { kind: "session-continuation", id: ownerId } : undefined),
     lineMeta: rendered.lines.map((_, index) => meta ? { ...meta, treeEnd: index === rendered.lines.length - 1 && Boolean(list.lineMeta[list.selectedEndIndex]?.treeEnd),
-      ...(rendered.fallback && ownerId ? { commands: [{ x: 0, width: 16, commandId: `action:${ownerId}:open` }] } : {}) } : undefined),
+      commands: rendered.fallback && ownerId ? [{ x: 0, width: 16, commandId: `action:${ownerId}:open` }]
+        : panel.frame?.keys && index >= rendered.lines.length - panel.frame.keys.length
+          ? panel.frame.keys[index - (rendered.lines.length - panel.frame.keys.length)]!.hits.map(hit => ({ ...hit, x: hit.x + (panel.frame!.closed && index === rendered.lines.length - 1 ? 3 : panel.indent.length) }))
+          : undefined } : undefined),
     selectedIndex: 0, selectedEndIndex: rendered.lines.length - 1, top: list.selectedIndex, panelViewport: rendered.panelViewport };
 }
 
@@ -1019,6 +1107,7 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
 }
 
 function windowSelectedCard(list: SessionListContent, capacity: number, styles: LayoutStyles): ListWindow {
+  if (list.framedCard) return windowPanel({ ...list, panel: list.framedCard }, capacity, styles);
   const safeCapacity = Math.max(1, capacity);
   if (list.cardScrollOffset !== undefined) {
     const keyRow = list.lineMeta.findIndex((meta, index) => index >= list.selectedIndex && index <= list.selectedEndIndex && meta?.commands?.length);
@@ -1101,6 +1190,13 @@ function styledWorkflowMarker(workflow: WorkflowRuntimeSnapshot, index: number, 
   return styles[marker === glyphs.ready ? "success" : marker === glyphs.activeStep ? "accent" : "dim"](marker);
 }
 
+function receiptLine(session: RenderSession, width: number, styles: LayoutStyles): string {
+  const text = truncate(plainAttentionText(session.deliveryResult ?? ""), width);
+  return session.deliveryResult?.startsWith(`${glyphs.ready} Sent`)
+    ? session.deliveryEmphasis ? styles.strong(styles.success(text)) : styles.muted(text)
+    : styles.accent(text);
+}
+
 function adaptiveCardLines(
   session: RenderSession,
   width: number,
@@ -1110,10 +1206,11 @@ function adaptiveCardLines(
   repoMode: boolean,
   inbox = true,
   hideFocusedQuestion = false,
+  spacers = false,
 ): { line: string; priority: number }[] {
   if (board) {
     const receipt = session.deliveryResult
-      ? [{ line: styles.accent(truncate(plainAttentionText(session.deliveryResult), width)), priority: 0 }]
+      ? [{ line: receiptLine(session, width, styles), priority: 0 }]
       : [];
     if (terminalWidth < 100) return receipt;
     const lines: { line: string; priority: number }[] = [];
@@ -1146,6 +1243,7 @@ function adaptiveCardLines(
   const attention = session.attention;
   const question = session.selected ? session.pendingQuestion : undefined;
   if ((attention || question) && !(hideFocusedQuestion && question)) {
+    if (session.selected && summary && attention?.kind === "ready" && spacers) lines.push({ line: "", priority: 2 });
     const kind = question ? "question" : attention!.kind;
     const text = question ? `${question.header} ${glyphs.pendingStep} ${question.question}` : attention!.text;
     if (question && displayWidth(question.header) + 4 > width) {
@@ -1167,7 +1265,7 @@ function adaptiveCardLines(
       for (const line of artifact) lines.push({ line: styles.muted(line), priority: 0 });
     }
   }
-  if (session.deliveryResult) lines.push({ line: styles.accent(truncate(plainAttentionText(session.deliveryResult), width)), priority: 0 });
+  if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
   if (terminalWidth < 100) return lines;
 
   // Activity is live progress: stale once stopped, and a completed step already shows its checkmark.
@@ -1248,14 +1346,14 @@ function renderFocusedPanel(title: string, context: string[], panel: NonNullable
   const contentWidth = Math.max(1, width - indent.length);
   const body = panel.body.flatMap((line, index) => {
     if (typeof line !== "string") return [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))];
-    const wrapped = wrapTextWithAnsi(line, contentWidth);
     const hangingIndent = Math.max(0, Math.min(contentWidth - 1, panel.hangingIndents?.[index] ?? 0));
-    if (!hangingIndent || wrapped.length < 2) return wrapped.map(part => indent + part);
-    const continuationWidth = Math.max(1, contentWidth - hangingIndent);
-    return [indent + wrapped[0], ...wrapped.slice(1).flatMap(part => wrapTextWithAnsi(part.replace(/^((?:\x1b\[[0-9;]*m)*) +/u, "$1"), continuationWidth)
-      .map(continuation => indent + " ".repeat(hangingIndent) + continuation))];
+    const prefix = hangingIndent ? sliceByColumn(line, 0, hangingIndent) : "";
+    const text = hangingIndent ? sliceByColumn(line, hangingIndent, displayWidth(line)) : line;
+    const parts = wrapTextWithAnsi(text, Math.max(1, contentWidth - hangingIndent))
+      .map((part, partIndex) => (partIndex ? " ".repeat(hangingIndent) : prefix) + part);
+    return parts.map(part => indent + (panel.focusRows?.includes(index) ? styles.option(pad(part, contentWidth)) : part));
   });
-  const keys = panel.keyLine.split("\n").map(line => indent + fitFooter(line, contentWidth));
+  const keys = completeKeyLines(panel.keyLine, contentWidth).map(line => indent + line);
   const retainedLines = retained.map(line => indent + truncate(line, contentWidth));
   const reserved = 1 + retainedLines.length + keys.length;
   const capacity = maxRows ?? body.length + context.length + reserved + (panel.statusLine ? 1 : 0);
@@ -1298,7 +1396,7 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
     ...(attention.recommendation ? prefixedWorkspaceText(glyphs.right, stripAnsi(attention.recommendation), width).map((line) => styles.muted(line)) : []),
     ...(attention.artifact ? [styles.muted(`${glyphs.artifact} ${truncateValue(attention.artifact, Math.max(1, width - 2), "start")}`)] : []),
   ] : []);
-  const receipt = block("receipt", session.deliveryResult ? [styles.accent(plainAttentionText(session.deliveryResult))] : []);
+  const receipt = block("receipt", session.deliveryResult ? [receiptLine(session, width, styles)] : []);
   const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
   const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
@@ -1495,7 +1593,7 @@ function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: W
   return { right, compatible, gridWidth: grid ? displayWidth(workflowGridHeader(grid, gap)) : 0 };
 }
 
-function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean): string {
+function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, includeGroup = true): string {
   const step = session.workflow?.steps[session.workflow.activeIndex];
   const right = terminalWidth >= 80 ? cell.right : "";
   const stepText = terminalWidth < 80 && step ? styles.accent(` ${glyphs.pendingStep} ${step.label ?? step.short}`) : "";
@@ -1503,7 +1601,7 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   const hidden = session.hiddenChildRequestCount ? ` ?${session.hiddenChildRequestCount}` : "";
   const budget = Math.max(0, leftWidth - displayWidth(hidden));
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
-  const group = renderGroupBadge(session.group, Math.min(24, budget), styles);
+  const group = includeGroup ? renderGroupBadge(session.group, Math.min(24, budget), styles) : "";
   const repo = terminalWidth >= 40 ? repoNameSignal(session, styles, repoMode) : "";
   const branch = terminalWidth >= 40 && branchName ? styles.muted(`${glyphs.worktree} ${branchName}`) : "";
   let left = group;
@@ -1533,20 +1631,35 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   return right ? twoColumn(left, right, width) : left;
 }
 
-function cardKeyLine(workspace: RenderWorkspace, width: number, styles: LayoutStyles): { line: string; hits: { x: number; width: number; commandId: string }[] } {
-  let line = "";
-  const hits: { x: number; width: number; commandId: string }[] = [];
+function completeKeyLines(keyLine: string, width: number): string[] {
+  return keyLine.split("\n").flatMap(line => {
+    const rows: string[] = [];
+    for (const item of line.split(` ${glyphs.pendingStep} `)) {
+      const last = rows.at(-1);
+      if (last !== undefined && displayWidth(`${last} ${glyphs.pendingStep} ${item}`) <= width) rows[rows.length - 1] += ` ${glyphs.pendingStep} ${item}`;
+      else rows.push(...wrapTextWithAnsi(item, width));
+    }
+    return rows;
+  });
+}
+
+function cardKeyRows(workspace: RenderWorkspace, width: number, styles: LayoutStyles, wrap = true): { line: string; hits: { x: number; width: number; commandId: string }[] }[] {
+  const rows: ReturnType<typeof cardKeyRows> = [];
   const commands = [...new Map([...workspace.actions, workspace.evidenceCommand, workspace.moreCommand].map(command => [command.id, command])).values()];
   for (const command of commands) {
     const label = command.id === workspace.moreCommand.id ? "All actions" : command.label;
     const key = formatKey(command.displayKey ?? "");
     const text = `${key} ${label}`;
-    const x = displayWidth(line) + (line ? 3 : 0);
-    if (x + displayWidth(text) > width) continue;
-    line += `${line ? "   " : ""}${styles.accent(key)} ${styles.muted(label)}`;
-    hits.push({ x, width: displayWidth(text), commandId: command.id });
+    const last = rows.at(-1);
+    const x = last ? displayWidth(last.line) + 3 : 0;
+    const item = `${styles.accent(key)} ${styles.muted(label)}`;
+    if (last && x + displayWidth(text) <= width) {
+      last.line += `   ${item}`; last.hits.push({ x, width: displayWidth(text), commandId: command.id });
+    } else if (wrap || !last && displayWidth(text) <= width) {
+      for (const line of wrapTextWithAnsi(item, width)) rows.push({ line, hits: [{ x: 0, width: displayWidth(line), commandId: command.id }] });
+    }
   }
-  return { line, hits };
+  return rows.length ? rows : [{ line: "", hits: [] }];
 }
 
 function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, repoInline = false, inboxWidth?: number): string {

@@ -89,7 +89,7 @@ test("the shared panel retains its exact receipt workspace on a narrow board aft
 
 test("short focused panels drop a status message before hiding all editor content", () => {
   const controller = new SessionsController({ version: 1, sessions: [session] });
-  const view = new SessionsView(controller, () => {}, { terminalRows: () => 4, interactionTarget });
+  const view = new SessionsView(controller, () => {}, { terminalRows: () => 5, interactionTarget });
   view.setMessage("Bookkeeping warning");
   view.setCardPanel(interactionTarget(session)!, { body: ["Editable content"], keyLine: "Enter Send   Esc Keep draft", offset: 0 }, () => {});
   const rendered = stripAnsi(view.render(30).join("\n"));

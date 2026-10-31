@@ -1453,7 +1453,7 @@
   plan_file: agent-work/history/20261029_inbox-008_card_design_lab.md
   completed_at: '2026-10-29'
 - id: inbox-009
-  status: pending
+  status: done
   title: Framed request cards
   subtitle: Readable framed cards with question notes
   description: "Selected request cards render the approved E1\u2013E8 design: frame,\
@@ -1466,3 +1466,5 @@
   references:
   - agent-work/plans/inbox-000.md
   - agent-work/decks/inbox-card-lab.html
+  plan_file: agent-work/history/20261030_inbox-009_framed_request_cards.md
+  completed_at: '2026-10-30'

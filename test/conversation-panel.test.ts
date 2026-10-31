@@ -18,7 +18,7 @@ async function setup(holdSubmission = false, height = 28, secondStatus: RuntimeS
   const second: RuntimeSession = { ...session, status: secondStatus, id: "panel-b", title: "Second session", tmuxSession: "panel-b", piSessionId: "pi-b", interaction: { version: 1, instanceId: "instance-b" } };
   const controller = new SessionsController({ version: 1, sessions: [session, second] });
   const view = new SessionsView(controller, () => {}, {
-    interactionTarget, loadInteractionState: async () => ({ questionProtocol: true, pending }),
+    interactionTarget, loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending }),
     loadConversation: async () => readConversation([{ type: "message", id: "message", message: { role: "assistant", content: [{ type: "text", text: "Here is the earlier conversation." }, { type: "toolCall", id: request.toolCallId, name: "ask_user_question", arguments: request.params }] } }], { branchId: "branch" }),
     submitAnswer: async (target, _request, answers) => { writes.push({ id: target.managedId, answers }); if (holdSubmission) await new Promise<void>(resolve => { release = resolve; }); pending = []; }, terminalRows: () => height,
   });
@@ -96,5 +96,5 @@ test("Escape releases answer focus without submitting or declining; Tab restores
   answer(view); view.handleInput("2"); view.handleInput("\x1b");
   assert.equal(writes.length, 0);
   view.handleInput("\t");
-  assert.match(stripAnsi(view.render(120).join("\n")), /▶ 2\. Coffee/);
+  assert.match(stripAnsi(view.render(120).join("\n")), /▶ \[2\] Coffee/);
 });

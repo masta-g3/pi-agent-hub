@@ -100,9 +100,10 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       cancellations.add(cancel);
       try {
         check();
-        adapter.events.emit("rpiv:ask-user:answer", { toolCallId, requestId, answers: answers.map(answer => answer.kind === "custom"
+        adapter.events.emit("rpiv:ask-user:answer", { toolCallId, requestId, answers: answers.map(answer => ({ ...(answer.kind === "custom"
           ? { questionIndex: answer.questionIndex, text: answer.text }
-          : { questionIndex: answer.questionIndex, optionIndexes: answer.kind === "option" ? [answer.optionIndex] : answer.optionIndices }) });
+          : { questionIndex: answer.questionIndex, optionIndexes: answer.kind === "option" ? [answer.optionIndex] : answer.optionIndices }),
+          ...(answer.notes === undefined ? {} : { notes: answer.notes }) })) });
       } catch { finish(undefined, new Error("Session interaction unavailable")); }
     });
   }
@@ -126,7 +127,7 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
     }
     if (request.kind === "state") {
       const pending = structuredClone(pendingQuestions());
-      const state: SessionInteractionState = { questionProtocol, pending, questionUnavailableReason: unavailableReason(), shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" };
+      const state: SessionInteractionState = { answerChannel: "rpiv-events", questionProtocol, pending, questionUnavailableReason: unavailableReason(), shortcutDisabledReason: disabled(pending), messageDelivery: adapter.isIdle() ? "idle" : "busy" };
       // Include the full response envelope, including the caller's ID, in the preview budget.
       let budget = INTERACTION_BYTE_CAP - Buffer.byteLength(JSON.stringify({ version: 1, id: request.id, ...target, ok: true, result: state })) - 1;
       const branch = adapter.getBranch();

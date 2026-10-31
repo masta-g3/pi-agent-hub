@@ -1,6 +1,6 @@
 import { glyphs } from "./glyphs.js";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { SessionInteractionState } from "../core/session-interaction.js";
+import { answerUnavailableReason, type SessionInteractionState } from "../core/session-interaction.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
 import { sessionClosure } from "../core/session-bucket.js";
@@ -169,6 +169,7 @@ export function dashboardHelpSections(shortcuts: readonly DashboardShortcut[] = 
   return [
     { label: "Session actions", commands: [
       { label: "Answer pending question", hint: "answer on the selected card; Esc leaves without declining", displayKey: "Tab" },
+      { label: "Question note / Context / Original", hint: "inside answer focus; text editors keep literal input", displayKey: "n / C / O" },
       ...actionSpecs.filter(spec => !isPin(spec) && !isFollowFocus(spec)).map(reference),
       ...shortcuts.map(shortcut => ({ label: shortcut.label ?? shortcut.send, hint: `send ${shortcut.send}`, displayKey: formatKey(shortcut.key) })),
     ] },
@@ -184,7 +185,7 @@ export function buildDashboardCommands(input: DashboardCommandInput): DashboardC
   if (selected) {
     if (input.capabilities?.answerQuestion && input.interactionState?.questionProtocol && selected.interaction && isLive(selected) && selected.kind !== "subagent" && input.interactionState.pending.length) commands.push(makeCommand({
       id: `action:${selected.id}:answer:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction.instanceId)}:${encodeURIComponent(input.interactionState.pending[0]!.toolCallId)}`, group: "actions", label: "Answer", hint: "answer the pending questionnaire on its card", displayKey: "Tab", bindings: [{ key: "Tab" }], targetSessionId: selected.id,
-      enabled: !input.interactionBlockedReason, disabledReason: input.interactionBlockedReason, searchText: "answer question questionnaire",
+      enabled: !input.interactionBlockedReason && !answerUnavailableReason(input.interactionState), disabledReason: input.interactionBlockedReason ?? answerUnavailableReason(input.interactionState), searchText: "answer question questionnaire",
     }));
     if (input.deliveryResult && input.deliveryResult !== "submitting") commands.push(makeCommand({
       id: `action:${selected.id}:dismiss-result:${encodeURIComponent(selected.piSessionId ?? "")}:${encodeURIComponent(selected.interaction?.instanceId ?? "")}`,

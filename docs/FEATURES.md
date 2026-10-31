@@ -10,7 +10,7 @@ Start `pi-hub` and press `n` to create a session. Then work from the list:
 ] Next request → Tab Answer or p Reply → ] Next request
 ```
 
-Read the task and request on the selected card. `i` toggles Details. `Enter` opens Pi when you need it; `Ctrl+Q` returns. Inside Pi, `Alt+W` opens the next request from another session.
+Selected request, editor and receipt cards frame the no-pin list, open-sided at 30 columns. `i` Details; `Enter` opens Pi; `Ctrl+Q` returns; Pi's `Alt+W` opens the next request.
 
 Pins and follow view are opt-in. Use `P` to keep a live session beside the list, or `o` for one pane that follows selection. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns.
 
@@ -57,6 +57,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `:` | Search actions, sessions, and named filters |
 | `]` | Select the next visible session that needs you, without opening it |
 | `Tab` | Answer a supported pending question on the selected card |
+| `n` / `C` / `O` in answer focus | Edit this question's note / toggle Context / show Original; text editors keep literal keys |
 | `p` | Reply on the selected live parent's card |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
@@ -98,15 +99,16 @@ Conversation is read-only. It shows completed text and validated question/answer
 
 ## Answer from a card
 
-Press `Tab` on a supported pending question. The selected card opens numbered options and a **Type something.** row. Answering closes Conversation if it is open. The same panel works on the board and in pin/follow strips.
+`Tab` opens questions and closes Conversation. Board/pin/follow panels share content, without an extra frame.
 
-- Use numbers or `↑` / `↓` to choose. Multi-select questions use numbers or `Space` to toggle.
-- Press `t`, or choose **Type something.**, to write a custom answer. Text input keeps literal keys.
-- Use `←` / `→` to visit questions when not editing text. `Enter` confirms and advances, or sends when every question has a confirmed answer.
-- `Esc` leaves custom input for the options, then leaves answer focus without declining. Choices stay staged for that exact request. Reopen with `Tab`.
-- `PgUp` / `PgDn` scroll long text. At 100+ columns all option descriptions appear; narrower panels show the cursor option's description. The selected option's preview appears when available from the exact live tool call. **preview in Pi** means Hub has no preview body for that option; it remains answerable.
+- Ask first, conditions indented. `C` Context / `O` Original change display only; ambiguity keeps original text.
+- Filled `[1]` tiles mark cursors, not checks. `[Recommended]` needs an explicit marker, never inferred.
+- Numbers/`↑`/`↓` choose; numbers/`Space` toggle multi-select. `t`/**Type something.** edits literal text. A catch-all may share the row; its number and custom route stay distinct.
+- `n` edits per-question notes (8,192 UTF-16 units). `Enter` saves; `Esc` returns, keeping them. Notes stay exact-request-bound and send with that question, never as its answer.
+- Outside input, `←`/`→` visits questions; `Enter` confirms/advances or sends all confirmed answers. `Esc` leaves input, then focus without declining; `Tab` restores choices.
+- `PgUp`/`PgDn` scroll. Descriptions: all at 100+, cursor only below. Exact live-call previews appear when available; **preview in Pi** remains answerable.
 
-Direct answers require [`@juicesharp/rpiv-ask-user-question` 2.15.0+](CONFIG.md#inline-questions) and use its official events. Unsupported prompts and subagents offer **Open in Pi**. Native Pi and Hub submissions resolve the same request; only the first valid answer wins. The card keeps **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown** feedback. Accepted does not move selection. Unknown delivery never retries automatically; check Pi before retrying.
+Answers require [rpiv 2.15.0+](CONFIG.md#inline-questions) official events. `Tab` explains unavailable questions, keeping **Open in Pi**; older Hub bridges request `/reload` in Pi. Native/Hub submissions race; first valid answer wins. **Submitting**, **✓ Sent · Accepted**, **Rejected**, or **Delivery unknown** stays visible. Accepted never moves selection; unknown delivery never retries. Check Pi before retrying.
 
 ## Reply
 
@@ -120,7 +122,7 @@ After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessio
 
 ## Repo grouping
 
-Press `v` for alphabetical repository sections. Each section contains complete parent/child trees: errors and unanswered requests first, then every other tree by last interaction, newest-first. Opening, pinning into focus, answering, or sending to a session counts as interaction. Archived sessions stay separate and newest-first. Active parents show their chosen `[group]` badge below the title. Backlog and Archived rows keep it before the title.
+`v` groups complete parent/child trees alphabetically by repository: errors and unanswered requests first, then other trees by last interaction, newest-first. Open, focus, answer and send count as interaction. Archived stays separate, newest-first. `[group]` sits in request frame tops (metadata if needed), below other rich titles, or before Backlog/Archived titles.
 
 Repository identity comes from the primary source path. Hub-owned worktrees stay with their source repo; multi-repo sessions appear once under their primary repo. Different folders with the same name remain separate. The selected card shows repository context.
 
@@ -263,7 +265,7 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 - Below 100 columns, Hub hides open pins and gives the dashboard the whole window. Pins keep running. Rows keep their `▢N` markers, and the header shows `N pins hidden`.
 - `Enter` or `Alt+1`–`Alt+4` opens a hidden pin full screen. Back on a desktop-size window, Hub restores the pin layout.
-- At 60 columns or less the dashboard drops its frame. The normal fleet footer starts with `] Next request · p Reply · : All actions · ? Help`. Below 40 it uses `] Next · p Reply · : Actions`. Whole trailing items drop when needed. Tap a footer item to run its key.
+- At ≤60 columns only the outer frame drops; request frames remain, with open sides below 40. The footer starts `] Next request · p Reply · : All actions · ? Help`, or `] Next · p Reply · : Actions` below 40. Trailing items drop whole; tap to run their key.
 - No-pin fleet cards use a plain workflow step below 80 columns. Board/pin rows switch below 40. The dashboard works down to 30 columns, including answering and replying.
 - Below 100 columns and 20 rows, unselected fleet neighbors use one line. The selected card keeps task/request content. Focused Answer/Reply panels reserve identity and local keys while their body scrolls. If no body row fits, use **Open in Pi**. The narrow board alone has a tappable `Esc Back` full-width view.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.
