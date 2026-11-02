@@ -10,6 +10,10 @@ export function sessionsStateDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env[STATE_ENV] ?? join(agentDir(env), STATE_DIR_BASENAME));
 }
 
+export function usageDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "usage");
+}
+
 export function registryPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "registry.json");
 }

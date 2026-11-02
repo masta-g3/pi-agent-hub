@@ -1,3 +1,4 @@
+import type { UsageData } from "../core/usage.js";
 import { glyphs, worktreeGlyph } from "./glyphs.js";
 import { basename, dirname, parse, resolve, sep } from "node:path";
 import { ARCHIVE_PRUNE_AFTER_MS, sessionClosure, type SessionSection } from "../core/session-bucket.js";
@@ -205,6 +206,7 @@ export interface AttentionAnnouncement {
 }
 
 export interface RenderModel {
+  usage?: UsageData;
   width: number;
   now: number;
   height?: number;
@@ -561,6 +563,7 @@ function orderCockpitRows(rows: RuntimeSession[], tiers: ReadonlyMap<string, Coc
 }
 
 export interface BuildRenderModelInput {
+  usage?: UsageData;
   filterDisclosure?: FilterDisclosure;
   sessions: RuntimeSession[];
   selectedId?: string;
@@ -692,6 +695,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const boardParents = mapped.filter((session) => session.kind !== "subagent");
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
+    usage: input.usage,
     width: input.width,
     now: input.now ?? Date.now(),
     empty: input.sessions.length === 0,

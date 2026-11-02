@@ -1,7 +1,8 @@
 import { unlink } from "node:fs/promises";
 import { isErrno } from "../core/atomic-json.js";
 import { removeMultiRepoWorkspace } from "../core/multi-repo.js";
-import { heartbeatPath } from "../core/paths.js";
+import { heartbeatPath, usageDir } from "../core/paths.js";
+import { readUsageDir, type UsageData, type UsageCache } from "../core/usage.js";
 import { nameCommandPath } from "../core/name-command.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, updateRegistry } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
@@ -19,6 +20,7 @@ export interface SessionsSnapshot {
   sessions: RuntimeSession[];
   selectedId?: string;
   filter?: string;
+  usage?: UsageData;
 }
 
 export type SyncPiNameResult =
@@ -28,6 +30,8 @@ export type SyncPiNameResult =
 
 export class SessionsController {
   private registry: SessionsRegistry;
+  private usageCache: UsageCache = new Map();
+  private usage?: UsageData;
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
@@ -46,6 +50,7 @@ export class SessionsController {
   }
 
   async refresh(now = Date.now()): Promise<void> {
+    this.usage = await readUsageDir(usageDir(), this.usageCache, now);
     this.registry = await loadRegistry();
     this.repairSelection();
     const observations = await observeSessions(this.registry.sessions, this.presence === sessionPresence
@@ -125,7 +130,7 @@ export class SessionsController {
   }
 
   snapshot(): SessionsSnapshot {
-    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, filter: this.filter };
+    return { registry: this.registry, sessions: this.sessionsWithMetadata(), selectedId: this.selectedId, filter: this.filter, usage: this.usage };
   }
 
   get hasExplicitSelection(): boolean {

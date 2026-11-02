@@ -8,6 +8,7 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Added
 
+- Add optional header quota bars and `u` Usage with Cost, Tokens, and Limits, provider charts, model/provider/project breakdowns, and pace markers. Producers publish a versioned JSON snapshot; Hub reads no conversations, credentials, or quota endpoints for usage analytics. API-equivalent cost estimates are labeled separately from recorded cost.
 - Add an attention-first Status view, repository grouping with `v`, and a read-only workflow board with `S`.
 - Add selected-session task context and actions, live status evidence with `i`, and `pi-hub explain`.
 - Add read-only Conversation with completed messages, question/answer history, and a working indicator.
@@ -23,6 +24,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Start fleet and board subagent trees collapsed; use arrow keys for one tree and Shift with arrows for all trees.
 - Size session rows to the available space and show each parent's group after its title, alongside worktree and multi-repo indicators.
 - Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
+- Reserve `u` for Usage. Move any configured `u` shortcut to a free key before starting the dashboard.
 - Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
 - Use an inbox-first loop: `]` Next request, `Tab` Answer through stock rpiv 2.15+ events, or `p` Reply with Send/Steer/Queue and retained drafts. Fleet cards expand in place with task, request, delivery feedback, and `i` Details; `Enter` opens Pi and `Alt+W` opens the next request from inside Pi. Managed parents receive dashboard guidance. Only the board keeps a side/full-width workspace.

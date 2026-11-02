@@ -1,4 +1,5 @@
 import { glyphs } from "./glyphs.js";
+import { quotaSegment } from "./usage-view.js";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
 import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
@@ -42,6 +43,7 @@ export interface CardCommandHit { row: number; x: number; width: number; command
 export interface PanelViewport { pageSize: number; maxOffset: number; fallback?: boolean }
 
 export interface SessionsLayout {
+  usageHit?: { row: number; x: number; width: number };
   panelViewport?: PanelViewport;
   cardCommandHits: CardCommandHit[];
   lines: string[];
@@ -130,14 +132,20 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     return emptyLayout(wrapShell(shell, width, [filterBar], model.height, styles));
   }
   if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
-    const body = filterBar ? [renderTopSummary(model, bodyWidth, styles), filterBar, ...emptyLines(bodyWidth, styles)] : emptyLines(bodyWidth, styles);
-    return emptyLayout(wrapShell(shell, width, body, model.height, styles));
+    const summary = renderTopSummary(model, bodyWidth, styles);
+    const showSummary = filterBar || model.usage?.accounts.length;
+    const body = showSummary ? [summary.line, ...filterLines, ...emptyLines(bodyWidth, styles)] : emptyLines(bodyWidth, styles);
+    const layout = emptyLayout(wrapShell(shell, width, body, model.height, styles));
+    if (showSummary && summary.quota && inset < layout.lines.length - inset) layout.usageHit = { row: inset, x: inset + 1 + summary.quota.x, width: summary.quota.width };
+    return layout;
   }
   if (model.noBoardSessions) {
     const announcement = renderAttentionAnnouncement(model, bodyWidth, styles, !model.height || model.height >= 10);
-    const body = [renderTopSummary(model, bodyWidth, styles), ...filterLines, ...announcement.lines, ...noBoardLines(bodyWidth, model, styles), ...(model.footer ? footerLines(shell, model.footer, styles) : [])];
+    const summary = renderTopSummary(model, bodyWidth, styles);
+    const body = [summary.line, ...filterLines, ...announcement.lines, ...noBoardLines(bodyWidth, model, styles), ...(model.footer ? footerLines(shell, model.footer, styles) : [])];
     const layout = emptyLayout(wrapShell(shell, width, body, model.height, styles));
     for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[inset + 1 + filterLines.length + i] = announcement.targets[i];
+    if (summary.quota && inset < layout.lines.length - inset) layout.usageHit = { row: inset, x: inset + 1 + summary.quota.x, width: summary.quota.width };
     return layout;
   }
   if (model.grouping === "stage" && model.showWorkspace && model.workspace?.fullScreen) {
@@ -224,6 +232,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     rowTargets,
     panelViewport: windowedLeft.panelViewport ?? workspace.panelViewport ?? decision.panelViewport,
     cardCommandHits: windowedLeft.lineMeta.flatMap((meta, index) => (meta?.commands ?? []).map(hit => ({ ...hit, row: listStart + index, x: listStartX + hit.x }))),
+    ...(summary.quota && inset < lines.length - inset ? { usageHit: { row: inset, x: inset + 1 + summary.quota.x, width: summary.quota.width } } : {}),
     ...(summary.chips.length && inset < lines.length - inset ? { tierChipRow: inset } : {}),
     tierChips: inset < lines.length - inset ? summary.chips.map((chip) => ({ ...chip, x: chip.x + inset + 1 })) : [],
     workspaceRowTargets,
@@ -331,6 +340,7 @@ function fitBody(lines: string[], height: number | undefined, frameRows: number)
 }
 
 interface LayoutStyles {
+  theme: SessionsTheme;
   accent(text: string): string;
   border(text: string): string;
   dim(text: string): string;
@@ -348,6 +358,7 @@ interface LayoutStyles {
 
 function createStyles(theme: SessionsTheme): LayoutStyles {
   return {
+    theme,
     accent: (text) => styleToken(theme, "accent", text),
     border: (text) => styleToken(theme, "border", text),
     dim: (text) => styleToken(theme, "dim", text),
@@ -430,9 +441,17 @@ function pinSummaryLabel(model: RenderModel): string {
   return summary.hidden ? `${summary.count} ${summary.count === 1 ? "pin" : "pins"} hidden` : `${summary.count} pinned`;
 }
 
-function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutStyles): { line: string; chips: TierChip[] } {
+interface HeaderSummary { line: string; chips: TierChip[]; quota?: { x: number; width: number } }
+
+function headerWithQuota(mode: string, right: string, model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
+  const quota = quotaSegment(model.usage, width - displayWidth(mode) - displayWidth(right) - 5, model.now, styles.theme);
+  const left = styles.accent(mode) + (quota ? `   ${quota}` : "");
+  return { line: twoColumn(left, right, width), chips: [], ...(quota ? { quota: { x: displayWidth(mode) + 3, width: displayWidth(quota) } } : {}) };
+}
+
+function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
   if (model.grouping !== "project" || model.fleetGrouping !== "status" || model.pinMode) {
-    return { line: renderTopSummary(model, width, styles), chips: [] };
+    return renderTopSummary(model, width, styles);
   }
   let entries = model.cockpitNavigation.filter((entry) => entry.ownerCount > 0);
   const count = styles.accent(sessionCountLabel(model));
@@ -449,7 +468,7 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
     if (fits()) break;
     entries = entries.filter((entry) => entry.tier !== tier);
   }
-  if (!fits()) return { line: renderTopSummary(model, width, styles), chips: [] };
+  if (!fits()) return renderTopSummary(model, width, styles);
   const right = parts().join(separator);
   let x = width - displayWidth(right);
   const chips = entries.map((entry) => {
@@ -457,10 +476,10 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
     x += chip.width + 3;
     return chip;
   });
-  return { line: twoColumn(styles.accent("FLEET"), right, width), chips };
+  return { ...headerWithQuota("FLEET", right, model, width, styles), chips };
 }
 
-function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): string {
+function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
   const board = model.grouping === "stage";
   const parentRows = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions))
     .filter((session) => session.kind !== "subagent");
@@ -491,15 +510,8 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     [required, ...(needs ? [needs] : [])],
     [required],
   ].map((parts) => parts.join(styles.border(` ${glyphs.pendingStep} `)));
-  return renderModeHeader(mode, candidates, width, styles);
-}
-
-function renderModeHeader(mode: string, rightCandidates: string[], width: number, styles: LayoutStyles): string {
-  const left = styles.accent(mode);
-  for (const right of rightCandidates) {
-    if (right && displayWidth(left) + displayWidth(right) + 1 <= width) return twoColumn(left, right, width);
-  }
-  return truncate(left, width);
+  const right = candidates.find(right => right && displayWidth(mode) + displayWidth(right) + 1 <= width);
+  return right ? headerWithQuota(mode, right, model, width, styles) : { line: truncate(styles.accent(mode), width), chips: [] };
 }
 
 function pinnedDecisionRows(height: number | undefined): number {

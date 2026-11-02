@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage for pi-agent-hub: design proposal (usage-001)</title>
+<style>
+:root{
+  --paper:#eff1f5; --ink:#4c4f69; --sub:#5c5f77; --rule:#bcc0cc; --link:#1e66f5;
+  --t-base:#1e1e2e; --t-text:#cdd6f4; --t-muted:#9399b2; --t-dim:#585b70;
+  --t-accent:#89b4fa; --t-ok:#a6e3a1; --t-warn:#f9e2af; --t-err:#f38ba8; --t-sel:#45475a;
+  --mono:"JetBrains Mono","Cascadia Mono","SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  --serif:Charter,"Bitstream Charter","Iowan Old Style","Sitka Text",Cambria,Georgia,serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--serif)}
+main{max-width:1260px;margin:0 auto;padding:48px 32px 96px}
+h1{font-size:2.1rem;line-height:1.15;margin:0 0 .4rem}
+h2{font-size:1.35rem;margin:3.2rem 0 .5rem}
+p,li{max-width:68ch}
+.lede{color:var(--sub);margin:0 0 1.4rem}
+.cap{color:var(--sub);margin:.4rem 0 0;font-size:.95rem}
+.term{background:var(--t-base);color:var(--t-text);font:12px/1.25 var(--mono);padding:14px 16px;border-radius:6px;overflow-x:auto;margin:1.2rem 0 0;white-space:pre}
+.term.lg{font-size:13px}
+.term .c{display:inline-block;width:1ch;height:1.25em;vertical-align:top;text-align:center;font-style:normal}
+.ac{color:var(--t-accent)} .ok{color:var(--t-ok)} .wa{color:var(--t-warn)} .er{color:var(--t-err)}
+.mu{color:var(--t-muted)} .di{color:var(--t-dim)} .tx{color:var(--t-text)} .b{font-weight:700} .sel{background:var(--t-sel)}
+.modes{display:flex;gap:.5rem;align-items:center;margin:0 0 .5rem;flex-wrap:wrap}
+.modes span{color:var(--sub);margin-right:.25rem}
+.modes button{font:15px var(--serif);color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:4px;padding:.25rem .7rem;cursor:pointer}
+.modes button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button:focus-visible{outline:2px solid var(--link);outline-offset:2px}
+.flow{font:14px/1.35 var(--mono);color:var(--ink);white-space:pre;overflow-x:auto;border-left:3px solid var(--rule);padding:.4rem 0 .4rem 1rem;margin:1rem 0}
+.flow b{color:#1e66f5;font-weight:700}
+table{border-collapse:collapse;margin:1rem 0;font-size:.98rem}
+th,td{text-align:left;padding:.35rem 1.2rem .35rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-weight:700}
+kbd{font:14px var(--mono);border:1px solid var(--rule);border-bottom-width:2px;border-radius:3px;padding:0 .3rem;background:#fff}
+ol li{margin:.45rem 0}
+.new{color:#1e66f5;font-weight:700}
+</style>
+</head>
+<body>
+<main>
+<h1>Usage for pi-agent-hub</h1>
+<p class="lede">Design proposal for usage-001: a quota strip in the dashboard header and a full-screen Usage view. Every screen below is drawn from data at its real column width.</p>
+
+<div class="modes" role="group" aria-label="Terminal rendering">
+  <span>Render as</span>
+  <button type="button" data-mode="color" aria-pressed="true">Color</button>
+  <button type="button" data-mode="nocolor" aria-pressed="false">NO_COLOR</button>
+  <button type="button" data-mode="ascii" aria-pressed="false">ASCII glyphs</button>
+</div>
+
+<pre class="term lg" id="hdr120" aria-label="Dashboard header at 120 columns"></pre>
+<p class="cap">120 columns. Each account shows its tightest window. A countdown appears only when a window is at 25% or less. <code>~</code> marks a stale account; <code>⚠</code> marks one with an error. Session counts and "needs you" always win the space.</p>
+<pre class="term lg" id="hdr140" aria-label="Dashboard header at 140 columns"></pre>
+<p class="cap">140 columns: every window fits.</p>
+<pre class="term lg" id="hdr80" aria-label="Dashboard header at 80 columns"></pre>
+<p class="cap">80 columns: only the most constrained account, with a count of the others. Narrower still, the strip disappears.</p>
+
+<h2>Cost tab</h2>
+<pre class="term" id="cost160" aria-label="Usage view, Cost tab, 160 columns"></pre>
+<p class="cap">160 columns. One bold figure, then value and label pairs. The line under the axis is the chart cursor's readout and the legend: <kbd>←</kbd> <kbd>→</kbd> move it, and it starts on today. Share bars reuse each provider's chart pattern.</p>
+<pre class="term lg" id="cost80" aria-label="Usage view, Cost tab, 80 columns"></pre>
+<p class="cap">80 columns. The summary takes two lines; the provider, cache and $/M columns drop. Bars keep the provider pattern, so the provider is still readable.</p>
+
+<h2>Limits tab</h2>
+<pre class="term" id="lim160" aria-label="Usage view, Limits tab, 160 columns"></pre>
+<p class="cap">The <code>┃</code> mark shows where the fill would end if usage were spread evenly over the window. Codex 1's weekly fill stops ten cells short of it, so the projected run-out time is in warning color.</p>
+<pre class="term lg" id="lim80" aria-label="Usage view, Limits tab, 80 columns"></pre>
+<p class="cap">80 columns. Absolute reset times and the word "left" drop first. The pace mark stays even when the pace text is gone.</p>
+
+<h2>Where the numbers come from</h2>
+<div class="flow">  Pi session logs              Provider quota endpoints
+          │                              │
+          └───────────────┬──────────────┘
+                          ▼
+  <b>pi-accounts</b>   (own repo, ticket usage-snapshot-001)
+    indexes logs: backfill, then live updates
+    polls quota windows; drops emails; labels accounts "Codex 1"
+                          │  writes a temp file, then renames it
+                          ▼
+  <b>&lt;PI_AGENT_HUB_DIR&gt;/usage/</b>
+    pi-accounts-limits.json      accounts, windows, resets
+    pi-accounts-history.json     daily, hourly and project rollups
+                          │  read on each dashboard refresh tick
+                          ▼
+  <b>pi-agent-hub</b>
+    stats each file; re-parses only when mtime or size changes
+    validates version 1, caps rows, merges files; keeps it in memory
+          │                              │
+          ▼                              ▼
+  header quota strip              Usage view (u)</div>
+<p>Hub never reads Pi conversations, credentials or quota endpoints. It never writes usage data to <code>registry.json</code>, heartbeats or <code>ui-state.json</code>. Every dollar figure comes from the snapshot; Hub has no price table.</p>
+
+<h2>Keys</h2>
+<table>
+<thead><tr><th>Key</th><th>Action</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td><kbd>u</kbd></td><td>Open Usage (palette: "Usage")</td><td>Dashboard</td></tr>
+<tr><td>Click the quota strip</td><td>Open Usage on Limits</td><td>Dashboard header</td></tr>
+<tr><td><kbd>c</kbd> <kbd>t</kbd> <kbd>l</kbd></td><td>Cost, Tokens, Limits</td><td>Usage</td></tr>
+<tr><td><kbd>Tab</kbd> <kbd>Shift+Tab</kbd></td><td>Next or previous tab</td><td>Usage</td></tr>
+<tr><td><kbd>1</kbd>–<kbd>5</kbd>, <kbd>[</kbd> <kbd>]</kbd></td><td>24h, 7d, 30d, 90d, All; previous or next period</td><td>Cost, Tokens</td></tr>
+<tr><td><kbd>←</kbd> <kbd>→</kbd> <span class="new">new</span></td><td>Move the chart cursor one bar; the readout updates</td><td>Cost, Tokens</td></tr>
+<tr><td><kbd>b</kbd></td><td>Models, Providers, Projects</td><td>Cost, Tokens</td></tr>
+<tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Select a breakdown row</td><td>Cost, Tokens</td></tr>
+<tr><td><kbd>Enter</kbd></td><td>Show or hide row details</td><td>Cost, Tokens</td></tr>
+<tr><td><kbd>Esc</kbd> <kbd>q</kbd> <kbd>u</kbd></td><td>Close Usage</td><td>Usage</td></tr>
+<tr><td>Mouse</td><td>Tabs, periods, chart bars, rows, footer keys</td><td>
+Usage</td></tr>
+</tbody>
+</table>
+
+<h2>Recommended changes, ranked</h2>
+<ol>
+<li>Add an even-pace mark <code>┃</code> to Limits bars. Pace text reads <em>room to spare</em>, <em>on pace</em> or <em>fast: runs out ≈ time</em>. This replaces the unclear "12% ahead".</li>
+<li>Add a chart cursor (<kbd>←</kbd> <kbd>→</kbd> or click) with a readout line that is also the legend. Terminal bars cannot show their values any other way.</li>
+<li>Give each chart series its own pattern plus a neutral color: <code>█</code> accent, <code>▓</code> text, <code>▒</code> muted, <code>░</code> Other. Success, warning and error stay reserved for quota status.</li>
+<li>Stack whole cells with the largest provider at the bottom. Use one bar-width and gap rule and evenly spaced date labels. Drop eighth-block tops, because they cannot show two patterns in one cell.</li>
+<li>In the summary, make only the cost total bold. Rename "billed" to "recorded". Put "not your bill" and the update age on one muted line.</li>
+<li>Header: always label windows (<code>5h</code>, <code>wk</code>). Show a countdown only at 25% or less. Use full account labels. Bars are never full or empty unless the value is exactly 100% or 0%.</li>
+<li>Breakdown: cost and share sit right after the name and are right-aligned. Share bars use the row's series pattern. Column headers appear at 100+ columns. The name column takes the extra width.</li>
+<li>Limits: remove provider headings. The plan, reset credits and age go under the account label. Show the relative reset time first.</li>
+<li>Tabs and periods have fixed widths. Selected = <code>selectedBg</code> + bold accent, or brackets in NO_COLOR. Hide period chips on Limits.</li>
+<li>The footer follows the dashboard convention: accent keys, muted labels, tap targets. It fits 80 columns.</li>
+<li>Number formats: dollars with cents in tables; tokens in k/M/B with one decimal; integer percentages; <code>≈</code> on every estimate.</li>
+<li>Tokens tab: same layout. The streak and weekday heatmap live here.</li>
+</ol>
+</main>
+
+<script>
+const GLYPHS = {
+  unicode: { s1:'█', s2:'▓', s3:'▒', on:'▰', off:'▱', tick:'┃', sel:'▌', dot:'·', up:'▲', caret:'▲', warn:'⚠', none:'—', approx:'≈', lr:'← →', ud:'↑ ↓', enter:'↵', h:'─', v:'│', tee:'┤', cross:'┼', tl:'╭', tr:'╮', bl:'╰', br:'╯', ell:'…' },
+  ascii:   { s1:'#', s2:'=', s3:'-', on:'#', off:'-', tick:'|', sel:'>', dot:'.', up:'^', caret:'^', warn:'!', none:'-', approx:'~', lr:'< >', ud:'^ v', enter:'Enter', h:'-', v:'|', tee:'+', cross:'+', tl:'+', tr:'+', bl:'+', br:'+', ell:'~' },
+};
+let mode = 'color';
+const g = () => GLYPHS[mode === 'ascii' ? 'ascii' : 'unicode'];
+const colored = () => mode === 'color';
+
+const S = (t, c = '') => ({ t: String(t), c });
+const W = (segs) => segs.reduce((n, s) => n + s.t.length, 0);
+const sp = (n) => S(' '.repeat(Math.max(0, n)));
+function clip(segs, w) {
+  const out = []; let n = 0;
+  for (const s of segs) { if (n >= w) break; const t = s.t.slice(0, w - n); out.push(S(t, s.c)); n += t.length; }
+  return out;
+}
+const fit = (segs, w) => (W(segs) >= w ? clip(segs, w) : [...segs, sp(w - W(segs))]);
+const L = (t, w, c) => S(String(t).slice(0, w).padEnd(w), c);
+const R = (t, w, c) => S(String(t).slice(0, w).padStart(w), c);
+const two = (left, right, w) => [...left, sp(w - W(left) - W(right)), ...right];
+const join = (parts, gap) => parts.flatMap((p, i) => (i ? [sp(gap), ...p] : p));
+const trunc = (t, w) => (t.length <= w ? t : t.slice(0, w - 1) + g().ell);
+
+const esc = (ch) => (ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : ch === '&' ? '&amp;' : ch);
+function segHTML(s) {
+  let body = '';
+  for (const ch of s.t) body += ch.charCodeAt(0) > 127 ? `<i class="c">${ch === '⚠' ? '⚠&#xFE0E;' : ch}</i>` : esc(ch);
+  const cls = colored() ? s.c : s.c.split(' ').filter((c) => c === 'b').join(' ');
+  return cls ? `<span class="${cls}">${body}</span>` : body;
+}
+function frame(width, lines) {
+  const b = width - 2, G = g();
+  const edge = (l, r) => [S(l + G.h.repeat(b) + r, 'di')];
+  const rows = [edge(G.tl, G.tr), ...lines.map((l) => [S(G.v, 'di'), ...fit(l, b), S(G.v, 'di')]), edge(G.bl, G.br)];
+  return rows.map((r) => r.map(segHTML).join('')).join('\n');
+}
+
+const tab = (label, on) => on
+  ? (colored() ? S(` ${label} `, 'sel ac b') : S(`[${label}]`, 'b'))
+  : S(` ${label} `, 'mu');
+const keys = (pairs) => join(pairs.map(([k, l]) => [S(k, 'ac'), S(` ${l}`, 'mu')]), 2);
+
+const qState = (p) => (p > 25 ? 'ok' : p > 0 ? 'wa' : 'er');
+function qbar(p, w, tick) {
+  const f = p <= 0 ? 0 : p >= 100 ? w : Math.min(w - 1, Math.max(1, Math.round((p / 100) * w)));
+  const t = tick === undefined ? -1 : Math.min(w - 1, Math.max(0, Math.round((tick / 100) * w)));
+  const out = [];
+  for (let i = 0; i < w; i++) out.push(i === t ? S(g().tick, 'tx b') : i < f ? S(g().on, qState(p)) : S(g().off, 'mu'));
+  return out;
+}
+
+const ACCTS = [
+  { provider: 'Codex', label: 'Codex 1', meta: 'pro, 2 resets', metaShort: 'pro', wins: [
+    { k: '5h', n: '5h', p: 72, tick: 30, rel: 'in 1h 30m', abs: '20:20', pace: 'room' },
+    { k: 'week', n: 'wk', p: 48, tick: 72.6, rel: 'in 5d 2h', abs: 'Fri 20:50', pace: 'fast', outAt: 'Tue 13:20' } ] },
+  { provider: 'Codex', label: 'Codex 2', stale: true, meta: 'plus, 22m old', metaShort: 'plus 22m', wins: [
+    { k: '5h', n: '5h', p: 85, tick: 83.3, rel: 'in 4h 10m', abs: '23:00', pace: 'on' },
+    { k: 'week', n: 'wk', p: 90, tick: 86.3, rel: 'in 6d 1h', abs: 'Sat 19:50', pace: 'on' } ] },
+  { provider: 'Claude', label: 'Claude 1', meta: 'max', metaShort: 'max', wins: [
+    { k: '5h', n: '5h', p: 12, tick: 41.7, rel: 'in 2h 05m', abs: '20:55', pace: 'fast', outIn: '24m', short: '2h' },
+    { k: 'week', n: 'wk', p: 61, tick: 45.2, rel: 'in 3d 4h', abs: 'Wed 22:50', pace: 'room' } ] },
+  { provider: 'Claude', label: 'Claude 2', error: 'Login expired. It refreshes the next time Claude runs.' },
+];
+
+function acctChip(a, wins) {
+  const lab = a.stale ? [S('~', 'mu'), S(a.label, 'mu')] : [S(a.label, 'mu')];
+  if (a.error) return [...lab, sp(1), S(g().warn, 'wa')];
+  return [...lab, ...wins.flatMap((x) => [sp(1), S(x.n, 'mu'), ...qbar(x.p, 5),
+    ...(x.p <= 25 ? [sp(1), S(x.short, qState(x.p))] : [])])];
+}
+const tightest = (a) => a.wins.reduce((m, x) => (x.p < m.p ? x : m));
+function headerLine(b, rung) {
+  const right = [S('14 sessions', 'ac'), S(` ${g().dot} `, 'di'), S('2 needs you', 'wa')];
+  let mid;
+  if (rung === 1) mid = join(ACCTS.map((a) => acctChip(a, a.wins || [])), 3);
+  else if (rung === 2) mid = join(ACCTS.map((a) => acctChip(a, a.wins ? [tightest(a)] : [])), 3);
+  else {
+    const worst = ACCTS.filter((a) => a.wins).reduce((m, a) => (tightest(a).p < tightest(m).p ? a : m));
+    mid = [...acctChip(worst, [tightest(worst)]), sp(1), S(`+${ACCTS.length - 1}`, 'mu')];
+  }
+  return two([S('FLEET', 'ac'), sp(3), ...mid], right, b);
+}
+
+// Chart rows, bottom to top. C = Claude, X = Codex, O = Gemini, _ = empty.
+const ROWS = [
+  'CCC__CCCCC_CCCCCCX_CCCCCC_CCCC',
+  '_XC__CCCCX__CCCCC__CCCCC__CCCC',
+  '_____XCXC___CCXC___XCXCC__XCXX',
+  '______XO____XCXX____X_CX___XX_',
+  '_____________X______X_XO____O_',
+  '_____________O________________',
+];
+function chart(b) {
+  const G = g(), plot = b - 6, per = Math.floor(plot / 30), bar = per >= 3 ? per - 1 : 1, gap = per - bar, cur = 29;
+  const ser = { C: [G.s1, 'ac'], X: [G.s2, 'tx'], O: [G.s3, 'mu'] };
+  const lines = [];
+  for (let r = 6; r >= 1; r--) {
+    const labeled = r === 6 || r === 3;
+    const line = [S(r === 6 ? '$120 ' : r === 3 ? ' $60 ' : '     ', 'mu'), S(labeled ? G.tee : G.v, 'di')];
+    for (let i = 0; i < 30; i++) {
+      const k = ROWS[r - 1][i];
+      line.push(k === '_' ? sp(bar) : S(ser[k][0].repeat(bar), ser[k][1]), sp(gap));
+    }
+    lines.push(line);
+  }
+  const axis = [S('  $0 ', 'mu'), S(G.cross, 'di')];
+  for (let i = 0; i < 30; i++) {
+    if (i !== cur) { axis.push(S(G.h.repeat(per), 'di')); continue; }
+    const m = Math.floor(bar / 2);
+    axis.push(S(G.h.repeat(m), 'di'), S(G.caret, 'ac b'), S(G.h.repeat(per - m - 1), 'di'));
+  }
+  lines.push(axis);
+  const marks = [[0, 'Oct 3'], [7, 'Oct 10'], [14, 'Oct 17'], [21, 'Oct 24'], [29, 'Nov 1']];
+  const xl = [sp(6)]; let x = 0;
+  for (const [i, t] of marks) {
+    const at = i * per;
+    if ((x && at < x + 2) || at + t.length > plot) continue;
+    xl.push(sp(at - x), S(t, i === cur ? 'tx b' : 'mu')); x = at + t.length;
+  }
+  lines.push(xl);
+  const g2 = b >= 100 ? 4 : 2;
+  lines.push([sp(6), S('Nov 1', 'tx b'), sp(2), S('$58.60', 'tx b'), sp(g2),
+    S(G.s1, 'ac'), S(' Claude ', 'mu'), S('$41.20', 'tx'), sp(g2 - 1),
+    S(G.s2, 'tx'), S(' Codex ', 'mu'), S('$17.40', 'tx'), sp(g2 - 1),
+    S(G.s3, 'mu'), S(' Gemini ', 'mu'), S('$0.00', 'tx')]);
+  return lines;
+}
+
+const MODELS = [
+  { n: 'claude-opus-5-5', p: 'Claude', s: 's1', cost: '$1,012.10', sh: 64, tok: '210.4M', cache: '92%', pm: '$4.81' },
+  { n: 'gpt-5.5-codex', p: 'Codex', s: 's2', cost: '$341.44', sh: 22, tok: '120.1M', cache: '88%', pm: '$2.84' },
+  { n: 'claude-sonnet-5-5', p: 'Claude', s: 's1', cost: '$128.20', sh: 8, tok: '52.0M', cache: '90%', pm: '$2.47' },
+  { n: 'gemini-3-pro', p: 'Gemini', s: 's3', cost: '$61.50', sh: 4, tok: '18.3M', cache: '71%', pm: '$3.36' },
+  { n: 'claude-haiku-5-5', p: 'Claude', s: 's1', cost: '$28.16', sh: 2, tok: '11.5M', cache: '85%', pm: '$2.45' },
+  { n: 'gpt-5.5-mini', p: 'Codex', s: 's2', cost: null, sh: null, tok: '0.9M', cache: null, pm: null },
+];
+function breakdown(b) {
+  const G = g(), wide = b >= 100;
+  const ser = { s1: [G.s1, 'ac'], s2: [G.s2, 'tx'], s3: [G.s3, 'mu'] };
+  const barW = wide ? 40 : 14;
+  const fixed = wide ? 2 + 12 + 10 + 2 + 5 + 2 + barW + 2 + 7 + 2 + 5 + 2 + 7 : 2 + 10 + 2 + 5 + 2 + barW + 2 + 7;
+  const nameW = b - fixed;
+  const rows = wide ? MODELS : MODELS.slice(0, 4);
+  const lines = [two([S('Breakdown', 'tx'), sp(3), tab('Models', true), sp(1), tab('Providers'), sp(1), tab('Projects')], [S('by cost', 'mu')], b)];
+  if (wide) lines.push([sp(2), L('Model', nameW, 'mu'), L('Provider', 12, 'mu'), R('Cost', 10, 'mu'), sp(2), R('Share', 5, 'mu'), sp(2), sp(barW), sp(2), R('Tokens', 7, 'mu'), sp(2), R('Cache', 5, 'mu'), sp(2), R('$/M', 7, 'mu')]);
+  rows.forEach((m, i) => {
+    const [gl, cl] = ser[m.s];
+    const n = m.sh == null ? 0 : Math.max(1, Math.round((m.sh / 100) * barW));
+    const sel = i === 0;
+    let row = [S(sel ? G.sel + ' ' : '  ', 'ac'), L(m.n, nameW, sel ? 'tx b' : 'tx')];
+    if (wide) row.push(S(gl, cl), L(' ' + m.p, 11, 'mu'));
+    row.push(R(m.cost ?? 'unpriced', 10, m.cost ? 'tx' : 'mu'), sp(2), R(m.sh == null ? G.none : m.sh + '%', 5, 'mu'), sp(2),
+      S(gl.repeat(n), cl), sp(barW - n), sp(2), R(m.tok, 7, 'tx'));
+    if (wide) row.push(sp(2), R(m.cache ?? G.none, 5, 'mu'), sp(2), R(m.pm ?? G.none, 7, 'mu'));
+    if (sel && colored()) row = fit(row, b).map((s) => S(s.t, (s.c + ' sel').trim()));
+    lines.push(row);
+  });
+  return lines;
+}
+
+function costView(w) {
+  const b = w - 2, wide = b >= 100, G = g();
+  const top = two([S('USAGE', 'ac'), sp(3), tab('Cost', true), sp(1), tab('Tokens'), sp(1), tab('Limits')],
+    join(['24h', '7d', '30d', '90d', 'All'].map((p) => [tab(p, p === '30d')]), 1), b);
+  const total = [S('$1,571.40', 'tx b'), S(' est. API cost', 'mu')];
+  const delta = [S(`${G.up} `, 'tx'), S('18% vs prior 30d', 'mu')];
+  const tokens = [S('413.2M', 'tx'), S(' tokens', 'mu')];
+  const cache = [S('92%', 'tx'), S(' cache hit', 'mu'), sp(2), S(`${G.approx}$2,310`, 'tx'), S(' saved', 'mu')];
+  const rec = [S('$0.00', 'tx'), S(' recorded', 'mu')];
+  const days = [S('23', 'tx'), S(' of 30 days active', 'mu')];
+  const summary = wide
+    ? [join([[...total, sp(3), ...delta], tokens, cache, rec, days], 6)]
+    : [join([total, delta], 3), join([tokens, cache, rec], 3)];
+  const note = [S(wide
+    ? 'Estimated from API list prices by pi-accounts; not your bill. 1 model unpriced. Updated 2m ago.'
+    : 'Estimates, not your bill. Updated 2m ago.', 'mu')];
+  return [top, [], ...summary, note, [], [S('Daily cost by provider', 'tx')], ...chart(b), [], ...breakdown(b), [],
+    keys([['c t l', 'tab'], ['1-5', 'period'], [G.lr, 'day'], [G.ud, 'row'], [G.enter, 'details'], ['b', 'breakdown'], ['esc', 'close']])];
+}
+
+function paceText(x, wide) {
+  const G = g();
+  if (x.pace === 'room') return [S('room to spare', 'mu')];
+  if (x.pace === 'on') return [S('on pace', 'mu')];
+  const when = x.outIn ? `in ${G.approx} ${x.outIn}` : `${G.approx} ${x.outAt}`;
+  return [S('fast', 'wa b'), S(`: ${wide ? 'runs out' : 'out'} ${when}`, 'wa')];
+}
+function limitsView(w) {
+  const b = w - 2, wide = b >= 100, G = g();
+  const labW = wide ? 14 : 10, winW = wide ? 6 : 4, barW = wide ? 40 : 20;
+  const out = [
+    [S('USAGE', 'ac'), sp(3), tab('Cost'), sp(1), tab('Tokens'), sp(1), tab('Limits', true)],
+    [],
+    [S(wide ? 'Updated 2m ago by pi-accounts. ~ marks an account not checked in the last 15 minutes.' : 'Updated 2m ago. ~ = not checked in 15m.', 'mu')],
+    [],
+  ];
+  ACCTS.forEach((a, ai) => {
+    if (ai > 0 && a.provider !== ACCTS[ai - 1].provider) out.push([]);
+    const lab = [S(a.stale ? '~ ' : '  ', 'mu'), L(a.label, labW, 'tx b')];
+    if (a.error) { out.push([...lab, S(G.warn + ' ', 'wa'), S(trunc(a.error, b - 2 - labW - 2), 'wa')]); return; }
+    a.wins.forEach((x, wi) => {
+      const st = qState(x.p);
+      const left = wi === 0 ? lab : [sp(2), L(wide ? a.meta : a.metaShort, labW, 'mu')];
+      const pct = [R(x.p + '%', 4, st === 'ok' ? 'tx' : st), S(wide ? ' left' : '', 'mu')];
+      const reset = wide ? [L('resets ' + x.rel, 17, 'tx'), L(x.abs, 10, 'mu')] : [L(x.rel, 10, 'tx')];
+      out.push([...left, L(wide ? x.k : x.n, winW, 'mu'), ...qbar(x.p, barW, x.tick), sp(2), ...pct, sp(3), ...reset, sp(wide ? 3 : 1), ...paceText(x, wide)]);
+    });
+  });
+  out.push([], [sp(2), S(G.tick, 'tx b'), S(wide
+    ? ' marks even use across the window. A fill that stops short of it is running faster than even pace.'
+    : ' = even pace. Fill short of it = using fast.', 'mu')]);
+  out.push([], keys([['c t l', 'tab'], ['esc', 'close']]));
+  return out;
+}
+
+const VIEWS = {
+  hdr120: () => frame(120, [headerLine(118, 2)]),
+  hdr140: () => frame(140, [headerLine(138, 1)]),
+  hdr80: () => frame(80, [headerLine(78, 3)]),
+  cost160: () => frame(160, costView(160)),
+  cost80: () => frame(80, costView(80)),
+  lim160: () => frame(160, limitsView(160)),
+  lim80: () => frame(80, limitsView(80)),
+};
+function render() {
+  for (const [id, fn] of Object.entries(VIEWS)) document.getElementById(id).innerHTML = fn();
+}
+document.querySelectorAll('.modes button').forEach((btn) => btn.addEventListener('click', () => {
+  mode = btn.dataset.mode;
+  document.querySelectorAll('.modes button').forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+  render();
+}));
+render();
+</script>
+<noscript><p>Turn on JavaScript to see the terminal mockups. They are drawn from data so that every column width is exact.</p></noscript>
+</body>
+</html>

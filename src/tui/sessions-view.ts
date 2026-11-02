@@ -1,4 +1,6 @@
 import { glyphs } from "./glyphs.js";
+import { createUsageView, handleUsageInput, renderUsageView } from "./usage-view.js";
+import { mergeUsageSnapshots } from "../core/usage.js";
 import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
 import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
 import { collapsedQuestion, createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
@@ -105,6 +107,8 @@ export class SessionsView implements Component {
   private conversationStartY = 1;
   private olderConversationRequested = false;
   private dialog: SessionDialog | undefined;
+  private usageState = createUsageView();
+  private usageHit?: { row: number; x: number; width: number };
   private helpScroll = 0;
   private helpPageSize = 1;
   private helpMaxScroll = 0;
@@ -228,7 +232,9 @@ export class SessionsView implements Component {
     this.lastMouseClick = undefined;
     if (this.dialog && this.dialogNeedsRoom() && !matchesKey(data, Key.escape)) return;
     if (this.dialog) {
-      if (this.dialog.kind === "help") {
+      if (this.dialog.kind === "usage") {
+        if (handleUsageInput(this.usageState, data)) this.dialog = undefined;
+      } else if (this.dialog.kind === "help") {
         if (data === "q") this.stop();
         else if (matchesKey(data, Key.escape) || data === "?") this.dialog = undefined;
         else if (matchesKey(data, Key.down) || matchesKey(data, Key.pageDown)) this.helpScroll = Math.min(this.helpMaxScroll, this.helpScroll + (matchesKey(data, Key.pageDown) ? this.helpPageSize : 1));
@@ -397,6 +403,7 @@ export class SessionsView implements Component {
     this.footerItems = [];
     this.tierChipRow = undefined;
     this.tierChips = [];
+    this.usageHit = undefined;
     this.confirmationReview = undefined;
     this.dialogHits = [];
     this.dialogHitOwner = this.dialog ?? this.pendingRestart;
@@ -447,6 +454,12 @@ export class SessionsView implements Component {
       this.paletteBounds = { start: 0, end: palette.lines.length - 1 };
       return palette.lines;
     }
+    if (this.dialog?.kind === "usage") {
+      const page = renderUsageView(this.controller.snapshot().usage ?? mergeUsageSnapshots([]), this.usageState, width, height ?? 24, this.actions.now?.() ?? Date.now(), this.theme);
+      this.usageState = page.state;
+      this.dialogHits = page.hits;
+      return page.lines;
+    }
     if (this.dialog?.kind === "help") {
       const page = renderHelp(width, this.theme, this.actions.dashboardShortcuts, height, this.helpScroll);
       this.helpScroll = page.offset;
@@ -495,6 +508,7 @@ export class SessionsView implements Component {
     const fleetHeight = this.conversationOpen ? Math.max(4, (height || 24) - panelHeight) : height;
     const model = buildRenderModel({
       sessions: snapshot.sessions,
+      usage: snapshot.usage,
       selectedId: snapshot.selectedId,
       visibleRequestCount: this.visibleRequestIds().length,
       width,
@@ -549,6 +563,7 @@ export class SessionsView implements Component {
     this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
       && (selected?.status === "running" || selected?.status === "starting")
       && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
+    this.usageHit = layout.usageHit;
     this.tierChipRow = layout.tierChipRow;
     this.tierChips = layout.tierChips;
     this.workspaceRowTargets = layout.workspaceRowTargets;
@@ -1139,7 +1154,7 @@ export class SessionsView implements Component {
   }
 
   private dialogWheelKeys(): [string, string] | undefined {
-    if (this.pendingRestart || this.dialog?.kind === "confirm") return [PAGE_UP, PAGE_DOWN];
+    if (this.pendingRestart || this.dialog?.kind === "confirm" || this.dialog?.kind === "usage") return [PAGE_UP, PAGE_DOWN];
     if (this.dialog?.kind === "theme" || this.dialog?.kind === "picker" || this.dialog?.kind === "repoPicker"
       || (this.dialog?.kind === "sessionFavorites" && this.dialog.mode === "picker")) return [UP, DOWN];
     return undefined;
@@ -1266,6 +1281,7 @@ export class SessionsView implements Component {
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:next-request": this.selectNextRequest(); return;
+      case "view:usage": this.dialog = { kind: "usage" }; return;
       case "view:help": this.helpScroll = 0; this.dialog = { kind: "help" }; return;
       case "view:quit": this.stop(); return;
     }
@@ -1804,6 +1820,11 @@ export class SessionsView implements Component {
     if (announcementTarget) {
       this.lastMouseClick = undefined;
       this.executeDashboardCommand(announcementTarget);
+      return;
+    }
+    if (event.kind === "press" && this.usageHit && event.y - 1 === this.usageHit.row && event.x >= this.usageHit.x && event.x < this.usageHit.x + this.usageHit.width) {
+      this.executeDashboardCommand("view:usage");
+      if (this.dialog?.kind === "usage") this.usageState.tab = "limits";
       return;
     }
     const tierChip = event.kind === "press" && event.y - 1 === this.tierChipRow

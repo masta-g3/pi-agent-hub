@@ -23,6 +23,7 @@ Pi runs the agents. tmux keeps them alive. Hub gives you one keyboard-driven das
 | Card answers and replies | Answer supported questions with `Tab`, or write a reply with `p`. |
 | Conversation | Read completed messages and question/answer history below the fleet. |
 | Optional workflow board | See workflow position, task progress, and nested subagents from compatible Pi extensions. |
+| Usage and account quotas | Press `u` for token/cost history and account limits from an optional producer. |
 | Project skills and MCP | Choose capabilities for the selected session's primary repo. |
 | Multi-repo workspaces | Give one session access to several repos without moving the source folders. |
 | Hub-owned worktrees | Create isolated branch sessions and explicitly finish, forget, or discard them. |
@@ -62,6 +63,7 @@ Use `Enter` to open Pi, `Ctrl+Q` to return, and `i` for Details. Inside Pi, `Alt
 | `A` / `B` / `U` | Archive as Done, Abandoned, or archive only / move to Backlog / restore or reopen |
 | `s` / `m` | Pick project skills / MCP servers |
 | `t` | Choose a theme |
+| `u` | Open Usage: Cost, Tokens, and Limits |
 | `?` / `q` | Help / quit the dashboard |
 
 See [Dashboard keys](docs/FEATURES.md#dashboard-keys) for all controls.
@@ -89,6 +91,7 @@ Hub works on its own. Pi extensions can add task context, explicit requests, wor
 - [Rules](https://github.com/masta-g3/rules) supplies skills and a workflow runtime for Plan → Execute → Review → Reflect → Commit. Hub displays its ticket context, requests, and progress. Press `S` for the read-only workflow board.
 - [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) 2.15.0+ enables card answers through its official events. See [Inline questions](docs/CONFIG.md#inline-questions) for installation.
 - [pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) runs child agents in tmux. Hub shows them under their parent session.
+- `pi-accounts` can publish quota readings and token/cost rollups through the [usage snapshot contract](docs/CONFIG.md#usage-snapshot). Header bars open Limits; `u` opens Usage. Cost estimates are API-equivalent, not your bill. Hub never reads conversations or credentials for this integration.
 - Your own Pi extensions can publish the supported context and workflow metadata. Configured dashboard shortcuts can send Pi commands to the selected session.
 
 These integrations use Pi's extension system, not a separate Hub plugin loader. Hub displays workflow state; it does not run or advance the workflow. See [Optional integrations](docs/CONFIG.md#optional-integrations) for setup, prerequisites, and the metadata contracts.

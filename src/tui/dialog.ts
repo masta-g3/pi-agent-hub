@@ -226,7 +226,7 @@ export interface SessionsViewActions {
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
+export type SessionDialog = { kind: "usage" } | { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
 
 export interface DialogContext {
   viewport: { width: number; height?: number };

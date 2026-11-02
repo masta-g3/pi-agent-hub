@@ -515,6 +515,7 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       disabledReason: (input.visibleRequestCount ?? 0) > 0 ? undefined : "no visible requests",
       searchText: "] next request needs you attention waiting jump",
     }),
+    makeCommand({ id: "view:usage", group: "views", label: "Usage", hint: "account limits, token history and API-equivalent cost estimates", displayKey: "u", bindings: [{ key: "u" }], enabled: true, searchText: "u usage quota limits tokens costs analytics" }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),
     makeCommand({ id: "view:quit", group: "views", label: "Quit", hint: "close the dashboard", displayKey: "q", bindings: [{ key: "q" }], enabled: true, searchText: "q quit close dashboard" }),
     ...attentionCommands,
