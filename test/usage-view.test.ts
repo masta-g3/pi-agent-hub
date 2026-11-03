@@ -109,3 +109,18 @@ test("quota preserves endpoints, expires readings, and has a width ladder", () =
   const expired = { ...data, accounts: [{ ...data.accounts[0]!, windows: [{ ...data.accounts[0]!.windows[0]!, resetAt: USAGE_NOW - 1 }] }] };
   assert.match(quotaSegment(expired, 80, USAGE_NOW), /\?\?\?\?\?/);
 });
+
+test("the chart cursor sits under the middle of its bar", () => {
+  const data = mergeUsageSnapshots([parseUsageSnapshot(usageFixture(), USAGE_NOW)!]);
+  for (const width of [80, 160, 200]) {
+    const lines = renderUsageView(data, createUsageView(), width, 48, USAGE_NOW).lines.map(stripAnsi);
+    const axis = lines.findIndex(line => line.includes("▲") && line.includes("─"));
+    const caret = [...lines[axis]!].indexOf("▲");
+    const row = [...lines[axis - 1]!], bar = (i: number) => row[i] === "█" || row[i] === "░";
+    assert.ok(bar(caret), `bar above caret at ${width}`);
+    let left = caret, right = caret;
+    while (bar(left - 1)) left--;
+    while (bar(right + 1)) right++;
+    assert.ok(Math.abs((left + right) / 2 - caret) <= 0.5, `caret centered at ${width}`);
+  }
+});

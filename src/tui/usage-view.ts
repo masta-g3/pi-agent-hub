@@ -234,7 +234,13 @@ function renderChart(agg: UsageAggregation, row: UsageBreakdownRow | undefined, 
     add(line);
   }
   let axis = paint(theme, "muted", right(state.tab === "cost" ? "$0" : "0", axisWidth - 1)) + paint(theme, "dim", glyphs.vertical);
-  for (let i = 0; i < buckets.length; i++) axis += (i === state.cursor ? paint(theme, "accent", glyphs.chartCursor) : paint(theme, "dim", glyphs.horizontal)) + paint(theme, "dim", glyphs.horizontal.repeat(Math.max(0, per - 1)));
+  // The caret sits under the middle cell of its bar, not the slot's first cell.
+  const caretAt = Math.floor((barWidth - 1) / 2);
+  for (let i = 0; i < buckets.length; i++) {
+    axis += i === state.cursor
+      ? paint(theme, "dim", glyphs.horizontal.repeat(caretAt)) + paint(theme, "accent", glyphs.chartCursor) + paint(theme, "dim", glyphs.horizontal.repeat(Math.max(0, per - caretAt - 1)))
+      : paint(theme, "dim", glyphs.horizontal.repeat(per));
+  }
   add(axis);
   let dates = " ".repeat(axisWidth), lastEnd = 0;
   const count = Math.min(4, buckets.length);
