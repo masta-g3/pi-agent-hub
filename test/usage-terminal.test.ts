@@ -22,7 +22,8 @@ for (const mode of ["plain", "ascii"]) test(`usage ${mode} preserves patterns, c
   `;
   const output = execFileSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env, NO_COLOR: "1", PI_AGENT_HUB_GLYPHS: mode === "ascii" ? "ascii" : "unicode" } });
   assert.match(output, /\[Cost\]/);
-  assert.match(output, mode === "ascii" ? /#.*=.*-/ : /█.*▓.*▒/);
+  assert.match(output, mode === "ascii" ? /#/ : /█/, "the selected row keeps a solid fill");
+  assert.match(output, mode === "ascii" ? /\| *(?:\.+ +)*\.+/ : /░/, "everything else keeps a light fill");
   assert.match(output, mode === "ascii" ? /#.*\|/ : /▰.*┃/);
   if (mode === "ascii") assert.doesNotMatch(output, /[█▓▒░▰▱┃⚠≈▲▼←→↑↓↵]/);
 });

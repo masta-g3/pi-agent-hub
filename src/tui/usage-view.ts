@@ -89,8 +89,9 @@ export function stackUsageCells(values: number[], height: number): number[] {
   for (let n = 0; n < remainder; n++) cells[order[n]!.i]!++;
   return cells;
 }
-const seriesToken = (i: number): ThemeToken => i === 0 ? "accent" : i === 1 ? "text" : "muted";
-const seriesGlyph = (i: number) => glyphs.series[Math.min(3, Math.max(0, i))]!;
+// The chart and share bars show the selected breakdown row against everything else, so they never need more tones than the theme has.
+const highlightGlyph = () => glyphs.series[0]!;
+const restGlyph = () => glyphs.series[3]!;
 function chartDate(key: string, hourly: boolean): string { const d = new Date(hourly ? Number(key) : key); return hourly ? d.toLocaleTimeString("en", { hour: "2-digit", hour12: false }) + "h" : d.toLocaleDateString("en", { month: "short", day: "numeric", timeZone: "UTC" }); }
 export interface UsagePage { lines: string[]; hits: DialogHit[]; state: UsageViewState }
 export function renderUsageView(data: UsageData, state: UsageViewState, width: number, height: number, now: number, theme?: SessionsTheme): UsagePage {
@@ -150,8 +151,9 @@ export function renderUsageView(data: UsageData, state: UsageViewState, width: n
     if (data.hiddenTimeZones) add(p("muted", `${data.hiddenTimeZones} history sources hidden: different time zone.`));
     const remaining = footerRow - body.length;
     const chartHeight = Math.max(3, Math.min(8, remaining - 8));
-    if (height >= 24) add(p("muted", `${state.period === "24h" ? "Hourly" : state.period === "all" ? "Weekly" : "Daily"} ${state.tab === "cost" ? "estimated cost" : "tokens"} by provider`));
-    renderChart(agg, state, w, chartHeight, theme, add, hit, body.length);
+    state.selected = Math.max(0, Math.min(state.selected, agg.breakdown.length - 1));
+    if (height >= 24) add(p("muted", `${state.period === "24h" ? "Hourly" : state.period === "all" ? "Weekly" : "Daily"} ${state.tab === "cost" ? "estimated cost" : "tokens"}`));
+    renderChart(agg, agg.breakdown[state.selected], state, w, chartHeight, theme, add, hit, body.length);
     if (state.tab === "tokens" && height >= 34 && (state.period === "90d" || state.period === "all") && footerRow - body.length >= 13) {
       add(p("muted", `Activity ${glyphs.pendingStep} ${agg.streak}-day streak`));
       const activity = new Map(agg.dailyActivity.map(d => [d.day, d.tokens]));
@@ -169,15 +171,14 @@ export function renderUsageView(data: UsageData, state: UsageViewState, width: n
       labels += selector(label, state.breakdown === kind) + (disabled ? p("muted", "daily data") : "");
     }
     add(labels);
-    state.selected = Math.max(0, Math.min(state.selected, agg.breakdown.length - 1));
-    if (w >= 98) add(tableRow(undefined, 0, agg, w, theme, state.tab));
+    if (w >= 98) add(tableRow(undefined, false, agg, w, theme, state.tab));
     const detailLines = state.detail && agg.breakdown[state.selected] ? rowDetails(agg.breakdown[state.selected]!, state.breakdown, w, theme).slice(0, Math.max(1, footerRow - body.length - 1)) : [];
     const slots = Math.max(1, footerRow - body.length - detailLines.length);
     const offset = Math.max(0, state.selected - slots + 1);
     for (let i = offset; i < Math.min(agg.breakdown.length, offset + slots); i++) {
       const selected = i === state.selected;
       hit(body.length, 0, w, `row:${i}`, undefined, ctx => { state.selected = i; state.detail = !state.detail; return ctx.dialog(); });
-      const line = (selected ? p("accent", glyphs.selected) : " ") + tableRow(agg.breakdown[i], i, agg, w - 1, theme, state.tab);
+      const line = (selected ? p("accent", glyphs.selected) : " ") + tableRow(agg.breakdown[i], selected, agg, w - 1, theme, state.tab);
       add(selected && theme && !noColor() ? styleBgToken(theme, "selectedBg", line) : line);
       if (selected) for (const line of detailLines) add(line);
     }
@@ -202,29 +203,31 @@ export function renderUsageView(data: UsageData, state: UsageViewState, width: n
   const lines = inset ? [p("border", glyphs.topLeft + glyphs.horizontal.repeat(w) + glyphs.topRight), ...body.map(line => p("border", glyphs.vertical) + pad(line, w) + p("border", glyphs.vertical)), p("border", glyphs.bottomLeft + glyphs.horizontal.repeat(w) + glyphs.bottomRight)] : body.map(line => pad(line, w));
   return { state, lines: lines.slice(0, height), hits: hits.filter(h => h.row < height - inset && (h.row < footerRow + inset || h.id.startsWith("footer:"))) };
 }
-function renderChart(agg: UsageAggregation, state: UsageViewState, width: number, height: number, theme: SessionsTheme | undefined, add: (line: string) => void, hit: (row: number, x: number, width: number, id: string, key?: string, select?: DialogHit["select"]) => void, startRow: number): void {
+function renderChart(agg: UsageAggregation, row: UsageBreakdownRow | undefined, state: UsageViewState, width: number, height: number, theme: SessionsTheme | undefined, add: (line: string) => void, hit: (row: number, x: number, width: number, id: string, key?: string, select?: DialogHit["select"]) => void, startRow: number): void {
   let axisWidth = 8;
   let plotWidth = Math.max(1, width - axisWidth);
-  let buckets = mergeUsageBuckets(agg.buckets, plotWidth);
+  const split = agg.buckets.map((b, i) => ({ ...b, values: { selected: Math.min(b.total, row?.buckets[i] ?? 0) } }));
+  let buckets = mergeUsageBuckets(split, plotWidth);
   let max = Math.max(1e-9, ...buckets.map(b => b.total));
   const maxLabel = () => state.tab === "cost" ? approx(max) : usageTokens(max);
   while (axisWidth < Math.min(width - 3, visibleWidth(maxLabel()) + 1)) {
     axisWidth = Math.min(width - 3, visibleWidth(maxLabel()) + 1);
     plotWidth = Math.max(1, width - axisWidth);
-    buckets = mergeUsageBuckets(agg.buckets, plotWidth);
+    buckets = mergeUsageBuckets(split, plotWidth);
     max = Math.max(1e-9, ...buckets.map(b => b.total));
   }
   const per = Math.max(1, Math.floor(plotWidth / Math.max(1, buckets.length))), barWidth = per >= 3 ? per - 1 : 1, gap = per - barWidth;
   if (state.cursor < 0) state.cursor = buckets.length - 1;
   state.cursor = Math.max(0, Math.min(state.cursor, buckets.length - 1));
-  const cells = buckets.map(b => stackUsageCells(agg.series.map(s => b.values[s.id] ?? 0), Math.round(b.total / max * height)));
+  const cells = buckets.map(b => stackUsageCells([b.values.selected ?? 0, b.total - (b.values.selected ?? 0)], Math.round(b.total / max * height)));
   for (let y = height; y >= 1; y--) {
     let line = paint(theme, "muted", right(y === height ? fit(maxLabel(), axisWidth - 1) : "", axisWidth - 1)) + paint(theme, "dim", glyphs.vertical);
     for (let i = 0; i < buckets.length; i++) {
-      let sum = 0, series = -1;
-      for (let s = 0; s < agg.series.length; s++) { sum += cells[i]![s]!; if (y <= sum) { series = s; break; } }
-      const tiny = y === 1 && buckets[i]!.total > 0 && cells[i]!.every(n => n === 0);
-      line += series >= 0 ? paint(theme, seriesToken(series), seriesGlyph(series).repeat(barWidth)) : tiny ? paint(theme, "accent", glyphs.tinyBar.repeat(barWidth)) : " ".repeat(barWidth);
+      const [highlighted, rest] = cells[i]!;
+      const tiny = y === 1 && buckets[i]!.total > 0 && !highlighted && !rest;
+      line += y <= highlighted! ? paint(theme, "accent", highlightGlyph().repeat(barWidth))
+        : y <= highlighted! + rest! ? paint(theme, "muted", restGlyph().repeat(barWidth))
+        : tiny ? paint(theme, buckets[i]!.values.selected ? "accent" : "muted", glyphs.tinyBar.repeat(barWidth)) : " ".repeat(barWidth);
       line += " ".repeat(gap);
       hit(startRow + height - y, axisWidth + i * per, per, `bucket:${i}`, undefined, ctx => { state.cursor = i; return ctx.dialog(); });
     }
@@ -243,15 +246,16 @@ function renderChart(agg: UsageAggregation, state: UsageViewState, width: number
   const bucket = buckets[state.cursor];
   if (bucket) {
     const value = (n: number) => state.tab === "cost" ? approx(n) : usageTokens(n);
-    let readout = `${chartDate(bucket.key, state.period === "24h")}${bucket.endKey ? `-${chartDate(bucket.endKey, state.period === "24h")}` : ""}  ${value(bucket.total)} `;
-    for (const [i, series] of agg.series.entries()) readout += paint(theme, seriesToken(i), `  ${seriesGlyph(i)} ${series.label} ${value(bucket.values[series.id] ?? 0)}`);
-    add(readout);
+    const selected = bucket.values.selected ?? 0;
+    let readout = `${chartDate(bucket.key, state.period === "24h")}${bucket.endKey ? `-${chartDate(bucket.endKey, state.period === "24h")}` : ""}  ${paint(theme, "muted", "total")} ${value(bucket.total)}`;
+    const provider = state.breakdown === "models" && row?.provider ? ` ${glyphs.pendingStep} ${agg.providerLabels.get(row.provider) ?? row.provider}` : "";
+    if (row) readout += paint(theme, "accent", `   ${highlightGlyph()} ${row.name}${provider} ${value(selected)}`) + paint(theme, "muted", ` (${bucket.total ? Math.round(selected / bucket.total * 100) : 0}%)`);
+    add(fit(readout, width));
   } else add(paint(theme, "muted", "No chart data."));
 }
-function tableRow(row: UsageBreakdownRow | undefined, _index: number, agg: UsageAggregation, width: number, theme: SessionsTheme | undefined, metric: "cost" | "tokens"): string {
-  const found = agg.series.findIndex(s => s.id === row?.provider);
-  const series = found >= 0 ? found : row?.provider ? Math.max(0, agg.series.findIndex(s => s.id === "\0other")) : 0;
-  const p = (s: string) => paint(theme, seriesToken(series), s);
+function tableRow(row: UsageBreakdownRow | undefined, selected: boolean, agg: UsageAggregation, width: number, theme: SessionsTheme | undefined, metric: "cost" | "tokens"): string {
+  const p = (s: string) => paint(theme, selected ? "accent" : "muted", s);
+  const shareGlyph = selected ? highlightGlyph() : restGlyph();
   const metricValue = row ? metric === "cost" ? row.unpriced ? "unpriced" : approx(row.estimated) : usageTokens(row.tokens) : metric === "cost" ? "Est. cost" : "Tokens";
   if (width < 48) return pad(row?.name ?? "Name", Math.max(4, width - 14)) + right(metricValue, 14);
   const provider = width >= 110, cache = width >= 130, effective = width >= 150, tokens = metric === "cost" && width >= 70;
@@ -260,9 +264,9 @@ function tableRow(row: UsageBreakdownRow | undefined, _index: number, agg: Usage
   const nameWidth = Math.max(8, width - reserved);
   const share = row && agg.total.value ? row.value / agg.total.value : 0;
   return pad(row?.name ?? "Name", nameWidth)
-    + (provider ? " " + pad(row ? `${seriesGlyph(series)} ${agg.providerLabels.get(row.provider ?? "") ?? row.provider ?? ""}` : "Provider", 15) : "")
+    + (provider ? " " + pad(row ? agg.providerLabels.get(row.provider ?? "") ?? row.provider ?? "" : "Provider", 15) : "")
     + right(metricValue, 15) + right(row ? `${Math.round(share * 100)}%` : "Share", 6)
-    + " " + (row ? p(seriesGlyph(series).repeat(Math.min(barWidth - 1, Math.round(share * (barWidth - 1))))) + " ".repeat(Math.max(0, barWidth - 1 - Math.round(share * (barWidth - 1)))) : pad("", barWidth - 1))
+    + " " + (row ? p(shareGlyph.repeat(Math.min(barWidth - 1, Math.round(share * (barWidth - 1))))) + " ".repeat(Math.max(0, barWidth - 1 - Math.round(share * (barWidth - 1)))) : pad("", barWidth - 1))
     + (tokens ? right(row ? usageTokens(row.tokens) : "Tokens", 12) : "")
     + (cache ? right(row ? `${Math.round(row.cacheHit * 100)}%` : "Cache", 10) : "")
     + (effective ? right(row ? row.unpriced ? "unpriced" : approx(row.tokens ? row.estimated / row.tokens * 1e6 : 0) : "$/M", 12) : "");

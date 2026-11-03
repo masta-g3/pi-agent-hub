@@ -70,7 +70,7 @@ test("reader gates parsing by mtime and size, ignores dot files, oversize and ex
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test("aggregation keeps exact totals, periods, cache, series, projects and null pricing", () => {
+test("aggregation keeps exact totals, periods, cache, row buckets, projects and null pricing", () => {
   const data = mergeUsageSnapshots([parseUsageSnapshot(usageFixture(), USAGE_NOW)!]);
   const all = aggregateUsage(data, "all", "cost", "models", USAGE_NOW);
   const rows = usageFixture().history.daily;
@@ -79,7 +79,10 @@ test("aggregation keeps exact totals, periods, cache, series, projects and null 
   assert.equal(all.total.recorded, rows.reduce((n, r) => n + r.cost, 0));
   assert.equal(all.unpriced, 1);
   assert.equal(all.breakdown.at(-1)!.name, "unknown-model");
-  assert.equal(all.series.length, 4);
+  for (const kind of ["models", "providers"] as const) {
+    const agg = aggregateUsage(data, "30d", "cost", kind, USAGE_NOW);
+    agg.buckets.forEach((bucket, i) => assert.ok(Math.abs(agg.breakdown.reduce((n, r) => n + r.buckets[i]!, 0) - bucket.total) < 1e-9));
+  }
   assert.equal(aggregateUsage(data, "24h", "tokens", "models", USAGE_NOW).total.messages, 24);
   assert.equal(aggregateUsage(data, "24h", "tokens", "projects", USAGE_NOW).breakdown.length, 0);
   assert.equal(aggregateUsage(data, "7d", "cost", "projects", USAGE_NOW).breakdown[0]!.sessions, 7);
@@ -133,7 +136,8 @@ test("producer strings cannot inject controls or collide with object properties"
   const all = aggregateUsage(mergeUsageSnapshots([parsed]), "all", "cost", "providers", USAGE_NOW);
   assert.equal(all.total.value, 10);
   assert.equal(all.buckets.reduce((n, bucket) => n + bucket.total, 0), 10);
-  assert.equal(all.buckets.find(bucket => bucket.total > 0)!.values["__proto__"], 10);
+  assert.equal(all.breakdown.length, 1);
+  assert.equal(all.breakdown[0]!.buckets.reduce((n, value) => n + value, 0), 10);
 });
 
 test("pace distinguishes expected use, projects early exhaustion and ignores expired windows", () => {

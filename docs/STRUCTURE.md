@@ -60,7 +60,7 @@ node dist/cli.js tui
 
 Both `layout.ts` summary paths first fit their established mode and right-side signals. Only then do quotas use spare space: all windows → tightest window per account → tightest account + other count → absent. This never moves Status tier chips or sacrifices request/health signals. Header hits use the shell inset, including empty fleets with a snapshot.
 
-Usage charts stack top-three provider series plus Other with largest-remainder whole-cell rounding; neutral patterns remain distinct in color, `NO_COLOR`, and ASCII. Quota state owns success/warning/error colors. The chart cursor readout is also its legend. Limits has an independent bounded body scroll while tabs and footer stay fixed. Usage state is process-local and never enters `ui-state.json`.
+Usage charts stack the selected breakdown row (from its per-bucket values) under the rest of each bucket's total with largest-remainder whole-cell rounding; the two fills stay distinct in color, `NO_COLOR`, and ASCII, so the chart never needs more tones than the theme has. Quota state owns success/warning/error colors. The chart cursor readout is also its legend. Limits has an independent bounded body scroll while tabs and footer stay fixed. Usage state is process-local and never enters `ui-state.json`.
 
 ## Design rules
 

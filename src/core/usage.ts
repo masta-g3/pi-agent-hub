@@ -111,7 +111,7 @@ export function usagePace(window: UsageWindow, now: number): { kind: "on" | "ahe
 export interface UsageTotal { value: number; tokens: number; recorded: number; estimated: number; input: number; output: number; cacheRead: number; cacheWrite: number; messages: number; savings?: number; cacheHit: number }
 export interface UsageBucket { key: string; endKey?: string; total: number; values: Record<string, number> }
 export interface UsageBreakdownRow extends UsageTotal { name: string; provider?: string; sessions: number; unpriced: boolean; buckets: number[] }
-export interface UsageAggregation { total: UsageTotal; delta?: number; activeDays: number; streak: number; unpriced: number; breakdown: UsageBreakdownRow[]; buckets: UsageBucket[]; providerLabels: ReadonlyMap<string, string>; series: { id: string; label: string }[]; dailyActivity: { day: string; tokens: number }[] }
+export interface UsageAggregation { total: UsageTotal; delta?: number; activeDays: number; streak: number; unpriced: number; breakdown: UsageBreakdownRow[]; buckets: UsageBucket[]; providerLabels: ReadonlyMap<string, string>; dailyActivity: { day: string; tokens: number }[] }
 function emptyTotal(): UsageTotal { return { value: 0, tokens: 0, recorded: 0, estimated: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0, cacheHit: 0 }; }
 function add(total: UsageTotal, row: UsageRow | UsageProject, metric: UsageMetric): void {
   const tokens = "input" in row ? row.input + row.output + row.cacheRead + row.cacheWrite : row.tokens;
@@ -151,19 +151,14 @@ export function aggregateUsage(data: UsageData, period: UsagePeriod, metric: Usa
   const total = emptyTotal(), prior = emptyTotal();
   for (const row of current) add(total, row, metric);
   for (const row of previous) add(prior, row, metric);
-  const providerTotals = new Map<string, number>(), labels = new Map<string, string>();
+  const labels = new Map<string, string>();
   for (const h of data.histories) for (const p of h.providers) if (!labels.has(p.id)) labels.set(p.id, p.label);
-  for (const row of current) providerTotals.set(row.provider, (providerTotals.get(row.provider) ?? 0) + (metric === "tokens" ? row.input + row.output + row.cacheRead + row.cacheWrite : row.estimatedCost ?? row.cost));
-  const top = [...providerTotals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([id]) => id);
-  const series = [...top.map(id => ({ id, label: labels.get(id) ?? id })), ...(providerTotals.size > 3 ? [{ id: "\0other", label: "Other" }] : [])];
   const bucketKey = (time: number) => period === "24h" ? String(time) : new Date(period === "all" ? time - ((new Date(time).getUTCDay() + 6) % 7) * DAY : time).toISOString().slice(0, 10);
   const actualStart = Number.isFinite(start) ? start : current.length ? current.reduce((min, row) => Math.min(min, time(row)), Infinity) : todayMs;
   const bucketMap = new Map<string, UsageBucket>();
   for (let t = actualStart; t < end; t += period === "24h" ? HOUR : DAY) { const key = bucketKey(t); if (!bucketMap.has(key)) bucketMap.set(key, { key, total: 0, values: Object.create(null) }); }
   for (const row of current) {
-    const bucket = bucketMap.get(bucketKey(time(row)))!, id = top.includes(row.provider) ? row.provider : "\0other";
-    const value = metric === "tokens" ? row.input + row.output + row.cacheRead + row.cacheWrite : row.estimatedCost ?? row.cost;
-    bucket.total += value; bucket.values[id] = (bucket.values[id] ?? 0) + value;
+    bucketMap.get(bucketKey(time(row)))!.total += metric === "tokens" ? row.input + row.output + row.cacheRead + row.cacheWrite : row.estimatedCost ?? row.cost;
   }
   const buckets = [...bucketMap.values()], keys = buckets.map(b => b.key);
   const byName = new Map<string, UsageBreakdownRow>();
@@ -192,5 +187,5 @@ export function aggregateUsage(data: UsageData, period: UsagePeriod, metric: Usa
     else activeHours.add(row.hour);
   }
   for (const hour of activeHours) activeDays.add(usageDay(hour, formatter));
-  return { total, delta: prior.value > 0 ? (total.value - prior.value) / prior.value : undefined, activeDays: activeDays.size, streak, unpriced, breakdown: sorted, buckets, providerLabels: labels, series, dailyActivity: [...activity].filter(([day]) => Date.parse(day) >= actualStart && Date.parse(day) < end).map(([day, tokens]) => ({ day, tokens })).sort((a, b) => a.day.localeCompare(b.day)) };
+  return { total, delta: prior.value > 0 ? (total.value - prior.value) / prior.value : undefined, activeDays: activeDays.size, streak, unpriced, breakdown: sorted, buckets, providerLabels: labels, dailyActivity: [...activity].filter(([day]) => Date.parse(day) >= actualStart && Date.parse(day) < end).map(([day, tokens]) => ({ day, tokens })).sort((a, b) => a.day.localeCompare(b.day)) };
 }

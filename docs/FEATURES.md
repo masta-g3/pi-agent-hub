@@ -117,7 +117,7 @@ Cost shows an API-equivalent estimate, recorded cost separately, cache hit rate,
 
 Limits shows plan, reset credits, remaining capacity, local reset times, and pace. `┃` marks even pace (`|` in ASCII). **Room to spare** and **on pace** are neutral; **fast: runs out ≈ …** warns about projected exhaustion. `~` marks stale cached readings. `?????` means a window has expired and needs a fresh reading. Account errors remain visible; Hub does not refresh credentials or quota endpoints itself.
 
-Provider charts use distinct neutral patterns in color and `NO_COLOR`; ASCII mode uses `# = - .`. Quota colors alone express healthy, low (25% or less), and exhausted capacity. Usage works down to 30 columns and drops the outer frame at 60 columns or less.
+The chart shows the Breakdown row selected with `↑`/`↓` as a solid accent fill (`█`, ASCII `#`) on top of everything else in a light muted fill (`░`, ASCII `.`); its share bar uses the same fill, and the cursor readout gives the day's total and that row's value. Quota colors alone express healthy, low (25% or less), and exhausted capacity. Usage works down to 30 columns and drops the outer frame at 60 columns or less.
 
 ## Conversation
 
