@@ -110,7 +110,7 @@ export function usagePace(window: UsageWindow, now: number): { kind: "on" | "ahe
 }
 export interface UsageTotal { value: number; tokens: number; recorded: number; estimated: number; input: number; output: number; cacheRead: number; cacheWrite: number; messages: number; savings?: number; cacheHit: number }
 export interface UsageBucket { key: string; endKey?: string; total: number; values: Record<string, number> }
-export interface UsageBreakdownRow extends UsageTotal { name: string; provider?: string; sessions: number; unpriced: boolean; buckets: number[] }
+export interface UsageBreakdownRow extends UsageTotal { name: string; /** Provider ids, largest contribution first; a model used through several providers is one row. */ providers: string[]; sessions: number; unpriced: boolean; buckets: number[] }
 export interface UsageAggregation { total: UsageTotal; delta?: number; activeDays: number; streak: number; unpriced: number; breakdown: UsageBreakdownRow[]; buckets: UsageBucket[]; providerLabels: ReadonlyMap<string, string>; dailyActivity: { day: string; tokens: number }[] }
 function emptyTotal(): UsageTotal { return { value: 0, tokens: 0, recorded: 0, estimated: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0, cacheHit: 0 }; }
 function add(total: UsageTotal, row: UsageRow | UsageProject, metric: UsageMetric): void {
@@ -162,24 +162,26 @@ export function aggregateUsage(data: UsageData, period: UsagePeriod, metric: Usa
   }
   const buckets = [...bucketMap.values()], keys = buckets.map(b => b.key);
   const byName = new Map<string, UsageBreakdownRow>();
+  const providerShares = new Map<UsageBreakdownRow, Map<string, number>>();
   const projects = period === "24h" ? [] : data.histories.flatMap(h => h.projects).filter(r => Date.parse(r.day) >= start && Date.parse(r.day) < end);
   for (const row of breakdown === "projects" ? projects : current) {
     const name = "project" in row ? row.project : breakdown === "models" ? row.model : row.provider;
-    const key = "project" in row || breakdown !== "models" ? name : `${row.provider}\0${row.model}`;
-    let target = byName.get(key);
-    if (!target) { target = { ...emptyTotal(), name, provider: "provider" in row ? row.provider : undefined, sessions: 0, unpriced: true, buckets: keys.map(() => 0) }; byName.set(key, target); }
-    add(target, row, metric); target.unpriced &&= row.estimatedCost === null;
+    let target = byName.get(name);
+    if (!target) { target = { ...emptyTotal(), name, providers: [], sessions: 0, unpriced: true, buckets: keys.map(() => 0) }; byName.set(name, target); }
+    add(target, row, metric);
+    if ("provider" in row) { const shares = providerShares.get(target) ?? new Map<string, number>(); shares.set(row.provider, (shares.get(row.provider) ?? 0) + (metric === "tokens" ? row.input + row.output + row.cacheRead + row.cacheWrite : row.estimatedCost ?? row.cost)); providerShares.set(target, shares); } target.unpriced &&= row.estimatedCost === null;
     if ("sessions" in row) target.sessions += row.sessions;
     const index = keys.indexOf(bucketKey("hour" in row ? row.hour : Date.parse(row.day)));
     if (index >= 0) target.buckets[index]! += metric === "tokens" ? ("tokens" in row ? row.tokens : row.input + row.output + row.cacheRead + row.cacheWrite) : row.estimatedCost ?? row.cost;
   }
+  for (const [target, shares] of providerShares) target.providers = [...shares].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([id]) => id);
   const sorted = [...byName.values()].sort((a, b) => (metric === "cost" ? Number(a.unpriced) - Number(b.unpriced) : 0) || b.value - a.value || (metric === "cost" ? b.tokens - a.tokens : b.estimated - a.estimated) || a.name.localeCompare(b.name));
   const activity = new Map<string, number>();
   for (const h of data.histories) for (const row of h.daily) if (row.messages > 0) activity.set(row.day, (activity.get(row.day) ?? 0) + row.input + row.output + row.cacheRead + row.cacheWrite);
   let streak = 0, cursor = todayMs;
   if (!activity.has(today)) cursor -= DAY;
   while (activity.has(new Date(cursor).toISOString().slice(0, 10))) { streak++; cursor -= DAY; }
-  const unpriced = new Set(current.filter(r => r.estimatedCost === null).map(r => `${r.provider}\0${r.model}`)).size;
+  const unpriced = new Set(current.filter(r => r.estimatedCost === null).map(r => r.model)).size;
   const activeDays = new Set<string>(), activeHours = new Set<number>();
   for (const row of current) {
     if (row.messages <= 0) continue;

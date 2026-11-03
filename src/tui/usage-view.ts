@@ -248,11 +248,12 @@ function renderChart(agg: UsageAggregation, row: UsageBreakdownRow | undefined, 
     const value = (n: number) => state.tab === "cost" ? approx(n) : usageTokens(n);
     const selected = bucket.values.selected ?? 0;
     let readout = `${chartDate(bucket.key, state.period === "24h")}${bucket.endKey ? `-${chartDate(bucket.endKey, state.period === "24h")}` : ""}  ${paint(theme, "muted", "total")} ${value(bucket.total)}`;
-    const provider = state.breakdown === "models" && row?.provider ? ` ${glyphs.pendingStep} ${agg.providerLabels.get(row.provider) ?? row.provider}` : "";
+    const provider = state.breakdown === "models" && row?.providers.length ? ` ${glyphs.pendingStep} ${providerNames(row, agg)}` : "";
     if (row) readout += paint(theme, "accent", `   ${highlightGlyph()} ${row.name}${provider} ${value(selected)}`) + paint(theme, "muted", ` (${bucket.total ? Math.round(selected / bucket.total * 100) : 0}%)`);
     add(fit(readout, width));
   } else add(paint(theme, "muted", "No chart data."));
 }
+const providerNames = (row: UsageBreakdownRow, agg: UsageAggregation) => row.providers.map(id => agg.providerLabels.get(id) ?? id).join(", ");
 function tableRow(row: UsageBreakdownRow | undefined, selected: boolean, agg: UsageAggregation, width: number, theme: SessionsTheme | undefined, metric: "cost" | "tokens"): string {
   const p = (s: string) => paint(theme, selected ? "accent" : "muted", s);
   const shareGlyph = selected ? highlightGlyph() : restGlyph();
@@ -264,7 +265,7 @@ function tableRow(row: UsageBreakdownRow | undefined, selected: boolean, agg: Us
   const nameWidth = Math.max(8, width - reserved);
   const share = row && agg.total.value ? row.value / agg.total.value : 0;
   return pad(row?.name ?? "Name", nameWidth)
-    + (provider ? " " + pad(row ? agg.providerLabels.get(row.provider ?? "") ?? row.provider ?? "" : "Provider", 15) : "")
+    + (provider ? " " + pad(row ? providerNames(row, agg) : "Provider", 15) : "")
     + right(metricValue, 15) + right(row ? `${Math.round(share * 100)}%` : "Share", 6)
     + " " + (row ? p(shareGlyph.repeat(Math.min(barWidth - 1, Math.round(share * (barWidth - 1))))) + " ".repeat(Math.max(0, barWidth - 1 - Math.round(share * (barWidth - 1)))) : pad("", barWidth - 1))
     + (tokens ? right(row ? usageTokens(row.tokens) : "Tokens", 12) : "")

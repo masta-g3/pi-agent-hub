@@ -93,6 +93,20 @@ test("aggregation keeps exact totals, periods, cache, row buckets, projects and 
   assert.equal(merged.reduce((n, b) => n + b.total, 0), all.buckets.reduce((n, b) => n + b.total, 0));
 });
 
+test("a model used through several providers is one Models row, but separate Providers rows", () => {
+  const raw = usageFixture();
+  const codex = raw.history.daily.find(r => r.provider === "codex")!;
+  raw.history.daily.push({ ...codex, provider: "openai", cost: 0, estimatedCost: 1 });
+  const data = mergeUsageSnapshots([parseUsageSnapshot(raw, USAGE_NOW)!]);
+  const models = aggregateUsage(data, "all", "cost", "models", USAGE_NOW).breakdown.filter(r => r.name === codex.model);
+  assert.equal(models.length, 1);
+  assert.deepEqual(models[0]!.providers, ["codex", "openai"], "providers ordered by contribution");
+  const codexOnly = aggregateUsage(mergeUsageSnapshots([parseUsageSnapshot(usageFixture(), USAGE_NOW)!]), "all", "cost", "models", USAGE_NOW).breakdown.find(r => r.name === codex.model)!;
+  assert.equal(models[0]!.value, codexOnly.value + 1);
+  const providers = aggregateUsage(data, "all", "cost", "providers", USAGE_NOW).breakdown.map(r => r.name);
+  assert.ok(providers.includes("openai") && providers.includes("codex"));
+});
+
 test("period boundaries use source time zone and recorded cost stays independent of estimates", () => {
   const raw = usageFixture();
   const data = mergeUsageSnapshots([parseUsageSnapshot({ ...raw, history: { ...raw.history, timeZone: "America/Los_Angeles" } }, USAGE_NOW)!]);

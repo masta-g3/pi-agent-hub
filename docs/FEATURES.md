@@ -105,7 +105,7 @@ Header quota bars show each account and its windows when space permits. Narrower
 | `Tab` / `Shift+Tab` | Next / previous tab |
 | `1`–`5` or `[` / `]` | 24h / 7d / 30d / 90d / All; previous / next period |
 | `←` / `→` | Move the chart cursor; the readout shows provider values |
-| `b` | Cycle Models / Providers / Projects |
+| `b` | Cycle Models / Providers / Projects; a model used through several providers, such as Codex and OpenAI, is one Models row |
 | `↑` / `↓` | Select a breakdown row, or scroll Limits |
 | `Enter` | Toggle selected-row details |
 | `PageUp` / `PageDown`, mouse wheel | Scroll Limits; selectors and close stay fixed |
