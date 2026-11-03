@@ -11,6 +11,7 @@ export const unicode = {
   topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
   up: "↑", down: "↓", left: "←", right: "→", fewer: "⌃", ellipsis: "…",
   quoteLeft: "“", quoteRight: "”", dash: "—", range: "–", artifact: "▤", favorite: "★",
+  quotaFilled: "▰", quotaEmpty: "▱", series: "█▓▒░", heatmap: "·░▒▓█", tinyBar: "▁", warning: "⚠", approximate: "≈", chartCursor: "▲", deltaDown: "▼", enter: "↵",
   chevronLeft: "‹", chevronRight: "›", atLeast: "≥", note: "✎",
 } as const;
 
@@ -27,6 +28,7 @@ export const ascii: GlyphSet = {
   topLeft: "+", topRight: "+", bottomLeft: "+", bottomRight: "+",
   up: "^", down: "v", left: "<", right: ">", fewer: "^", ellipsis: "...",
   quoteLeft: '"', quoteRight: '"', dash: "--", range: "-", artifact: "#", favorite: "*",
+  quotaFilled: "#", quotaEmpty: "-", series: "#=-.", heatmap: ".:-=#", tinyBar: ".", warning: "!", approximate: "~", chartCursor: "^", deltaDown: "v", enter: "Enter",
   chevronLeft: "<", chevronRight: ">", atLeast: ">=", note: "*",
 };
 

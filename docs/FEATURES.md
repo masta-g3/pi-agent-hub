@@ -31,6 +31,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
+| Usage and quotas | `u` shows Cost, Tokens, and Limits from an optional usage producer. |
 | Multi-repo sessions | `Ctrl+R` adds a repo in the new-session form. |
 | Isolated worktrees | `Ctrl+T` enables a branch session; `w` finishes it. |
 | Project skills and MCP | `s` and `m` choose capabilities for the primary repo. |
@@ -83,6 +84,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `s` / `m` | Pick project skills / MCP servers |
 | `Alt+E` | Edit the skill pool path inside the skills picker |
 | `t` | Preview and configure the dashboard theme |
+| `u` | Open Usage; clicking a header quota bar opens Limits |
 | `v` | Toggle Status / Repo fleet grouping |
 | `S` | Visit the workflow board or return to the chosen fleet grouping |
 | Click / double-click | Select / open a session; double-click folds a section header. In dialogs, click selects, double-click confirms, and footer hints are tappable; Delete and Finish choices need keys |
@@ -90,6 +92,32 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 Session actions apply to the exact selected row. Section headers are not sessions. Unavailable actions appear with a reason in `:`.
 
 Press `?` for a static reference grouped into Session actions, Pins, Views, and Filters, followed by navigation, dialogs, and the status legend. Help uses base action names and primary keys even when no session is selected; it does not show availability. Keys stay aligned on the right. At 160+ columns, sections use two columns. Palette-only filters have no key and share the note `via : palette`. Use `↑` / `↓` or `PgUp` / `PgDn` to scroll, and `Esc` to return.
+
+## Usage
+
+Press `u`, or choose **Usage** in `:`, for the full-screen Cost, Tokens, and Limits view. A producer such as `pi-accounts` publishes the data through the [usage snapshot contract](CONFIG.md#usage-snapshot). Without a snapshot, Usage explains where the producer writes its files. Limits-only and history-only producers work independently. With pins open, Usage zooms the dashboard to the whole window; closing it brings the pins back unchanged.
+
+Header quota bars show each account and its windows when space permits. Narrower headers keep each account's tightest window, then only the tightest account plus a count of the others, then omit quotas. Session counts, requests, health, and tier chips keep priority. A quota click opens Limits from Status, Repo, board, or pin mode. Without account data, the existing header stays unchanged.
+
+| Key in Usage | Action |
+| --- | --- |
+| `c` / `t` / `l` | Cost / Tokens / Limits |
+| `Tab` / `Shift+Tab` | Next / previous tab |
+| `1`–`5` or `[` / `]` | 24h / 7d / 30d / 90d / All; previous / next period |
+| `←` / `→` | Move the chart cursor; the readout shows provider values |
+| `b` | Cycle Models / Providers / Projects; a model used through several providers, such as Codex and OpenAI, is one Models row |
+| `↑` / `↓` | Select a breakdown row, or scroll Limits |
+| `Enter` | Toggle selected-row details |
+| `PageUp` / `PageDown`, mouse wheel | Scroll Limits; selectors and close stay fixed |
+| `Esc`, `q`, or `u` | Close Usage, without quitting Hub |
+
+Tabs, periods, chart buckets, breakdown selectors, rows, and footer controls are tappable. Projects require daily data and are disabled at 24h. Tab, period, cursor, breakdown, selection, and scrolling reset with the dashboard process; they are not saved.
+
+Cost shows an API-equivalent estimate, recorded cost separately, cache hit rate, producer-computed cache savings, and change from the prior equal period. Estimates are not your bill. Unpriced models still count tokens. Tokens shows the input/output/cache split; long periods on taller terminals also show weekday activity and the current streak. Breakdowns sort by the active metric. Row details show a sparkline and token/cache/cost figures; project details show only project totals and session counts.
+
+Limits shows plan, reset credits, remaining capacity, local reset times, and pace. `┃` marks even pace (`|` in ASCII). **Room to spare** and **on pace** are neutral; **fast: runs out ≈ …** warns about projected exhaustion. `~` marks stale cached readings. `?????` means a window has expired and needs a fresh reading. Account errors remain visible; Hub does not refresh credentials or quota endpoints itself.
+
+The chart shows the Breakdown row selected with `↑`/`↓` as a solid accent fill (`█`, ASCII `#`) on top of everything else in a light muted fill (`░`, ASCII `.`); its share bar uses the same fill, and the cursor readout gives the day's total and that row's value. Quota colors alone express healthy, low (25% or less), and exhausted capacity. Usage works down to 30 columns and drops the outer frame at 60 columns or less.
 
 ## Conversation
 
@@ -175,7 +203,7 @@ Status view groups complete session trees into these sections:
 | QUIET | Other non-archived sessions |
 | ARCHIVED | Archived trees, newest-first |
 
-Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its first session and reveal the section without opening or marking it read. Zero counts are hidden; narrow headers show fewer tiers. Repo, board, and pinned summaries are not clickable.
+Click a tier count in the Status header, such as `NEEDS YOU 3`, to select its first session and reveal the section without opening or marking it read. Zero counts are hidden; narrow headers show fewer tiers. Repo, board, and pinned summaries have no tier-chip targets. Their optional quota bars still open Usage → Limits.
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 

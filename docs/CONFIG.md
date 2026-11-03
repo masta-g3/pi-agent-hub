@@ -54,9 +54,81 @@ Managed parent sessions always receive a dashboard agent note asking them to use
 
 ### Your own integrations
 
-Use Pi extensions to publish the [session context](#generic-session-context) and [workflow metadata](#workflow-heartbeat-bridge) below. Hub reads these supported entries through its heartbeat extension. There is no separate Hub plugin loader or custom-widget API.
+Use Pi extensions to publish the [session context](#generic-session-context) and [workflow metadata](#workflow-heartbeat-bridge) below. Hub reads these entries through its heartbeat extension. Producers can also publish [usage snapshots](#usage-snapshot) as JSON files. There is no separate Hub plugin loader or custom-widget API.
 
 For keyboard actions, configure [dashboard shortcuts](#dashboard-shortcuts) that send a one-line Pi command. Skills and MCP remain project-scoped capabilities, not dashboard plugins.
+
+### Usage snapshot
+
+Press `u` for account limits and usage analytics. `pi-accounts` is the first producer; Hub has no package dependency on it. A producer writes complete JSON snapshots atomically (temporary file, then rename) under `<PI_AGENT_HUB_DIR>/usage/`, or `<PI_CODING_AGENT_DIR>/pi-agent-hub/usage/` when no Hub directory is set. Hub never reads conversations, credentials, or provider quota endpoints for Usage. The producer owns indexing, backfill, prices, and quota fetching.
+
+#### Version 1
+
+Each file has this envelope. `accounts` and `history` are optional and validated independently. Producers can split them across files, such as `pi-accounts-limits.json` and `pi-accounts-history.json`.
+
+```json
+{
+  "version": 1,
+  "producer": "pi-accounts",
+  "updatedAt": 1793620800000,
+  "accounts": [
+    {
+      "id": "codex-1",
+      "provider": "Codex",
+      "label": "Codex 1",
+      "plan": "pro",
+      "checkedAt": 1793620800000,
+      "fetchedAt": 1793620680000,
+      "resetCredits": 2,
+      "windows": [
+        { "id": "5h", "label": "5h", "remainingPercent": 72, "resetAt": 1793626200000, "durationMs": 18000000 }
+      ]
+    }
+  ],
+  "history": {
+    "generatedAt": 1793620800000,
+    "source": "pi-sessions:/Users/example/.pi/agent/sessions",
+    "timeZone": "America/Los_Angeles",
+    "firstDay": "2026-08-05",
+    "providers": [{ "id": "claude", "label": "Claude" }],
+    "daily": [
+      { "day": "2026-11-02", "provider": "claude", "model": "claude-model", "messages": 120,
+        "input": 1000, "output": 2000, "cacheRead": 90000, "cacheWrite": 8000,
+        "cost": 0, "estimatedCost": 41.2, "cacheSavings": 120.5 }
+    ],
+    "hourly": [
+      { "hour": 1793620800000, "provider": "claude", "model": "claude-model", "messages": 4,
+        "input": 10, "output": 20, "cacheRead": 900, "cacheWrite": 80, "cost": 0, "estimatedCost": 0.4 }
+    ],
+    "projects": [
+      { "day": "2026-11-02", "project": "/Users/example/Code/app", "sessions": 3,
+        "messages": 40, "tokens": 120000, "cost": 0, "estimatedCost": 9.1 }
+    ]
+  }
+}
+```
+
+- The envelope requires `version: 1`, a nonblank producer, and `updatedAt`. Unknown fields are ignored. Bad envelopes are ignored; bad sections and rows do not hide valid siblings.
+- Account `id`, `provider`, and `label` are required. `plan`, `checkedAt`, `fetchedAt`, `resetCredits`, and `error` are optional. Use labels such as `Codex 1`, not account emails. Window `id`, `label`, and `remainingPercent` are required; `resetAt` and `durationMs` are optional. Positive `durationMs` enables pace; zero or invalid duration omits it.
+- History requires `source`, `generatedAt`, and an IANA `timeZone` accepted by `Intl.DateTimeFormat`. `source` identifies the indexed input, not the producer, so independent indexers of the same logs use the same source identity. `firstDay` and provider display labels are optional. Rollup collections can be absent. Daily/hourly rows require all fields shown except `cacheSavings`. Project rows require all fields shown.
+- Every displayed string passes through `plainTerminalText`, then is trimmed and bounded: IDs and labels 80 characters; provider/model identities 120; plan 40; error 150; project/source 1,024. Empty required strings drop their row. Control sequences never reach the terminal.
+- Numbers must be finite and nonnegative. Remaining percentages are capped at 100. Timestamps use epoch milliseconds and must fall between 2000-01-01 and now + 400 days. Days must be real `YYYY-MM-DD` dates in that range. Hourly timestamps must fall on an epoch-hour boundary. Producers should send only the last seven days of hourly rows.
+- `estimatedCost` is a dollar amount or `null` for unpriced models. Optional `cacheSavings` is dollars avoided because cache reads cost less than normal input; the producer calculates it. It can also be `null`. Hub has no price table.
+- Per-file caps: 32 accounts, eight windows per account, 50,000 daily rows, 10,000 hourly rows, 20,000 project rows, and 64 provider labels. Excess input rows are dropped. Keep each producer file at or below 16 MiB.
+
+#### Reading and merging
+
+Hub reads at most 16 `.json` files in filename order, skips dot-prefixed names and files larger than 32 MiB, and parses a file again only when its modification time or size changes. Missing directories are normal. Usage stays in memory; it never enters `registry.json`, heartbeats, or `ui-state.json`.
+
+Accounts deduplicate by producer + account ID, keeping the newest `fetchedAt`, then `checkedAt`. Their display order stays stable. History deduplicates by `source`, keeping the newest `generatedAt`; it never double-counts two snapshots of the same logs. Distinct sources combine only when their time zones match the newest history section. Other time zones are hidden with a note. Provider labels merge first-wins.
+
+#### Calculations and freshness
+
+- Tokens = input + output + cache read + cache write. Cache hit = cache read / (input + cache read + cache write).
+- Estimated cost uses `estimatedCost` when priced, otherwise the recorded `cost`. Recorded cost is summed separately. Unpriced models still contribute tokens and are marked in Cost tables. Estimates are not a bill.
+- `24h` uses hourly rows for the current hour and preceding 23 hours. `7d`, `30d`, and `90d` include today in the producer's time zone. All uses weekly chart buckets. Prior-period change compares the preceding equal interval; it is absent without a positive prior total. Projects use daily data and are unavailable at `24h`.
+- A quota reading is stale when `fetchedAt` is missing or older than 15 minutes. An account error also makes retained windows stale. `checkedAt` does not refresh cached readings. Expired windows show `?????` until the producer publishes a new reading. Errors remain visible in Limits even with cached windows.
+- Pace compares elapsed fraction `e = 1 - (resetAt - now) / durationMs` with used fraction `u = 1 - remainingPercent / 100`. More than five percentage points ahead warns about fast use and projects exhaustion when it falls before reset; five points under means room to spare. The bar's `┃` (`|` in ASCII) marks expected remaining capacity at even pace. Local reset times are display-only; the producer time zone defines history days.
 
 ## Runtime state
 
@@ -64,6 +136,7 @@ For keyboard actions, configure [dashboard shortcuts](#dashboard-shortcuts) that
 - Config: `config.json` (`skills.poolDirs`, `mcp.catalogPath`, optional managed-session `session.prelude`, `session.worktreeDefault`, dashboard theme sync/override, dashboard shortcuts, optional attention bell)
 - Registry: `registry.json`
 - Heartbeats: `heartbeats/<session-id>.json`
+- Optional usage input: `usage/*.json` (producer-owned; read-only and transient in Hub)
 - Latest one-time managed-session theme request: `theme-command.json`
 - Multi-repo workspaces: `workspaces/<session-id>`
 - Hub-owned Git worktrees: `worktrees/<repo-name>/<session-id-prefix>-<branch-slug>`

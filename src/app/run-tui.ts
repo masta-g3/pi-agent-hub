@@ -569,6 +569,7 @@ export async function runTui(): Promise<void> {
     followSidePane: (sessionId) => sidePanes!.follow(sessionId),
     unfollowSidePane: () => sidePanes!.unfollow(),
     retargetFollow: (sessionId) => sidePanes!.retarget(sessionId),
+    fullWindow: (on) => sidePanes!.fullWindow(on),
     focusFollow: async (sessionId) => {
       await touchSession(sessionId);
       return sidePanes!.focusFollow(sessionId);

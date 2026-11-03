@@ -181,6 +181,8 @@ export interface SessionsViewActions {
   followSidePane?: (sessionId: string) => FollowSidePaneResult | Promise<FollowSidePaneResult>;
   unfollowSidePane?: () => CloseSidePaneResult | Promise<CloseSidePaneResult>;
   retargetFollow?: (sessionId: string) => void | Promise<void>;
+  /** Gives a full-screen dashboard view the whole tmux window while pins would otherwise squeeze it into the sidebar. */
+  fullWindow?: (on: boolean) => void | Promise<void>;
   focusFollow?: (sessionId: string) => FocusSidePaneResult | Promise<FocusSidePaneResult>;
   sidePaneState?: () => SidePaneViewState;
   refreshStatusEvidence?: () => void | Promise<void>;
@@ -226,7 +228,7 @@ export interface SessionsViewActions {
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
+export type SessionDialog = { kind: "usage" } | { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
 
 export interface DialogContext {
   viewport: { width: number; height?: number };

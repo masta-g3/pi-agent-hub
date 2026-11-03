@@ -104,6 +104,8 @@ export interface SidePaneLifecycle {
   unfollow(): Promise<CloseSidePaneResult>;
   /** Shows the selected live session in the follow pane; quietly skips stale, hidden, or non-live targets. */
   retarget(sessionId: string): Promise<void>;
+  /** Zooms the pinned dashboard pane while a full-screen view such as Usage is open; false undoes only that zoom. */
+  fullWindow(on: boolean): Promise<void>;
   focusFollow(sessionId: string): Promise<FocusSidePaneResult>;
   close(sessionId: string): Promise<CloseSidePaneResult>;
   resize(delta: -1 | 1): Promise<ResizeSidePaneResult>;
@@ -138,6 +140,8 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
   let bindingFingerprint: string | undefined;
   // Phone-size windows share the desktop window; pins hide behind a zoom and are rebuilt from the last wide layout.
   let hiddenPins: { zoomedByHub: boolean } | undefined;
+  // A full-screen dashboard view zoomed the sidebar; zoom keeps the pin layout, so unzooming restores it unchanged.
+  let fullWindowZoom = false;
   // The latest automatic retarget destination; presence never treats it as a user focus.
   let retargetedSessionId: string | undefined;
   let wideLayout: { sidebarWidth: number; splitPercent: number } | undefined;
@@ -618,6 +622,23 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
     },
     handoff(tmuxSession) {
       return trackIntent(withPausedPresence(() => handoffNow(tmuxSession)));
+    },
+    fullWindow(on) {
+      if (stopped) return Promise.resolve();
+      return serialize(async () => {
+        const ownPane = deps.ownPane();
+        if (!ownPane || on === fullWindowZoom) return;
+        if (on) {
+          if (!openTmuxSessions.length || hiddenPins || await windowZoomed(ownPane, exec)) return;
+          await togglePaneZoom(ownPane, exec);
+          fullWindowZoom = true;
+          return;
+        }
+        fullWindowZoom = false;
+        // A narrow window hid the pins meanwhile; that hide now owns the zoom and rebuilds when wide.
+        if (hiddenPins) hiddenPins.zoomedByHub = true;
+        else if (await windowZoomed(ownPane, exec)) await togglePaneZoom(ownPane, exec);
+      });
     },
     refreshPanelChrome() {
       if (stopped) return;
