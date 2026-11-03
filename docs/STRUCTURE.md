@@ -56,7 +56,7 @@ node dist/cli.js tui
 
 ## Usage rendering
 
-`src/tui/usage-view.ts` owns the pure Usage renderer, quota strip fitting, chart rounding, and transient view state. Rendering returns normalized state and `dialog-mouse.ts` hits without mutating its input. `SessionsView` opens the full-screen `SessionDialog` kind through the catalog-owned `u` / Usage command. The header quota target uses that same guarded command, then selects Limits. Dialog controls consume their own keys; `Esc`, `q`, and `u` close without quitting Hub.
+`src/tui/usage-view.ts` owns the pure Usage renderer, quota strip fitting, chart rounding, and transient view state. Rendering returns normalized state and `dialog-mouse.ts` hits without mutating its input. `SessionsView` opens the full-screen `SessionDialog` kind through the catalog-owned `u` / Usage command. The header quota target uses that same guarded command, then selects Limits. Dialog controls consume their own keys; `Esc`, `q`, and `u` close without quitting Hub. With pins open, `SessionsView` asks the serialized side-pane lifecycle (`fullWindow`) to zoom the dashboard pane while Usage is open; tmux keeps the pin layout under the zoom. Closing unzooms only that Hub zoom. A user zoom stays, and a narrow-window hide that starts meanwhile inherits the zoom and rebuilds when wide.
 
 Both `layout.ts` summary paths first fit their established mode and right-side signals. Only then do quotas use spare space: all windows → tightest window per account → tightest account + other count → absent. This never moves Status tier chips or sacrifices request/health signals. Header hits use the shell inset, including empty fleets with a snapshot.
 

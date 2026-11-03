@@ -95,7 +95,7 @@ Press `?` for a static reference grouped into Session actions, Pins, Views, and 
 
 ## Usage
 
-Press `u`, or choose **Usage** in `:`, for the full-screen Cost, Tokens, and Limits view. A producer such as `pi-accounts` publishes the data through the [usage snapshot contract](CONFIG.md#usage-snapshot). Without a snapshot, Usage explains where the producer writes its files. Limits-only and history-only producers work independently.
+Press `u`, or choose **Usage** in `:`, for the full-screen Cost, Tokens, and Limits view. A producer such as `pi-accounts` publishes the data through the [usage snapshot contract](CONFIG.md#usage-snapshot). Without a snapshot, Usage explains where the producer writes its files. Limits-only and history-only producers work independently. With pins open, Usage zooms the dashboard to the whole window; closing it brings the pins back unchanged.
 
 Header quota bars show each account and its windows when space permits. Narrower headers keep each account's tightest window, then only the tightest account plus a count of the others, then omit quotas. Session counts, requests, health, and tier chips keep priority. A quota click opens Limits from Status, Repo, board, or pin mode. Without account data, the existing header stays unchanged.
 

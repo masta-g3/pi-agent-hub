@@ -375,6 +375,47 @@ test("Hub never undoes a zoom it did not make", async (t) => {
   assert.equal(value.events.some((event) => event.startsWith("zoom:")), false);
 });
 
+test("a full-window view zooms the pinned dashboard and unzooms only its own zoom", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 2);
+  value.events.length = 0;
+  await value.lifecycle.fullWindow(true);
+  assert.equal(value.tmux.zoomed, true);
+  await value.lifecycle.fullWindow(true);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.deepEqual(value.events.filter((event) => event.startsWith("zoom:") || event.startsWith("kill:") || event.startsWith("split:")), ["zoom:true"], "presence keeps the zoom and the pins");
+  assert.equal(value.lifecycle.snapshot().hidden, false);
+  await value.lifecycle.fullWindow(false);
+  assert.equal(value.tmux.zoomed, false);
+  assert.deepEqual(value.lifecycle.snapshot().pins.map((pin) => pin.sessionId), ["api", "docs"]);
+
+  value.tmux.zoomed = true;
+  value.events.length = 0;
+  await value.lifecycle.fullWindow(true);
+  await value.lifecycle.fullWindow(false);
+  assert.equal(value.tmux.zoomed, true, "a user zoom stays");
+  assert.equal(value.events.some((event) => event.startsWith("zoom:")), false);
+});
+
+test("a full-window view without pins does nothing, and a narrow hide inherits its zoom", async (t) => {
+  const empty = await harness(t);
+  await empty.lifecycle.fullWindow(true);
+  assert.equal(empty.tmux.zoomed, false);
+
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 1);
+  await value.lifecycle.fullWindow(true);
+  value.tmux.windowWidth = 50;
+  await waitFor(() => value.lifecycle.snapshot().hidden);
+  await value.lifecycle.fullWindow(false);
+  assert.equal(value.tmux.zoomed, true, "pins stay hidden while the window is narrow");
+  value.events.length = 0;
+  value.tmux.windowWidth = 160;
+  await waitFor(() => !value.lifecycle.snapshot().hidden);
+  assert.equal(value.tmux.zoomed, false);
+  assert.ok(value.events.some((event) => event.startsWith("split:")), "rebuilds pins at the wide geometry");
+});
+
 test("hidden pin focus opens the exact session full screen instead of selecting a hidden pane", async (t) => {
   const waiting = session("api", "waiting");
   const value = await harness(t, { sessions: [waiting, session("docs")], initial: [{ session: "pi-agent-hub-api" }, { session: "pi-agent-hub-docs" }] });

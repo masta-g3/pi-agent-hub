@@ -50,6 +50,16 @@ test("Usage is catalog-owned, opens from key and palette, closes without quittin
   assert.match(view.render(80).map(stripAnsi).join("\n"), /USAGE/);
 });
 
+test("Usage asks for the full window while open, once per change", () => {
+  const calls: boolean[] = [];
+  const view = new SessionsView(new SessionsController(), () => {}, { terminalRows: () => 24, fullWindow: (on) => { calls.push(on); } });
+  view.render(80);
+  view.handleInput("u"); view.render(80); view.render(80);
+  view.handleInput("t"); view.render(80);
+  view.handleInput("\x1b"); view.render(80); view.render(80);
+  assert.deepEqual(calls, [true, false]);
+});
+
 test("header quota click opens Limits; mouse tabs and chart cursor use dialog hits", () => {
   const controller = new SessionsController();
   const snapshot = controller.snapshot.bind(controller);

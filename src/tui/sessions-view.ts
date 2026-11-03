@@ -109,6 +109,7 @@ export class SessionsView implements Component {
   private dialog: SessionDialog | undefined;
   private usageState = createUsageView();
   private usageHit?: { row: number; x: number; width: number };
+  private fullWindowWanted = false;
   private helpScroll = 0;
   private helpPageSize = 1;
   private helpMaxScroll = 0;
@@ -411,6 +412,7 @@ export class SessionsView implements Component {
     this.lastWidth = width;
     if (this.conversationOpen && this.pinMode()) this.closeConversation();
     this.scheduleFollowRetarget();
+    this.syncFullWindow();
     const selectedId = this.controller.selected()?.id;
     if (this.cardScrollSessionId !== selectedId) {
       this.cardScrollSessionId = selectedId;
@@ -1601,6 +1603,14 @@ export class SessionsView implements Component {
 
   private followView(): boolean {
     return this.pinState().following === true;
+  }
+
+  /** Usage needs more room than the pinned sidebar; the side-pane lifecycle zooms only while it is open. */
+  private syncFullWindow(): void {
+    const wanted = this.dialog?.kind === "usage";
+    if (wanted === this.fullWindowWanted) return;
+    this.fullWindowWanted = wanted;
+    void Promise.resolve(this.actions.fullWindow?.(wanted)).catch((error) => { this.message = errorMessage(error); this.actions.requestRender?.(); });
   }
 
   /**
