@@ -1991,7 +1991,7 @@ export class SessionsView implements Component {
     this.message = undefined;
     const selected = this.controller.selected();
     if (!selected) return;
-    if (selected.status === "stopped" || selected.status === "error") {
+    if (selected.kind !== "subagent" && (selected.status === "stopped" || selected.status === "error")) {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
@@ -2022,7 +2022,7 @@ export class SessionsView implements Component {
       this.message = "session is no longer available";
       return;
     }
-    if (selected.status === "stopped" || selected.status === "error") {
+    if (selected.kind !== "subagent" && (selected.status === "stopped" || selected.status === "error")) {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;

@@ -1552,6 +1552,33 @@ test("filter bar is inert and filtered mouse rows still select exact sessions", 
   assert.equal(controller.snapshot().selectedId, "docs");
 });
 
+test("Enter on a red subagent with live tmux attaches instead of restarting", () => {
+  const now = 100_000;
+  const parent = session("parent", "parent");
+  const base = { ...session("child", "child"), kind: "subagent" as const, parentId: "parent", status: "error" as const };
+  const child = {
+    ...base,
+    statusEvidence: computeStatus({
+      session: base,
+      tmux: { exists: true },
+      heartbeat: { managedSessionId: base.id, cwd: base.cwd, state: "error", stateSince: now - 3_000, updatedAt: now - 1_000, message: "model failed" },
+      now,
+    }).evidence,
+  };
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    switchInsideTmux: (tmuxSession) => { events.push(`open:${tmuxSession}`); },
+    restart: (id) => { events.push(`restart:${id}`); },
+  });
+
+  view.revealSession("child");
+  view.handleInput("\r");
+
+  assert.deepEqual(events, [`open:${child.tmuxSession}`]);
+});
+
 test("single mouse click selects without opening", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });

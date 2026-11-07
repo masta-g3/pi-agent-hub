@@ -1478,3 +1478,13 @@
   created_at: '2026-11-01'
   plan_file: agent-work/history/20261102_usage-001_usage_dashboard.md
   completed_at: '2026-11-02'
+- id: subagents-001
+  status: done
+  title: Subagent runtime fixes
+  subtitle: Subagents track theme, status and workflow
+  description: Subagents follow theme changes, show accurate running status, show
+    the workflow rail, and stay openable after an Esc interrupt.
+  priority: 2
+  created_at: '2026-11-06'
+  plan_file: agent-work/history/20261106_subagents-001_subagent_runtime_fixes.md
+  completed_at: '2026-11-06'

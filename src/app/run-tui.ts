@@ -250,6 +250,10 @@ export function restartAllTargets(sessions: ManagedSession[]): ManagedSession[] 
   return sessions.filter((session) => session.kind !== "subagent" && sessionSection(session) === "active");
 }
 
+export function liveChromeTargets(sessions: ManagedSession[]): ManagedSession[] {
+  return sessions.filter((session) => session.status !== "stopped" && session.status !== "error");
+}
+
 export interface ThemeRefreshLoopOptions {
   initialTheme: SessionsTheme;
   load: () => Promise<SessionsTheme>;
@@ -514,8 +518,7 @@ export async function runTui(): Promise<void> {
   };
   const applyThemeToLiveManagedChrome = async (nextTheme: SessionsTheme) => {
     const paneledSessions = new Set(sidePanes?.snapshot().pins.map((pin) => pin.tmuxSession) ?? []);
-    for (const session of controller.snapshot().registry.sessions) {
-      if (session.kind === "subagent" || session.status === "stopped" || session.status === "error") continue;
+    for (const session of liveChromeTargets(controller.snapshot().registry.sessions)) {
       await configureManagedSessionStatusBar({
         name: session.tmuxSession,
         title: session.title,

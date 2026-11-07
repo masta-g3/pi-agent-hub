@@ -247,7 +247,7 @@ Subagent trees start collapsed in both fleet and board. Use `←` / `→` for on
 
 Press `t` to choose a built-in or globally available Pi theme. Moving between fixed choices previews immediately. Automatic offers separate light/dark choices; use `←` / `→` to change them. `Space` toggles **Sync to Pi**, `Enter` applies, and `Esc` restores the opening theme.
 
-Sync is on by default. Confirmation updates Pi's global default and applies it to current managed parent sessions. Turn sync off for a Hub-only theme. Opening differently themed sessions does not recolor the dashboard. See [Theme behavior](CONFIG.md#theme-behavior) for details.
+Sync is on by default. Confirmation updates Pi's global default and applies it to current managed sessions, including subagents. Turn sync off for a Hub-only theme. Opening differently themed sessions does not recolor the dashboard. See [Theme behavior](CONFIG.md#theme-behavior) for details.
 
 ## Dashboard tmux behavior
 

@@ -101,7 +101,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   let interaction: Awaited<ReturnType<typeof startSessionInteraction>> | undefined;
 
   async function applyThemeCommand(ctx: PiContext): Promise<boolean> {
-    if (!process.env[SESSION_ID_ENV] || process.env.PI_TMUX_SUBAGENTS_JOB_ID || ctx.hasUI === false || !ctx.ui?.getTheme || !ctx.ui.setTheme) return false;
+    if (!process.env[SESSION_ID_ENV] || ctx.hasUI === false || !ctx.ui?.getTheme || !ctx.ui.setTheme) return false;
     try {
       const command = await loadThemeCommand();
       if (!command || command.revision === lastThemeRevision) return false;

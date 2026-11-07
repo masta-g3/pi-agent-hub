@@ -242,6 +242,8 @@ export function selectWorkspaceCommands(
     } else {
       actionNames = ["send", "open", "copy-path", "mark-read"];
     }
+  } else if (session.kind === "subagent") {
+    actionNames = ["open", "info"];
   } else if (session.status === "error") {
     guidance = "Check Details before restarting.";
     guidanceAction = "info";
@@ -252,8 +254,6 @@ export function selectWorkspaceCommands(
     guidance = "Restart to continue.";
     guidanceAction = "open";
     actionNames = ["open", "restore", "archive"];
-  } else if (session.kind === "subagent") {
-    actionNames = ["open", "info"];
   } else if (session.bucket === "archived") {
     actionNames = ["open", "archive", "restore", "delete"];
   } else if (session.bucket === "backlog") {
@@ -366,7 +366,7 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
   const isPinned = input.pinState?.slots.includes(session.id) === true;
   const currentSlot = input.pinState?.slots?.findIndex((id) => id === session.id);
   const isQuestion = (session.status === "waiting" || session.status === "idle") && session.context?.attention?.kind === "question" || Boolean(input.interactionState?.pending.length || input.interactionState?.questionUnavailableReason);
-  const label = spec.name === "open" && (session.status === "error" || session.status === "stopped")
+  const label = spec.name === "open" && session.kind !== "subagent" && (session.status === "error" || session.status === "stopped")
     ? "Restart"
     : spec.name === "open" && (isQuestion || input.conversation)
       ? "Open in Pi"
@@ -574,8 +574,9 @@ function sessionHint(session: RuntimeSession): string {
 }
 
 function openAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
-  if (!isLive(session)) return input.capabilities?.restart === true ? enabled() : disabled("restart transport unavailable");
-  return input.capabilities?.openSession === true ? enabled() : disabled("session transport unavailable");
+  if (isLive(session) || subagentAttachable(session)) return input.capabilities?.openSession === true ? enabled() : disabled("session transport unavailable");
+  if (session.kind === "subagent") return disabled("subagent session ended");
+  return input.capabilities?.restart === true ? enabled() : disabled("restart transport unavailable");
 }
 
 function sendAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
@@ -765,6 +766,11 @@ function liveMainCapability(name: keyof DashboardCommandCapabilities, reason: st
 
 function isLive(session: RuntimeSession): boolean {
   return session.status !== "stopped" && session.status !== "error";
+}
+
+// Hub never restarts subagents; a red subagent whose tmux session still exists stays attachable.
+function subagentAttachable(session: RuntimeSession): boolean {
+  return session.kind === "subagent" && session.status === "error" && session.statusEvidence?.tmux.state === "present";
 }
 
 function enabled(): Availability {
