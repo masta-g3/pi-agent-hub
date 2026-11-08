@@ -66,6 +66,8 @@ export interface SidePaneLifecycleSnapshot {
   following: boolean;
   splitPercent: number;
   dashboardStatusVisible: boolean;
+  /** Absent when the dashboard is alone in its window or outside tmux. */
+  dashboardFocus?: "focused" | "unfocused";
 }
 
 export interface SidePaneLifecycleDependencies {
@@ -339,6 +341,7 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
       following,
       splitPercent: status?.splitPercent ?? 50,
       dashboardStatusVisible: snapshot.dashboardStatusVisible,
+      ...(status?.own && status.shared ? { dashboardFocus: status.own.active ? "focused" as const : "unfocused" as const } : {}),
     };
     const changed = JSON.stringify(snapshot) !== JSON.stringify(next);
     snapshot = next;

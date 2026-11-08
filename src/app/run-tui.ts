@@ -587,6 +587,7 @@ export async function runTui(): Promise<void> {
         hidden: state.hidden,
         following: state.following,
         splitPercent: state.splitPercent,
+        ...(state.dashboardFocus ? { dashboardFocus: state.dashboardFocus } : {}),
       };
     },
     refreshStatusEvidence() {

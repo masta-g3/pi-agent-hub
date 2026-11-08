@@ -583,6 +583,8 @@ export interface BuildRenderModelInput {
   grouping?: "project" | "stage";
   fleetGrouping?: "status" | "repo";
   now?: number;
+  /** False while the dashboard lacks the keyboard: the selected row keeps a static glyph. */
+  animateSelected?: boolean;
   pinSlots?: readonly (string | undefined)[];
   activePinnedSessionId?: string;
   pinCapacity?: number;
@@ -659,7 +661,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const mapped = visible.flatMap((session) => {
     const rendered = mappedById.get(session.id);
     return rendered ? [{ ...rendered, selected: listSelected && rendered.id === selectedId,
-      symbol: symbolFor(rendered.displayStatus, listSelected && rendered.id === selectedId, input.now) }] : [];
+      symbol: symbolFor(rendered.displayStatus, listSelected && rendered.id === selectedId && input.animateSelected !== false, input.now) }] : [];
   });
   const archiveDisclosure = projection.archiveDisclosureVisible ? {
     expanded: input.archiveExpanded ?? false,

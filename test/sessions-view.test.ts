@@ -5,9 +5,10 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { SessionsController } from "../src/app/controller.js";
 import { computeStatus } from "../src/core/status.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
+import { CONFIRM_ARM_MS } from "../src/tui/confirm-dialogs.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 import type { ManagedSession, RuntimeSession } from "../src/core/types.js";
-import type { SessionsViewState } from "../src/tui/dialog.js";
+import type { SessionsViewActions, SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
   const start = 1;
@@ -2933,6 +2934,43 @@ test("new form ctrl-o outside repo fields is a no-op", () => {
   assert.doesNotMatch(view.render(120).join("\n"), /Recent repos/);
 });
 
+/** Each read moves past the confirm arm window, as a deliberate second press would. */
+function steppingClock(): () => number {
+  let time = 0;
+  return () => (time += CONFIRM_ARM_MS);
+}
+
+test("delete dialog cancels a confirm typed too soon after opening", () => {
+  let deleted: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { now: () => 1_000, deleteSession: (id) => { deleted = id; } });
+
+  view.handleInput("d");
+  view.render(100);
+  view.handleInput("d");
+
+  assert.equal(deleted, undefined);
+  const rendered = view.render(100).join("\n");
+  assert.doesNotMatch(rendered, /Delete session/);
+  assert.match(rendered, /delete cancelled/);
+});
+
+test("delete dialog cancels on any key that is not an offered choice", () => {
+  for (const key of ["x", "w", "s", "D", "\r"]) {
+    let deleted: string | undefined;
+    const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+    const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: (id) => { deleted = id; } });
+
+    view.handleInput("d");
+    view.render(100);
+    view.handleInput(key);
+    assert.doesNotMatch(view.render(100).join("\n"), /Delete session/, JSON.stringify(key));
+    // A later d only reopens the dialog; it never confirms the cancelled one.
+    view.handleInput("d");
+    assert.equal(deleted, undefined, JSON.stringify(key));
+  }
+});
+
 test("delete dialog requires confirmation and escape cancels", () => {
   let deleted: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
@@ -2951,7 +2989,7 @@ test("delete dialog requires confirmation and escape cancels", () => {
 test("delete dialog confirms with second d", () => {
   let deleted: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: (id) => { deleted = id; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: (id) => { deleted = id; } });
 
   view.handleInput("d");
   view.render(100);
@@ -2966,7 +3004,7 @@ test("delete dialog offers subagent-only cleanup for parent sessions", () => {
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     closeSubagents: (id) => { closed = id; },
     deleteSession: (id) => { deleted = id; },
   });
@@ -2989,7 +3027,7 @@ test("delete dialog keeps full delete on d confirmation", () => {
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     closeSubagents: (id) => { closed = id; },
     deleteSession: (id) => { deleted = id; },
   });
@@ -3027,7 +3065,7 @@ test("delete dialog distinguishes forgetting and discarding worktree sessions", 
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
     finishWorktree: () => {},
@@ -3057,7 +3095,7 @@ test("delete dialog shift D discards worktree session", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
   });
@@ -3083,7 +3121,7 @@ test("delete dialog w finishes worktree session", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
     finishWorktree: (id) => { finished = id; },
@@ -3109,7 +3147,7 @@ test("finish worktree dialog confirms with second w", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, { finishWorktree: (id) => { finished = id; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), finishWorktree: (id) => { finished = id; } });
 
   view.handleInput("w");
   const rendered = view.render(100).join("\n");
@@ -3139,7 +3177,7 @@ test("delete dialog ignores repeated confirm while async delete is pending", asy
   let finish!: () => void;
   const pending = new Promise<void>((resolve) => { finish = resolve; });
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: () => { calls += 1; return pending; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: () => { calls += 1; return pending; } });
 
   view.handleInput("d");
   view.render(100);
@@ -3154,7 +3192,7 @@ test("delete dialog ignores repeated confirm while async delete is pending", asy
 
 test("delete dialog keeps async errors visible", async () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: async () => { throw new Error("delete failed"); } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: async () => { throw new Error("delete failed"); } });
 
   view.handleInput("d");
   view.render(100);
@@ -4899,4 +4937,187 @@ test("follow view header, footer, and Help name the mode", () => {
   const narrow = stripAnsi(hidden.render(80).join("\n"));
   assert.match(narrow, /follow view hidden/);
   assert.doesNotMatch(narrow, /pin hidden/);
+});
+
+const ACCENT = "\u001b[38;2;122;162;247m";
+const SELECTED_BG = "\u001b[48;2;51;64;94m";
+const WARNING = "\u001b[38;2;224;175;104m";
+const ERROR = "\u001b[38;2;247;118;142m";
+
+function focusView(focus: "focused" | "unfocused" | undefined, clock: { now: number }) {
+  const running = { ...session("api", "api"), status: "running" as const };
+  const waiting = { ...session("docs", "docs"), status: "waiting" as const };
+  const failed = { ...session("web", "web"), status: "error" as const };
+  const controller = new SessionsController({ version: 1, sessions: [running, waiting, failed] });
+  controller.selectSession("api");
+  return new SessionsView(controller, () => {}, {
+    now: () => clock.now,
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50, ...(focus ? { dashboardFocus: focus } : {}) }),
+  }, darkTheme);
+}
+
+test("unfocused shared dashboard renders muted, keeping alert colors", () => {
+  const clock = { now: 10_000 };
+  const focused = focusView("focused", clock).render(120).join("\n");
+  const quiet = focusView("unfocused", clock).render(120).join("\n");
+
+  assert.ok(focused.includes(ACCENT) && focused.includes("\u001b[1m") && focused.includes(SELECTED_BG));
+  assert.ok(!quiet.includes(ACCENT), "accent removed");
+  assert.ok(!quiet.includes("\u001b[1m"), "bold removed");
+  assert.ok(!quiet.includes(SELECTED_BG), "row tint removed");
+  for (const alert of [WARNING, ERROR]) assert.equal(quiet.includes(alert), focused.includes(alert));
+  assert.ok(quiet.includes(ERROR));
+  assert.equal(stripAnsi(quiet), stripAnsi(focused).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "●"));
+});
+
+test("dashboard alone in its window renders as before", () => {
+  const clock = { now: 10_000 };
+  assert.equal(focusView(undefined, clock).render(120).join("\n"), focusView("focused", clock).render(120).join("\n"));
+});
+
+test("input restores full color at once and the fade returns after the grace period", () => {
+  const clock = { now: 10_000 };
+  const focused = focusView("focused", clock);
+  focused.render(120);
+  assert.equal(focused.hasAnimatingSelectedRow, true);
+  const view = focusView("unfocused", clock);
+  assert.ok(!view.render(120).join("\n").includes(ACCENT));
+  assert.equal(view.hasAnimatingSelectedRow, false, "no spinner repaints while unfocused");
+  view.handleInput("\u001b[<64;5;5M");
+  assert.ok(view.render(120).join("\n").includes(ACCENT), "mouse input means focus");
+  clock.now += 1_000;
+  assert.ok(!view.render(120).join("\n").includes(ACCENT));
+  view.handleInput("j");
+  assert.ok(view.render(120).join("\n").includes(ACCENT), "key input means focus");
+});
+
+const SHARED_WINDOW = { slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50, dashboardFocus: "focused" as const };
+
+function typingView(actions: SessionsViewActions, sessions = [session("api", "api")], shared = true) {
+  const clock = { now: 10_000 };
+  const controller = new SessionsController({ version: 1, sessions });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => clock.now,
+    sidePaneState: () => shared ? SHARED_WINDOW : { ...SHARED_WINDOW, dashboardFocus: undefined },
+    ...actions,
+  });
+  const type = (keys: string, gap = 30) => { for (const key of keys) { clock.now += gap; view.handleInput(key); } };
+  return { view, clock, controller, type, screen: () => stripAnsi(view.render(120).join("\n")) };
+}
+
+test("typing burst drops keys, dismisses what the first key opened, and ends after a pause", () => {
+  let deleted: string | undefined;
+  const { view, clock, type, screen } = typingView({ deleteSession: (id) => { deleted = id; } });
+
+  type("d");
+  assert.match(screen(), /Delete session/);
+  type("d");
+  assert.equal(deleted, undefined);
+  assert.doesNotMatch(screen(), /Delete session/);
+  assert.match(screen(), /Typing in the dashboard/);
+  type("d\r", 200);
+  assert.doesNotMatch(screen(), /Delete session/, "keys inside the quiet window stay dropped");
+  clock.now += 600;
+  view.handleInput("d");
+  assert.match(screen(), /Delete session/, "a pause restores shortcuts");
+});
+
+test("typing burst closes a prompt the first key opened without keeping text", () => {
+  const { type, screen } = typingView({ changeGroup: () => {} });
+
+  type("g");
+  assert.match(screen(), /Move to group/);
+  type("xyz");
+  assert.doesNotMatch(screen(), /Move to group/);
+  assert.doesNotMatch(screen(), /xyz/);
+});
+
+test("typing burst cancels a theme preview through its own Escape path", () => {
+  const cancelled: string[] = [];
+  const { type, screen } = typingView({
+    themeSettings: () => ({ names: ["dark", "light"], setting: "dark", syncPi: true }),
+    cancelDashboardTheme: (setting) => { cancelled.push(setting); },
+  });
+
+  type("th");
+  assert.deepEqual(cancelled, ["dark"]);
+  assert.doesNotMatch(screen(), /Sync to Pi/);
+});
+
+test("typing burst stops pending picker and theme loads from opening late", async () => {
+  let resolveSkills!: (items: { name: string; enabled: boolean }[]) => void;
+  let resolveTheme!: (value: { names: string[]; setting: string; syncPi: boolean }) => void;
+  const { clock, type, screen } = typingView({
+    skills: () => new Promise((complete) => { resolveSkills = complete; }),
+    themeSettings: () => new Promise((complete) => { resolveTheme = complete; }),
+  });
+
+  type("sx");
+  resolveSkills([{ name: "alpha", enabled: false }]);
+  await new Promise((complete) => setImmediate(complete));
+  assert.doesNotMatch(screen(), /alpha/);
+  clock.now += 1_000;
+  type("tx");
+  resolveTheme({ names: ["dark", "light"], setting: "dark", syncPi: true });
+  await new Promise((complete) => setImmediate(complete));
+  assert.doesNotMatch(screen(), /Sync to Pi/);
+});
+
+test("held navigation keys repeat without tripping the typing guard", () => {
+  const sessions = Array.from({ length: 12 }, (_, index) => session(`s${index}`, `row${index}`));
+  const { controller, type, screen } = typingView({}, sessions);
+  const start = controller.snapshot().sessions.findIndex((row) => row.id === controller.selected()?.id);
+
+  type("jjjjjjjjjj");
+  const end = controller.snapshot().sessions.findIndex((row) => row.id === controller.selected()?.id);
+  assert.equal(end - start, 10);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("typing into an already open prompt keeps every character", () => {
+  const { clock, view, type, screen } = typingView({ changeGroup: () => {} });
+
+  type("g");
+  clock.now += 500;
+  view.handleInput("\u0015");
+  type("abcdef");
+  assert.match(screen(), /abcdef/);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("dashboard alone in its window has no typing guard", () => {
+  const { view, type, screen } = typingView({ changeGroup: () => {} }, [session("api", "api")], false);
+
+  type("g");
+  view.handleInput("\u0015");
+  type("xyz");
+  assert.match(screen(), /xyz/);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("observed focus loss fades at once, and the input grace ends with a redraw", async () => {
+  const clock = { now: 10_000 };
+  let focus: "focused" | "unfocused" = "focused";
+  let renders = 0;
+  const running = { ...session("api", "api"), status: "running" as const };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [running] }), () => {}, {
+    now: () => clock.now,
+    requestRender: () => { renders += 1; },
+    sidePaneState: () => ({ ...SHARED_WINDOW, dashboardFocus: focus }),
+  }, darkTheme);
+
+  view.render(120);
+  view.handleInput("\u001b1");
+  clock.now += 100;
+  focus = "unfocused";
+  assert.ok(!view.render(120).join("\n").includes(ACCENT), "input before the observed focus loss does not keep it bright");
+
+  view.handleInput("\u001b2");
+  assert.ok(view.render(120).join("\n").includes(ACCENT));
+  clock.now += 999;
+  renders = 0;
+  view.render(120);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(renders > 0, "grace expiry requests a redraw");
+  view.disposeInteraction();
 });

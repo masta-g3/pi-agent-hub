@@ -283,6 +283,12 @@ Slot numbers keep their 2×2 positions: 1/2 are top-left/top-right and 3/4 are b
 
 `Alt+1`–`Alt+4` focuses occupied slots from the sidebar or live panes. `Ctrl+Q` returns to the sidebar. `Alt+←`/`Alt+→` is an optional spatial alias; some terminals consume it for word movement, so numeric focus is more reliable. Hub never binds `Alt+↑`/`Alt+↓`, because Pi uses `Alt+↑` to edit queued messages.
 
+### Which pane has the keyboard
+
+When the dashboard shares its window with pins, follow view, or your own split, it fades while another pane has the keyboard. Text turns muted, bold and the selected-row tint go away, and the spinner stops. Warning and error colors stay, so a new request or failure still stands out. The dashboard brightens within about half a second of focus returning, and at once when you press a key or click in it.
+
+In that shared window, keys typed at typing speed are ignored. If a second letter arrives within 150 ms of a shortcut, Hub drops it, closes whatever the first key opened, and shows `Typing in the dashboard — keys ignored`. Keys stay ignored until you pause for 0.6 s. Held `j`/`k`/`J`/`K`/`+`/`-` keep repeating, and typing into an open text field is never affected. The first key of a burst still runs; Delete and Finish also cancel when confirmed within 0.5 s or on any other key.
+
 Shrinking the terminal preserves pins and slot numbers. Hub blocks new pins and resizing when the layout is too small; closing pins still works. Pin creation keeps dashboard focus and does not mark a request read. Explicit focus does.
 
 Pins are live tmux attaches, not copied output. Closing a pin leaves its Pi session running. If the dashboard tmux session is missing, the managed-session return binding recreates it before switching back.
@@ -429,7 +435,7 @@ Hub tells managed agents which worktree maps to which source repo. Compatible su
 
 | Action | Result |
 | --- | --- |
-| Normal `d` delete | Stop the session, remove Hub records and workspace; keep worktree files and branches |
+| Normal `d` delete | Stop the session, remove Hub records and workspace; keep worktree files and branches. Confirm with a second `d` after a short pause; a fast `dd` or any other key cancels |
 | `w` finish | Merge into recorded base branches, verify worktree cleanup, then retain a stopped Archived parent |
 | `d`, then `D` discard | Remove clean worktrees without merging, then retain a stopped Archived parent |
 

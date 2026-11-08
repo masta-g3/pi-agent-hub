@@ -71,6 +71,8 @@ export interface SidePaneViewState {
   /** The single pane follows the selection instead of holding a fixed pin. */
   following?: boolean;
   splitPercent: number;
+  /** Absent when the dashboard is alone in its window; then it always has the keyboard. */
+  dashboardFocus?: "focused" | "unfocused";
 }
 
 export interface SidePaneActions {

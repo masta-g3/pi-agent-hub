@@ -262,6 +262,11 @@ export function styleBgToken(theme: SessionsTheme, token: ThemeToken, text: stri
   return `${bg}${text.split(RESET).join(`${RESET}${bg}`)}${RESET}`;
 }
 
+/** Unfocused sidebar: everything muted except alert tones, with no row or footer tint. */
+export function quietTheme(theme: SessionsTheme): SessionsTheme {
+  return { ...theme, accent: theme.muted, success: theme.muted, text: theme.muted, border: theme.muted, selectedBg: "", statusLineBg: "" };
+}
+
 export function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }

@@ -1488,3 +1488,23 @@
   created_at: '2026-11-06'
   plan_file: agent-work/history/20261106_subagents-001_subagent_runtime_fixes.md
   completed_at: '2026-11-06'
+- id: dashboard-scanability-013
+  status: done
+  title: Unfocused sidebar quiets
+  subtitle: Mute sidebar and guard stray typing
+  description: When the dashboard sidebar loses tmux focus it redraws in muted theme
+    colors, and typing-speed key bursts in the sidebar are dropped with a warning
+    instead of running actions.
+  priority: 1
+  created_at: '2026-11-07'
+  plan_file: agent-work/history/20261107_dashboard-scanability-013_unfocused_sidebar_quiets.md
+  completed_at: '2026-11-07'
+- id: dashboard-scanability-014
+  status: pending
+  title: Guard dashboard quit
+  subtitle: Stop stray q closing Hub
+  description: A single stray q typed into the dashboard sidebar no longer quits the
+    dashboard; quitting needs a deliberate confirmation.
+  priority: 2
+  created_at: '2026-11-07'
+  discovered_from: dashboard-scanability-013
