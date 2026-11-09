@@ -135,7 +135,8 @@ test("30-column busy controls use the deck's complete reserved key rows, includi
   const { view } = await setup({ busy: true, height: 12 }); view.handleInput("p");
   type(view, "local draft");
   const keys = ["Tab Delivery", "←/→ Steer/Queue", "Enter Steer now", "Esc Keep draft"];
-  const rows = () => view.render(30).map(stripAnsi).map(line => line.trim());
+  // Card rows carry the selection stripe; compare the text inside it.
+  const rows = () => view.render(30).map(stripAnsi).map(line => line.replace(/^▌/u, "").trim());
   assert.ok(rows().includes("REPLY · Steer now"));
   for (const key of keys) assert.ok(rows().includes(key), key);
   view.handleInput("\u001b[6~");

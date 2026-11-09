@@ -73,12 +73,12 @@ test("board lane labels are bold tier-tone and group headings are muted attentio
   const layout = render([asking, session("quiet", { group: "quiet" })], 160);
   const header = layout.lines.find(line => stripAnsi(line).includes("EXECUTE 2"))!;
   assert.ok(header.includes(`\u001b[1m${styleToken(darkTheme, "success", " EXECUTE 2 ")}\u001b[22m`), header);
-  const group = layout.lines.find(line => /^│\s+data\s+\?1\s*│/.test(stripAnsi(line)))!;
+  const group = layout.lines.find(line => /^\s+data\s+\?1\s*$/.test(stripAnsi(line)))!;
   assert.ok(group, layout.lines.map(stripAnsi).join("\n"));
   assert.ok(group.includes(styleToken(darkTheme, "muted", "data")), group);
   assert.ok(group.includes(styleToken(darkTheme, "warning", "?1")), group);
   assert.doesNotMatch(stripAnsi(group), /·[0-9]|◐/);
-  const quiet = layout.lines.find(line => /^│\s+quiet\s+│/.test(stripAnsi(line)))!;
+  const quiet = layout.lines.find(line => /^\s+quiet\s*$/.test(stripAnsi(line)))!;
   assert.ok(quiet);
   assert.doesNotMatch(stripAnsi(quiet), /\?[0-9]|·[0-9]/);
 });

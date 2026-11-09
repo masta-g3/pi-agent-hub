@@ -31,9 +31,10 @@ for (const width of [40, 50, 60, 100, 120, 160, 220]) {
       assert.ok(titleIndex >= 0);
       assert.ok(lines[titleIndex].includes(session.title), lines[titleIndex]);
       assert.ok(!lines[titleIndex].includes("[pi-"));
-      const metadata = lines[titleIndex + 1];
-      assert.deepEqual(rendered.rowTargets[titleIndex + 1], { kind: "session-continuation", id: session.id });
-      assert.equal(metadata[positions[session.workflow!.activeIndex]], "◉", metadata);
+      // Pin rows keep a metadata line; fleet cards carry the grid on their title row.
+      const markers = pinSlots ? lines[titleIndex + 1] : lines[titleIndex];
+      if (pinSlots) assert.deepEqual(rendered.rowTargets[titleIndex + 1], { kind: "session-continuation", id: session.id });
+      assert.equal(markers[positions[session.workflow!.activeIndex]], "◉", markers);
     }
     assert.ok(rendered.lines.every((line) => visibleWidth(line) <= width));
     assert.equal(rendered.lines.length, 35);
@@ -63,7 +64,7 @@ test("completed steps stay checked in their exact shared columns", () => {
     const header = lines.find((line) => /PL\s+EX\s+RV/.test(line))!;
     const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s0");
     for (const [index, step] of workflow.steps.entries()) {
-      assert.equal(lines[title + 1][header.indexOf(step.short)], index <= activeIndex ? "✓" : "·");
+      assert.equal(lines[title][header.indexOf(step.short)], index <= activeIndex ? "✓" : "·");
     }
   }
 });
@@ -72,7 +73,7 @@ test("different pipelines show explicit step labels rather than misleading grid 
   const other = { ...sessions[1], workflow: { ...workflow, steps: [{ id: "ship", short: "SHIP", label: "Ship" }], activeIndex: 0 } };
   const rendered = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedSection: "active", width: 100 }));
   const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s1");
-  assert.match(stripAnsi(rendered.lines[title + 1]), /◉SHIP/);
+  assert.match(stripAnsi(rendered.lines[title]), /◉SHIP/);
 });
 
 test("focus decoration does not move the producer grid columns", () => {
@@ -138,7 +139,7 @@ test("selected task survives at minimum card height beside plain step metadata",
   const rendered = renderSessions(buildRenderModel({ sessions: [withTask], selectedId: "s0", width: 60, height: 7 }));
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session");
   assert.ok(index >= 0);
-  assert.match(stripAnsi(rendered.lines[index]), /\[.*\]/);
+  assert.match(stripAnsi(rendered.lines[index]), /Subagent efficiency {2}pi-tmux-subagents/);
   assert.match(stripAnsi(rendered.lines[index + 1]), /· Execute/);
   assert.ok(rendered.lines.map(stripAnsi).some((line) => line.includes("Task explanation")));
 });

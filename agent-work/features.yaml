@@ -1508,3 +1508,37 @@
   priority: 2
   created_at: '2026-11-07'
   discovered_from: dashboard-scanability-013
+- id: fleet-design-001
+  status: done
+  title: Fleet surfaces
+  subtitle: Bold surface cards replace framed fleet
+  description: The Status fleet renders with raised card surfaces, tier pills, keycaps,
+    and a segmented workflow bar instead of box-drawing frames, readable on desktop
+    and phone.
+  priority: 2
+  created_at: '2026-11-07'
+  plan_file: agent-work/history/20261108_fleet-design-001_fleet_surfaces.md
+  completed_at: '2026-11-08'
+- id: fleet-design-002
+  status: pending
+  title: Workflow bar
+  subtitle: Segmented bar replaces the step grid
+  description: Fleet cards show workflow progress as a segmented bar with the step
+    name instead of the PL EX RV RF CM grid and its legend.
+  priority: 3
+  created_at: '2026-11-08'
+  depends_on:
+  - fleet-design-001
+  discovered_from: fleet-design-001
+- id: fleet-design-003
+  status: pending
+  title: Instrument panel
+  subtitle: Industrial module panel for the fleet
+  description: Fleet shows agents as numbered-grid modules with labeled fields, one
+    signal color, meters, a dot-matrix fleet meter and an LCD readout on the selected
+    agent, in a Teenage Engineering and Dieter Rams style.
+  priority: 2
+  created_at: '2026-11-08'
+  depends_on:
+  - fleet-design-001
+  discovered_from: fleet-design-001

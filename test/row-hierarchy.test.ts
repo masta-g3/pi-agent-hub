@@ -82,8 +82,7 @@ test("title is bold primary text and group and repo names are muted without bold
   assert.ok(titleLine(layout, row.id).includes(`\u001b[1m${styleToken(darkTheme, "text", row.title)}\u001b[22m`));
   for (const label of ["team", "repo"]) {
     const line = layout.lines.find(line => stripAnsi(line).includes(label))!;
-    const styledLabel = label === "team" ? `[${label}]` : label;
-    const muted = styleToken(darkTheme, "muted", styledLabel);
+    const muted = styleToken(darkTheme, "muted", label);
     assert.ok(line.includes(muted), label);
     assert.ok(!line.includes(`\u001b[1m${muted}`), label);
   }

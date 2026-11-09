@@ -79,13 +79,13 @@ test("focused answers replace the collapsed question and restore it after Escape
     loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [pending] }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
   });
   view.render(80); await view.refreshInteraction();
-  assert.match(text(view, 80), /\? Boundary · Should the card shell own the answer form\?/);
+  assert.match(text(view, 80), /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
   view.handleInput("\t");
   const focused = text(view, 80);
-  assert.doesNotMatch(focused, /\? Boundary · Should the card shell own the answer form\?/);
+  assert.doesNotMatch(focused, /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
   assert.equal(focused.match(/Should the card shell own the answer form\?/g)?.length, 1);
   view.handleInput("\x1b");
-  assert.match(text(view, 80), /\? Boundary · Should the card shell own the answer form\?/);
+  assert.match(text(view, 80), /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
 });
 
 test("the shared panel wraps question prose at words without clipping or word fragments", async () => {
@@ -113,7 +113,7 @@ test("wrapped answer labels, descriptions and previews keep their hanging indent
       const first = lines.findIndex(line => line.includes(start));
       const last = lines.findIndex((line, index) => index > first && line.includes(end));
       assert.ok(first >= 0 && last > first, `${width}: missing ${start}..${end}\n${lines.join("\n")}`);
-      return lines.slice(first, last).map(line => line.replace(/│/gu, " ")).filter(line => line.trim());
+      return lines.slice(first, last).map(line => line.replace(/[│▌]/gu, " ")).filter(line => line.trim());
     };
     const label = range("▶ [1]", "Reply and answer");
     const description = range("Reply and answer", "[2] Second");

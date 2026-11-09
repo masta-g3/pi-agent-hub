@@ -71,6 +71,8 @@ export interface RenderSession {
   boardDescendantCount?: number;
   boardExpanded?: boolean;
   runningSubagentCount?: number;
+  /** The first starting/running descendant subagent, for card lines that name what the tree is doing. */
+  runningSubagent?: { agentName: string; taskPreview?: string };
   hiddenChildRequestCount?: number;
   plan?: RenderPlanSummary;
   workflow?: WorkflowRuntimeSnapshot;
@@ -1031,6 +1033,7 @@ function cockpitSectionsForSessions(
 interface DescendantSubagentStats {
   total: number;
   running: number;
+  firstRunning?: RuntimeSession;
 }
 
 function descendantSubagentStats(
@@ -1043,7 +1046,10 @@ function descendantSubagentStats(
     for (const parentId of tree.trace(session).linkedParentIds) {
       const current = stats.get(parentId) ?? { total: 0, running: 0 };
       current.total += 1;
-      if (session.status === "starting" || session.status === "running") current.running += 1;
+      if (session.status === "starting" || session.status === "running") {
+        current.running += 1;
+        current.firstRunning ??= session;
+      }
       stats.set(parentId, current);
     }
   }
@@ -1114,6 +1120,10 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
       boardDescendantCount: subagentStats.total,
       boardExpanded,
       ...(subagentStats.running ? { runningSubagentCount: subagentStats.running } : {}),
+      ...(subagentStats.firstRunning ? { runningSubagent: {
+        agentName: subagentStats.firstRunning.agentName ?? "subagent",
+        ...(subagentStats.firstRunning.taskPreview?.trim() ? { taskPreview: subagentStats.firstRunning.taskPreview.trim() } : {}),
+      } } : {}),
       ...(session.id === cockpitOwnerId && hiddenChildRequestCount ? { hiddenChildRequestCount } : {}),
     } : {}),
     ...(attention ? { attention } : {}),

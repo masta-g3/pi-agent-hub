@@ -65,9 +65,11 @@ for (const width of [120,80,60,30]) {
  const framed = renderSessions(buildRenderModel({sessions,selectedId:selected.id,width,height:40,guidanceHidden:true,
   workspaceCommands:selectWorkspaceCommands(selected,commands,3),cardPanel:panel}),darkTheme);
  assert.ok(framed.lines.every(line=>visibleWidth(line)===width));
- if (width>=40) assert.ok(framed.lines.some(line=>stripAnsi(line).includes(glyphs.topLeft+glyphs.horizontal)));
+ assert.ok(framed.lines.some(line=>stripAnsi(line).startsWith(glyphs.selected+' ')), 'the selected card carries its stripe');
+ assert.ok(framed.lines.every(line=>!stripAnsi(line).includes(glyphs.topLeft+glyphs.horizontal)), 'the dashboard draws no frames');
  if (!process.env.NO_COLOR) {
-   const fills = framed.lines.filter(line=>line.includes('48;2;26;27;38m'));
+   // Header and footer bands share this tone, so only body rows count.
+   const fills = framed.lines.slice(1, -1).filter(line=>line.includes('48;2;26;27;38m'));
    assert.ok(fills.length>1, 'cursor fills the wrapped description');
  }
  frames.push(...framed.lines);
@@ -84,6 +86,9 @@ test("NO_COLOR removes theme colors and keeps a reverse selected marker", () => 
   run(`
     assert.ok(frames.every(line => !/\\x1b\\[(?:[349][0-7]|[34]8[;:])/.test(line)));
     assert.ok(frames.some(line => line.includes('\\x1b[7m▌\\x1b[27m')));
+    // Pills and keycaps become plain bold words, without padding or background.
+    assert.ok(frames.some(line => line.includes('\\x1b[1mREADY\\x1b[22m')));
+    assert.ok(frames.some(line => line.includes('\\x1b[1m]\\x1b[22m')));
     assert.equal(styleToken(darkTheme,'accent','hello'),'hello');
     assert.equal(styleBgToken(darkTheme,'selectedBg','hello'),'hello');
     const catalog = {options:[{name:'light',theme:{...darkTheme,accent:'#abcdef'}}],diagnostics:[]};

@@ -14,8 +14,8 @@ for (const width of [200, 140, 100, 80, 60, 40]) for (const mode of ["status", "
   const before = renderSessions(buildRenderModel(input), darkTheme);
   const after = renderSessions(buildRenderModel({ ...input, usage: data }), darkTheme);
   assert.deepEqual(after.tierChips, before.tierChips);
-  const row = width > 60 ? 1 : 0;
-  const plain = stripAnsi(after.lines[row]!);
+  // The dashboard is frameless: the header band is always the first row.
+  const plain = stripAnsi(after.lines[0]!);
   assert.ok(plain.includes(mode === "status" ? "NEEDS YOU 1" : "1 needs you"));
   for (const line of after.lines) assert.ok(displayWidth(line) <= width);
   if (width >= 140) { assert.ok(plain.includes("Codex 1")); assert.ok(after.usageHit); }

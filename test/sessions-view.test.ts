@@ -11,8 +11,8 @@ import type { ManagedSession, RuntimeSession } from "../src/core/types.js";
 import type { SessionsViewActions, SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
-  const start = 1;
-  const width = lines.some(line => /^│WORKFLOW/.test(stripAnsi(line))) ? 83 : visibleWidth(lines[0] ?? "") - 2;
+  const start = 0;
+  const width = lines.some(line => /^(?:pi hub {2})?WORKFLOW/.test(stripAnsi(line))) ? 85 : visibleWidth(lines[0] ?? "");
   return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
     .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
@@ -91,12 +91,12 @@ test("footer request navigation reflects visible requests and backlog state", ()
     context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
   const controller = new SessionsController({ version: 1, sessions: [request, session("quiet", "Quiet")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
-  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-1)!), /\] Next request/);
+  assert.match(stripAnsi(view.render(160).at(-1)!), /b Backlog/);
   view.handleInput("b");
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
+  assert.match(stripAnsi(view.render(160).at(-1)!), /b Backlog/);
   controller.setFilter("Quiet");
-  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-1)!), /\] Next request/);
 });
 
 test("persisted new-user state reaches the live empty SessionsView", () => {
@@ -142,13 +142,13 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   let workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.match(workspace, /LIVE DETAILS/);
-  assert.match(workspace, /\? Choose rollout order/);
+  assert.match(workspace, /QUESTION *\n▌ +Choose rollout order/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
-  assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /^ {3}NEEDS YOU/m);
 
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
@@ -357,7 +357,7 @@ test("committed filter stays above results and escape clears", () => {
   assert.match(stripAnsi(rendered), /FLEET.*1\/2 sessions/);
   assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ Edit.*Esc Clear/);
   assert.doesNotMatch(stripAnsi(rendered), /filter:/);
-  assert.match(rendered, /\? Help/);
+  assert.match(stripAnsi(rendered), /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
   view.handleInput("\u001b");
   assert.equal(controller.snapshot().filter, undefined);
@@ -738,7 +738,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
 
   view.render(120);
   view.handleInput("S");
-  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 active sessions/m);
+  assert.match(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s+2 active sessions/m);
   assert.equal(controller.snapshot().selectedId, "a");
 
   view.handleInput("j");
@@ -749,7 +749,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   assert.equal(controller.snapshot().selectedId, "b");
 
   view.handleInput("S");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s/m);
 });
 
 test("v toggles repo fleet grouping and S retains it across the workflow board", () => {
@@ -874,7 +874,7 @@ test("repo headers select without folding and Enter toggles the exact repo", () 
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
   view.handleInput("v");
   const rendered = view.render(100);
-  const header = rendered.findIndex((line) => stripAnsi(line).includes("▾ api"));
+  const header = rendered.findIndex((line) => /^[ ▌] {2}api\s/.test(stripAnsi(line)));
   assert.ok(header >= 0);
 
   view.handleInput(mousePressAtLine(header, 4));
@@ -941,14 +941,14 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\[default\][\s\S]*\?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api {2}default[\s\S]*\bapi \?1/);
   view.handleInput("\u001b[C");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|\bapi \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 
   view.handleInput("\u001b[D");
   view.revealSession("child");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|\bapi \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 });
 
@@ -1182,7 +1182,7 @@ test("v inside filter mode edits the filter instead of toggling views", () => {
   view.handleInput("v");
 
   assert.equal(controller.snapshot().filter, "v");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s/m);
 });
 
 test("stage grouping snaps selection to the first eligible Active row", () => {
@@ -1401,7 +1401,7 @@ function rowIndexFor(rendered: string[], title: string): number {
 }
 
 function tierChipPosition(rendered: string[], label: string): { row: number; x: number } {
-  const row = rendered.findIndex(line => /^(?:│)?FLEET/.test(stripAnsi(line)));
+  const row = rendered.findIndex(line => /^(?:pi hub {2})?FLEET/.test(stripAnsi(line)));
   const x = stripAnsi(rendered[row] ?? "").indexOf(label) + 1;
   assert.ok(x > 0, `missing header chip ${label}`);
   return { row, x };
@@ -1430,7 +1430,7 @@ test("tier chip mouse click selects each exact first owner and reveals collapsed
   assert.deepEqual(saved.at(-1), { grouping: "project" });
 });
 
-test("header chip, separator, border and fleet hit maps do not overlap", () => {
+test("header chip, separator and fleet hit maps do not overlap", () => {
   const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
   const active = { ...session("active", "active"), status: "running" as const };
   const controller = new SessionsController({ version: 1, sessions: [needs, active] });
@@ -1438,16 +1438,15 @@ test("header chip, separator, border and fleet hit maps do not overlap", () => {
   const rendered = view.render(100);
   const activeRow = rowIndexFor(rendered, "active");
 
-  view.handleInput(mousePressAtLine(activeRow, 1));
-  assert.equal(controller.selected()?.id, "needs");
   const { row, x } = tierChipPosition(rendered, "ACTIVE 1");
-  view.handleInput(mousePressAtLine(row, x - 1));
+  // The pill's padding (x - 1) belongs to the chip; the gap before it (x - 2) does not.
+  view.handleInput(mousePressAtLine(row, x - 2));
   assert.equal(controller.selected()?.id, "needs");
   view.handleInput(mouseReleaseAtLine(row, x));
   assert.equal(controller.selected()?.id, "needs");
   view.handleInput(mousePressAtLine(row, x + "ACTIVE 1".length - 1));
   assert.equal(controller.selected()?.id, "active");
-  view.handleInput(mousePressAtLine(activeRow, 2));
+  view.handleInput(mousePressAtLine(activeRow, 1));
   assert.equal(controller.selected()?.id, "active");
 });
 
@@ -1516,7 +1515,7 @@ test("summary text outside Status and hidden chip coordinates never select or op
     for (let x = 2; x < 160; x += 1) view.handleInput(mousePressAtLine(1, x));
     assert.equal(controller.selected()?.id, selected, mode);
     assert.deepEqual(opened, [], mode);
-    assert.match(stripAnsi(rendered[1]!), /sessions/);
+    assert.match(stripAnsi(rendered[0]!), /sessions/);
   }
 });
 
@@ -1599,6 +1598,7 @@ test("card continuation rows select and double-click open the live session", () 
   let now = 100;
   const rich = (id: string, title: string) => ({
     ...session(id, title),
+    status: "running" as const,
     workflow: { ...VIEW_WORKFLOW, activeIndex: 1, ticketId: `${id}-001`, activity: { id: "working", label: "Working" } },
     context: { version: 1 as const, updatedAt: 1, ticket: { id: `${id}-001`, subtitle: `${title} subtitle` } },
   });
@@ -1611,7 +1611,7 @@ test("card continuation rows select and double-click open the live session", () 
   view.handleInput("v");
   const rendered = view.render(100);
   const continuationIndex = rowIndexFor(rendered, "docs") + 1;
-  assert.match(stripAnsi(rendered[continuationIndex] ?? ""), /\[default\]/);
+  assert.match(stripAnsi(rendered[continuationIndex] ?? ""), /Working/);
 
   view.handleInput(mousePressAtLine(continuationIndex));
   assert.equal(controller.snapshot().selectedId, "docs");
@@ -1720,7 +1720,7 @@ test("Archived collapse persists its state", () => {
   view.handleInput("j"); // backlog row
   assert.equal(controller.snapshot().selectedId, "backlog");
   view.handleInput("j"); // Archived header
-  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ ARCHIVED/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▌  ARCHIVED/);
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ARCHIVED/);
@@ -1739,12 +1739,12 @@ test("all non-attention tiers can collapse and retain counts", () => {
     saveViewState: (state) => saved.push(state),
   });
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ ACTIVE 1/);
-  assert.match(collapsed, /▸ QUIET 1/);
+  assert.match(collapsed, /▸ ACTIVE {2}1/);
+  assert.match(collapsed, /▸ QUIET {2}1/);
   assert.doesNotMatch(collapsed, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
-  assert.match(expanded, /▾ ACTIVE/);
+  assert.match(expanded, /^[ ▌] {2}ACTIVE/m);
   assert.match(expanded, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
@@ -1764,7 +1764,7 @@ test("filtered tier folds are interactive and do not persist", () => {
     for (const char of "unique-match") view.handleInput(char);
     view.handleInput("\r");
     assert.match(fleetText(view.render(120)), /unique-match/);
-    const header = view.render(120).findIndex((line) => stripAnsi(line).includes(`─▾ ${tier.toUpperCase()} 1`));
+    const header = view.render(120).findIndex((line) => stripAnsi(line).startsWith(`   ${tier.toUpperCase()}  1`));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
     assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
@@ -2061,7 +2061,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const rendered = view.render(120);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => /─▾ QUIET 2/.test(stripAnsi(line)));
+  const headerIndex = rendered.findIndex((line) => /^ {3}QUIET {2}2/.test(stripAnsi(line)));
   const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
   const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
@@ -2170,7 +2170,7 @@ test("sidebar dashboard renders readable primary controls", () => {
   });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-1) ?? "", /x Close · : Actions · \? Help/);
+  assert.match(rendered.at(-1) ?? "", /x Close {4}: Actions {4}\? Help/);
   assert.doesNotMatch(rendered.at(-1) ?? "", /…/);
 });
 
@@ -2197,10 +2197,11 @@ test("mouse clicks outside the selected card remain inert in short windows", () 
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
-  const indicator = rendered.findIndex((line) => /^│─+│$/.test(stripAnsi(line)));
-  assert.notEqual(indicator, -1, "missing inert footer separator");
+  // The header band's brand and mode label carry no target.
+  const header = rendered.findIndex((line) => /^pi hub {2}FLEET/.test(stripAnsi(line)));
+  assert.notEqual(header, -1, "missing header band");
 
-  view.handleInput(mousePressAtLine(indicator));
+  view.handleInput(mousePressAtLine(header));
 
   assert.equal(controller.snapshot().selectedId, "s0");
   assert.deepEqual(opened, []);
@@ -2214,7 +2215,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /╭─ ○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /^▌ ○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {
@@ -2267,7 +2268,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /\] Next request · p Reply · : All actions · \? Help/);
+    assert.match(stripAnsi(rendered), /\] Next request {4}p Reply {4}: All actions {4}\? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -3454,7 +3455,7 @@ test("p opens a reply editor and submits message to selected live session", asyn
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /REPLY · api · Send/);
   assert.match(prompt, /█/);
-  assert.match(prompt, /Enter Send · Esc Keep draft/);
+  assert.match(prompt, /Enter Send {4}Esc Keep draft/);
   assert.doesNotMatch(prompt, /Send to api/);
   for (const char of "fix it") view.handleInput(char);
   view.handleInput("\r");
@@ -4680,7 +4681,7 @@ test("visible unselected runners and synthetic selections do not request animati
     view.render(120);
     assert.equal(view.hasAnimatingSelectedRow, true, id);
   }
-  const activeHeader = view.render(120).findIndex(line => /▾ ACTIVE/.test(stripAnsi(line)));
+  const activeHeader = view.render(120).findIndex(line => /^[ ▌][ ▸] ACTIVE/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(activeHeader, 23));
   view.render(120);
   assert.equal(view.hasAnimatingSelectedRow, false, "synthetic tier header cannot animate a stale session");
@@ -4926,7 +4927,7 @@ test("follow view header, footer, and Help name the mode", () => {
   const rendered = stripAnsi(view.render(100).join("\n"));
   assert.match(rendered, /FOLLOWING/);
   assert.doesNotMatch(rendered, /PINNED FLEET|1 pinned/);
-  assert.match(rendered, /Enter Type · o Leave/);
+  assert.match(rendered, /Enter Type {4}o Leave/);
   view.handleInput("?");
   assert.match(stripAnsi(view.render(120).join("\n")), /Follow view on\/off · [^\n]*o│/);
 

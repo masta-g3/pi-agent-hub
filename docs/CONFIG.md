@@ -408,7 +408,7 @@ pi-hub mcp-pool
 
 ## Plain terminals
 
-Set `NO_COLOR` to any non-empty value to remove dashboard foreground and background colors. Bold stays available. The selected session keeps its marker in reverse video. An empty `NO_COLOR` value does not disable color. While color is disabled, Hub skips Pi theme synchronization and disables the dashboard theme picker.
+Set `NO_COLOR` to any non-empty value to remove dashboard foreground and background colors, including card surfaces and bands. Bold stays available: tier pills, request pills and keycaps become bold words. The selected session keeps its stripe marker in reverse video. An empty `NO_COLOR` value does not disable color. While color is disabled, Hub skips Pi theme synchronization and disables the dashboard theme picker.
 
 Set `PI_AGENT_HUB_GLYPHS=ascii` to use ASCII dashboard symbols, borders, navigation hints, and truncation marks:
 
@@ -434,4 +434,4 @@ Pi represents Automatic as `<light-theme>/<dark-theme>`. On macOS, Hub follows s
 
 The dashboard periodically checks the lightweight effective setting and selected source file, but does not rerun package resolution every second. Reopen/reload the dashboard after installing or removing global theme packages. Missing or invalid selected themes render with Hub's bounded dark theme fallback without rewriting the saved setting.
 
-Managed sessions continue publishing their actual `ctx.ui.theme` snapshot through heartbeats for their own tmux footer and chrome. Session entry, panel assignment, selection movement, and heartbeat freshness never choose or recolor the dashboard theme. The dashboard uses `selectedBg` for selected rows, `accent` for focused panel borders/title badges/slot cues, and `border` or `dim` for inactive panel chrome.
+Managed sessions continue publishing their actual `ctx.ui.theme` snapshot through heartbeats for their own tmux footer and chrome. Session entry, panel assignment, selection movement, and heartbeat freshness never choose or recolor the dashboard theme. The dashboard uses `selectedBg` for the selected card, `accent` for focus cues and slot markers, and `border` or `dim` for inactive dialog chrome. It derives the remaining surfaces from the theme: raised cards and keycaps from `selectedBg`, and the header/footer bands from `statusLineBg` (or `selectedBg` when unset). Themes with a non-hex `selectedBg` show the same layout without painted cards, bands, pills, or keycap backgrounds.
