@@ -5,13 +5,14 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { SessionsController } from "../src/app/controller.js";
 import { computeStatus } from "../src/core/status.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
+import { CONFIRM_ARM_MS } from "../src/tui/confirm-dialogs.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 import type { ManagedSession, RuntimeSession } from "../src/core/types.js";
-import type { SessionsViewState } from "../src/tui/dialog.js";
+import type { SessionsViewActions, SessionsViewState } from "../src/tui/dialog.js";
 
 function fleetText(lines: string[]): string {
-  const start = 1;
-  const width = lines.some(line => /^│WORKFLOW/.test(stripAnsi(line))) ? 83 : visibleWidth(lines[0] ?? "") - 2;
+  const start = 0;
+  const width = lines.some(line => /^(?:pi hub {2})?WORKFLOW/.test(stripAnsi(line))) ? 85 : visibleWidth(lines[0] ?? "");
   return lines.filter((line) => !/▍ FILTER(?:ING|ED)/.test(stripAnsi(line)))
     .map((line) => visibleSlice(stripAnsi(line), start, width)).join("\n");
 }
@@ -90,12 +91,12 @@ test("footer request navigation reflects visible requests and backlog state", ()
     context: { version: 1 as const, updatedAt: 2, attention: { requestId: "req-1", kind: "question" as const, text: "Choose" } } };
   const controller = new SessionsController({ version: 1, sessions: [request, session("quiet", "Quiet")] });
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
-  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-1)!), /\] Next request/);
+  assert.match(stripAnsi(view.render(160).at(-1)!), /b Backlog/);
   view.handleInput("b");
-  assert.match(stripAnsi(view.render(160).at(-2)!), /b Backlog/);
+  assert.match(stripAnsi(view.render(160).at(-1)!), /b Backlog/);
   controller.setFilter("Quiet");
-  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-2)!), /\] Next request/);
+  for (const width of [80, 160]) assert.match(stripAnsi(view.render(width).at(-1)!), /\] Next request/);
 });
 
 test("persisted new-user state reaches the live empty SessionsView", () => {
@@ -141,13 +142,13 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   let workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.match(workspace, /LIVE DETAILS/);
-  assert.match(workspace, /\? Choose rollout order/);
+  assert.match(workspace, /QUESTION *\n▌ +Choose rollout order/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
-  assert.match(stripAnsi(view.render(60).join("\n")), /── NEEDS YOU/);
+  assert.match(stripAnsi(view.render(60).join("\n")), /^ {3}NEEDS YOU/m);
 
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
@@ -356,7 +357,7 @@ test("committed filter stays above results and escape clears", () => {
   assert.match(stripAnsi(rendered), /FLEET.*1\/2 sessions/);
   assert.match(stripAnsi(rendered), /FILTERED\s+do.*1 hidden.*\/ Edit.*Esc Clear/);
   assert.doesNotMatch(stripAnsi(rendered), /filter:/);
-  assert.match(rendered, /\? Help/);
+  assert.match(stripAnsi(rendered), /\? Help/);
   assert.doesNotMatch(rendered, /enter done/);
   view.handleInput("\u001b");
   assert.equal(controller.snapshot().filter, undefined);
@@ -737,7 +738,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
 
   view.render(120);
   view.handleInput("S");
-  assert.match(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s+2 active sessions/m);
+  assert.match(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s+2 active sessions/m);
   assert.equal(controller.snapshot().selectedId, "a");
 
   view.handleInput("j");
@@ -748,7 +749,7 @@ test("S toggles stage grouping and navigation follows producer lane order", () =
   assert.equal(controller.snapshot().selectedId, "b");
 
   view.handleInput("S");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s/m);
 });
 
 test("v toggles repo fleet grouping and S retains it across the workflow board", () => {
@@ -873,7 +874,7 @@ test("repo headers select without folding and Enter toggles the exact repo", () 
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
   view.handleInput("v");
   const rendered = view.render(100);
-  const header = rendered.findIndex((line) => stripAnsi(line).includes("▾ api"));
+  const header = rendered.findIndex((line) => /^[ ▌] {2}api\s/.test(stripAnsi(line)));
   assert.ok(header >= 0);
 
   view.handleInput(mousePressAtLine(header, 4));
@@ -940,14 +941,14 @@ test("hidden child request badges clear when the tree becomes visible", () => {
   };
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [parent, child] }), () => {});
 
-  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api.*\[default\][\s\S]*\?1/);
+  assert.match(fleetText(view.render(120)), /\?1 child[\s\S]*api {2}default[\s\S]*\bapi \?1/);
   view.handleInput("\u001b[C");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|\bapi \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 
   view.handleInput("\u001b[D");
   view.revealSession("child");
-  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|api[^\n]*\n[^\n]*\[default\] \?1/);
+  assert.doesNotMatch(fleetText(view.render(120)), /\?1 child|\bapi \?1/);
   assert.match(fleetText(view.render(120)), /worker/);
 });
 
@@ -1181,7 +1182,7 @@ test("v inside filter mode edits the filter instead of toggling views", () => {
   view.handleInput("v");
 
   assert.equal(controller.snapshot().filter, "v");
-  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^│WORKFLOW\s/m);
+  assert.doesNotMatch(stripAnsi(view.render(120).join("\n")), /^(?:pi hub {2})?WORKFLOW\s/m);
 });
 
 test("stage grouping snaps selection to the first eligible Active row", () => {
@@ -1400,7 +1401,7 @@ function rowIndexFor(rendered: string[], title: string): number {
 }
 
 function tierChipPosition(rendered: string[], label: string): { row: number; x: number } {
-  const row = rendered.findIndex(line => /^(?:│)?FLEET/.test(stripAnsi(line)));
+  const row = rendered.findIndex(line => /^(?:pi hub {2})?FLEET/.test(stripAnsi(line)));
   const x = stripAnsi(rendered[row] ?? "").indexOf(label) + 1;
   assert.ok(x > 0, `missing header chip ${label}`);
   return { row, x };
@@ -1429,7 +1430,7 @@ test("tier chip mouse click selects each exact first owner and reveals collapsed
   assert.deepEqual(saved.at(-1), { grouping: "project" });
 });
 
-test("header chip, separator, border and fleet hit maps do not overlap", () => {
+test("header chip, separator and fleet hit maps do not overlap", () => {
   const needs = { ...session("needs", "needs"), status: "waiting" as const, context: { version: 1 as const, updatedAt: 2, attention: { kind: "question" as const, text: "Choose" } } };
   const active = { ...session("active", "active"), status: "running" as const };
   const controller = new SessionsController({ version: 1, sessions: [needs, active] });
@@ -1437,16 +1438,15 @@ test("header chip, separator, border and fleet hit maps do not overlap", () => {
   const rendered = view.render(100);
   const activeRow = rowIndexFor(rendered, "active");
 
-  view.handleInput(mousePressAtLine(activeRow, 1));
-  assert.equal(controller.selected()?.id, "needs");
   const { row, x } = tierChipPosition(rendered, "ACTIVE 1");
-  view.handleInput(mousePressAtLine(row, x - 1));
+  // The pill's padding (x - 1) belongs to the chip; the gap before it (x - 2) does not.
+  view.handleInput(mousePressAtLine(row, x - 2));
   assert.equal(controller.selected()?.id, "needs");
   view.handleInput(mouseReleaseAtLine(row, x));
   assert.equal(controller.selected()?.id, "needs");
   view.handleInput(mousePressAtLine(row, x + "ACTIVE 1".length - 1));
   assert.equal(controller.selected()?.id, "active");
-  view.handleInput(mousePressAtLine(activeRow, 2));
+  view.handleInput(mousePressAtLine(activeRow, 1));
   assert.equal(controller.selected()?.id, "active");
 });
 
@@ -1515,7 +1515,7 @@ test("summary text outside Status and hidden chip coordinates never select or op
     for (let x = 2; x < 160; x += 1) view.handleInput(mousePressAtLine(1, x));
     assert.equal(controller.selected()?.id, selected, mode);
     assert.deepEqual(opened, [], mode);
-    assert.match(stripAnsi(rendered[1]!), /sessions/);
+    assert.match(stripAnsi(rendered[0]!), /sessions/);
   }
 });
 
@@ -1552,6 +1552,33 @@ test("filter bar is inert and filtered mouse rows still select exact sessions", 
   assert.equal(controller.snapshot().selectedId, "docs");
 });
 
+test("Enter on a red subagent with live tmux attaches instead of restarting", () => {
+  const now = 100_000;
+  const parent = session("parent", "parent");
+  const base = { ...session("child", "child"), kind: "subagent" as const, parentId: "parent", status: "error" as const };
+  const child = {
+    ...base,
+    statusEvidence: computeStatus({
+      session: base,
+      tmux: { exists: true },
+      heartbeat: { managedSessionId: base.id, cwd: base.cwd, state: "error", stateSince: now - 3_000, updatedAt: now - 1_000, message: "model failed" },
+      now,
+    }).evidence,
+  };
+  const events: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [parent, child] });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => now,
+    switchInsideTmux: (tmuxSession) => { events.push(`open:${tmuxSession}`); },
+    restart: (id) => { events.push(`restart:${id}`); },
+  });
+
+  view.revealSession("child");
+  view.handleInput("\r");
+
+  assert.deepEqual(events, [`open:${child.tmuxSession}`]);
+});
+
 test("single mouse click selects without opening", () => {
   const switched: string[] = [];
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api"), session("docs", "docs")] });
@@ -1571,6 +1598,7 @@ test("card continuation rows select and double-click open the live session", () 
   let now = 100;
   const rich = (id: string, title: string) => ({
     ...session(id, title),
+    status: "running" as const,
     workflow: { ...VIEW_WORKFLOW, activeIndex: 1, ticketId: `${id}-001`, activity: { id: "working", label: "Working" } },
     context: { version: 1 as const, updatedAt: 1, ticket: { id: `${id}-001`, subtitle: `${title} subtitle` } },
   });
@@ -1583,7 +1611,7 @@ test("card continuation rows select and double-click open the live session", () 
   view.handleInput("v");
   const rendered = view.render(100);
   const continuationIndex = rowIndexFor(rendered, "docs") + 1;
-  assert.match(stripAnsi(rendered[continuationIndex] ?? ""), /\[default\]/);
+  assert.match(stripAnsi(rendered[continuationIndex] ?? ""), /Working/);
 
   view.handleInput(mousePressAtLine(continuationIndex));
   assert.equal(controller.snapshot().selectedId, "docs");
@@ -1692,7 +1720,7 @@ test("Archived collapse persists its state", () => {
   view.handleInput("j"); // backlog row
   assert.equal(controller.snapshot().selectedId, "backlog");
   view.handleInput("j"); // Archived header
-  assert.match(stripAnsi(view.render(80).join("\n")), /▌▾ ARCHIVED/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▌  ARCHIVED/);
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
   assert.match(collapsed, /▸ ARCHIVED/);
@@ -1711,12 +1739,12 @@ test("all non-attention tiers can collapse and retain counts", () => {
     saveViewState: (state) => saved.push(state),
   });
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ ACTIVE 1/);
-  assert.match(collapsed, /▸ QUIET 1/);
+  assert.match(collapsed, /▸ ACTIVE {2}1/);
+  assert.match(collapsed, /▸ QUIET {2}1/);
   assert.doesNotMatch(collapsed, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
-  assert.match(expanded, /▾ ACTIVE/);
+  assert.match(expanded, /^[ ▌] {2}ACTIVE/m);
   assert.match(expanded, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
@@ -1736,7 +1764,7 @@ test("filtered tier folds are interactive and do not persist", () => {
     for (const char of "unique-match") view.handleInput(char);
     view.handleInput("\r");
     assert.match(fleetText(view.render(120)), /unique-match/);
-    const header = view.render(120).findIndex((line) => stripAnsi(line).includes(`─▾ ${tier.toUpperCase()} 1`));
+    const header = view.render(120).findIndex((line) => stripAnsi(line).startsWith(`   ${tier.toUpperCase()}  1`));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
     assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
@@ -2033,7 +2061,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const rendered = view.render(120);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => /─▾ QUIET 2/.test(stripAnsi(line)));
+  const headerIndex = rendered.findIndex((line) => /^ {3}QUIET {2}2/.test(stripAnsi(line)));
   const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
   const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
@@ -2142,7 +2170,7 @@ test("sidebar dashboard renders readable primary controls", () => {
   });
   const rendered = view.render(42).map(stripAnsi);
 
-  assert.match(rendered.at(-1) ?? "", /x Close · : Actions · \? Help/);
+  assert.match(rendered.at(-1) ?? "", /x Close {4}: Actions {4}\? Help/);
   assert.doesNotMatch(rendered.at(-1) ?? "", /…/);
 });
 
@@ -2169,10 +2197,11 @@ test("mouse clicks outside the selected card remain inert in short windows", () 
     switchInsideTmux: (sessionId) => { opened.push(sessionId); },
   });
   const rendered = view.render(100);
-  const indicator = rendered.findIndex((line) => /^│─+│$/.test(stripAnsi(line)));
-  assert.notEqual(indicator, -1, "missing inert footer separator");
+  // The header band's brand and mode label carry no target.
+  const header = rendered.findIndex((line) => /^pi hub {2}FLEET/.test(stripAnsi(line)));
+  assert.notEqual(header, -1, "missing header band");
 
-  view.handleInput(mousePressAtLine(indicator));
+  view.handleInput(mousePressAtLine(header));
 
   assert.equal(controller.snapshot().selectedId, "s0");
   assert.deepEqual(opened, []);
@@ -2186,7 +2215,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /╭─ ○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /^▌ ○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {
@@ -2239,7 +2268,7 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(rendered, /\] Next request · p Reply · : All actions · \? Help/);
+    assert.match(stripAnsi(rendered), /\] Next request {4}p Reply {4}: All actions {4}\? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -2906,6 +2935,43 @@ test("new form ctrl-o outside repo fields is a no-op", () => {
   assert.doesNotMatch(view.render(120).join("\n"), /Recent repos/);
 });
 
+/** Each read moves past the confirm arm window, as a deliberate second press would. */
+function steppingClock(): () => number {
+  let time = 0;
+  return () => (time += CONFIRM_ARM_MS);
+}
+
+test("delete dialog cancels a confirm typed too soon after opening", () => {
+  let deleted: string | undefined;
+  const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+  const view = new SessionsView(controller, () => {}, { now: () => 1_000, deleteSession: (id) => { deleted = id; } });
+
+  view.handleInput("d");
+  view.render(100);
+  view.handleInput("d");
+
+  assert.equal(deleted, undefined);
+  const rendered = view.render(100).join("\n");
+  assert.doesNotMatch(rendered, /Delete session/);
+  assert.match(rendered, /delete cancelled/);
+});
+
+test("delete dialog cancels on any key that is not an offered choice", () => {
+  for (const key of ["x", "w", "s", "D", "\r"]) {
+    let deleted: string | undefined;
+    const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
+    const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: (id) => { deleted = id; } });
+
+    view.handleInput("d");
+    view.render(100);
+    view.handleInput(key);
+    assert.doesNotMatch(view.render(100).join("\n"), /Delete session/, JSON.stringify(key));
+    // A later d only reopens the dialog; it never confirms the cancelled one.
+    view.handleInput("d");
+    assert.equal(deleted, undefined, JSON.stringify(key));
+  }
+});
+
 test("delete dialog requires confirmation and escape cancels", () => {
   let deleted: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
@@ -2924,7 +2990,7 @@ test("delete dialog requires confirmation and escape cancels", () => {
 test("delete dialog confirms with second d", () => {
   let deleted: string | undefined;
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: (id) => { deleted = id; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: (id) => { deleted = id; } });
 
   view.handleInput("d");
   view.render(100);
@@ -2939,7 +3005,7 @@ test("delete dialog offers subagent-only cleanup for parent sessions", () => {
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     closeSubagents: (id) => { closed = id; },
     deleteSession: (id) => { deleted = id; },
   });
@@ -2962,7 +3028,7 @@ test("delete dialog keeps full delete on d confirmation", () => {
   const parent = session("api", "api");
   const child = { ...session("child", "smoke"), kind: "subagent" as const, parentId: parent.id, agentName: "smoke" };
   const controller = new SessionsController({ version: 1, sessions: [parent, child] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     closeSubagents: (id) => { closed = id; },
     deleteSession: (id) => { deleted = id; },
   });
@@ -3000,7 +3066,7 @@ test("delete dialog distinguishes forgetting and discarding worktree sessions", 
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
     finishWorktree: () => {},
@@ -3030,7 +3096,7 @@ test("delete dialog shift D discards worktree session", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
   });
@@ -3056,7 +3122,7 @@ test("delete dialog w finishes worktree session", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, {
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(),
     deleteSession: (id) => { deleted = id; },
     discardWorktree: (id) => { discarded = id; },
     finishWorktree: (id) => { finished = id; },
@@ -3082,7 +3148,7 @@ test("finish worktree dialog confirms with second w", () => {
     worktreeBaseBranch: "main",
     worktreeOwnedByHub: true,
   }] });
-  const view = new SessionsView(controller, () => {}, { finishWorktree: (id) => { finished = id; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), finishWorktree: (id) => { finished = id; } });
 
   view.handleInput("w");
   const rendered = view.render(100).join("\n");
@@ -3112,7 +3178,7 @@ test("delete dialog ignores repeated confirm while async delete is pending", asy
   let finish!: () => void;
   const pending = new Promise<void>((resolve) => { finish = resolve; });
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: () => { calls += 1; return pending; } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: () => { calls += 1; return pending; } });
 
   view.handleInput("d");
   view.render(100);
@@ -3127,7 +3193,7 @@ test("delete dialog ignores repeated confirm while async delete is pending", asy
 
 test("delete dialog keeps async errors visible", async () => {
   const controller = new SessionsController({ version: 1, sessions: [session("api", "api")] });
-  const view = new SessionsView(controller, () => {}, { deleteSession: async () => { throw new Error("delete failed"); } });
+  const view = new SessionsView(controller, () => {}, { now: steppingClock(), deleteSession: async () => { throw new Error("delete failed"); } });
 
   view.handleInput("d");
   view.render(100);
@@ -3389,7 +3455,7 @@ test("p opens a reply editor and submits message to selected live session", asyn
   const prompt = stripAnsi(rawPrompt);
   assert.match(prompt, /REPLY · api · Send/);
   assert.match(prompt, /█/);
-  assert.match(prompt, /Enter Send · Esc Keep draft/);
+  assert.match(prompt, /Enter Send {4}Esc Keep draft/);
   assert.doesNotMatch(prompt, /Send to api/);
   for (const char of "fix it") view.handleInput(char);
   view.handleInput("\r");
@@ -4615,7 +4681,7 @@ test("visible unselected runners and synthetic selections do not request animati
     view.render(120);
     assert.equal(view.hasAnimatingSelectedRow, true, id);
   }
-  const activeHeader = view.render(120).findIndex(line => /▾ ACTIVE/.test(stripAnsi(line)));
+  const activeHeader = view.render(120).findIndex(line => /^[ ▌][ ▸] ACTIVE/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(activeHeader, 23));
   view.render(120);
   assert.equal(view.hasAnimatingSelectedRow, false, "synthetic tier header cannot animate a stale session");
@@ -4861,7 +4927,7 @@ test("follow view header, footer, and Help name the mode", () => {
   const rendered = stripAnsi(view.render(100).join("\n"));
   assert.match(rendered, /FOLLOWING/);
   assert.doesNotMatch(rendered, /PINNED FLEET|1 pinned/);
-  assert.match(rendered, /Enter Type · o Leave/);
+  assert.match(rendered, /Enter Type {4}o Leave/);
   view.handleInput("?");
   assert.match(stripAnsi(view.render(120).join("\n")), /Follow view on\/off · [^\n]*o│/);
 
@@ -4872,4 +4938,187 @@ test("follow view header, footer, and Help name the mode", () => {
   const narrow = stripAnsi(hidden.render(80).join("\n"));
   assert.match(narrow, /follow view hidden/);
   assert.doesNotMatch(narrow, /pin hidden/);
+});
+
+const ACCENT = "\u001b[38;2;122;162;247m";
+const SELECTED_BG = "\u001b[48;2;51;64;94m";
+const WARNING = "\u001b[38;2;224;175;104m";
+const ERROR = "\u001b[38;2;247;118;142m";
+
+function focusView(focus: "focused" | "unfocused" | undefined, clock: { now: number }) {
+  const running = { ...session("api", "api"), status: "running" as const };
+  const waiting = { ...session("docs", "docs"), status: "waiting" as const };
+  const failed = { ...session("web", "web"), status: "error" as const };
+  const controller = new SessionsController({ version: 1, sessions: [running, waiting, failed] });
+  controller.selectSession("api");
+  return new SessionsView(controller, () => {}, {
+    now: () => clock.now,
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50, ...(focus ? { dashboardFocus: focus } : {}) }),
+  }, darkTheme);
+}
+
+test("unfocused shared dashboard renders muted, keeping alert colors", () => {
+  const clock = { now: 10_000 };
+  const focused = focusView("focused", clock).render(120).join("\n");
+  const quiet = focusView("unfocused", clock).render(120).join("\n");
+
+  assert.ok(focused.includes(ACCENT) && focused.includes("\u001b[1m") && focused.includes(SELECTED_BG));
+  assert.ok(!quiet.includes(ACCENT), "accent removed");
+  assert.ok(!quiet.includes("\u001b[1m"), "bold removed");
+  assert.ok(!quiet.includes(SELECTED_BG), "row tint removed");
+  for (const alert of [WARNING, ERROR]) assert.equal(quiet.includes(alert), focused.includes(alert));
+  assert.ok(quiet.includes(ERROR));
+  assert.equal(stripAnsi(quiet), stripAnsi(focused).replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "●"));
+});
+
+test("dashboard alone in its window renders as before", () => {
+  const clock = { now: 10_000 };
+  assert.equal(focusView(undefined, clock).render(120).join("\n"), focusView("focused", clock).render(120).join("\n"));
+});
+
+test("input restores full color at once and the fade returns after the grace period", () => {
+  const clock = { now: 10_000 };
+  const focused = focusView("focused", clock);
+  focused.render(120);
+  assert.equal(focused.hasAnimatingSelectedRow, true);
+  const view = focusView("unfocused", clock);
+  assert.ok(!view.render(120).join("\n").includes(ACCENT));
+  assert.equal(view.hasAnimatingSelectedRow, false, "no spinner repaints while unfocused");
+  view.handleInput("\u001b[<64;5;5M");
+  assert.ok(view.render(120).join("\n").includes(ACCENT), "mouse input means focus");
+  clock.now += 1_000;
+  assert.ok(!view.render(120).join("\n").includes(ACCENT));
+  view.handleInput("j");
+  assert.ok(view.render(120).join("\n").includes(ACCENT), "key input means focus");
+});
+
+const SHARED_WINDOW = { slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50, dashboardFocus: "focused" as const };
+
+function typingView(actions: SessionsViewActions, sessions = [session("api", "api")], shared = true) {
+  const clock = { now: 10_000 };
+  const controller = new SessionsController({ version: 1, sessions });
+  const view = new SessionsView(controller, () => {}, {
+    now: () => clock.now,
+    sidePaneState: () => shared ? SHARED_WINDOW : { ...SHARED_WINDOW, dashboardFocus: undefined },
+    ...actions,
+  });
+  const type = (keys: string, gap = 30) => { for (const key of keys) { clock.now += gap; view.handleInput(key); } };
+  return { view, clock, controller, type, screen: () => stripAnsi(view.render(120).join("\n")) };
+}
+
+test("typing burst drops keys, dismisses what the first key opened, and ends after a pause", () => {
+  let deleted: string | undefined;
+  const { view, clock, type, screen } = typingView({ deleteSession: (id) => { deleted = id; } });
+
+  type("d");
+  assert.match(screen(), /Delete session/);
+  type("d");
+  assert.equal(deleted, undefined);
+  assert.doesNotMatch(screen(), /Delete session/);
+  assert.match(screen(), /Typing in the dashboard/);
+  type("d\r", 200);
+  assert.doesNotMatch(screen(), /Delete session/, "keys inside the quiet window stay dropped");
+  clock.now += 600;
+  view.handleInput("d");
+  assert.match(screen(), /Delete session/, "a pause restores shortcuts");
+});
+
+test("typing burst closes a prompt the first key opened without keeping text", () => {
+  const { type, screen } = typingView({ changeGroup: () => {} });
+
+  type("g");
+  assert.match(screen(), /Move to group/);
+  type("xyz");
+  assert.doesNotMatch(screen(), /Move to group/);
+  assert.doesNotMatch(screen(), /xyz/);
+});
+
+test("typing burst cancels a theme preview through its own Escape path", () => {
+  const cancelled: string[] = [];
+  const { type, screen } = typingView({
+    themeSettings: () => ({ names: ["dark", "light"], setting: "dark", syncPi: true }),
+    cancelDashboardTheme: (setting) => { cancelled.push(setting); },
+  });
+
+  type("th");
+  assert.deepEqual(cancelled, ["dark"]);
+  assert.doesNotMatch(screen(), /Sync to Pi/);
+});
+
+test("typing burst stops pending picker and theme loads from opening late", async () => {
+  let resolveSkills!: (items: { name: string; enabled: boolean }[]) => void;
+  let resolveTheme!: (value: { names: string[]; setting: string; syncPi: boolean }) => void;
+  const { clock, type, screen } = typingView({
+    skills: () => new Promise((complete) => { resolveSkills = complete; }),
+    themeSettings: () => new Promise((complete) => { resolveTheme = complete; }),
+  });
+
+  type("sx");
+  resolveSkills([{ name: "alpha", enabled: false }]);
+  await new Promise((complete) => setImmediate(complete));
+  assert.doesNotMatch(screen(), /alpha/);
+  clock.now += 1_000;
+  type("tx");
+  resolveTheme({ names: ["dark", "light"], setting: "dark", syncPi: true });
+  await new Promise((complete) => setImmediate(complete));
+  assert.doesNotMatch(screen(), /Sync to Pi/);
+});
+
+test("held navigation keys repeat without tripping the typing guard", () => {
+  const sessions = Array.from({ length: 12 }, (_, index) => session(`s${index}`, `row${index}`));
+  const { controller, type, screen } = typingView({}, sessions);
+  const start = controller.snapshot().sessions.findIndex((row) => row.id === controller.selected()?.id);
+
+  type("jjjjjjjjjj");
+  const end = controller.snapshot().sessions.findIndex((row) => row.id === controller.selected()?.id);
+  assert.equal(end - start, 10);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("typing into an already open prompt keeps every character", () => {
+  const { clock, view, type, screen } = typingView({ changeGroup: () => {} });
+
+  type("g");
+  clock.now += 500;
+  view.handleInput("\u0015");
+  type("abcdef");
+  assert.match(screen(), /abcdef/);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("dashboard alone in its window has no typing guard", () => {
+  const { view, type, screen } = typingView({ changeGroup: () => {} }, [session("api", "api")], false);
+
+  type("g");
+  view.handleInput("\u0015");
+  type("xyz");
+  assert.match(screen(), /xyz/);
+  assert.doesNotMatch(screen(), /Typing in the dashboard/);
+});
+
+test("observed focus loss fades at once, and the input grace ends with a redraw", async () => {
+  const clock = { now: 10_000 };
+  let focus: "focused" | "unfocused" = "focused";
+  let renders = 0;
+  const running = { ...session("api", "api"), status: "running" as const };
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [running] }), () => {}, {
+    now: () => clock.now,
+    requestRender: () => { renders += 1; },
+    sidePaneState: () => ({ ...SHARED_WINDOW, dashboardFocus: focus }),
+  }, darkTheme);
+
+  view.render(120);
+  view.handleInput("\u001b1");
+  clock.now += 100;
+  focus = "unfocused";
+  assert.ok(!view.render(120).join("\n").includes(ACCENT), "input before the observed focus loss does not keep it bright");
+
+  view.handleInput("\u001b2");
+  assert.ok(view.render(120).join("\n").includes(ACCENT));
+  clock.now += 999;
+  renders = 0;
+  view.render(120);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(renders > 0, "grace expiry requests a redraw");
+  view.disposeInteraction();
 });

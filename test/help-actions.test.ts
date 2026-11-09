@@ -111,7 +111,7 @@ for (const width of [40, 100, 120, 160]) {
       const primary = layout.workspaceRowTargets.indexOf("action:one:open");
       assert.ok(primary >= 0);
       const start = layout.workspaceStartX! - 1;
-      const actionWidth = pinned || width < 120 ? width - (width > 60 ? 2 : 0) : width >= 160 ? 44 : 34;
+      const actionWidth = pinned || width < 120 ? width : width >= 160 ? 44 : 34;
       const row = sliceByColumn(layout.lines[primary]!, start, actionWidth);
       assert.match(stripAnsi(row), /^▌ Restart\s+Enter$/);
       assert.ok(row.includes(`\u001b[1m${styleToken(darkTheme, "text", "Restart")}\u001b[22m`));

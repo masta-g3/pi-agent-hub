@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { renderDialog, renderSessions, renderForm } from "../src/tui/layout.js";
-import { darkTheme, lightTheme, loadActiveTheme, loadManagedSessionTheme, loadSessionsTheme, stripAnsi, stripAnsiExceptItalics, styleBgToken, styleToken, themeFromPiTheme } from "../src/tui/theme.js";
+import { darkTheme, lightTheme, loadActiveTheme, loadManagedSessionTheme, loadSessionsTheme, stripAnsi, stripAnsiExceptItalics, styleBgToken, styleToken, surfaceTokens, themeFromPiTheme } from "../src/tui/theme.js";
 import type { ManagedSession } from "../src/core/types.js";
 
 function session(): ManagedSession {
@@ -266,16 +266,30 @@ test("renderSessions paints the selected row background across the list column",
   assert.doesNotMatch(plainSelected.replace(/\u001b\[(?:1|22)m/g, ""), /\u001b\[/);
 });
 
+const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
+
 test("footer keys are styled without changing visible text", () => {
   const model = buildRenderModel({ sessions: [session()], width: 130 });
   const themed = renderSessions(model, darkTheme).lines;
   const plain = renderSessions(model).lines;
-  const themedFooter = themed.at(-2) ?? "";
-  assert.match(themedFooter, /\u001b\[38;2;122;162;247m\]\u001b\[0m/);
-  assert.equal(stripAnsi(themedFooter), stripAnsi(plain.at(-2) ?? ""));
+  const unpainted = renderSessions(model, { ...darkTheme, selectedBg: 236 }).lines;
+  // Without a derivable surface, keycaps fall back to bold accent keys with the same padding.
+  assert.ok((unpainted.at(-1) ?? "").includes(`\u001b[1m${styleToken(darkTheme, "accent", " ] ")}\u001b[22m`), JSON.stringify(unpainted.at(-1)));
+  for (const lines of [themed, unpainted]) assert.equal(stripAnsi(lines.at(-1) ?? ""), stripAnsi(plain.at(-1) ?? ""));
 });
 
-test("framed public renders stay aligned at narrow, normal, and wide widths", () => {
+test("painted themes draw header and footer bands with keycaps", () => {
+  const lines = renderSessions(buildRenderModel({ sessions: [session()], width: 130 }), mocha).lines;
+  const { bandBg, keycapBg } = surfaceTokens(mocha);
+  const bg = (hex: string) => `\u001b[48;2;${[1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16)).join(";")}m`;
+  assert.ok(lines[0]!.startsWith(bg(bandBg as string)), JSON.stringify(lines[0]));
+  assert.ok(lines.at(-1)!.startsWith(bg(bandBg as string)), JSON.stringify(lines.at(-1)));
+  assert.ok(lines.at(-1)!.includes(bg(keycapBg as string)));
+  assert.match(stripAnsi(lines.at(-1)!), /^  \] Next request {4}p Reply/);
+  for (const line of lines) assert.equal(stripAnsi(line).length, 130);
+});
+
+test("frameless public renders stay aligned at narrow, normal, and wide widths", () => {
   for (const width of [24, 60, 120]) {
     const model = buildRenderModel({ sessions: [session()], width });
     const dashboard = renderSessions(model, darkTheme).lines;
@@ -284,18 +298,17 @@ test("framed public renders stay aligned at narrow, normal, and wide widths", ()
     for (const lines of [dashboard, form, dialog]) {
       for (const line of lines) assert.equal(stripAnsi(line).length, lines === dashboard ? Math.max(30, width) : Math.max(22, Math.min(Math.max(22, width), 88)), `${width}: ${stripAnsi(line)}`);
     }
-    // Phone-width dashboards are frameless; forms and dialogs keep their frames.
-    if (width > 60) assert.match(stripAnsi(dashboard[0] ?? ""), /pi agent hub/);
-    else assert.match(stripAnsi(dashboard[0] ?? ""), /^FLEET/);
+    // The dashboard draws no outer frame; forms and dialogs keep theirs.
+    assert.match(stripAnsi(dashboard[0] ?? ""), width >= 60 ? /^pi hub {2}FLEET/ : /^FLEET/);
+    assert.ok(dashboard.every((line) => !/^[╭╰│]/.test(stripAnsi(line))));
     assert.equal(stripAnsi(form[0] ?? "").at(0), "╭");
     assert.equal(stripAnsi(dialog[0] ?? "").at(0), "╭");
   }
 });
 
-test("dashboard chrome uses rounded corners", () => {
-  const lines = renderSessions(buildRenderModel({ sessions: [session()], width: 80 }), darkTheme).lines;
-  assert.match(stripAnsi(lines[0] ?? ""), /^╭/);
-  assert.match(stripAnsi(lines.at(-1) ?? ""), /╯$/);
+test("dialogs keep rounded corners while the dashboard draws none", () => {
+  const lines = renderSessions(buildRenderModel({ sessions: [session()], width: 80 }), darkTheme).lines.map(stripAnsi);
+  assert.ok(lines.every((line) => !/[╭╮╰╯]/.test(line)), lines.join("\n"));
   const form = renderForm({ title: "t", fields: [{ key: "a", label: "a", value: "" }], focus: "a", footer: "f" }, 40, darkTheme);
   assert.match(stripAnsi(form[0] ?? ""), /^╭/);
   assert.match(stripAnsi(form.at(-1) ?? ""), /╯$/);
@@ -371,3 +384,50 @@ test("renderForm keeps stable width and marks one focused field", () => {
     assert.equal(carets.length, 1);
   }
 });
+
+test("surfaceTokens derives card, band, keycap and pill ink from a dark hex theme", () => {
+  const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
+  assert.deepEqual(surfaceTokens(mocha), { cardBg: "#252633", bandBg: "#191922", keycapBg: "#484b5e", pillInk: "#191922" });
+});
+
+test("surfaceTokens prefers statusLineBg for the band and pill ink", () => {
+  const tokens = surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "#181825" });
+  assert.equal(tokens.bandBg, "#181825");
+  assert.equal(tokens.pillInk, "#181825");
+});
+
+test("surfaceTokens mixes toward white when text is darker than the selection", () => {
+  const tokens = surfaceTokens({ ...lightTheme, text: "#4c4f69", selectedBg: "#c8d0dc", statusLineBg: "" });
+  assert.equal(tokens.cardBg, "#e4e8ee");
+  assert.equal(tokens.bandBg, "#f1f3f6");
+});
+
+test("surfaceTokens keeps mid-luminance dark themes readable", () => {
+  const text = "#839496";
+  const tokens = surfaceTokens({ ...darkTheme, text, selectedBg: "#073642", statusLineBg: "" });
+  assert.equal(tokens.cardBg, "#052932");
+  assert.ok(contrastRatio(text, tokens.cardBg as string) >= 4.5);
+});
+
+test("surfaceTokens derives nothing without a hex selection color", () => {
+  const empty = { cardBg: "", bandBg: "", keycapBg: "", pillInk: "" };
+  assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: 236, statusLineBg: "" }), empty);
+  assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: "", statusLineBg: "" }), empty);
+});
+
+test("surfaceTokens judges default-text themes by the selection's brightness", () => {
+  // Catppuccin Mocha leaves text to the terminal default; its dark selection still yields dark surfaces.
+  assert.deepEqual(surfaceTokens({ ...darkTheme, text: "", selectedBg: "#313244", statusLineBg: "" }),
+    { cardBg: "#252633", bandBg: "#191922", keycapBg: "#505160", pillInk: "#191922" });
+  assert.equal(surfaceTokens({ ...lightTheme, text: "", selectedBg: "#c8d0dc", statusLineBg: "" }).cardBg, "#e4e8ee");
+});
+
+function contrastRatio(left: string, right: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
+      .map((value) => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const [high, low] = [luminance(left), luminance(right)].sort((a, b) => b - a);
+  return (high! + 0.05) / (low! + 0.05);
+}

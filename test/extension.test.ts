@@ -511,7 +511,7 @@ The user supervises this session from the pi-hub dashboard and usually does not 
   }
 });
 
-test("piAgentHubExtension leaves tmux subagent prompt and heartbeat ownership to child bootstrap", async () => {
+test("piAgentHubExtension applies themes in tmux subagents but leaves prompt and heartbeat ownership to child bootstrap", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-"));
   const previousSessionId = process.env[SESSION_ID_ENV];
@@ -526,7 +526,7 @@ test("piAgentHubExtension leaves tmux subagent prompt and heartbeat ownership to
   const childHeartbeat = `${JSON.stringify({ owner: "child-bootstrap" })}\n`;
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, childHeartbeat, "utf8");
-  await publishThemeCommand("light", "light", { PI_AGENT_HUB_DIR: root }, { now: Date.now() + 10, revision: "subagent-command" });
+  await publishThemeCommand("light", "light", { PI_AGENT_HUB_DIR: root }, { now: Date.now() + 1_000, revision: "subagent-command" });
   const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
   const pi = {
     on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) {
@@ -538,18 +538,20 @@ test("piAgentHubExtension leaves tmux subagent prompt and heartbeat ownership to
   try {
     piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
     assert.equal(await handlers.get("before_agent_start")?.({ systemPrompt: "child prompt" }, {}), undefined);
+    const applied: unknown[] = [];
     const childCtx = {
       cwd: root,
       hasUI: true,
       ui: {
-        getTheme() { throw new Error("subagent theme command should not be read"); },
-        setTheme() { throw new Error("subagent theme command should not be applied"); },
+        getTheme(name: string) { return { name }; },
+        setTheme(theme: unknown) { applied.push(theme); },
       },
     };
     await handlers.get("session_start")?.({}, childCtx);
     await handlers.get("ui_prompt_start")?.({ method: "custom" }, childCtx);
     await handlers.get("ui_prompt_end")?.({ method: "custom" }, childCtx);
 
+    assert.deepEqual(applied, [{ name: "light" }], "subagents apply a confirmed theme once");
     assert.equal(await readFile(file, "utf8"), childHeartbeat);
   } finally {
     await handlers.get("session_shutdown")?.({}, { cwd: root, hasUI: false });

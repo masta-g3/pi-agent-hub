@@ -28,21 +28,17 @@ function titleIndex(layout: ReturnType<typeof renderSessions>, id: string): numb
   return layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
 }
 
-test("phone widths drop only the outer frame and start content at the first column", () => {
-  for (const width of [30, 36, 44, 60]) {
+test("every width is frameless and starts content at the first column", () => {
+  for (const width of [30, 36, 44, 60, 61, 120]) {
     const { layout, lines } = render({ width, height: 22 });
     assert.equal(lines.length, 22);
-    assert.match(lines[0]!, /^FLEET/);
+    assert.match(lines[0]!, /^(?:pi hub {2})?FLEET/);
     assert.equal(layout.listStartX, 1);
     assert.ok(layout.lines.every((line) => visibleWidth(line) <= width));
+    assert.ok(lines.every((line) => !/[╭╮╰╯]/.test(line)), lines.join("\n"));
     const index = titleIndex(layout, "s0");
     assert.ok(lines[index]!.includes("Product"), `${width}: ${lines[index]}`);
-    if (width >= 40) assert.match(lines[index]!, /^╭─/);
-    else assert.doesNotMatch(lines[index]!, /^╭/);
   }
-  const wide = render({ width: 61, height: 22 });
-  assert.match(wide.lines[0]!, /^╭/);
-  assert.equal(wide.layout.listStartX, 2);
 });
 
 test("phone metadata shows the plain step instead of a grid", () => {
@@ -51,7 +47,10 @@ test("phone metadata shows the plain step instead of a grid", () => {
     assert.ok(!lines.some(line => /PL\s+EX/.test(line)));
     for (const session of sessions) {
       const index = titleIndex(layout, session.id);
-      assert.ok(lines[index + 1]!.includes(`· ${steps[session.workflow!.activeIndex]!.label}`), lines[index + 1]);
+      const label = steps[session.workflow!.activeIndex]!.label;
+      // The selected card names its step on the metadata line; other cards end their title row with it.
+      if (session.id === "s0") assert.ok(lines[index + 1]!.includes(`· ${label}`), lines[index + 1]);
+      else assert.ok(lines[index]!.trimEnd().endsWith(label!), `${width}: ${lines[index]}`);
     }
   }
 });
@@ -64,8 +63,8 @@ test("short phone windows use one-line rows and keep metadata only for the selec
     const next = layout.rowTargets[index + 1];
     if (session.id === "s1") {
       assert.deepEqual(next, { kind: "session-continuation", id: "s1" });
-      assert.match(lines[index]!, /\[agent-atlas\]/);
-      assert.doesNotMatch(lines[index + 1]!, /\[agent-atlas\]/);
+      assert.match(lines[index]!, /agent-atlas/);
+      assert.doesNotMatch(lines[index + 1]!, /agent-atlas/);
     } else assert.notDeepEqual(next, { kind: "session-continuation", id: session.id });
   }
   assert.ok(lines.some((line) => line.includes("Task explanation")), lines.join("\n"));
@@ -74,11 +73,11 @@ test("short phone windows use one-line rows and keep metadata only for the selec
 test("phone footer drops whole items and exposes tap targets for each key", () => {
   const { layout, lines } = render({ width: 44, height: 22 });
   const footer = lines.at(-1)!;
-  assert.equal(footer.trimEnd(), "] Next request · p Reply · : All actions");
+  assert.equal(footer.trimEnd(), "  ] Next request    p Reply    : All actions");
   assert.equal(layout.footerRow, lines.length - 1);
   const keys = layout.footerItems.map((item) => item.key);
   assert.deepEqual(keys, ["]", "p", ":"]);
-  for (const item of layout.footerItems) assert.equal(footer.slice(item.x - 1, item.x - 1 + item.key.length), item.key);
+  for (const item of layout.footerItems) assert.ok(footer.slice(item.x - 1, item.x - 1 + item.width).trimStart().startsWith(item.key));
 
   const tiny = render({ width: 30, height: 22 });
   assert.ok(!tiny.lines.at(-1)!.includes("…"), tiny.lines.at(-1));

@@ -80,12 +80,14 @@ test("guidance shows only a specific reason, never a restated request", () => {
 
 test("a framed card right under its section header does not repeat the step labels", () => {
   const rows = render(120).lines.map(stripAnsi);
-  const top = rows.findIndex(row => row.includes("╭─"));
-  assert.match(rows[top - 1]!, /PL\s+EX\s+RV/);
+  const top = rows.findIndex(row => /^▌ \S/.test(row));
+  // Only the card's padding row separates it from the heading that names the steps.
+  assert.equal(rows[top - 1]!.trim(), "▌");
+  assert.match(rows[top - 2]!, /PL\s+EX\s+RV/);
   assert.doesNotMatch(rows[top]!, /PL EX RV/);
   const other: RuntimeSession = { ...asking, id: "first", title: "First card", status: "running", context: undefined, lastActivityAt: now + 10 };
   const lower = renderSessions(buildRenderModel({ sessions: [other, { ...asking, status: "running", context: undefined }], selectedId: "s", width: 120, height: 30, now, guidanceHidden: true }), darkTheme).lines.map(stripAnsi);
-  assert.match(lower.find(row => row.includes("╭─"))!, /PL EX RV/, "a card further down keeps its own labels");
+  assert.match(lower.find(row => /^▌ \S/.test(row))!, /PL EX RV/, "a card further down keeps its own labels");
 });
 
 test("the collapsed request line leads with the asking sentence", async () => {

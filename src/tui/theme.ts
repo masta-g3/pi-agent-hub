@@ -122,12 +122,7 @@ export function detectTerminalAppearance(env: NodeJS.ProcessEnv = process.env): 
   const parts = (env.COLORFGBG ?? "").split(";").reverse();
   const background = parts.map((part) => Number.parseInt(part.trim(), 10)).find((value) => Number.isInteger(value) && value >= 0 && value <= 255);
   if (background === undefined) return "dark";
-  const [r, g, b] = ansi256Rgb(background);
-  const toLinear = (channel: number) => {
-    const value = channel / 255;
-    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b) >= 0.5 ? "light" : "dark";
+  return luminance(ansi256Rgb(background)) >= 0.5 ? "light" : "dark";
 }
 
 export async function loadGlobalThemeCatalog(env: NodeJS.ProcessEnv = process.env): Promise<DashboardThemeCatalog> {
@@ -248,18 +243,78 @@ export function selectionMarker(text: string): string {
 }
 
 export function styleToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
-  if (noColor()) return text;
-  const value = theme[token];
-  if (value === "" || text === "") return text;
+  return styleFg(theme[token], text);
+}
+
+export function styleFg(value: string | number, text: string): string {
+  if (noColor() || value === "" || text === "") return text;
   return `${ansi(value)}${text}${RESET}`;
 }
 
 export function styleBgToken(theme: SessionsTheme, token: ThemeToken, text: string): string {
-  if (noColor()) return text;
-  const value = theme[token];
-  if (value === "" || text === "") return text;
+  return styleBg(theme[token], text);
+}
+
+/** Paints a background that survives inner resets; empty values and `NO_COLOR` leave the text unpainted. */
+export function styleBg(value: string | number, text: string): string {
+  if (noColor() || value === "" || text === "") return text;
   const bg = ansi(value, 48);
   return `${bg}${text.split(RESET).join(`${RESET}${bg}`)}${RESET}`;
+}
+
+export interface SurfaceTokens {
+  cardBg: string | number;
+  bandBg: string | number;
+  keycapBg: string | number;
+  pillInk: string | number;
+}
+
+/**
+ * Pi themes name no terminal background, so dashboard surfaces derive from the selection color.
+ * Text lighter than the selection means a dark theme: surfaces sink toward black, otherwise toward white.
+ * Themes that leave text to the terminal default are judged by the selection's own brightness.
+ */
+export function surfaceTokens(theme: SessionsTheme): SurfaceTokens {
+  const selected = hexRgb(theme.selectedBg);
+  if (!selected) return { cardBg: "", bandBg: "", keycapBg: "", pillInk: "" };
+  const hexText = hexRgb(theme.text);
+  const dark = hexText ? luminance(hexText) > luminance(selected) : luminance(selected) < 0.5;
+  const toward: Rgb = dark ? [0, 0, 0] : [255, 255, 255];
+  const text = hexText ?? (dark ? [255, 255, 255] : [0, 0, 0]) as Rgb;
+  const bandBg = theme.statusLineBg !== "" ? theme.statusLineBg : rgbHex(mixRgb(selected, toward, dark ? 0.5 : 0.75));
+  return {
+    cardBg: rgbHex(mixRgb(selected, toward, dark ? 0.25 : 0.5)),
+    bandBg,
+    keycapBg: rgbHex(mixRgb(selected, text, 0.15)),
+    pillInk: bandBg,
+  };
+}
+
+type Rgb = [number, number, number];
+
+function hexRgb(value: string | number): Rgb | undefined {
+  const match = typeof value === "string" ? /^#?([0-9a-f]{6})$/i.exec(value) : null;
+  if (!match) return undefined;
+  const hex = match[1]!;
+  return [0, 2, 4].map((index) => Number.parseInt(hex.slice(index, index + 2), 16)) as Rgb;
+}
+
+function rgbHex(rgb: Rgb): string {
+  return `#${rgb.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function mixRgb(from: Rgb, to: Rgb, amount: number): Rgb {
+  return from.map((value, index) => Math.round(value + (to[index]! - value) * amount)) as Rgb;
+}
+
+function luminance(rgb: Rgb): number {
+  const [r, g, b] = rgb.map((value) => value / 255).map((value) => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+/** Unfocused sidebar: everything muted except alert tones, with no row or footer tint. */
+export function quietTheme(theme: SessionsTheme): SessionsTheme {
+  return { ...theme, accent: theme.muted, success: theme.muted, text: theme.muted, border: theme.muted, selectedBg: "", statusLineBg: "" };
 }
 
 export function stripAnsi(text: string): string {

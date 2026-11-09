@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, restartAllTargets, startDashboardActionLoop, syncAttentionCounts, clearAttentionCounts, terminalNotification } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createRegistryMutator, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, liveChromeTargets, restartAllTargets, startDashboardActionLoop, syncAttentionCounts, clearAttentionCounts, terminalNotification } from "../src/app/run-tui.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
 import type { TmuxClient } from "../src/core/tmux.js";
@@ -281,6 +281,15 @@ test("restartAllTargets includes only active parent sessions", () => {
   const subagent = { ...session("subagent", "/repo/active", "one"), kind: "subagent" as const, parentId: active.id };
 
   assert.deepEqual(restartAllTargets([active, backlog, archived, subagent]), [active]);
+});
+
+test("liveChromeTargets restyles live parents and subagents only", () => {
+  const parent = { ...session("parent", "/repo/active", "one"), status: "waiting" as const };
+  const child = { ...session("child", "/repo/active", "one"), status: "running" as const, kind: "subagent" as const, parentId: parent.id };
+  const stopped = { ...session("stopped", "/repo/active", "one"), status: "stopped" as const };
+  const failed = { ...session("failed", "/repo/active", "one"), status: "error" as const, kind: "subagent" as const, parentId: parent.id };
+
+  assert.deepEqual(liveChromeTargets([parent, child, stopped, failed]), [parent, child]);
 });
 
 test("persistDashboardThemeSelection saves Pi before Hub and publishes only while synced", async () => {

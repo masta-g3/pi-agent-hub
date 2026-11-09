@@ -340,3 +340,23 @@ test("older paging at the cache cap evicts newer text instead of the requested p
   assert.equal(reader.anchor?.id, "20");
   assert.equal(reader.before, "19");
 });
+
+test("typing burst in Conversation content focus still dismisses the restart chooser", async () => {
+  let now = 10_000;
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [liveSession("a")] }), () => {}, {
+    interactionTarget, loadInteractionState: async () => ({ questionProtocol: false, pending: [] }),
+    loadConversation: async () => ({ branchId: "b", revision: "1", items: [{ id: "message", role: "assistant", text: "Completed message" }] }),
+    terminalRows: () => 24, now: () => now, restart: () => {},
+    sidePaneState: () => ({ slots: [undefined, undefined, undefined, undefined], capacity: 2, constrained: false, splitPercent: 50, dashboardFocus: "focused" }),
+  });
+  view.render(120); view.handleInput("c"); await tick(); view.render(120);
+  now += 1_000; view.handleInput("\x1b");
+  now += 1_000; view.handleInput("\t");
+  assert.match(stripAnsi(view.render(120).join("\n")), /Conversation focused/);
+  now += 1_000; view.handleInput("r");
+  assert.match(stripAnsi(view.render(120).join("\n")), /Restart selected/);
+  now += 30; view.handleInput("x");
+  const rendered = stripAnsi(view.render(120).join("\n"));
+  assert.doesNotMatch(rendered, /Restart selected/);
+  assert.match(rendered, /Typing in the dashboard/);
+});

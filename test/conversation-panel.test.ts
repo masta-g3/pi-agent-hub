@@ -84,7 +84,7 @@ test("visible fleet tier navigation remains clickable above Conversation", async
   const { view, controller } = await setup(false, 28, "running");
   controller.selectSession("panel-a");
   const rows = view.render(120).map(stripAnsi);
-  const header = rows.findIndex(row => row.startsWith("│FLEET"));
+  const header = rows.findIndex(row => /^(?:pi hub {2})?FLEET/.test(row));
   const x = rows[header]!.indexOf("ACTIVE 1") + 1;
   assert.ok(header >= 0 && x > 0);
   view.handleInput(`\x1b[<0;${x};${header + 1}M`);

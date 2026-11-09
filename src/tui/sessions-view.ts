@@ -29,7 +29,7 @@ import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwn
 import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type PanelViewport, type CardCommandHit, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { DOWN, PAGE_DOWN, PAGE_UP, UP, hitAt, type DialogHit } from "./dialog-mouse.js";
-import { noColor, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
+import { noColor, quietTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
 import type { PickerItem } from "./two-column-picker.js";
 import type { FollowSidePaneResult } from "../app/side-pane.js";
 import type { CollapsibleSection, SessionsViewState } from "./dialog.js";
@@ -78,6 +78,14 @@ const MIN_RENDER_WIDTH = MIN_LAYOUT_WIDTH;
 const DOUBLE_CLICK_MS = 400;
 /** Follow view waits for the selection to settle so held j/k does not retarget per row. */
 const FOLLOW_SETTLE_MS = 200;
+/** Two pane polls: after input the dashboard stays bright until the poll can confirm focus. */
+const FOCUS_INPUT_GRACE_MS = 1_000;
+const BURST_GAP_MS = 150;
+const BURST_QUIET_MS = 600;
+/** Held navigation keys auto-repeat faster than BURST_GAP_MS. */
+const REPEATABLE_KEYS = new Set(["j", "k", "J", "K", "+", "-"]);
+/** Dialogs whose keys are choices, not text. */
+const COMMAND_DIALOGS = new Set<SessionDialog["kind"]>(["confirm", "archive", "help", "usage"]);
 
 interface ReplyDraft {
   target: InteractionTarget;
@@ -164,6 +172,8 @@ export class SessionsView implements Component {
   private revealedSessionId: string | undefined;
   private themeLoadRequest = 0;
   private themeLoading = false;
+  private pickerLoadRequest = 0;
+  private pickerLoading = false;
   private projection?: DashboardProjection;
   private projectionRegistry?: object;
   private projectionKey = "";
@@ -172,8 +182,15 @@ export class SessionsView implements Component {
   private dismissedReleaseCueId: string | undefined;
   private releaseCueSelected = false;
   private releaseCueEnabled: boolean;
+  private lastInputAt?: number;
+  private burstUntil?: number;
+  private lastCommandKey?: { key: string; at: number; dialogKind?: SessionDialog["kind"]; pendingRestart: boolean; cardPanel: boolean; busy: boolean };
+  private unfocused = false;
+  private observedFocus?: "focused" | "unfocused";
+  private focusGraceTimer: ReturnType<typeof setTimeout> | undefined;
+  private quietCache?: { base: SessionsTheme; quiet: SessionsTheme };
 
-  constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private theme?: SessionsTheme) {
+  constructor(private controller: SessionsController, private stop: () => void, private actions: SessionsViewActions = {}, private baseTheme?: SessionsTheme) {
     this.grouping = actions.initialViewState?.grouping ?? "project";
     this.fleetGrouping = actions.initialViewState?.fleetGrouping ?? "status";
     this.collapsedSections = new Set(actions.initialViewState?.collapsedSections ?? []);
@@ -204,7 +221,32 @@ export class SessionsView implements Component {
   }
 
   setTheme(theme: SessionsTheme): void {
-    this.theme = theme;
+    this.baseTheme = theme;
+  }
+
+  /** The quiet variant while another pane in the window has the keyboard. */
+  private get theme(): SessionsTheme | undefined {
+    if (!this.unfocused || !this.baseTheme) return this.baseTheme;
+    if (this.quietCache?.base !== this.baseTheme) this.quietCache = { base: this.baseTheme, quiet: quietTheme(this.baseTheme) };
+    return this.quietCache.quiet;
+  }
+
+  /**
+   * Any input proves the keyboard is here, ahead of the next pane poll. Input from before an observed
+   * focus loss proves nothing: focus intents such as Alt+1 reach the dashboard on their way out.
+   */
+  private dashboardUnfocused(now: number): boolean {
+    const focus = this.pinState().dashboardFocus;
+    if (focus === "unfocused" && this.observedFocus !== "unfocused") this.lastInputAt = undefined;
+    this.observedFocus = focus;
+    if (focus !== "unfocused") return false;
+    if (this.lastInputAt === undefined) return true;
+    const remaining = FOCUS_INPUT_GRACE_MS - (now - this.lastInputAt);
+    if (remaining <= 0) return true;
+    // Nothing else redraws when the grace ends, so the fade would wait for an unrelated update.
+    if (this.focusGraceTimer) clearTimeout(this.focusGraceTimer);
+    this.focusGraceTimer = setTimeout(() => { this.focusGraceTimer = undefined; this.actions.requestRender?.(); }, remaining);
+    return false;
   }
 
   setMessage(message: string | undefined): void {
@@ -216,6 +258,45 @@ export class SessionsView implements Component {
   }
 
   handleInput(data: string): void {
+    this.lastInputAt = this.actions.now?.() ?? Date.now();
+    if (this.guardTyping(data, this.lastInputAt)) return;
+    this.dispatchInput(data);
+  }
+
+  /**
+   * Keys typed into the wrong pane arrive faster than deliberate shortcuts. Only in a shared window, a
+   * printable key within BURST_GAP_MS of a command key starts drop mode: it dismisses what the first
+   * key opened and drops every key until BURST_QUIET_MS pass without one.
+   */
+  private guardTyping(data: string, now: number): boolean {
+    if (isMouseSequence(data) || this.pinState().dashboardFocus === undefined) return false;
+    if (this.burstUntil !== undefined && now < this.burstUntil) {
+      this.burstUntil = now + BURST_QUIET_MS;
+      return true;
+    }
+    this.burstUntil = undefined;
+    const previous = this.lastCommandKey;
+    this.lastCommandKey = undefined;
+    if (data.length !== 1 || data < " " || data === "\u007f") return false;
+    if (previous && now - previous.at < BURST_GAP_MS && !(data === previous.key && REPEATABLE_KEYS.has(data))) {
+      this.burstUntil = now + BURST_QUIET_MS;
+      // Conversation focus would consume a dispatched Escape before the restart chooser sees it.
+      if (this.pendingRestart !== undefined && !previous.pendingRestart) this.clearPendingRestart();
+      else if ((this.dialog !== undefined && this.dialog.kind !== previous.dialogKind)
+        || (this.cardPanel !== undefined && !previous.cardPanel)
+        || (this.busy && !previous.busy)) this.dispatchInput("\u001b");
+      this.flashMessage(`Typing in the dashboard ${glyphs.dash} keys ignored`);
+      return true;
+    }
+    const commandSurface = (!this.dialog || COMMAND_DIALOGS.has(this.dialog.kind)) && !this.cardPanel;
+    if (commandSurface) {
+      this.lastCommandKey = { key: data, at: now, dialogKind: this.dialog?.kind, pendingRestart: this.pendingRestart !== undefined,
+        cardPanel: this.cardPanel !== undefined, busy: this.busy };
+    }
+    return false;
+  }
+
+  private dispatchInput(data: string): void {
     if (this.grouping !== "stage") this.workspaceSessionId = undefined;
     if (this.workspaceSessionId && this.controller.selected()?.id !== this.workspaceSessionId) this.closeWorkspace();
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
@@ -253,9 +334,11 @@ export class SessionsView implements Component {
     }
 
     if (this.busy) {
-      if (this.themeLoading && matchesKey(data, Key.escape)) {
+      if ((this.themeLoading || this.pickerLoading) && matchesKey(data, Key.escape)) {
         this.themeLoadRequest += 1;
+        this.pickerLoadRequest += 1;
         this.themeLoading = false;
+        this.pickerLoading = false;
         this.busy = false;
         this.message = undefined;
       } else if (data === "q") {
@@ -397,6 +480,15 @@ export class SessionsView implements Component {
   }
 
   render(width: number): string[] {
+    this.unfocused = this.dashboardUnfocused(this.actions.now?.() ?? Date.now());
+    const lines = this.renderFrame(width);
+    if (!this.unfocused) return lines;
+    this.selectedRowAnimating = false;
+    // Removing SGR codes keeps visible width, so hit maps stay valid.
+    return lines.map((line) => line.replaceAll("\u001b[1m", ""));
+  }
+
+  private renderFrame(width: number): string[] {
     this.reconcileDeliveryResults();
     this.cardCommandHits = [];
     this.selectedRowAnimating = false;
@@ -534,6 +626,7 @@ export class SessionsView implements Component {
       grouping: this.grouping,
       fleetGrouping: this.fleetGrouping,
       now,
+      animateSelected: !this.unfocused,
       pinSlots: sidePaneState.slots,
       activePinnedSessionId: sidePaneState.activeSessionId,
       pinCapacity: sidePaneState.capacity,
@@ -603,6 +696,8 @@ export class SessionsView implements Component {
   disposeInteraction(): void {
     if (this.followTimer) clearTimeout(this.followTimer);
     this.followTimer = undefined;
+    if (this.focusGraceTimer) clearTimeout(this.focusGraceTimer);
+    this.focusGraceTimer = undefined;
     for (const result of this.deliveryResults.values()) clearTimeout(result.settle);
     this.interactionStopped = true; this.closeConversation(); this.interaction.setTarget(undefined);
   }
@@ -1139,7 +1234,7 @@ export class SessionsView implements Component {
     if (event.kind === "wheel") {
       const keys = this.dialogWheelKeys();
       if (!keys) return false;
-      this.handleInput(event.delta < 0 ? keys[0] : keys[1]);
+      this.dispatchInput(event.delta < 0 ? keys[0] : keys[1]);
       return true;
     }
     const hit = hitAt(this.dialogHits, event.y - 1, event.x);
@@ -1149,8 +1244,8 @@ export class SessionsView implements Component {
     const elapsed = this.lastMouseClick?.target === target ? now - this.lastMouseClick.at : undefined;
     const doubleClick = elapsed !== undefined && elapsed >= 0 && elapsed <= DOUBLE_CLICK_MS;
     if (hit.select) this.dialog = hit.select(this.dialogContext());
-    if (hit.key) this.handleInput(hit.key);
-    if (doubleClick && hit.confirm) this.handleInput(hit.confirm);
+    if (hit.key) this.dispatchInput(hit.key);
+    if (doubleClick && hit.confirm) this.dispatchInput(hit.confirm);
     this.lastMouseClick = doubleClick ? undefined : { target, at: now };
     return true;
   }
@@ -1823,7 +1918,7 @@ export class SessionsView implements Component {
     if (footerItem) {
       // A footer tap is the same input as its key, so every availability guard still applies.
       this.lastMouseClick = undefined;
-      this.handleInput(footerItem.key === "Enter" ? "\r" : footerItem.key === "Esc" ? "\u001b" : footerItem.key);
+      this.dispatchInput(footerItem.key === "Enter" ? "\r" : footerItem.key === "Esc" ? "\u001b" : footerItem.key);
       return;
     }
     const announcementTarget = event.kind === "press" ? this.announcementRowTargets[event.y - 1] : undefined;
@@ -1961,13 +2056,19 @@ export class SessionsView implements Component {
       return;
     }
     if (isPromise<PickerItem[]>(result)) {
+      const request = ++this.pickerLoadRequest;
       this.busy = true;
+      this.pickerLoading = true;
       this.message = `loading ${mode}...`;
       void result.then((items) => {
+        if (request !== this.pickerLoadRequest) return;
         this.busy = false;
+        this.pickerLoading = false;
         this.setPickerDialog(mode, items, target);
       }).catch((error: unknown) => {
+        if (request !== this.pickerLoadRequest) return;
         this.busy = false;
+        this.pickerLoading = false;
         this.message = errorMessage(error);
       });
       return;
@@ -1991,7 +2092,7 @@ export class SessionsView implements Component {
     this.message = undefined;
     const selected = this.controller.selected();
     if (!selected) return;
-    if (selected.status === "stopped" || selected.status === "error") {
+    if (selected.kind !== "subagent" && (selected.status === "stopped" || selected.status === "error")) {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;
@@ -2022,7 +2123,7 @@ export class SessionsView implements Component {
       this.message = "session is no longer available";
       return;
     }
-    if (selected.status === "stopped" || selected.status === "error") {
+    if (selected.kind !== "subagent" && (selected.status === "stopped" || selected.status === "error")) {
       if (this.actions.restart) this.runAction(() => this.actions.restart?.(selected.id), "starting session...");
       else this.message = `session ${selected.status}; press r twice to restart`;
       return;

@@ -35,7 +35,11 @@ export interface ConfirmDialog extends BoundedConfirmation {
   purpose: "delete" | "finish";
   targetId: string;
   busy: false | "session" | "subagents" | "worktree" | "finish";
+  openedAt: number;
 }
+
+/** Confirm keys that arrive faster than this after opening are typing, not a decision. */
+export const CONFIRM_ARM_MS = 500;
 
 /** Binds the chooser to the parent row and Pi conversation captured when A was pressed. */
 export interface ArchiveDialog {
@@ -127,7 +131,7 @@ function archiveTargetAvailable(target: ManagedSession | undefined, piSessionId:
 export function openDeleteDialog(ctx: ConfirmDialogContext): ConfirmDialog | undefined {
   const selected = ctx.controller.selected();
   if (!selected) return undefined;
-  return { kind: "confirm", purpose: "delete", targetId: selected.id, busy: false, ...confirmationState() };
+  return { kind: "confirm", purpose: "delete", targetId: selected.id, busy: false, openedAt: ctx.now(), ...confirmationState() };
 }
 
 export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | undefined {
@@ -145,12 +149,19 @@ export function openFinishDialog(ctx: ConfirmDialogContext): ConfirmDialog | und
     ctx.setMessage("finish worktree unavailable");
     return undefined;
   }
-  return { kind: "confirm", purpose: "finish", targetId: selected.id, busy: false, ...confirmationState() };
+  return { kind: "confirm", purpose: "finish", targetId: selected.id, busy: false, openedAt: ctx.now(), ...confirmationState() };
 }
 
 export function handleConfirmInput(dialog: ConfirmDialog, data: string, ctx: ConfirmDialogContext, review: ConfirmationReview | undefined): ConfirmDialog | undefined {
   if (dialog.busy) return dialog;
   if (matchesKey(data, Key.escape)) { ctx.setMessage(undefined); return undefined; }
+  const paging = matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown);
+  // Stray typing must disarm the dialog: any other key, or a choice pressed too soon, cancels it.
+  const choice = confirmChoices(dialog, ctx).includes(data);
+  if (!paging && (!choice || ctx.now() - dialog.openedAt < CONFIRM_ARM_MS)) {
+    ctx.setMessage(`${dialog.purpose === "delete" ? "delete" : "finish"} cancelled${choice ? ` ${glyphs.dash} pause before confirming` : ""}`);
+    return undefined;
+  }
   if (!review || review.targetId !== dialog.targetId) return dialog;
   const seen = readConfirmation(dialog, review);
   if (matchesKey(data, Key.pageUp)) return scrollConfirmation(seen, -review.pageSize);
@@ -173,6 +184,14 @@ export function handleRestartDialogInput(dialog: RestartDialog, data: string, ct
   if (data === "n" || data === "N") return "new";
   if (data === "a") return "all";
   return seen;
+}
+
+function confirmChoices(dialog: ConfirmDialog, ctx: ConfirmDialogContext): string[] {
+  if (dialog.purpose === "finish") return ["w"];
+  const target = ctx.controller.snapshot().registry.sessions.find((session) => session.id === dialog.targetId);
+  const worktree = Boolean(target && isWorktreeSession(target) && target.worktreeOwnedByHub === true);
+  const subagents = target?.kind !== "subagent" && subagentTargets(dialog.targetId, ctx).length > 0;
+  return ["d", ...(subagents ? ["s"] : []), ...(worktree ? ["D", "w"] : [])];
 }
 
 function readConfirmation<T extends BoundedConfirmation>(dialog: T, review: ConfirmationReview): T {

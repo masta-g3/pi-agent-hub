@@ -408,7 +408,7 @@ pi-hub mcp-pool
 
 ## Plain terminals
 
-Set `NO_COLOR` to any non-empty value to remove dashboard foreground and background colors. Bold stays available. The selected session keeps its marker in reverse video. An empty `NO_COLOR` value does not disable color. While color is disabled, Hub skips Pi theme synchronization and disables the dashboard theme picker.
+Set `NO_COLOR` to any non-empty value to remove dashboard foreground and background colors, including card surfaces and bands. Bold stays available: tier pills, request pills and keycaps become bold words. The selected session keeps its stripe marker in reverse video. An empty `NO_COLOR` value does not disable color. While color is disabled, Hub skips Pi theme synchronization and disables the dashboard theme picker.
 
 Set `PI_AGENT_HUB_GLYPHS=ascii` to use ASCII dashboard symbols, borders, navigation hints, and truncation marks:
 
@@ -426,7 +426,7 @@ Press `t` to open dashboard theme settings. The list contains Pi's `dark` and `l
 
 Moving through fixed themes previews the dashboard immediately. Selecting Automatic exposes separate light and dark choices; `←`/`→` changes the focused choice. Those choices remain intact when browsing fixed themes and returning to Automatic within the same dialog. `Space` toggles **Sync to Pi**, `Enter` saves, and `Escape` restores the theme active when the dialog opened. Preview updates dashboard ANSI, dashboard status chrome, and sidebar pane borders only. It does not write settings or alter managed Pi sessions.
 
-Synchronization defaults on when `dashboard.themeSync` is absent or `true`. Pi's global `theme` in `<PI_CODING_AGENT_DIR>/settings.json` is then the source of truth; Hub does not mirror it. Confirming saves through Pi's settings manager, clears any detached Hub override, and asks every currently live managed parent session to apply the resolved concrete theme once. New managed and unmanaged Pi processes inherit the saved global setting normally. Existing subagent processes are not targets, and a running session may change its own theme afterward because Hub does not continuously enforce the choice.
+Synchronization defaults on when `dashboard.themeSync` is absent or `true`. Pi's global `theme` in `<PI_CODING_AGENT_DIR>/settings.json` is then the source of truth; Hub does not mirror it. Confirming saves through Pi's settings manager, clears any detached Hub override, and asks every currently live managed session, including subagents, to apply the resolved concrete theme once. New managed and unmanaged Pi processes inherit the saved global setting normally. A running session may change its own theme afterward because Hub does not continuously enforce the choice.
 
 Set `dashboard.themeSync` to `false` by toggling Sync off in the dialog. Hub snapshots the visible Pi theme setting into `dashboard.theme` and thereafter uses that independent override without writing Pi settings or changing Pi sessions. Re-enabling sync pushes the visible Hub setting to Pi globally. The old `dashboard.themeSessionId` anchor is obsolete and is removed the next time theme preferences are saved.
 
@@ -434,4 +434,4 @@ Pi represents Automatic as `<light-theme>/<dark-theme>`. On macOS, Hub follows s
 
 The dashboard periodically checks the lightweight effective setting and selected source file, but does not rerun package resolution every second. Reopen/reload the dashboard after installing or removing global theme packages. Missing or invalid selected themes render with Hub's bounded dark theme fallback without rewriting the saved setting.
 
-Managed sessions continue publishing their actual `ctx.ui.theme` snapshot through heartbeats for their own tmux footer and chrome. Session entry, panel assignment, selection movement, and heartbeat freshness never choose or recolor the dashboard theme. The dashboard uses `selectedBg` for selected rows, `accent` for focused panel borders/title badges/slot cues, and `border` or `dim` for inactive panel chrome.
+Managed sessions continue publishing their actual `ctx.ui.theme` snapshot through heartbeats for their own tmux footer and chrome. Session entry, panel assignment, selection movement, and heartbeat freshness never choose or recolor the dashboard theme. The dashboard uses `selectedBg` for the selected card, `accent` for focus cues and slot markers, and `border` or `dim` for inactive dialog chrome. It derives the remaining surfaces from the theme: raised cards and keycaps from `selectedBg`, and the header/footer bands from `statusLineBg` (or `selectedBg` when unset). Themes with a non-hex `selectedBg` show the same layout without painted cards, bands, pills, or keycap backgrounds.

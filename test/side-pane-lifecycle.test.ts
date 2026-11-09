@@ -209,6 +209,7 @@ test("presence adopts named pins and publishes the complete live snapshot", asyn
     pins: [{ slot: 1, sessionId: "api", tmuxSession: "pi-agent-hub-api", paneId: "%2", title: "API", active: true,
       rect: { left: 43, top: 0, width: 117, height: 59 } }],
     activeSessionId: "api", capacity: 4, constrained: false, hidden: false, following: false, splitPercent: 50, dashboardStatusVisible: false,
+    dashboardFocus: "unfocused",
   });
   assert.equal(value.tmux.ownTitle, "PI HUB / PINNED FLEET");
   assert.equal(value.tmux.panes[0]?.title, "LIVE 1 · API · Alt+1–4 · Ctrl+Q");
@@ -302,6 +303,18 @@ test("spatial focus treats cockpit as a synthetic left neighbor", async (t) => {
   before(value.events, "ack:api", "focus:%2");
   assert.deepEqual(await value.lifecycle.focusDirection("left"), { kind: "focused" });
   assert.equal(value.events.at(-2) === "focus:%1" || value.events.includes("focus:%1"), true);
+});
+
+test("presence reports dashboard focus only while the window has another pane", async (t) => {
+  const value = await harness(t, { initial: [{ session: "pi-agent-hub-api" }] });
+  await waitFor(() => value.lifecycle.snapshot().dashboardFocus === "focused");
+  value.tmux.ownActive = false;
+  value.tmux.panes[0]!.active = true;
+  await waitFor(() => value.lifecycle.snapshot().dashboardFocus === "unfocused");
+  value.tmux.panes.splice(0, 1);
+  value.tmux.ownActive = true;
+  await waitFor(() => value.lifecycle.snapshot().pins.length === 0);
+  assert.equal(value.lifecycle.snapshot().dashboardFocus, undefined);
 });
 
 test("presence follows externally focused pane identity and acknowledges waiting", async (t) => {

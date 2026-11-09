@@ -178,6 +178,31 @@ test("selected action availability mirrors row and capability guards with reason
   assert.equal(childCommands.find((command) => command.label === "Restart choices…")?.disabledReason, "unavailable for subagents");
 });
 
+function subagentEvidence(tmux: "present" | "missing"): RuntimeSession["statusEvidence"] {
+  return {
+    observedAt: 1, reason: tmux === "present" ? "heartbeat-error" : "tmux-missing", tmux: { state: tmux },
+    heartbeat: { freshness: "missing" }, acknowledgement: { state: "not-applicable" }, workflow: { source: "absent" },
+  };
+}
+
+test("subagent Open attaches to live tmux and never offers Restart", () => {
+  const open = (values: Partial<RuntimeSession>) => {
+    const selected = session("child", { kind: "subagent", parentId: "owner", ...values });
+    return buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: allCapabilities })
+      .find((command) => command.id === "action:child:open")!;
+  };
+  const attachable = open({ status: "error", statusEvidence: subagentEvidence("present") });
+  assert.deepEqual([attachable.label, attachable.enabled], ["Open in Pi", true]);
+  for (const values of [{ status: "error" as const, statusEvidence: subagentEvidence("missing") }, { status: "error" as const }, { status: "stopped" as const }]) {
+    const ended = open(values);
+    assert.deepEqual([ended.label, ended.enabled, ended.disabledReason], ["Open in Pi", false, "subagent session ended"]);
+  }
+  const parent = session("parent", { status: "error", statusEvidence: subagentEvidence("present") });
+  const parentOpen = buildDashboardCommands({ sessions: [parent], selectedId: parent.id, capabilities: allCapabilities })
+    .find((command) => command.id === "action:parent:open")!;
+  assert.deepEqual([parentOpen.label, parentOpen.enabled], ["Restart", true]);
+});
+
 test("attention view commands are exact, unbound, and stateful", () => {
   const selected = session("alpha", { status: "idle", acknowledgedAt: 10, context: { version: 1, updatedAt: 20, attention: { requestId: "req/1", kind: "question", text: "Choose" } } });
   const commands = buildDashboardCommands({
@@ -308,6 +333,8 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     { name: "error", values: { status: "error" }, guidance: "Check Details before restarting.", actions: ["info", "open", "archive"], primaryLabel: "Details" },
     { name: "stopped", values: { status: "stopped", bucket: "backlog" }, guidance: "Restart to continue.", actions: ["open", "restore", "archive"], primaryLabel: "Restart" },
     { name: "subagent", values: { kind: "subagent", parentId: "owner", status: "idle" }, actions: ["open", "info"], primaryLabel: "Open in Pi" },
+    { name: "subagent-error", values: { kind: "subagent", parentId: "owner", status: "error", statusEvidence: subagentEvidence("present") }, actions: ["open", "info"], primaryLabel: "Open in Pi" },
+    { name: "subagent-stopped", values: { kind: "subagent", parentId: "owner", status: "stopped" }, actions: ["info"], primaryLabel: "Details" },
     { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "archive", "restore"], primaryLabel: "Open in Pi" },
     { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open in Pi" },
     { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open in Pi" },

@@ -47,6 +47,7 @@ export interface PinLayout extends PaneRectangle {}
 
 export interface SidePaneStatus {
   pins: Pin[];
+  shared: boolean;
   duplicatePaneIds: string[];
   activeSessionId?: string;
   own?: WindowPane;
@@ -69,6 +70,8 @@ export type SpatialDirection = "left" | "right";
 
 interface InspectedWindow {
   own?: WindowPane;
+  /** The window holds panes besides the dashboard, managed or not. */
+  shared: boolean;
   pins: Pin[];
   duplicatePaneIds: string[];
 }
@@ -187,6 +190,7 @@ export async function sidePaneStatus(options: { ownPane: string }, exec: TmuxExe
   const active = inspected.pins.find((pin) => pin.active);
   return {
     pins: inspected.pins,
+    shared: inspected.shared,
     duplicatePaneIds: inspected.duplicatePaneIds,
     ...(active ? { activeSessionId: active.session } : {}),
     ...(own ? { own, windowWidth: own.windowWidth, windowHeight: own.windowHeight } : {}),
@@ -398,7 +402,7 @@ async function inspectSidePaneWindow(ownPane: string, exec: TmuxExec): Promise<I
   const panes = await listWindowPanes(ownPane, exec);
   const own = panes.find((pane) => pane.id === ownPane);
   const candidates = panes.filter((pane) => pane.id !== ownPane);
-  if (!candidates.length) return { own, pins: [], duplicatePaneIds: [] };
+  if (!candidates.length) return { own, shared: false, pins: [], duplicatePaneIds: [] };
   const clients = await clientSessionsByTty(exec);
   const managed = candidates.flatMap((pane) => {
     const session = clients.get(pane.tty);
@@ -440,7 +444,7 @@ async function inspectSidePaneWindow(ownPane: string, exec: TmuxExec): Promise<I
     active: item.pane.active,
     rect: { left: item.pane.left, top: item.pane.top, width: item.pane.width, height: item.pane.height },
   }] : []).sort((a, b) => a.slot - b.slot);
-  return { own, pins, duplicatePaneIds };
+  return { own, shared: true, pins, duplicatePaneIds };
 }
 
 /** Below 120 columns any pair stacks; otherwise slots above 2 use the 1/3 and 2/4 columns. */

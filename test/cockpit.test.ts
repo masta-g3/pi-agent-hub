@@ -70,10 +70,11 @@ test("status view leaves the quiet cue to its tier heading while repo grouping k
       assert.ok(index >= 0, id);
       return stripAnsi(layout.lines[index + offset] ?? "");
     };
-    return { metadata: line("mcp", 1), backlog: line("theme", 0) };
+    // Cards carry their identity, including Repo grouping's tier cue, on the title line.
+    return { metadata: line("mcp", 0), backlog: line("theme", 0) };
   };
   const status = rowLines("status");
-  assert.doesNotMatch(status.metadata, /quiet/);
+  assert.doesNotMatch(status.metadata, /quiet|QUIET/);
   assert.match(status.backlog, /backlog/);
   assert.doesNotMatch(status.backlog, /quiet/);
   const repo = rowLines("repo");
@@ -119,7 +120,8 @@ test("attention announcement follows the responsive hierarchy and exact hit targ
   ];
   for (const width of [40, 60, 99, 100, 119, 120, 159, 160]) {
     const layout = renderSessions(buildRenderModel({ sessions, width, height: 24, now: COCKPIT_NOW, attentionAnnouncements: announcements }));
-    const row = width <= 60 ? 1 : 2;
+    // The announcement sits directly below the header band at every width.
+    const row = 1;
     const line = stripAnsi(layout.lines[row] ?? "");
     assert.match(line, /\? 2 NEW/);
     assert.match(line, /Docs/);
@@ -139,7 +141,7 @@ test("attention announcement follows the responsive hierarchy and exact hit targ
     now: COCKPIT_NOW,
     attentionAnnouncements: [{ ...announcements[0]!, title: "A very long requesting session identity that must yield space" }, announcements[1]!],
   }));
-  assert.match(stripAnsi(crowded.lines[2] ?? ""), /“Choose release target”.*\+1 more.*: locate/);
+  assert.match(stripAnsi(crowded.lines[1] ?? ""), /“Choose release target”.*\+1 more.*: locate/);
 
   const boundedRequest = "r".repeat(96);
   const widest = renderSessions(buildRenderModel({
@@ -149,10 +151,10 @@ test("attention announcement follows the responsive hierarchy and exact hit targ
     now: COCKPIT_NOW,
     attentionAnnouncements: [{ ...announcements[0]!, text: boundedRequest }],
   }));
-  assert.match(stripAnsi(widest.lines[2] ?? ""), new RegExp(boundedRequest));
+  assert.match(stripAnsi(widest.lines[1] ?? ""), new RegExp(boundedRequest));
 
   const child = renderSessions(buildRenderModel({ sessions, width: 100, height: 24, now: COCKPIT_NOW, attentionAnnouncements: [announcements[1]!] }));
-  assert.match(stripAnsi(child.lines[2] ?? ""), /! BLOCKED.*Worker → API.*Need access/);
+  assert.match(stripAnsi(child.lines[1] ?? ""), /! BLOCKED.*Worker → API.*Need access/);
 
   const short = renderSessions(buildRenderModel({ sessions, width: 100, height: 10, now: COCKPIT_NOW, attentionAnnouncements: announcements }));
   assert.doesNotMatch(short.lines.map(stripAnsi).join("\n"), /: locate/);
@@ -166,12 +168,12 @@ test("attention announcement remains available in workflow empty state and compa
   const announcement = { sessionId: backlog.id, requestId: "req", kind: "ready" as const, text: "Review", title: backlog.title, announcedAt: 100, expiresAt: 6_100 };
   const board = renderSessions(buildRenderModel({ sessions: [backlog], grouping: "stage", width: 100, height: 20, now: 200, attentionAnnouncements: [announcement] }));
   assert.match(board.lines.map(stripAnsi).join("\n"), /✓ READY.*: locate/);
-  assert.equal(board.announcementRowTargets[2], `view:locate-attention:${backlog.id}:req`);
+  assert.equal(board.announcementRowTargets[1], `view:locate-attention:${backlog.id}:req`);
 
   const pinned = renderSessions(buildRenderModel({ sessions: [backlog], width: 100, height: 20, now: 200, attentionAnnouncements: [announcement], pinSlots: [backlog.id], pinCapacity: 2 }));
-  assert.match(stripAnsi(pinned.lines[2] ?? ""), /✓ READY.*: locate/);
-  assert.doesNotMatch(stripAnsi(pinned.lines[2] ?? ""), /Review/);
-  assert.match(stripAnsi(pinned.lines[3] ?? ""), /^│── NEEDS YOU/);
+  assert.match(stripAnsi(pinned.lines[1] ?? ""), /✓ READY.*: locate/);
+  assert.doesNotMatch(stripAnsi(pinned.lines[1] ?? ""), /Review/);
+  assert.match(stripAnsi(pinned.lines[2] ?? ""), /^ {3}NEEDS YOU/);
 });
 
 test("Backlog lifecycle stays independent from higher-priority cockpit signals", () => {
