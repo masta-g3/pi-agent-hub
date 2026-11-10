@@ -47,11 +47,14 @@ test("phone metadata shows the plain step instead of a grid", () => {
     assert.ok(!lines.some(line => /PL\s+EX/.test(line)));
     for (const session of sessions) {
       const index = titleIndex(layout, session.id);
-      const label = steps[session.workflow!.activeIndex]!.label;
-      // Modules name their step in words on a STEP line; one-line rows end their title with it.
-      const own = lines[index]!.trimEnd().endsWith(label!) || lines.slice(index + 1, index + 6).some(line => line.includes(`STEP  ${label}`));
-      assert.ok(own, `${width}:\n${lines.slice(index, index + 6).join("\n")}`);
+      // Every roster title row, the selected one included, ends with its own step short.
+      const short = steps[session.workflow!.activeIndex]!.short;
+      assert.ok(lines[index]!.trimEnd().endsWith(` ${short}`), `${width}:\n${lines[index]}`);
     }
+    // The docked card names the selected session's step in words.
+    const rule = lines.findIndex((line, row) => row > 0 && /^─{20,}$/u.test(line.trim()));
+    assert.ok(rule > titleIndex(layout, "s0"));
+    assert.ok(lines.slice(rule + 1).some(line => /^▌ +STEP {2}Plan *$/.test(line)), `${width}:\n${lines.slice(rule).join("\n")}`);
   }
 });
 

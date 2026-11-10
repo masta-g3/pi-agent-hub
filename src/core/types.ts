@@ -53,8 +53,30 @@ export interface SessionPlanSummary {
     completed: number;
     total: number;
   };
-  phases?: { completed: number; total: number }[];
+  phases?: { completed: number; total: number; title?: string }[];
   nextStep?: string;
+  /** The current phase's checklist, windowed by the producer; `before`/`after` count tasks it left out. */
+  current?: { tasks: { done: boolean; text: string }[]; before: number; after: number };
+}
+
+/** One tool call an agent made: the tool's name and a short argument, never its output. */
+export interface SessionAction {
+  tool: string;
+  detail?: string;
+  at: number;
+}
+
+/** What a session is doing right now and did last; transient heartbeat data, never persisted. */
+export interface SessionActivity {
+  current?: SessionAction;
+  recent?: SessionAction[];
+}
+
+/** A producer's plain-words note on what the agent achieved and what comes next. */
+export interface SessionProgress {
+  done?: string;
+  next?: string;
+  updatedAt: number;
 }
 
 export type SessionAttentionKind = "ready" | "question" | "blocked";
@@ -101,6 +123,7 @@ export interface PiAgentHubContextV1 {
     description?: string;
   };
   attention?: SessionAttention;
+  progress?: SessionProgress;
   worktree?: WorktreeLifecycleSnapshot;
 }
 
@@ -196,6 +219,7 @@ export interface RuntimeSession extends ManagedSession {
   interaction?: { version: 1; instanceId: string };
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
+  activity?: SessionActivity;
   statusEvidence?: RuntimeStatusEvidence;
 }
 
@@ -230,6 +254,7 @@ export interface Heartbeat {
   piSessionName?: string;
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
+  activity?: SessionActivity;
 }
 
 export interface TmuxState {

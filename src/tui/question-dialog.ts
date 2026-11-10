@@ -188,6 +188,8 @@ function coLocateCatchAll(question: PendingQuestion["params"]["questions"][numbe
 export function renderQuestionPanel(dialog: QuestionDialog, width: number, theme?: SessionsTheme): RenderCardPanel & { body: string[] } {
   const styled = (text: string) => theme ? styleToken(theme, "muted", text) : text;
   const question = dialog.request.params.questions[dialog.page];
+  // An option's key reads as a key: the digit in bold accent, its brackets dim. The text stays the same unpainted.
+  const keyTile = (key: string) => theme ? `${styleToken(theme, "dim", "[")}\x1b[1m${styleToken(theme, "accent", key)}\x1b[22m${styleToken(theme, "dim", "]")}` : `[${key}]`;
   const body: string[] = [];
   const hangingIndents: number[] = [];
   const focusRows: number[] = [];
@@ -224,16 +226,18 @@ export function renderQuestionPanel(dialog: QuestionDialog, width: number, theme
       question.options.forEach((source, index) => {
         const option = displayOption(source);
         const focused = index === dialog.choice;
-        const prefix = `${focused ? glyphs.primary : " "} [${index + 1}] ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}`;
+        const prefix = `${focused ? glyphs.primary : " "} ${keyTile(`${index + 1}`)} ${question.multiSelect ? dialog.selected.has(index) ? `[${glyphs.ready}] ` : "[ ] " : ""}`;
         const custom = coLocated && index === question.options.length - 1
-          ? `   ${dialog.choice === question.options.length ? `${glyphs.primary} ` : ""}[${question.options.length + 1}/t] Type something.` : "";
-        push(cleanMarkdown(`${prefix}${option.label}${option.recommended ? " [Recommended]" : ""}${custom}`), visibleWidth(prefix), focused || Boolean(custom && dialog.choice === question.options.length));
+          ? `   ${dialog.choice === question.options.length ? `${glyphs.primary} ` : ""}${keyTile(`${question.options.length + 1}/t`)} Type something.` : "";
+        const label = cleanMarkdown(option.label);
+        const recommended = option.recommended ? ` ${theme ? styleToken(theme, "accent", "[Recommended]") : "[Recommended]"}` : "";
+        push(`${prefix}${theme ? `\x1b[1m${label}\x1b[22m` : label}${recommended}${custom}`, visibleWidth(prefix), focused || Boolean(custom && dialog.choice === question.options.length));
         if ((width >= 100 || focused) && option.description) push(styled(cleanMarkdown(`${" ".repeat(visibleWidth(prefix))}${option.description}`)), visibleWidth(prefix), focused);
         if (focused && dialog.notes[dialog.page]) push(styled(`  ${glyphs.note} ${cleanMarkdown(dialog.notes[dialog.page]!)}`), 4);
         push("");
       });
       if (!coLocated) {
-        const customPrefix = `${dialog.choice === question.options.length ? glyphs.primary : " "} [${question.options.length + 1}] `;
+        const customPrefix = `${dialog.choice === question.options.length ? glyphs.primary : " "} ${keyTile(`${question.options.length + 1}`)} `;
         push(`${customPrefix}Type something.`, visibleWidth(customPrefix), dialog.choice === question.options.length);
       }
       if (dialog.choice === question.options.length && dialog.notes[dialog.page]) push(styled(`  ${glyphs.note} ${cleanMarkdown(dialog.notes[dialog.page]!)}`), 4);

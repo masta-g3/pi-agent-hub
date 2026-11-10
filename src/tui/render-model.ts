@@ -6,7 +6,7 @@ import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import { effectiveWorktreeLifecycle, worktreeMarker } from "../core/worktree-lifecycle.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionAttention, SessionClosure, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
+import type { PiAgentHubContextV1, RuntimeSession, SessionActivity, SessionAttention, SessionProgress, SessionClosure, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -66,6 +66,12 @@ export interface RenderSession {
   ticketDescription?: string;
   attention?: SessionAttention;
   pendingQuestion?: { header: string; question: string };
+  /** The selected session's latest message to the user, read live from its Pi branch; never persisted. */
+  lastMessage?: string;
+  messageExpanded?: boolean;
+  /** Live tool calls from a fresh heartbeat. */
+  activity?: SessionActivity;
+  progress?: SessionProgress;
   deliveryResult?: string;
   deliveryEmphasis?: boolean;
   boardDescendantCount?: number;
@@ -165,8 +171,9 @@ export interface RenderPlanSummary {
   feature?: string;
   phase?: { title: string; index: number; count: number };
   tasks?: { completed: number; total: number };
-  phases?: { completed: number; total: number }[];
+  phases?: { completed: number; total: number; title?: string }[];
   nextStep?: string;
+  current?: { tasks: { done: boolean; text: string }[]; before: number; after: number };
 }
 
 export interface BoardHiddenCounts {
@@ -180,6 +187,8 @@ export interface RenderCardPanel {
   hangingIndents?: number[];
   /** Logical option rows whose complete wrapped extent holds the cursor. */
   focusRows?: number[];
+  /** First body row of the question or reply itself; rows from here wrap at the reading measure. */
+  proseFrom?: number;
   /** Explicit newlines reserve separate local-key rows outside the scrollable body. */
   keyLine: string;
   offset: number;
@@ -579,6 +588,9 @@ export interface BuildRenderModelInput {
   workspaceEvidenceVisible?: boolean;
   workspaceFullScreen?: boolean;
   selectedQuestion?: { header: string; question: string };
+  selectedMessage?: string;
+  /** `C` shows the selected session's whole message in its card. */
+  selectedMessageExpanded?: boolean;
   deliveryResults?: ReadonlyMap<string, string>;
   deliveryEmphasis?: ReadonlySet<string>;
   cardPanel?: RenderCardPanel;
@@ -656,7 +668,11 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   for (const session of allMapped) {
     session.deliveryResult = input.deliveryResults?.get(session.id);
     session.deliveryEmphasis = input.deliveryEmphasis?.has(session.id);
-    if (session.id === selectedId) session.pendingQuestion = input.selectedQuestion;
+    if (session.id === selectedId) {
+      session.pendingQuestion = input.selectedQuestion;
+      session.lastMessage = input.selectedMessage;
+      session.messageExpanded = input.selectedMessageExpanded;
+    }
   }
   const mappedById = new Map(allMapped.map((session) => [session.id, session]));
   const listSelected = !input.archiveDisclosureSelected && !input.selectedSection && !input.selectedRepo && !input.releaseCueSelected;
@@ -1115,6 +1131,8 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     taskPreview: session.taskPreview,
     resultSummary: session.resultSummary,
     context: session.context,
+    ...(session.activity && session.status !== "stopped" ? { activity: session.activity } : {}),
+    ...(session.context?.progress ? { progress: session.context.progress } : {}),
     ...ticketDisplay(session),
     ...(session.kind !== "subagent" && subagentStats?.total ? {
       boardDescendantCount: subagentStats.total,
@@ -1190,6 +1208,7 @@ function planSummary(plan: NonNullable<WorkflowRuntimeSnapshot["plan"]>): Render
     tasks: plan.tasks,
     phases: plan.phases,
     nextStep: plan.nextStep,
+    current: plan.current,
   };
   return summary.phase || summary.tasks || summary.phases || summary.nextStep ? summary : undefined;
 }

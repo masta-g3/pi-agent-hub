@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { buildDashboardProjection, buildRenderModel, type RenderModel } from "../src/tui/render-model.js";
 import { renderSessions } from "../src/tui/layout.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
@@ -64,11 +64,12 @@ test("project cockpit classifies independent state axes without promotion", () =
 
 test("status view leaves the quiet cue to its tier heading while repo grouping keeps it", () => {
   const rowLines = (fleetGrouping: "status" | "repo") => {
-    const layout = renderSessions(buildRenderModel({ sessions: cockpitFleet(), width: 100, now: COCKPIT_NOW, fleetGrouping, expandedProjectParentIds: new Set(["quiet-parent"]) }));
+    // The roster takes 61 of 160 columns beside the side pane, room enough for the group and its tier cue.
+    const layout = renderSessions(buildRenderModel({ sessions: cockpitFleet(), width: 160, now: COCKPIT_NOW, fleetGrouping, expandedProjectParentIds: new Set(["quiet-parent"]) }));
     const line = (id: string, offset: number) => {
       const index = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
       assert.ok(index >= 0, id);
-      return stripAnsi(layout.lines[index + offset] ?? "");
+      return sliceByColumn(stripAnsi(layout.lines[index + offset] ?? ""), 0, layout.listWidth);
     };
     // Cards carry their identity, including Repo grouping's tier cue, on the title line.
     return { metadata: line("mcp", 0), backlog: line("theme", 0) };

@@ -35,6 +35,8 @@ export class SessionsController {
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
+  /** Live-only detail from fresh heartbeats: the plan checklist and recent tool calls. */
+  private liveDetails = new Map<string, { checklist?: NonNullable<RuntimeSession["workflow"]>["plan"]; activity?: RuntimeSession["activity"] }>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
   private explicitSelection = false;
@@ -119,9 +121,14 @@ export class SessionsController {
           : undefined;
         if (activeMode) this.workflowModes.set(id, activeMode);
         else this.workflowModes.delete(id);
+        const fresh = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat : undefined;
+        const checklist = fresh?.workflow?.plan?.current ? fresh.workflow.plan : undefined;
+        if (checklist || fresh?.activity) this.liveDetails.set(id, { ...(checklist ? { checklist } : {}), ...(fresh?.activity ? { activity: fresh.activity } : {}) });
+        else this.liveDetails.delete(id);
       } else if (!latest || latest.tmuxSession !== observation.tmuxSession) {
         this.sessionContexts.delete(id);
         this.workflowModes.delete(id);
+        this.liveDetails.delete(id);
         this.interactions.delete(id);
       }
     }
@@ -309,6 +316,7 @@ export class SessionsController {
     for (const removedId of ids) {
       this.sessionContexts.delete(removedId);
       this.workflowModes.delete(removedId);
+      this.liveDetails.delete(removedId);
       this.interactions.delete(removedId);
       this.statusEvidence.delete(removedId);
     }
@@ -349,11 +357,14 @@ export class SessionsController {
       const context = this.sessionContexts.get(session.id);
       const activeMode = this.workflowModes.get(session.id);
       const interaction = this.interactions.get(session.id);
-      const workflow = activeMode && session.workflow ? { ...session.workflow, activeMode } : session.workflow;
+      const live = this.liveDetails.get(session.id);
+      const workflow = session.workflow && (activeMode || live?.checklist)
+        ? { ...session.workflow, ...(activeMode ? { activeMode } : {}), ...(live?.checklist ? { plan: live.checklist } : {}) }
+        : session.workflow;
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
-      return interaction || context || workflow !== session.workflow || statusEvidence
-        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), workflow, ...(statusEvidence ? { statusEvidence } : {}) }
+      return interaction || context || workflow !== session.workflow || statusEvidence || live?.activity
+        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), workflow, ...(live?.activity ? { activity: live.activity } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }

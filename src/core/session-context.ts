@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import type { PiAgentHubContextV1, SessionAttention, WorktreeLifecycleRepository, WorktreeLifecycleSnapshot } from "./types.js";
+import type { PiAgentHubContextV1, SessionAttention, SessionProgress, WorktreeLifecycleRepository, WorktreeLifecycleSnapshot } from "./types.js";
 
 const TICKET_ID_MAX = 80;
 const SUBTITLE_MAX = 64;
@@ -8,6 +8,7 @@ const ATTENTION_MAX = 150;
 const ATTENTION_REQUEST_ID_MAX = 64;
 const RECOMMENDATION_MAX = 150;
 const ARTIFACT_MAX = 1024;
+const PROGRESS_MAX = 120;
 const WORKTREE_ID_MAX = 128;
 const WORKTREE_PRODUCER_MAX = 80;
 const WORKTREE_PATH_MAX = 1024;
@@ -24,11 +25,13 @@ export function parseSessionContext(value: unknown): PiAgentHubContextV1 | undef
   // Optional producer decorations are isolated: malformed lifecycle data must
   // not hide otherwise valid ticket, attention, or liveness metadata.
   const worktree = parseWorktreeLifecycle(value.worktree);
+  const progress = parseProgress(value.progress);
   return {
     version: 1,
     updatedAt: value.updatedAt,
     ...(ticket ? { ticket } : {}),
     ...(attention ? { attention } : {}),
+    ...(progress ? { progress } : {}),
     ...(worktree ? { worktree } : {}),
   };
 }
@@ -95,6 +98,13 @@ function parseAttention(value: unknown): SessionAttention | undefined {
     ...(recommendation ? { recommendation } : {}),
     ...(artifact ? { artifact } : {}),
   };
+}
+
+function parseProgress(value: unknown): SessionProgress | undefined {
+  if (!isObject(value) || !finiteNumber(value.updatedAt)) return undefined;
+  const done = boundedText(value.done, PROGRESS_MAX);
+  const next = boundedText(value.next, PROGRESS_MAX);
+  return done || next ? { ...(done ? { done } : {}), ...(next ? { next } : {}), updatedAt: value.updatedAt } : undefined;
 }
 
 // Paths keep internal whitespace; terminal controls are rejected before display or copy.

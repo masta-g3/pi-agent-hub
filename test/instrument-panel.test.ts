@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { renderSessions } from "../src/tui/layout.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
@@ -48,6 +49,38 @@ function render(sessions: RuntimeSession[], input: Partial<BuildRenderModelInput
   }), theme);
 }
 
+/** Below 100 columns no side pane shares the rows, so the roster is the whole line. */
+function sidePane(layout: ReturnType<typeof render>): boolean {
+  return layout.lines.some((line, index) => index > 0 && stripAnsi(sliceByColumn(line, layout.listWidth, 1)) === "│")
+    && !layout.lines.some((line, index) => index > 0 && /^─{20,}$/u.test(stripAnsi(line).trim()));
+}
+
+/** The roster's own part of every line, with its styling; at 100+ the selected card's pane sits right of `│`. */
+function rosterRaw(layout: ReturnType<typeof render>): string[] {
+  return sidePane(layout) ? layout.lines.map((line) => sliceByColumn(line, 0, layout.listWidth)) : layout.lines;
+}
+
+function rosterPlain(layout: ReturnType<typeof render>): string[] {
+  return rosterRaw(layout).map((line) => stripAnsi(line).trimEnd());
+}
+
+/** The side pane's text per body row (blank rows kept), or undefined when the card docks below the roster. */
+function paneLines(layout: ReturnType<typeof render>): string[] | undefined {
+  if (!sidePane(layout)) return undefined;
+  return layout.lines.map((line) => stripAnsi(sliceByColumn(line, layout.listWidth, visibleWidth(line))))
+    .flatMap((line) => line.startsWith("│") ? [line.slice(1).trimEnd()] : []);
+}
+
+/** The selected session's card: the side pane at 100+, else the docked rows below the rule. */
+function cardText(layout: ReturnType<typeof render>): string[] {
+  return paneLines(layout)?.filter((line) => line.trim()) ?? dockLines(layout);
+}
+
+/** The roster row of one session, with styling. */
+function rosterRow(layout: ReturnType<typeof render>, id: string): string {
+  return rosterRaw(layout)[layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id)]!;
+}
+
 test("the fleet panel keeps success for live work only", () => {
   const sessions = [
     ...fleet,
@@ -65,13 +98,14 @@ test("the fleet panel keeps success for live work only", () => {
 });
 
 test("every request kind reads as the one signal color in the fleet", () => {
-  const lines = render(fleet).lines;
-  for (const title of ["Ready agent", "Blocked agent"]) {
-    const line = lines.find((candidate) => stripAnsi(candidate).includes(title))!;
+  const layout = render(fleet);
+  for (const id of ["ready", "blocked"]) {
+    const title = `${id[0]!.toUpperCase()}${id.slice(1)} agent`;
+    const line = rosterRow(layout, id);
     assert.ok(line.includes(tone("warning")), `${title} is not warning: ${JSON.stringify(line)}`);
     assert.ok(!line.includes(tone("error")), `${title} reads as a fault`);
   }
-  const selected = render(fleet, { selectedId: "blocked" }).lines.find((line) => stripAnsi(line).includes("Blocked agent"))!;
+  const selected = rosterRow(render(fleet, { selectedId: "blocked" }), "blocked");
   assert.ok(selected.startsWith(tone("warning")) || selected.includes(`${tone("warning")}▌`), JSON.stringify(selected));
 });
 
@@ -83,11 +117,12 @@ test("accent marks controls: the mode label, selection stripe and keycaps", () =
   assert.ok(footer.includes(tone("accent")), "footer keycaps");
 });
 
-test("healthy quota bars in the fleet header are not success-colored", () => {
+test("quota bars in the fleet header keep the unmodified theme's success color", () => {
   const usage = mergeUsageSnapshots([parseUsageSnapshot(usageFixture(), USAGE_NOW)!]);
   const header = render(fleet, { usage, width: 200 }).lines[0]!;
   assert.match(stripAnsi(header), /Codex/);
-  assert.ok(!header.includes(tone("success")));
+  // The panel palette maps success to text for the fleet; account quotas read in the theme's own tones.
+  assert.ok(header.includes(tone("success")), JSON.stringify(header));
 });
 
 const faults = ["Catalog Sync", "Map Tiles Export"].map((title, index) =>
@@ -96,14 +131,15 @@ const faults = ["Catalog Sync", "Map Tiles Export"].map((title, index) =>
 test("tier headings are ruled, with the count in the tier's signal tone", () => {
   for (const width of [120, 46]) {
     const layout = render([...faults, ...fleet], { width });
-    const plain = layout.lines.map((line) => stripAnsi(line).trimEnd());
+    const plain = rosterPlain(layout);
+    const raw = rosterRaw(layout);
     for (const [label, count] of [["NEEDS YOU", 2], ["HEALTH", 2], ["ACTIVE", 1]] as const) {
       const index = plain.findIndex((line, row) => row > 0 && line.includes(` ${label} ${count} `));
       assert.ok(index >= 0, `${width}: ${label}\n${plain.join("\n")}`);
       assert.match(plain[index]!, new RegExp(`^.── ${label} ${count} ─+$`));
-      assert.ok(layout.lines[index]!.length > 0);
+      assert.ok(raw[index]!.length > 0);
     }
-    const heading = (label: string) => layout.lines[plain.findIndex((line, row) => row > 0 && line.includes(` ${label} `))]!;
+    const heading = (label: string) => raw[plain.findIndex((line, row) => row > 0 && line.includes(` ${label} `))]!;
     assert.ok(heading("NEEDS YOU").includes(styleToken(mocha, "warning", "2")));
     assert.ok(heading("HEALTH").includes(styleToken(mocha, "error", "2")));
   }
@@ -111,7 +147,7 @@ test("tier headings are ruled, with the count in the tier's signal tone", () => 
 
 test("a collapsed HEALTH tier folds to its heading like every other tier", () => {
   const layout = render([...faults, ...fleet], { collapsedSections: new Set(["health"]) });
-  const plain = layout.lines.map((line) => stripAnsi(line).trimEnd());
+  const plain = rosterPlain(layout);
   assert.match(plain.find((line, row) => row > 0 && line.includes(" HEALTH 2 "))!, /^ ▸─ HEALTH 2 ─+$/);
   assert.ok(!plain.some((line) => /Catalog Sync|Map Tiles Export|ERR/.test(line)), plain.join("\n"));
 });
@@ -137,7 +173,7 @@ function dockLines(layout: ReturnType<typeof render>): string[] {
 }
 
 function moduleLines(layout: ReturnType<typeof render>, id: string): string[] {
-  const plain = layout.lines.map((line) => stripAnsi(line).trimEnd());
+  const plain = rosterPlain(layout);
   const title = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
   const lines = [plain[title]!];
   for (let index = title + 1; layout.rowTargets[index]?.kind === "session-continuation"; index += 1) lines.push(plain[index]!);
@@ -157,37 +193,60 @@ test("modules align their field labels and show a field only with a value", () =
   }
 });
 
-test("an unselected request keeps three lines with its recommendation", () => {
-  const lines = moduleLines(render(panelFleet, { width: 80 }), "asking");
+test("an unselected request wraps to a second line and leaves its recommendation to the card", () => {
+  const layout = render(panelFleet, { width: 80 });
+  const lines = moduleLines(layout, "asking");
+  assert.equal(lines.length, 3, lines.join("\n"));
   assert.match(lines[1]!, /^ +ASK {3}Which neighborhood/);
-  assert.equal(lines.filter((line) => !/^ +(STEP|NOW|SUB)\b/.test(line)).length - 1, 3, lines.join("\n"));
-  assert.match(lines[3]!, /→ North Beach, then Chinatown/);
+  assert.ok(!lines.some((line) => line.includes("North Beach")), lines.join("\n"));
   const valueColumn = lines[1]!.indexOf("Which");
   assert.equal(lines[2]!.search(/\S/), valueColumn);
+  const card = cardText(render(panelFleet, { width: 80, selectedId: "asking" }));
+  assert.ok(card.some((line) => /→ North Beach, then Chinatown/.test(line)), card.join("\n"));
 });
 
-test("ERR replaces NOW, and the readout drops PHASE, the meter, then TASK as width shrinks", () => {
+test("ERR replaces NOW, and the card's readout drops PHASE, the meter, then TASK as width shrinks", () => {
   const failed = moduleLines(render(panelFleet), "failing");
   assert.ok(failed.some((line) => /ERR {3}pi exited 1: ENOSPC/.test(line)));
   assert.ok(!failed.some((line) => /NOW|stale activity/.test(line)), failed.join("\n"));
-  const wide = moduleLines(render(panelFleet, { width: 120 }), "asking").find((line) => line.includes("STEP"))!;
-  assert.match(wide, /STEP {2}PL✓ EX◉ RV· RF· CM· {3}TASK ▰▰▰▱▱▱▱▱ 3\/8 {3}PHASE 2\/5/);
-  const narrow = moduleLines(render(panelFleet, { width: 46 }), "asking").find((line) => line.includes("STEP"))!;
+  const failedCard = cardText(render(panelFleet, { selectedId: "failing" }));
+  assert.ok(failedCard.some((line) => /ERR {3}pi exited 1: ENOSPC/.test(line)), failedCard.join("\n"));
+  assert.ok(!failedCard.some((line) => /stale activity/.test(line)), failedCard.join("\n"));
+  // At 100+ the side pane draws the readout as an LCD strip: labels above values.
+  const wide = cardText(render(panelFleet, { width: 120, selectedId: "asking" }));
+  const labels = wide.findIndex((line) => /STEP +TASK +PHASE/.test(line));
+  assert.ok(labels > 0, wide.join("\n"));
+  assert.match(wide[labels + 1]!, /PL✓ EX◉ RV· RF· CM· +▰▰▰▱▱▱▱▱ 3\/8 +2\/5/);
+  const medium = cardText(render(panelFleet, { width: 80, selectedId: "asking" })).find((line) => line.includes("STEP"))!;
+  assert.match(medium, /STEP {2}PL✓ EX◉ RV· RF· CM· {3}TASK ▰▰▰▱▱▱▱▱ 3\/8 {3}PHASE 2\/5/);
+  const narrow = cardText(render(panelFleet, { width: 46, selectedId: "asking" })).find((line) => line.includes("STEP"))!;
   assert.match(narrow, /STEP {2}execute {3}TASK ▰▰▰▱▱▱▱▱ 3\/8$/);
-  const tiny = moduleLines(render(panelFleet, { width: 30 }), "asking").find((line) => line.includes("STEP"))!;
+  // At 30 columns the request fills the fixed dock; Details grow it to show the readout.
+  const tiny = cardText(render(panelFleet, { width: 30, selectedId: "asking", workspaceEvidenceVisible: true })).find((line) => line.includes("STEP"))!;
   assert.doesNotMatch(tiny, /PHASE|▰/);
+  // The roster never carries the readout.
+  for (const width of [120, 80, 46]) {
+    const layout = render(panelFleet, { width });
+    const dock = dockStart(layout);
+    const roster = rosterPlain(layout).slice(0, dock < 0 ? layout.footerRow : dock - 1);
+    assert.ok(!roster.some((line) => /STEP|PHASE/.test(line)), `${width}\n${roster.join("\n")}`);
+  }
 });
 
 test("module title rows end with the age, and only the selection is plated", () => {
   const layout = render(panelFleet);
   assert.match(moduleLines(layout, "working")[0]!, /Tile export .* {2,}10m$/);
   const plate = `\u001b[48;2;49;50;68m`;
+  const raw = rosterRaw(layout);
   for (const id of ["asking", "working", "failing"]) {
-    const rows = layout.rowTargets.flatMap((target, index) => target && "id" in target && target.id === id ? [layout.lines[index]!] : []);
+    const rows = layout.rowTargets.flatMap((target, index) => target && "id" in target && target.id === id ? [raw[index]!] : []);
     assert.ok(rows.length > 1 && rows.every((row) => !row.includes("\u001b[48;")), id);
   }
-  const selectedRows = layout.rowTargets.flatMap((target, index) => target && "id" in target && target.id === "picked" ? [layout.lines[index]!] : []);
-  assert.ok(selectedRows.every((row) => row.includes(plate)));
+  const selectedRows = layout.rowTargets.flatMap((target, index) => target && "id" in target && target.id === "picked" ? [raw[index]!] : []);
+  assert.ok(selectedRows.length > 1 && selectedRows.every((row) => row.includes(plate)));
+  // The side pane is not plated.
+  const pane = layout.lines.slice(1, layout.footerRow).map((line) => line.slice(line.lastIndexOf("│")));
+  assert.ok(!pane.some((line) => line.includes(plate)), "the side pane sits on the base background");
 });
 
 test("quiet agents are modules, archived rows stay one line, and SUB names running subagents only while collapsed", () => {
@@ -195,23 +254,32 @@ test("quiet agents are modules, archived rows stay one line, and SUB names runni
   const child = (id: string, agentName: string, taskPreview: string) => session(id, { kind: "subagent", parentId: "parent", agentName, taskPreview });
   const sessions = [picked, parent, child("c1", "code-critic", "Review the pixel map diff"), child("c2", "scout", "Find tile loaders"), resting];
   const lines = moduleLines(render(sessions), "parent");
-  assert.ok(lines.some((line) => /SUB {3}code-critic · Review the pixel map diff · \+1 more/.test(line)), lines.join("\n"));
-  assert.ok(moduleLines(render(sessions), "resting").some((line) => /STEP {2}PL✓ EX✓ RV✓ RF✓ CM◉/.test(line)));
+  assert.ok(lines.some((line) => /SUB {3}code-critic Review the pixel map/.test(line)), lines.join("\n"));
+  const parentCard = cardText(render(sessions, { selectedId: "parent" }));
+  assert.ok(parentCard.some((line) => /SUB {3}code-critic · Review the pixel map diff · \+1 more/.test(line)), parentCard.join("\n"));
+  const expanded = moduleLines(render(sessions, { expandedProjectParentIds: new Set(["parent"]) }), "parent");
+  assert.ok(!expanded.some((line) => /SUB/.test(line)), expanded.join("\n"));
+  // A quiet module is its title row with the step short; its card shows where the workflow stands.
+  const restingRows = moduleLines(render(sessions), "resting");
+  assert.equal(restingRows.length, 1, restingRows.join("\n"));
+  assert.match(restingRows[0]!, /Job Status .* CM +now$/);
+  assert.ok(cardText(render(sessions, { selectedId: "resting" })).some((line) => /PL✓ EX✓ RV✓ RF✓ CM◉/.test(line)));
   const archived = session("old", { title: "Old work", status: "stopped", bucket: "archived", bucketChangedAt: NOW - 1_000, workflow: panelWorkflow(1) });
   assert.equal(moduleLines(render([picked, archived]), "old").length, 1);
 });
 
-test("the selected module shows the LCD strip at 100+ and a one-line readout below", () => {
+test("the selected card shows the LCD strip at 100+ and a one-line readout below", () => {
   const layout = render(panelFleet, { width: 120 });
-  const lines = dockLines(layout);
+  const lines = cardText(layout);
   const labels = lines.findIndex((line) => /STEP +TASK +PHASE/.test(line));
   assert.ok(labels > 0, lines.join("\n"));
   assert.equal(lines[labels]!.indexOf("TASK"), lines[labels + 1]!.indexOf("▰"));
   assert.match(lines[labels + 1]!, /PL✓ EX◉ RV· RF· CM· +▰{8} 19\/19 +5\/5/);
   const lcd = `\u001b[48;2;29;30;41m`;
   const raw = layout.lines.filter((line) => /STEP +TASK/.test(stripAnsi(line)) || /19\/19/.test(stripAnsi(line)));
-  // The list module keeps its one-line readout; the dock draws the LCD strip.
+  // The roster's status line carries the count without a surface; the pane draws the LCD strip.
   assert.equal(raw.filter((line) => line.includes(lcd)).length, 2);
+  assert.ok(!rosterRaw(layout).some((line) => line.includes(lcd)));
   const narrow = dockLines(render(panelFleet, { width: 80 }));
   assert.ok(narrow.some((line) => /STEP {2}PL✓ EX◉ RV· RF· CM· {3}TASK ▰{8} 19\/19 {3}PHASE 5\/5/.test(line)), narrow.join("\n"));
   assert.ok(!narrow.some((line) => /STEP +TASK +PHASE$/.test(line.trim())));
@@ -221,10 +289,15 @@ test("without color the LCD keeps labels above values and selection keeps its st
   process.env.NO_COLOR = "1";
   try {
     const layout = render(panelFleet, { width: 120 });
-    const lines = dockLines(layout);
-    assert.ok(lines.some((line) => /STEP +TASK +PHASE/.test(line)), lines.join("\n"));
-    assert.ok(lines.every((line) => line.startsWith("▌")));
-    assert.ok(lines.some((line) => line.includes("Open in Pi")));
+    const card = cardText(layout);
+    assert.ok(card.some((line) => /STEP +TASK +PHASE/.test(line)), card.join("\n"));
+    assert.ok(card.some((line) => line.includes("Open in Pi")));
+    // The roster row carries the stripe; the side pane has none.
+    assert.ok(moduleLines(layout, "picked").every((line) => line.startsWith("▌")), moduleLines(layout, "picked").join("\n"));
+    assert.ok(!card.some((line) => line.includes("▌")));
+    const docked = dockLines(render(panelFleet, { width: 80 }));
+    assert.ok(docked.length && docked.every((line) => line.startsWith("▌")), docked.join("\n"));
+    assert.ok(docked.some((line) => line.includes("Open in Pi")));
   } finally {
     delete process.env.NO_COLOR;
   }
@@ -273,31 +346,317 @@ test("over-wide workflow readouts retain the current step in the list and dock",
   const selected = session("long", { workflow: { ...workflow, steps, activeIndex: 9 } });
   for (const width of [80, 100, 120]) {
     const layout = render([selected], { width });
-    for (const rows of [moduleLines(layout, "long"), dockLines(layout)]) {
+    for (const rows of [moduleLines(layout, "long"), width < 100 ? dockLines(layout) : paneLines(layout)!]) {
       assert.match(rows.join("\n"), /STEP009/, `${width}: ${rows.join("\n")}`);
     }
   }
 });
 
-test("moving the selection never moves list rows or the footer: the card docks below the list", () => {
+const act = (tool: string, detail: string, ago: number) => ({ tool, detail, at: NOW - ago * 1_000 });
+const checklist = ["Sketch roster rows", "Pick status precedence", "Add the heartbeat activity", "Roster rows show one status line",
+  "Publish live tool calls in the heartbeat", "Render the detail pane beside the roster", "Show the plan checklist",
+  "Keep Answer and Reply inside the pane", "Cap the agent message", "Check every width"].map((text, index) => ({ done: index < 5, text }));
+const missionPlan = { phase: { title: "Roster and detail pane", index: 2, count: 4 }, tasks: { completed: 8, total: 17 }, current: { before: 3, after: 4, tasks: checklist } };
+const progress = { done: "Roster rows work end to end.", next: "Build the detail pane.", updatedAt: NOW };
+/** A running agent executing its plan: workflow activity, a live tool call, four finished calls and a progress note. */
+const mission = session("mission", {
+  title: "Mission control",
+  workflow: panelWorkflow(1, { activity: { id: "build", label: "building the pane" }, plan: missionPlan }),
+  context: { version: 1, updatedAt: NOW, ticket: { id: "fleet-design-004", subtitle: "Two-pane mission control" }, progress },
+  activity: {
+    current: act("bash", "npm run typecheck", 3),
+    recent: [act("edit", "src/tui/layout.ts", 21), act("read", "src/tui/render-model.ts", 48), act("bash", "node --test dist/test/x.test.js", 95), act("edit", "src/core/heartbeat.ts", 160)],
+  },
+});
+const critic = session("critic", { kind: "subagent", parentId: "mission", agentName: "code-critic", taskPreview: "Review layout changes" });
+const missionFleet = [mission, critic, ...panelFleet];
+const said = "Roster rows are in. Each agent shows **one status line**.";
+const longSaid = Array.from({ length: 30 }, (_, index) => `Line ${index + 1} of the agent message.`).join("\n");
+const replyPanel = { kind: "reply" as const, body: ["Reply to Mission control", { value: "Keep the checklist short", cursor: 24 }], keyLine: "Enter Send · Tab Steer · Esc Close", offset: 0 };
+
+/** Card lines from a label to the next label (or the end), with the label's own row first. */
+function field(card: string[], label: string): string[] {
+  const start = card.findIndex((line) => new RegExp(`^ *${label}\\b`).test(line));
+  if (start < 0) return [];
+  const end = card.findIndex((line, index) => index > start && (/^ *[A-Z]{3,5}\b/.test(line) || !line.trim() || /Open in Pi/.test(line)));
+  return card.slice(start, end < 0 ? undefined : end);
+}
+
+test("moving the selection never moves list rows or the footer: the card sits beside the roster at 100+, below it otherwise", () => {
   // Windows tall enough for the whole list; a longer list still scrolls to keep the selection visible.
-  for (const [width, height] of [[120, 40], [80, 40], [46, 46]] as const) {
+  for (const [width, height] of [[130, 40], [120, 40], [80, 40], [46, 46]] as const) {
     const positions = (input: Partial<BuildRenderModelInput>) => {
-      const layout = render(panelFleet, { width, height, ...input });
+      const layout = render(missionFleet, { width, height, selectedMessage: said, ...input });
+      const roster = rosterPlain(layout);
+      // The roster ends at the footer beside a side pane, or at the dock rule below 100 columns.
+      const end = sidePane(layout) ? layout.footerRow! : dockStart(layout) - 1;
       return {
-        rows: panelFleet.map((item) => layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === item.id)),
+        // Every roster row keeps its target and its text; selection adds only the stripe and the live spinner.
+        rows: Array.from({ length: end }, (_, index) => {
+          const target = layout.rowTargets[index];
+          return `${target?.kind ?? ""}:${target && "id" in target ? target.id : ""}:${roster[index]!.replace(/^▌/u, " ").replace(/[\u2800-\u28ff]/gu, "●")}`;
+        }),
         footer: layout.footerRow,
-        text: layout.lines.map(stripAnsi),
+        layout,
       };
     };
-    const first = positions({ selectedId: "picked" });
-    for (const selectedId of ["asking", "working", "failing", "resting"]) {
+    const first = positions({ selectedId: "mission" });
+    assert.ok(first.footer !== undefined && first.rows.length > 10, `${width}x${height}`);
+    for (const selectedId of ["asking", "working", "failing", "resting", "picked"]) {
       const next = positions({ selectedId });
-      assert.deepEqual(next.rows, first.rows, `${width}x${height} ${selectedId}`);
       assert.equal(next.footer, first.footer, `${width}x${height} ${selectedId}`);
+      assert.deepEqual(next.rows, first.rows, `${width}x${height} ${selectedId}`);
     }
-    assert.deepEqual(positions({ selectedSection: "quiet" }).footer, first.footer, "a header selection keeps the dock's rows");
-    const rule = first.text.findIndex((line, index) => index > 0 && /^─{20,}$/u.test(line.trim()));
-    assert.match(first.text[rule + 1]!, /Picked agent/);
+    assert.deepEqual(positions({ selectedSection: "quiet" }).footer, first.footer, "a header selection keeps the card's rows");
+    if (width >= 100) {
+      assert.ok(sidePane(first.layout), `${width}: side pane`);
+      assert.equal(dockStart(first.layout), -1, `${width}: no dock rule`);
+      assert.match(paneLines(first.layout)![0]!, /Mission control/);
+    } else {
+      assert.ok(!sidePane(first.layout));
+      assert.match(stripAnsi(first.layout.lines[dockStart(first.layout)]!), /Mission control/);
+    }
   }
+});
+
+/** The first row below the dock rule, or -1 when the card does not dock. */
+function dockStart(layout: ReturnType<typeof render>): number {
+  const rule = layout.lines.findIndex((line, index) => index > 0 && /^─{20,}$/u.test(stripAnsi(line).trim()));
+  return rule < 0 ? -1 : rule + 1;
+}
+
+test("roster status lines take the first of ASK/RDY/BLK, ERR, NOW tool, NOW activity, SUB, DONE, then a muted NOW", () => {
+  const busy = { workflow: panelWorkflow(1, { activity: { id: "build", label: "building the pane" } }), activity: { current: act("bash", "npm run typecheck", 3) } };
+  const withProgress = { context: { version: 1 as const, updatedAt: NOW, progress } };
+  const child = (parentId: string) => session(`${parentId}-child`, { kind: "subagent", parentId, agentName: "scout", taskPreview: "Find tile loaders" });
+  const cases: { row: RuntimeSession; children?: RuntimeSession[]; label: string; text: RegExp; tone: string }[] = [
+    { row: session("ask", { ...busy, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "question", requestId: "q", text: "Ship it today?" } } }), children: [child("ask")], label: "ASK", text: /Ship it today\?/, tone: "warning" },
+    { row: session("rdy", { ...busy, status: "idle", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "ready", requestId: "r", text: "Ready for review" } } }), label: "RDY", text: /Ready for review/, tone: "warning" },
+    { row: session("blk", { ...busy, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "blocked", requestId: "b", text: "Needs a token" } } }), label: "BLK", text: /Needs a token/, tone: "warning" },
+    { row: session("err", { ...busy, ...withProgress, status: "error", error: "pi exited 1" }), children: [child("err")], label: "ERR", text: /pi exited 1/, tone: "error" },
+    { row: session("tool", { ...busy, ...withProgress }), children: [child("tool")], label: "NOW", text: /bash {4}npm run typecheck/, tone: "success" },
+    { row: session("doing", { ...busy, ...withProgress, activity: undefined }), children: [child("doing")], label: "NOW", text: /building the pane/, tone: "success" },
+    { row: session("sub", { ...busy, ...withProgress, status: "idle" }), children: [child("sub")], label: "SUB", text: /scout Find tile loaders/, tone: "success" },
+    { row: session("done", { ...busy, ...withProgress, status: "idle" }), label: "DONE", text: /Roster rows work end to end\./, tone: "muted" },
+    { row: session("paused", { ...busy, status: "idle" }), label: "NOW", text: /building the pane/, tone: "muted" },
+  ];
+  for (const item of cases) {
+    const layout = render([session("selected", { status: "idle" }), item.row, ...(item.children ?? [])], { width: 80 });
+    const lines = moduleLines(layout, item.row.id);
+    assert.equal(lines.length, 2, `${item.row.id}:\n${lines.join("\n")}`);
+    assert.match(lines[1]!, new RegExp(`^ +${item.label} +`), item.row.id);
+    assert.match(lines[1]!, item.text, item.row.id);
+    const raw = rosterRaw(layout)[layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === item.row.id) + 1]!;
+    const label = item.tone === "success" ? styleToken(mocha, "success", item.label) : styleToken(mocha, item.tone as "warning" | "error" | "muted", item.label);
+    assert.ok(raw.includes(label), `${item.row.id}: ${item.label} is not ${item.tone}: ${JSON.stringify(raw)}`);
+  }
+  // Without any of them the module is its title row alone.
+  assert.equal(moduleLines(render([session("selected"), session("plain", { status: "idle", workflow: panelWorkflow(1) })], { width: 80 }), "plain").length, 1);
+});
+
+test("an executing agent's status line carries the task meter at its right edge, the count alone when narrow", () => {
+  for (const width of [130, 80]) {
+    const line = moduleLines(render(missionFleet, { width, selectedId: "picked" }), "mission")[1]!;
+    assert.match(line, /^ +NOW {3}bash {4}npm run typ.* {2}▰{4}▱{4} 8\/17$/, `${width}: ${line}`);
+  }
+  const narrow = moduleLines(render(missionFleet, { width: 40, selectedId: "picked" }), "mission")[1]!;
+  assert.match(narrow, /NOW .* 8\/17$/);
+  assert.doesNotMatch(narrow, /▰/);
+  // A stopped agent or a completed step carries no meter.
+  const stopped = moduleLines(render([picked, { ...mission, status: "stopped" }], { width: 80 }), "mission");
+  assert.ok(!stopped.some((line) => /8\/17/.test(line)), stopped.join("\n"));
+  const complete = { ...mission, workflow: { ...mission.workflow!, currentStepComplete: true } };
+  assert.ok(!moduleLines(render([picked, complete], { width: 80 }), "mission").some((line) => /8\/17/.test(line)));
+});
+
+test("the side pane orders the card's fields and windows the PLAN checklist around the current task", () => {
+  const layout = render(missionFleet, { width: 130, height: 60, selectedId: "mission", selectedMessage: said });
+  const pane = paneLines(layout)!;
+  const card = pane.filter((line) => line.trim());
+  assert.match(card[0]!, /▸ .* Mission control ↳1 +panel/);
+  assert.match(card[1]!, /^ +hub-repo$/);
+  assert.match(card[2]!, /^ +Two-pane mission control$/);
+  // The agent's own summary leads; the instruments follow; its message closes the card under a rule.
+  const order = ["DONE", "NEXT", "STEP", "PLAN", "NOW", "LOG", "SUB", "── SAID ─", "Enter Open in Pi"]
+    .map((label) => card.findIndex((line) => new RegExp(`^ *${label}`).test(line)));
+  assert.ok(order.every((index) => index > 2), `${order.join(",")}\n${card.join("\n")}`);
+  assert.deepEqual([...order].sort((left, right) => left - right), order, card.join("\n"));
+  assert.match(card[order[2]! + 1]!, /PL✓ EX◉ RV· RF· CM· +▰{4}▱{4} 8\/17/);
+  // Blank rows separate position/plan, activity, progress and message.
+  for (const label of ["STEP", "NOW", "── SAID"]) {
+    const index = pane.findIndex((line) => new RegExp(`^ *${label}\\b`).test(line));
+    assert.equal(pane[index - 1]!.trim(), "", `${label} follows a blank row`);
+  }
+  // Two tasks before the current one, then pending tasks up to seven; the producer's and the window's skips are counted.
+  assert.deepEqual(field(card, "PLAN").map((line) => line.trim()), [
+    "PLAN  2/4 Roster and detail pane",
+    "✓ 6 earlier",
+    "✓ Roster rows show one status line",
+    "✓ Publish live tool calls in the heartbeat",
+    "◉ Render the detail pane beside the roster",
+    "· Show the plan checklist",
+    "· Keep Answer and Reply inside the pane",
+    "· Cap the agent message",
+    "· Check every width",
+    "· 4 more",
+  ]);
+  const raw = layout.lines.map((line) => line.slice(line.lastIndexOf("│")));
+  const current = raw.find((line) => stripAnsi(line).includes("◉ Render the detail pane"))!;
+  assert.ok(current.includes(styleToken(mocha, "accent", "◉")), JSON.stringify(current));
+  assert.ok(current.includes("\u001b[1m"), "the current task is bold");
+  assert.ok(raw.find((line) => stripAnsi(line).includes("✓ Roster rows show"))!.includes(styleToken(mocha, "muted", "✓")));
+  // The docked card keeps the phase and the current task only.
+  const docked = dockLines(render(missionFleet, { width: 80, height: 40, selectedId: "mission" }));
+  const plan = field(docked.map((line) => line.replace(/^▌/u, " ")), "PLAN").map((line) => line.trim());
+  assert.deepEqual(plan, ["PLAN  2/4 Roster and detail pane", "◉ Render the detail pane beside the roster"]);
+  assert.ok(!docked.some((line) => /earlier|more$/.test(line.trim())), docked.join("\n"));
+});
+
+test("the card's NOW shows the live tool call and LOG at most three finished calls, each with its age", () => {
+  const card = cardText(render(missionFleet, { width: 130, height: 60, selectedId: "mission" }));
+  assert.deepEqual(field(card, "NOW").map((line) => line.trim().replace(/ {2,}/gu, "  ")), [
+    "NOW  building the pane",
+    "3s  bash  npm run typecheck",
+  ]);
+  assert.deepEqual(field(card, "LOG").map((line) => line.trim().replace(/ {2,}/gu, "  ")), [
+    "LOG  21s edit  src/tui/layout.ts",
+    "48s read  src/tui/render-model.ts",
+    "1m  bash  node --test dist/test/x.test.js",
+  ]);
+  assert.ok(!card.some((line) => line.includes("heartbeat.ts")), "a fourth finished call is not shown");
+  // Ages share one column, so tool names line up under each other.
+  const tools = [...field(card, "NOW").slice(1), ...field(card, "LOG")].map((line) => line.search(/bash|edit|read/));
+  assert.equal(new Set(tools).size, 1, card.join("\n"));
+  // A session that is not running shows no live call.
+  const idle = cardText(render([{ ...mission, status: "idle" }, ...panelFleet], { width: 130, height: 60 }));
+  assert.ok(!idle.some((line) => line.includes("npm run typecheck")), idle.join("\n"));
+});
+
+test("SAID renders the selected session's latest message as markdown and caps it", () => {
+  const card = cardText(render(missionFleet, { width: 130, height: 60, selectedId: "mission", selectedMessage: said }));
+  // The side pane rules the message off and starts it at the label column, with its emphasis kept.
+  const rule = card.findIndex((line) => /^ *── SAID ─+$/.test(line));
+  assert.ok(rule > 0, card.join("\n"));
+  assert.equal(card[rule + 1]!.trim(), "Roster rows are in. Each agent shows one status line.");
+  assert.equal(card[rule + 1]!.search(/\S/), card[rule]!.search(/\S/));
+  const rawSaid = render(missionFleet, { width: 130, height: 60, selectedId: "mission", selectedMessage: said }).lines.find((line) => stripAnsi(line).includes("Each agent shows"))!;
+  assert.match(rawSaid, /\u001b\[1m(?:\u001b\[[0-9;]*m)*one status line/u);
+  // Only the selected session's message: another selection shows none.
+  assert.ok(!cardText(render(missionFleet, { width: 130, height: 60, selectedId: "picked" })).some((line) => /SAID/.test(line)));
+  const long = cardText(render(missionFleet, { width: 130, height: 80, selectedId: "mission", selectedMessage: longSaid }));
+  const start = long.findIndex((line) => /^ *── SAID/.test(line)) + 1;
+  const end = long.findIndex((line) => /Open in Pi/.test(line));
+  const shown = long.slice(start, end);
+  assert.equal(shown.length, 15, shown.join("\n"));
+  assert.match(shown[0]!, /^ +Line 1 of the agent message\./);
+  assert.match(shown[13]!, /Line 14 of the agent message\./);
+  assert.match(shown[14]!, /… \d+ more lines · C Full message/);
+  assert.ok(!long.some((line) => line.includes("Line 15")));
+});
+
+test("with a reply panel open the pane keeps request, DONE and SAID, drops position and activity, and keeps the panel whole", () => {
+  const asking = { ...mission, status: "waiting" as const, context: { ...mission.context!, attention: { kind: "question" as const, requestId: "q", text: "Should the checklist window be seven rows?", recommendation: "Keep seven" } } };
+  const running = { ...mission, context: { ...mission.context! } };
+  for (const subject of [asking, running]) {
+    const sessions = [subject, critic, ...panelFleet];
+    const tall = cardText(render(sessions, { width: 130, height: 60, selectedId: "mission", selectedMessage: said, cardPanel: replyPanel }));
+    for (const label of ["STEP", "PLAN", "NOW", "LOG", "SUB"]) assert.ok(!tall.some((line) => new RegExp(`^ *${label}\\b`).test(line)), `${label}\n${tall.join("\n")}`);
+    assert.ok(tall.some((line) => /^ *DONE {2}Roster rows work/.test(line)), tall.join("\n"));
+    // NEXT steps aside while a request says what comes next.
+    assert.equal(tall.some((line) => /^ *NEXT\b/.test(line)), subject === running, tall.join("\n"));
+    assert.ok(tall.some((line) => /^ *── SAID ─/.test(line)) && tall.some((line) => /^ *Roster rows are in/.test(line)), tall.join("\n"));
+    if (subject === asking) assert.ok(tall.some((line) => /^ *ASK {3}Should the checklist/.test(line)), tall.join("\n"));
+    // At 24 rows context is cut from its end; the panel's input and keys stay.
+    const short = render(sessions, { width: 130, height: 24, selectedId: "mission", selectedMessage: longSaid, cardPanel: replyPanel });
+    assert.equal(short.lines.length, 24);
+    const pane = paneLines(short)!;
+    const input = pane.findIndex((line) => line.includes("Keep the checklist short"));
+    const keys = pane.findIndex((line) => /Enter Send +Tab Steer +Esc Close/.test(line));
+    assert.ok(input > 0 && keys > input, pane.join("\n"));
+    assert.match(pane[0]!, /Mission control/);
+    if (subject === asking) assert.ok(pane.some((line) => /ASK {3}Should the checklist/.test(line)), pane.join("\n"));
+  }
+});
+
+test("every line fits the terminal width with and without a theme", () => {
+  const sessions = [...missionFleet, session("long", { title: "x".repeat(200), group: "g".repeat(80), worktreeBranch: "b".repeat(300), status: "waiting",
+    context: { version: 1, updatedAt: NOW, attention: { kind: "blocked", requestId: "b", text: "word ".repeat(80), recommendation: "r".repeat(300), artifact: "/".repeat(200) }, progress: { done: "d".repeat(400), next: "n".repeat(400), updatedAt: NOW } } })];
+  for (const width of [30, 46, 80, 100, 130, 200]) {
+    for (const selectedId of ["mission", "long", "asking", "failing"]) {
+      for (const input of [{}, { cardPanel: replyPanel }] as Partial<BuildRenderModelInput>[]) {
+        const model = { sessions, selectedId, width, height: 40, now: NOW, guidanceHidden: true, selectedMessage: longSaid, ...input };
+        const commands = buildDashboardCommands({ sessions, selectedId, capabilities: { openSession: true, sendMessage: true } });
+        const built = buildRenderModel({ ...model, workspaceCommands: selectWorkspaceCommands(sessions.find((item) => item.id === selectedId)!, commands, 3) });
+        for (const layout of [renderSessions(built, mocha), renderSessions(built)]) {
+          const wide = layout.lines.filter((line) => visibleWidth(line) > width);
+          assert.deepEqual(wide, [], `${width} ${selectedId} ${JSON.stringify(Object.keys(input))}`);
+          assert.ok(layout.lines.length <= 40);
+        }
+      }
+    }
+  }
+});
+
+test("the side pane maps its card rows to the selected session and leaves its blank rows untargeted", () => {
+  const layout = render(panelFleet, { width: 130, height: 40, selectedId: "picked" });
+  assert.ok(layout.pane);
+  assert.equal(layout.pane.x, layout.listStartX + layout.listWidth + 1);
+  const rows = layout.pane.targets.flatMap((target, row) => target ? [row] : []);
+  assert.ok(rows.length >= 3);
+  for (const row of rows) assert.deepEqual(layout.pane.targets[row], { kind: "session-continuation", id: "picked" });
+  const paneText = (row: number) => stripAnsi(layout.lines[row]!).slice(layout.listWidth + 1).trim();
+  assert.match(paneText(rows[0]!), /Picked agent/);
+  assert.match(paneText(rows.at(-1)!), /All actions/);
+  // The empty rows between the card's content and its keys target nothing, and a docked layout has no pane.
+  assert.ok(layout.pane.targets.some((target, row) => !target && row > rows[0]! && row < rows.at(-1)!));
+  assert.equal(render(panelFleet, { width: 80, height: 40, selectedId: "picked" }).pane, undefined);
+  assert.equal(render(panelFleet, { width: 130, height: 40, selectedSection: "quiet" }).pane, undefined);
+});
+
+test("C shows the whole message in the card and folds it back; paragraph breaks do not shorten the fold", () => {
+  const paragraphs = Array.from({ length: 20 }, (_, index) => `Paragraph ${index + 1}.`).join("\n\n");
+  const folded = cardText(render(missionFleet, { width: 130, height: 80, selectedId: "mission", selectedMessage: paragraphs }));
+  // Fourteen text lines show, whatever blank lines separate them.
+  assert.ok(folded.some((line) => line.includes("Paragraph 14.")));
+  assert.ok(!folded.some((line) => line.includes("Paragraph 15.")));
+  assert.ok(folded.some((line) => /… \d+ more lines · C Full message/.test(line)), folded.join("\n"));
+  const expanded = cardText(render(missionFleet, { width: 130, height: 80, selectedId: "mission", selectedMessage: paragraphs, selectedMessageExpanded: true }));
+  assert.ok(expanded.some((line) => line.includes("Paragraph 20.")), expanded.join("\n"));
+  assert.ok(expanded.some((line) => /C Fold · c Conversation/.test(line)));
+  // Expanded below 100, the docked card grows like Details, keeping one roster row.
+  const docked = render(missionFleet, { width: 80, height: 40, selectedId: "mission", selectedMessage: paragraphs, selectedMessageExpanded: true });
+  assert.ok(docked.rowTargets.some((target) => target?.kind === "session"));
+  assert.ok(docked.lines.every((line) => visibleWidth(line) <= 80));
+});
+
+test("quiet roster rows say what the agent last reported, else its task, else nothing", () => {
+  const quiet = (id: string, values: Partial<RuntimeSession>) => session(id, { status: "idle", acknowledgedAt: 2, ...values });
+  const handoff = quiet("handoff", { title: "Read handoff", context: { version: 1, updatedAt: 1, attention: { kind: "ready", text: "Shipped the export job; homepage feeds again." } } });
+  const ticketed = quiet("ticketed", { title: "Ticketed", context: { version: 1, updatedAt: 1, ticket: { id: "t-1", subtitle: "Tidy the export queue" } } });
+  const progress = quiet("progress", { title: "Progressed", context: { version: 1, updatedAt: 3, progress: { done: "Merged the queue cleanup.", updatedAt: 3 } } });
+  const bare = quiet("bare", { title: "Bare" });
+  const layout = render([picked, handoff, ticketed, progress, bare], { width: 130, height: 40 });
+  assert.match(moduleLines(layout, "handoff")[1]!, /SAID {2}Shipped the export job/);
+  assert.match(moduleLines(layout, "ticketed")[1]!, /TASK {2}Tidy the export queue/);
+  assert.match(moduleLines(layout, "progress")[1]!, /DONE {2}Merged the queue cleanup\./);
+  assert.equal(moduleLines(layout, "bare").length, 1);
+  // At 160+ the title row names the task, so the fallback does not repeat it.
+  assert.equal(moduleLines(render([picked, ticketed], { width: 200, height: 40 }), "ticketed").length, 1);
+});
+
+test("short windows keep requests and faults before quiet notes", () => {
+  const quiet = Array.from({ length: 10 }, (_, index) => session(`q${index}`, { status: "idle", acknowledgedAt: 2, title: `Quiet ${index}`, context: { version: 1, updatedAt: 1, attention: { kind: "ready", text: `Old note ${index}` } } }));
+  const failing = session("failing", { status: "error", error: "provider returned 529", title: "Failing" });
+  const layout = render([picked, ...quiet, failing], { width: 130, height: 24 });
+  assert.match(moduleLines(layout, "failing")[1] ?? "", /ERR {3}provider returned 529/);
+});
+
+test("a running agent between tool calls says Thinking and does not repeat a handoff it has moved past", () => {
+  const thinking = session("thinking", { title: "Thinker", status: "running", acknowledgedAt: 2, context: { version: 1, updatedAt: 1, attention: { kind: "ready", text: "Old handoff text." } } });
+  const card = cardText(render([thinking, ...panelFleet], { width: 130, height: 40, selectedId: "thinking" }));
+  assert.ok(card.some((line) => /^ *NOW {3}Thinking…$/.test(line.trimEnd())), card.join("\n"));
+  assert.ok(!card.some((line) => /SAID|Old handoff/.test(line)), card.join("\n"));
+  // Its text since your message shows as soon as there is some.
+  const speaking = cardText(render([thinking, ...panelFleet], { width: 130, height: 40, selectedId: "thinking", selectedMessage: "Checking the parser first." }));
+  assert.ok(speaking.some((line) => line.includes("Checking the parser first.")));
 });

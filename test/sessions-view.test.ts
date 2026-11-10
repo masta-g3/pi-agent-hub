@@ -1395,7 +1395,13 @@ function mouseReleaseAtLine(lineIndex: number, x = 22): string {
 function rowIndexFor(rendered: string[], title: string): number {
   const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const titleRow = new RegExp(`(?:[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏?!✓]|◐|○|×|-) (?:[▢▣]\\d+ )?(?:\\[[^\\]]+\\] )?${escapedTitle}(?:\\s|$)`);
-  const index = rendered.findIndex((line) => titleRow.test(stripAnsi(line)));
+  // At 100+ the selected card's pane repeats the title to the right of a `│`; prefer the roster's own row.
+  const rosterMatch = (line: string) => {
+    const match = titleRow.exec(stripAnsi(line));
+    return match !== null && !stripAnsi(line).slice(0, match.index).includes("│");
+  };
+  const roster = rendered.findIndex(rosterMatch);
+  const index = roster >= 0 ? roster : rendered.findIndex((line) => titleRow.test(stripAnsi(line)));
   assert.notEqual(index, -1, `missing rendered row for ${title}`);
   return index;
 }
@@ -1522,7 +1528,8 @@ test("summary text outside Status and hidden chip coordinates never select or op
     });
     const rendered = view.render(160);
     const selected = controller.selected()?.id;
-    for (let x = 2; x < 160; x += 1) view.handleInput(mousePressAtLine(1, x));
+    // The summary row is the header band: no column of it is a chip, a row, or the side pane's card.
+    for (let x = 2; x < 160; x += 1) view.handleInput(mousePressAtLine(0, x));
     assert.equal(controller.selected()?.id, selected, mode);
     assert.deepEqual(opened, [], mode);
     assert.match(stripAnsi(rendered[0]!), /sessions/);
@@ -2225,7 +2232,7 @@ test("mouse wheel keeps selected row inside the bounded render", () => {
   const rendered = view.render(100).map(stripAnsi);
 
   assert.equal(controller.snapshot().selectedId, "s12");
-  assert.ok(rendered.some((line) => /^▌ ○ session-12/.test(line)), rendered.join("\n"));
+  assert.ok(rendered.some((line) => /^▌\s+○ session-12/.test(line)), rendered.join("\n"));
 });
 
 test("short help dialog scrolls with visible controls", () => {
@@ -4672,8 +4679,18 @@ test("hasAnimatingSelectedRow tracks the on-screen selected running row only", (
   view.handleInput("\x1b");
 
   view.handleInput(":");
-  view.render(120);
-  assert.equal(view.hasAnimatingSelectedRow, false, "the palette covers the selected row");
+  const uncovered = view.render(120).map(stripAnsi);
+  assert.match(uncovered.at(-2) ?? "", /^▌\s+[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] busy/, "the windowed selected row sits below the palette");
+  assert.equal(view.hasAnimatingSelectedRow, true, "a selected row below the palette stays visible");
+
+  const topController = new SessionsController({ version: 1, sessions: [running, ...failing.slice(0, 2)] });
+  topController.selectSession("busy");
+  const topView = new SessionsView(topController, () => {}, { terminalRows: () => 12 });
+  topView.render(120);
+  assert.equal(topView.hasAnimatingSelectedRow, true);
+  topView.handleInput(":");
+  topView.render(120);
+  assert.equal(topView.hasAnimatingSelectedRow, false, "the palette covers the selected row");
 });
 
 test("visible unselected runners and synthetic selections do not request animation frames", () => {
@@ -5131,4 +5148,39 @@ test("observed focus loss fades at once, and the input grace ends with a redraw"
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(renders > 0, "grace expiry requests a redraw");
   view.disposeInteraction();
+});
+
+test("double-clicking the side pane's card opens the selected session; one click there changes nothing", () => {
+  const controller = new SessionsController({ version: 1, sessions: [session("quiet", "quiet"), { ...session("active", "active"), status: "running" as const }] });
+  const opened: string[] = [];
+  const view = new SessionsView(controller, () => {}, { switchInsideTmux: target => { opened.push(target); } });
+  controller.selectSession("active");
+  const rendered = view.render(160).map(stripAnsi);
+  const separator = rendered[1]!.indexOf("│");
+  assert.ok(separator > 0, rendered[1]);
+  // The card's title row sits beside the roster's first row.
+  assert.match(rendered[1]!.slice(separator), /active/);
+  view.handleInput(mousePressAtLine(1, separator + 12));
+  assert.deepEqual(opened, []);
+  assert.equal(controller.selected()?.id, "active");
+  view.handleInput(mousePressAtLine(1, separator + 12));
+  assert.deepEqual(opened, ["pi-agent-hub-active"]);
+});
+
+test("C toggles the selected card's full message and resets when the selection moves", () => {
+  // A handoff already read: the card shows its text under SAID.
+  const sessions = [{ ...session("one", "one"), status: "idle" as const, acknowledgedAt: 2, context: { version: 1 as const, updatedAt: 1, attention: { kind: "ready" as const, text: "Shipped it." } } }, session("two", "two")];
+  const controller = new SessionsController({ version: 1, sessions });
+  const view = new SessionsView(controller, () => {});
+  controller.selectSession("one");
+  view.render(130);
+  view.handleInput("C");
+  assert.match(view.render(130).map(stripAnsi).join("\n"), /C Fold/);
+  view.handleInput("C");
+  assert.doesNotMatch(view.render(130).map(stripAnsi).join("\n"), /C Fold/);
+  view.handleInput("C");
+  controller.selectSession("two");
+  view.render(130);
+  controller.selectSession("one");
+  assert.doesNotMatch(view.render(130).map(stripAnsi).join("\n"), /C Fold/);
 });

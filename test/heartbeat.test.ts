@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseHeartbeat, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
+import { parseHeartbeat, parseSessionActivity, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
 import { heartbeatPath } from "../src/core/paths.js";
+import { applyComputedStatus } from "../src/core/status.js";
+import type { ManagedSession } from "../src/core/types.js";
 
 const core = {
   managedSessionId: "api",
@@ -217,4 +219,74 @@ test("interaction capability is small and independently validated", () => {
     assert.equal(parsed?.state, "waiting");
     assert.equal(parsed?.interaction, undefined);
   }
+});
+
+test("live tool activity is bounded, sanitized, and drops malformed entries", () => {
+  const recent = Array.from({ length: 8 }, (_, index) => ({ tool: `tool-${index}`, at: 900 - index }));
+  const activity = parseSessionActivity({
+    current: { tool: " bash\u001b[31m ", detail: "npm\n test\u0007 --watch", at: 950, extra: true },
+    recent: [{ tool: "read", detail: "x".repeat(101), at: 940 }, { tool: "edit", at: -1 }, { detail: "no tool", at: 930 }, "noise", ...recent],
+  });
+  // Control characters become spaces and collapse; a detail over 100 characters is dropped, not the action.
+  assert.deepEqual(activity?.current, { tool: "bash", detail: "npm test --watch", at: 950 });
+  // Only the first six entries are read; malformed ones among them are dropped, never replaced by later ones.
+  assert.deepEqual(activity?.recent, [{ tool: "read", at: 940 }, { tool: "tool-0", at: 900 }, { tool: "tool-1", at: 899 }]);
+  assert.deepEqual(parseSessionActivity({ recent: recent.slice(0, 6) })?.recent?.length, 6);
+  assert.deepEqual(parseSessionActivity({ recent })?.recent?.map((action) => action.tool), recent.slice(0, 6).map((action) => action.tool));
+  assert.equal(parseSessionActivity({ current: { tool: "t".repeat(41), at: 1 } }), undefined, "a tool name over 40 characters drops the action");
+  assert.deepEqual(parseSessionActivity({ current: { tool: "t".repeat(40), detail: "d".repeat(100), at: 1 } })?.current, { tool: "t".repeat(40), detail: "d".repeat(100), at: 1 });
+  assert.equal(parseSessionActivity({ current: { tool: "\u0000\u001f", at: 1 } }), undefined);
+  assert.equal(parseSessionActivity({ current: { tool: "bash" } }), undefined, "an action needs its time");
+  assert.equal(parseSessionActivity({ recent: "bash" }), undefined);
+  assert.equal(parseSessionActivity(undefined), undefined);
+});
+
+test("heartbeat activity round-trips and a malformed one is isolated", () => {
+  const activity = { current: { tool: "bash", detail: "npm test", at: 950 }, recent: [{ tool: "read", detail: "src/a.ts", at: 940 }] };
+  assert.deepEqual(parseHeartbeat(JSON.parse(JSON.stringify({ ...core, activity })), "api")?.activity, activity);
+  const malformed = parseHeartbeat({ ...core, activity: { current: { tool: 3, at: 1 }, recent: [{}] } }, "api");
+  assert.equal(malformed?.activity, undefined);
+  assert.equal(malformed?.state, "waiting");
+});
+
+test("plan checklist and phase titles parse without risking the plan's counts", () => {
+  const base = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
+  const plan = (extra: Record<string, unknown>) => parseWorkflowSnapshot({ ...base, plan: { tasks: { completed: 1, total: 3 }, ...extra } })?.plan;
+  assert.deepEqual(plan({
+    current: { tasks: [{ done: true, text: " Write\u001b tests " }, { done: false, text: "Ship" }], before: 4, after: 2 },
+    phases: [{ completed: 1, total: 2, title: "Parsers" }, { completed: 0, total: 1, title: "x".repeat(161) }],
+  }), {
+    tasks: { completed: 1, total: 3 },
+    phases: [{ completed: 1, total: 2, title: "Parsers" }, { completed: 0, total: 1 }],
+    current: { tasks: [{ done: true, text: "Write tests" }, { done: false, text: "Ship" }], before: 4, after: 2 },
+  });
+  // Hidden-task counts default to zero when absent or malformed.
+  assert.deepEqual(plan({ current: { tasks: [{ done: false, text: "Ship" }], before: -1 } })?.current, { tasks: [{ done: false, text: "Ship" }], before: 0, after: 0 });
+  for (const current of [
+    { tasks: [{ done: "yes", text: "Ship" }] },
+    { tasks: [{ done: true, text: "" }, { done: false, text: "Ship" }] },
+    { tasks: [] },
+    { tasks: "Ship" },
+    { tasks: Array.from({ length: 25 }, (_, index) => ({ done: false, text: `Task ${index}` })) },
+  ]) assert.deepEqual(plan({ current }), { tasks: { completed: 1, total: 3 } }, JSON.stringify(current).slice(0, 60));
+  assert.equal(plan({ current: { tasks: Array.from({ length: 24 }, (_, index) => ({ done: false, text: `Task ${index}` })) } })?.current?.tasks.length, 24);
+});
+
+test("computed status keeps the live plan checklist and tool activity out of the registry", () => {
+  const now = 10_000;
+  const session: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "running", createdAt: 1, updatedAt: 1 };
+  const heartbeat = parseHeartbeat({
+    ...core, state: "running", stateSince: now - 100, updatedAt: now,
+    activity: { current: { tool: "bash", at: now } },
+    workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: now,
+      plan: { tasks: { completed: 1, total: 2 }, current: { tasks: [{ done: true, text: "One" }, { done: false, text: "Two" }] } } },
+  }, "api")!;
+  assert.ok(heartbeat.workflow?.plan?.current && heartbeat.activity);
+  const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
+  // The registry type has no plan field; the stored copy keeps only the plan's counts.
+  assert.deepEqual((updated.workflow as { plan?: unknown } | undefined)?.plan, { tasks: { completed: 1, total: 2 } });
+  assert.equal("activity" in updated, false);
+  assert.ok(!JSON.stringify(updated).includes("\"current\""));
+  // The heartbeat itself still carries the checklist for the live projection.
+  assert.equal(heartbeat.workflow?.plan?.current?.tasks.length, 2);
 });

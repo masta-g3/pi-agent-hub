@@ -26,7 +26,7 @@ import {
   type CommandPaletteState,
 } from "./command-palette-dialog.js";
 import { alwaysExpanded, buildDashboardProjection, buildRenderModel, needsYouOwners, visibleAttention, type AttentionAnnouncement, type CockpitTier, type DashboardProjection, type FilterDisclosure, type RenderCardPanel } from "./render-model.js";
-import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type PanelViewport, type CardCommandHit, type FooterItem, type SessionListTarget, type TierChip } from "./layout.js";
+import { MIN_LAYOUT_WIDTH, NARROW_LAYOUT_MAX_WIDTH, renderSessions, wrapWords, type PanelViewport, type CardCommandHit, type FooterItem, type SessionListTarget, type TierChip, type SessionsLayout } from "./layout.js";
 import { isMouseSequence, parseMouseEvent, type MouseEvent } from "./mouse.js";
 import { DOWN, PAGE_DOWN, PAGE_UP, UP, hitAt, type DialogHit } from "./dialog-mouse.js";
 import { noColor, quietTheme, stripAnsi, styleToken, type SessionsTheme } from "./theme.js";
@@ -125,6 +125,7 @@ export class SessionsView implements Component {
   private flash: { text: string; expiresAt: number } | undefined;
   private workspaceSessionId: string | undefined;
   private workspaceEvidenceSessionId: string | undefined;
+  private messageExpandedSessionId: string | undefined;
   private cardScrollOffset = 0;
   private cardScrollSessionId: string | undefined;
   private lastWidth = 120;
@@ -156,6 +157,7 @@ export class SessionsView implements Component {
   private tierChips: TierChip[] = [];
   private workspaceRowTargets: (string | undefined)[] = [];
   private cardCommandHits: CardCommandHit[] = [];
+  private pane: SessionsLayout["pane"];
   private announcementRowTargets: (string | undefined)[] = [];
   private attentionAnnouncements: readonly AttentionAnnouncement[] = [];
   private listStartX = 2;
@@ -491,6 +493,7 @@ export class SessionsView implements Component {
   private renderFrame(width: number): string[] {
     this.reconcileDeliveryResults();
     this.cardCommandHits = [];
+    this.pane = undefined;
     this.selectedRowAnimating = false;
     this.footerRow = undefined;
     this.footerItems = [];
@@ -516,6 +519,7 @@ export class SessionsView implements Component {
     if (this.workspaceSessionId && this.pinMode()) this.closeWorkspace();
     if (this.workspaceSessionId && width >= 120) this.workspaceSessionId = undefined;
     if (this.workspaceEvidenceSessionId && selectedId !== this.workspaceEvidenceSessionId) this.workspaceEvidenceSessionId = undefined;
+    if (this.messageExpandedSessionId && selectedId !== this.messageExpandedSessionId) this.messageExpandedSessionId = undefined;
     const height = this.actions.terminalRows?.() ?? process.stdout.rows;
     if (width < MIN_RENDER_WIDTH) {
       this.panelViewport = { pageSize: 1, maxOffset: 0, fallback: true };
@@ -620,6 +624,8 @@ export class SessionsView implements Component {
       deliveryResults: new Map([...this.deliveryResults].map(([id, result]) => [id, result.text])),
       deliveryEmphasis: new Set([...this.deliveryResults].flatMap(([id, result]) => result.emphasis ? [id] : [])),
       selectedQuestion: this.interaction.state?.questionProtocol && sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? questionSummary(this.interaction.state.pending[0]?.params.questions[0]) : undefined,
+      selectedMessageExpanded: selected?.id === this.messageExpandedSessionId,
+      selectedMessage: sameInteractionTarget(this.interaction.target, selected && this.actions.interactionTarget?.(selected)) ? this.interaction.state?.lastMessage : undefined,
       height: fleetHeight,
       listScrollTop: this.listScrollTop,
       cardScrollOffset: this.cardScrollOffset,
@@ -654,6 +660,7 @@ export class SessionsView implements Component {
     const layout = renderSessions(model, this.theme);
     this.rowTargets = layout.rowTargets;
     this.cardCommandHits = layout.cardCommandHits;
+    this.pane = layout.pane;
     this.panelViewport = layout.panelViewport ?? { pageSize: 1, maxOffset: 0 };
     this.selectedRowAnimating = !this.archiveDisclosureSelected && !this.selectedSection && !this.selectedRepo && !this.releaseCueSelected
       && (selected?.status === "running" || selected?.status === "starting")
@@ -992,6 +999,19 @@ export class SessionsView implements Component {
     this.clearPendingRestart();
     this.clearFlash();
     this.runAction(() => refresh(), "refreshing status evidence...", () => reveal(true));
+  }
+
+  /** Shows the selected agent's whole latest message in its card, or folds it back. */
+  private toggleMessage(): void {
+    const selected = this.selectedSessionTarget;
+    if (!selected) return;
+    if (this.messageExpandedSessionId === selected) { this.messageExpandedSessionId = undefined; this.cardScrollOffset = 0; return; }
+    const session = this.controller.selected();
+    const target = session && this.actions.interactionTarget?.(session);
+    const live = sameInteractionTarget(this.interaction.target, target) ? this.interaction.state?.lastMessage : undefined;
+    if (!live && !session?.context?.attention?.text) { this.flashMessage("no message to show; c opens the conversation"); return; }
+    this.messageExpandedSessionId = selected;
+    this.cardScrollOffset = 0;
   }
 
   private closeWorkspace(): void {
@@ -1350,6 +1370,7 @@ export class SessionsView implements Component {
         case "size-increase": this.resizeSidePane(1); return;
         case "size-decrease": this.resizeSidePane(-1); return;
         case "info": this.toggleInfo(); return;
+        case "message": this.toggleMessage(); return;
         case "mark-read": {
           const requestId = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId)?.context?.attention?.requestId;
           this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId, true), "marking read...");
@@ -1955,7 +1976,8 @@ export class SessionsView implements Component {
       return;
     }
     const inList = event.x >= this.listStartX && event.x < this.listStartX + this.listWidth;
-    const target = inList ? this.rowTargets[event.y - 1] : undefined;
+    // A click on the side pane's card acts on the selected session, like a click on its docked card.
+    const target = inList ? this.rowTargets[event.y - 1] : this.pane && event.x >= this.pane.x ? this.pane.targets[event.y - 1] : undefined;
     if (!target) {
       this.lastMouseClick = undefined;
       return;

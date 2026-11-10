@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { renderSessions } from "../src/tui/layout.js";
 import { buildRenderModel, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
@@ -25,8 +25,8 @@ test("Status header meter shows one cell per owner in tier order with exact hit 
     assert.ok(layout.lines[layout.tierChipRow!]!.includes(styleToken(darkTheme, "warning", "●")));
     assert.ok(layout.lines[layout.tierChipRow!]!.includes(styleToken(darkTheme, "error", "×")));
     const heading = layout.lines.find(line => / NEEDS YOU 1 /.test(stripAnsi(line)) && line !== layout.lines[0])!;
-    // Module tiers name their steps in STEP, so their heading is a plain rule.
-    assert.match(stripAnsi(heading).trimEnd(), /^ ── NEEDS YOU 1 ─+$/);
+    // Module tiers name their step on each title row, so their heading is a plain rule up to the side pane.
+    assert.match(sliceByColumn(stripAnsi(heading), 0, layout.listWidth), /^ ── NEEDS YOU 1 ─+$/);
   }
   const layout = renderSessions(buildRenderModel({ sessions: fleet().filter(row => row.id === "docs"), width: 160 }));
   assert.deepEqual(layout.tierChips.map(chip => chip.tier), ["needs-you"]);
@@ -74,15 +74,18 @@ test("list reclaims the navigator columns without changing workspace geometry", 
     const layout = renderSessions(model);
     assert.doesNotMatch(layout.lines.join("\n"), /TIERS/);
     assert.equal(layout.listStartX, 1);
-    assert.equal(layout.listWidth, width);
+    // Below 100 the roster takes the full width; from 100 the side pane takes the rest after a one-cell rule.
+    assert.equal(layout.listWidth, ({ 100: 38, 120: 46, 160: 61 } as Record<number, number>)[width] ?? width);
+    assert.equal(layout.workspaceStartX, undefined);
   }
 });
 
-test("Repo headings still truncate long repository names before dropping workflow columns", () => {
+test("Repo headings truncate long repository names and name no workflow columns above module rows", () => {
   const row = { ...fleet().find(row => row.id === "release")!, cwd: "/tmp/repository-with-a-very-long-name-that-needs-truncation-before-the-workflow-grid-can-fit" };
   const layout = renderSessions(buildRenderModel({ sessions: [row], width: 80, fleetGrouping: "repo" }));
   const header = stripAnsi(layout.lines.find(line => stripAnsi(line).startsWith(" ── repository-"))!);
-  assert.match(header, /… (─+ )?·1\s+PL\s+EX\s+RV\s*$/);
+  // Module rows name their own step, so the heading carries no grid labels.
+  assert.match(header, /… (─+ )?·1\s*$/);
 });
 
 test("board, Repo, pin and full-screen workspace headers have no chip targets", () => {

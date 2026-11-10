@@ -17,7 +17,10 @@ export type AnswerInput = ({ questionIndex: number; kind: "option"; optionIndex:
   | { questionIndex: number; kind: "custom"; text: string }
   | { questionIndex: number; kind: "multi"; optionIndices: number[] }) & { notes?: string };
 export type MessageDelivery = "send" | "steer" | "followUp";
-export interface SessionInteractionState { answerChannel?: "rpiv-events"; questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy" }
+export const LAST_MESSAGE_CHARS = 2_000;
+export interface SessionInteractionState { answerChannel?: "rpiv-events"; questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy";
+  /** The agent's latest text to the user on the live branch, bounded; shown on the selected session only. */
+  lastMessage?: string }
 export function answerUnavailableReason(state?: SessionInteractionState): string | undefined {
   if (!state) return "Question availability not confirmed";
   if (!state.answerChannel) return "Reload Pi in this session to answer from Hub";
@@ -106,7 +109,8 @@ function validResult(kind: InteractionRequest["kind"], value: unknown): value is
   if (kind === "state") return (value.answerChannel === undefined || value.answerChannel === "rpiv-events") && typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
     && (value.questionUnavailableReason === undefined || typeof value.questionUnavailableReason === "string")
     && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
-    && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy");
+    && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy")
+    && (value.lastMessage === undefined || typeof value.lastMessage === "string" && [...value.lastMessage].length <= LAST_MESSAGE_CHARS + 1);
   if (kind === "read") return typeof value.branchId === "string" && typeof value.revision === "string"
     && (value.before === undefined || typeof value.before === "string") && Array.isArray(value.items) && value.items.length <= 20
     && value.items.every((item) => isObject(item) && typeof item.id === "string" && typeof item.text === "string"

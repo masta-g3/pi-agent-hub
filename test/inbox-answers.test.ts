@@ -6,7 +6,7 @@ import { interactionTarget } from "../src/app/session-interaction.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { createQuestionDialog, handleQuestionInput, renderQuestionPanel } from "../src/tui/question-dialog.js";
 import { COCKPIT_RELEASE_CUE, releaseCueVisible } from "../src/tui/cockpit-onboarding.js";
-import { stripAnsi } from "../src/tui/theme.js";
+import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import type { AnswerInput, PendingQuestion } from "../src/core/session-interaction.js";
 
@@ -320,4 +320,40 @@ test("Accepted stays Accepted when activity bookkeeping fails; Conversation is r
   view.handleInput("\r"); await tick();
   assert.match(text(view), /Accepted · Answer sent/);
   assert.match(text(view), /activity update failed: disk full/);
+});
+
+test("an open question sits under its own rule; the message above it is a short context, and keys stand apart", async () => {
+  const long = Array.from({ length: 12 }, (_, index) => `Message line ${index + 1}.`).join("\n");
+  const view = new SessionsView(new SessionsController({ version: 1, sessions: [session] }), () => {}, { terminalRows: () => 40, interactionTarget,
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events" as const, questionProtocol: true, pending: [request], messageDelivery: "idle" as const, lastMessage: long }), submitAnswer: async () => {} });
+  view.render(150); await view.refreshInteraction(); view.handleInput("\t");
+  const pane = text(view, 150).split("\n").map((line) => line.slice(line.indexOf("│") + 1).trimEnd());
+  const ask = pane.findIndex((line) => /^ +── ASK ─+$/.test(line));
+  assert.ok(ask > 0, pane.join("\n"));
+  // Four lines of the message, then how much is hidden, with no key named while the panel owns the keys.
+  assert.match(pane[ask - 1]!, /… 8 more lines$/);
+  assert.ok(pane.slice(0, ask).some((line) => line.includes("Message line 4.")));
+  assert.ok(!pane.slice(0, ask).some((line) => line.includes("Message line 5.")));
+  assert.match(pane[ask + 1]!, /Which change should ship\?/);
+  const keys = pane.findIndex((line) => /Enter Send/.test(line));
+  assert.equal(pane[keys - 1]!.trim(), "");
+  // Option descriptions wrap at the reading measure, not the pane's full width.
+  const wide = { ...question, options: [{ label: "First", description: "word ".repeat(40).trim() }, question.options[1]!] };
+  const wrapped = new SessionsView(new SessionsController({ version: 1, sessions: [session] }), () => {}, { terminalRows: () => 40, interactionTarget,
+    loadInteractionState: async () => ({ answerChannel: "rpiv-events" as const, questionProtocol: true, pending: [{ toolCallId: "call", params: { questions: [wide] } }], messageDelivery: "idle" as const }), submitAnswer: async () => {} });
+  wrapped.render(230); await wrapped.refreshInteraction(); wrapped.handleInput("\t");
+  const rows = text(wrapped, 230).split("\n").filter((line) => /word word/.test(line)).map((line) => line.slice(line.indexOf("│") + 1).trim());
+  assert.ok(rows.length >= 3 && rows.every((row) => row.length <= 76), rows.join("\n"));
+});
+
+test("painted option keys and the recommended mark use the accent; labels are bold; plain text is unchanged", () => {
+  const marked = { ...question, options: [{ label: "First (Recommended)", description: "First description" }, question.options[1]!] };
+  const dialog = createQuestionDialog(target, session.title, { toolCallId: "call", params: { questions: [marked] } });
+  const plain = renderQuestionPanel(dialog, 120).body.join("\n");
+  const painted = renderQuestionPanel(dialog, 120, darkTheme).body.join("\n");
+  assert.match(plain, /▶ \[1\] First \[Recommended\]/);
+  assert.equal(stripAnsi(painted), stripAnsi(plain));
+  assert.ok(painted.includes(`\x1b[1m${styleToken(darkTheme, "accent", "1")}`));
+  assert.ok(painted.includes(styleToken(darkTheme, "accent", "[Recommended]")));
+  assert.ok(painted.includes("\x1b[1mFirst\x1b[22m"));
 });

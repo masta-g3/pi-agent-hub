@@ -146,6 +146,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "size-increase", label: "Size +", footerLabel: "Size", hint: "increase the main pinned-pane split", keys: ["+"], available: resizeAvailability },
   { name: "size-decrease", label: "Size -", footerLabel: "Size", hint: "decrease the main pinned-pane split", keys: ["-"], available: resizeAvailability },
   { name: "info", label: "Details", hint: "show runtime and cockpit evidence", keys: ["i"], available: () => enabled() },
+  { name: "message", label: "Full message", hint: "show or fold the agent's whole latest message in its card", keys: ["C"], available: mainAvailability },
   { name: "copy-path", label: "Copy path", hint: "copy the handoff evidence path", keys: ["y"], available: copyPathAvailability },
   { name: "mark-read", label: "Mark read", hint: "acknowledge the selected waiting session", keys: ["a"], available: markReadAvailability },
   { name: "reorder-up", label: "Move up", hint: "reorder inside the current priority tie", keys: ["K", "Shift+Up"], available: reorderAvailability },
@@ -261,7 +262,8 @@ export function selectWorkspaceCommands(
   } else if (session.status === "idle" || session.status === "waiting") {
     actionNames = ["open", "send", "archive"];
   } else {
-    actionNames = ["open", "pin", "archive"];
+    // A working agent can be steered from its card; Reply leads the secondary actions.
+    actionNames = ["open", "send", "pin", "archive"];
   }
 
   const actionsByName = new Map(

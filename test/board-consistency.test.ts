@@ -93,11 +93,16 @@ test("narrow board retains the current step when the grid would crowd the title"
 });
 
 test("board grid leaves the Repo Backlog workflow rail unchanged", () => {
-  const layout = renderSessions(buildRenderModel({ sessions: [session("backlog", { bucket: "backlog" })],
-    width: 160, fleetGrouping: "repo", selectedRepo: "/tmp/data", now: 100_000 }));
-  const index = layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "backlog");
-  const row = stripAnsi(layout.lines[index]!);
-  assert.match(row, /backlog · QUIET · ✓ PL─◉ EX─· RV─· RF─· CM/);
+  const row = (width: number) => {
+    const layout = renderSessions(buildRenderModel({ sessions: [session("backlog", { bucket: "backlog" })],
+      width, fleetGrouping: "repo", selectedRepo: "/tmp/data", now: 100_000 }));
+    const index = layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "backlog");
+    return stripAnsi(layout.lines[index]!).slice(0, layout.listWidth);
+  };
+  // Beside the card pane the roster keeps the full lifecycle rail once it has room for it.
+  assert.match(row(200), /backlog · QUIET · ✓ PL─◉ EX─· RV─· RF─· CM/);
+  // A narrower roster keeps the compact current step.
+  assert.match(row(160), /Card backlog\s+◉EX$/);
 });
 
 test("narrow boards retain group badges when group headings are absent", () => {

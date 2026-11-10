@@ -2,9 +2,10 @@ import { glyphs } from "./glyphs.js";
 import { quotaSegment } from "./usage-view.js";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
-import type { WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { SessionAction, WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import { alwaysExpanded, type CockpitTier, type RenderModel, type RenderSession, type RenderWorkspace } from "./render-model.js";
 import { ageLabel } from "./age.js";
+import { renderMarkdown } from "./conversation.js";
 import { formatKey } from "./dashboard-shortcuts.js";
 import { createTextInput, renderTextInput } from "./text-input.js";
 import { hasUsefulStatusResult, statusEvidenceFields, type StatusEvidenceField } from "./status-evidence.js";
@@ -15,6 +16,9 @@ export const NARROW_LAYOUT_MAX_WIDTH = 60;
 export const MIN_LAYOUT_WIDTH = 30;
 /** Unselected fleet rows collapse below this height; the selected card keeps its content. */
 const SHORT_FLEET_HEIGHT = 20;
+/** From this width the selected session's card sits beside the roster instead of below it. */
+const SIDE_PANE_MIN_WIDTH = 100;
+const PANE_MAX_WIDTH = 104;
 
 export type SessionListTarget =
   | { kind: "session"; id: string }
@@ -56,6 +60,8 @@ export interface SessionsLayout {
   workspaceStartX?: number;
   listWidth: number;
   listScrollTop: number;
+  /** The side pane beside the roster: its 1-based start column and, per screen row, the session its card row belongs to. */
+  pane?: { x: number; targets: (SessionListTarget | undefined)[] };
   footerRow?: number;
   footerItems: FooterItem[];
 }
@@ -100,7 +106,7 @@ function headerBand(line: string, width: number, styles: LayoutStyles): string {
 export function renderSessions(model: RenderModel, theme?: SessionsTheme): SessionsLayout {
   // The no-pin fleet is an instrument panel; board and pin views keep the full palette.
   const panel = model.grouping !== "stage" && !model.pinMode;
-  const styles = theme ? createStyles(panel ? panelTheme(theme) : theme, theme.success, panel) : plainStyles(panel);
+  const styles = theme ? { ...createStyles(panel ? panelTheme(theme) : theme, theme.success, panel), usageTheme: theme } : plainStyles(panel);
   const width = Math.max(MIN_LAYOUT_WIDTH, model.width);
   const emptyLayout = (lines: string[]): SessionsLayout => ({
     lines,
@@ -152,7 +158,14 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceWidth = model.grouping === "stage" && (model.showWorkspace || (!model.pinMode && syntheticSelection && width >= 120))
     ? (width >= 160 ? 44 : 34)
     : 0;
-  const listWidth = width - workspaceWidth - (workspaceWidth ? 1 : 0);
+  // The no-pin fleet shows the selected session's card beside the roster at 100+ columns, below it otherwise;
+  // either way rows keep their height whatever is selected.
+  const dock = model.grouping !== "stage" && !model.pinMode && !model.noMatches && !model.empty;
+  // An open conversation owns the screen's lower part; the card returns below the short roster.
+  const side = dock && width >= SIDE_PANE_MIN_WIDTH && !model.compactRows;
+  // The roster takes about two fifths; past 160 columns it also takes what the pane's reading width does not need.
+  const paneWidth = side ? Math.min(PANE_MAX_WIDTH, width - Math.max(38, Math.round(width * 0.38)) - 1) : 0;
+  const listWidth = width - workspaceWidth - (workspaceWidth ? 1 : 0) - (side ? paneWidth + 1 : 0);
   const listStartX = 1;
   const decisionRows = model.pinMode && model.workspace?.panel && model.height
     ? Math.max(1, model.height - 1 - filterLines.length - 1)
@@ -169,15 +182,13 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
   const stripLines = announcement.lines.length + baseStripLines;
   const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible ? 1 : 0);
-  // The no-pin fleet docks the selected card below the list; rows keep their height whatever is selected.
-  const dock = model.grouping !== "stage" && !model.pinMode && !model.noMatches && !model.empty;
-  const expanded = Boolean(model.workspace?.panel || model.workspace?.evidenceVisible);
+  const expanded = Boolean(model.workspace?.panel || model.workspace?.evidenceVisible || model.workspace?.session.messageExpanded);
   // A focused panel or Details grow the dock only as far as their content needs, so neighbors stay when they fit.
-  const cardRows = !dock ? 0 : expanded
+  const cardRows = !dock || side ? 0 : expanded
     ? Math.min(dockRows(targetRows, true), dockedCard(model, listWidth, styles, undefined)?.lines.length ?? 0)
     : dockRows(targetRows, false);
   // A rule separates list and dock when rows allow; a focused panel may take the whole body on a tiny window.
-  const dockRule = dock && (targetRows === undefined || (cardRows > 0 && targetRows >= 8));
+  const dockRule = dock && !side && (targetRows === undefined || (cardRows > 0 && targetRows >= 8));
   const listRows = targetRows === undefined ? undefined : cardRows >= targetRows ? 0 : Math.max(1, targetRows - cardRows - (dockRule ? 1 : 0));
   // Card spacers are a luxury: drop them all once the fleet needs windowing.
   const spaced = renderSessionList(model, listWidth, styles, true, false, dock);
@@ -192,12 +203,22 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     }, 0);
     if (twoLineHeight > listRows) left = renderSessionList(model, listWidth, styles, false, true, dock);
   }
-  const card = dock ? dockedCard(model, listWidth, styles, targetRows === undefined ? undefined : cardRows) : undefined;
+  const card = side ? dockedCard(model, paneWidth, styles, targetRows)
+    : dock ? dockedCard(model, listWidth, styles, targetRows === undefined ? undefined : cardRows) : undefined;
   const workspace: WorkspaceRendered = workspaceWidth && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
-  const rows = listRows ?? Math.max(left.lines.length, workspace.lines.length, 8);
+  const rows = listRows ?? Math.max(left.lines.length, workspace.lines.length, side ? card?.lines.length ?? 0 : 0, 8);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
+  // The pane's keys stay on its last rows, so they do not move as the content above them changes.
+  const pane: ({ line: string; commands?: NonNullable<SessionLineMeta["commands"]> } | undefined)[] = [];
+  if (side && card) {
+    const cells = card.lines.map((line, index) => ({ line, commands: card.lineMeta[index]?.commands }));
+    const firstKey = model.workspace?.panel ? -1 : cells.findIndex((cell) => cell.commands?.length);
+    const keys = firstKey < 0 ? [] : cells.slice(firstKey);
+    const content = firstKey < 0 ? cells : cells.slice(0, firstKey);
+    pane.push(...content, ...Array.from({ length: Math.max(0, rows - content.length - keys.length) }, () => undefined), ...keys);
+  }
   const summary = renderHeaderSummary(model, width, styles);
   const body: string[] = [summary.line, ...filterLines, ...announcement.lines];
   const visibleLinesByOwner = new Map<string, number>();
@@ -214,11 +235,13 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     // Only the selected owner tree sits on a plate; every other module reads off the base background.
     const leftLine = selected ? styles.selected(padded) : padded;
     const workspaceLine = workspaceWidth ? `${styles.border(glyphs.vertical)}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
-    body.push(`${leftLine}${workspaceLine}`);
+    // The side pane reads off the base background: the roster row carries the selection, so the card drops its stripe.
+    const paneLine = side ? `${styles.dim(glyphs.vertical)}${pane[i] === undefined ? "" : ` ${withoutStripeTone(sliceByColumn(pane[i]!.line, 1, paneWidth))}`}` : "";
+    body.push(`${leftLine}${workspaceLine}${paneLine}`);
   }
   const cardStart = 1 + filterLines.length + announcement.lines.length + rows + (rows && dockRule ? 1 : 0);
   // The dock keeps its rows even with nothing to show, so the footer never moves with the selection.
-  const cardHeight = targetRows === undefined ? card?.lines.length ?? 0 : cardRows;
+  const cardHeight = side ? 0 : targetRows === undefined ? card?.lines.length ?? 0 : cardRows;
   if (cardHeight) {
     if (rows && dockRule) body.push(styles.border(glyphs.horizontal.repeat(width)));
     for (let i = 0; i < cardHeight; i += 1) {
@@ -251,7 +274,8 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     panelViewport: card?.panelViewport ?? windowedLeft.panelViewport ?? workspace.panelViewport ?? decision.panelViewport,
     cardCommandHits: [
       ...windowedLeft.lineMeta.flatMap((meta, index) => (meta?.commands ?? []).map(hit => ({ ...hit, row: listStart + index, x: listStartX + hit.x }))),
-      ...(card ? card.lineMeta.slice(0, cardHeight).flatMap((meta, index) => (meta?.commands ?? []).map(hit => ({ ...hit, row: cardStart + index, x: listStartX + hit.x }))) : []),
+      ...pane.slice(0, rows).flatMap((cell, index) => (cell?.commands ?? []).map(hit => ({ ...hit, row: listStart + index, x: listStartX + listWidth + 1 + hit.x }))),
+      ...(card && !side ? card.lineMeta.slice(0, cardHeight).flatMap((meta, index) => (meta?.commands ?? []).map(hit => ({ ...hit, row: cardStart + index, x: listStartX + hit.x }))) : []),
     ],
     ...(summary.quota && lines.length > 0 ? { usageHit: { row: 0, x: 1 + summary.quota.x, width: summary.quota.width } } : {}),
     ...(summary.chips.length && lines.length > 0 ? { tierChipRow: 0 } : {}),
@@ -262,6 +286,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     ...(workspaceWidth ? { workspaceStartX: listStartX + listWidth + 1 } : decision.lines.length ? { workspaceStartX: 1 } : {}),
     listWidth,
     listScrollTop: windowedLeft.top,
+    ...(side && card ? { pane: { x: listStartX + listWidth + 1, targets: lines.map((_, row) => pane[row - listStart] ? card.targets.find(Boolean) : undefined) } } : {}),
     ...(footerRow !== undefined ? { footerRow } : {}),
     footerItems: footerRow !== undefined ? footerLayout(model.footer, width, styles, 1).items : [],
   };
@@ -382,6 +407,8 @@ function fitBody(lines: string[], height: number | undefined): string[] {
 
 interface LayoutStyles {
   theme: SessionsTheme;
+  /** Account quota bars keep the theme's own success, warning and error colors in every palette. */
+  usageTheme: SessionsTheme;
   accent(text: string): string;
   border(text: string): string;
   dim(text: string): string;
@@ -421,6 +448,7 @@ function createStyles(theme: SessionsTheme, live: string | number = theme.succes
   const bold = (text: string) => `\u001b[1m${text}\u001b[22m`;
   return {
     theme,
+    usageTheme: theme,
     painted,
     padded,
     panel,
@@ -522,7 +550,7 @@ const BRAND = "pi hub";
 function headerWithQuota(mode: string, right: string, model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
   const brandWidth = displayWidth(BRAND) + 2;
   const room = width - displayWidth(mode) - displayWidth(right) - 5;
-  const quota = quotaSegment(model.usage, room, model.now, styles.theme);
+  const quota = quotaSegment(model.usage, room, model.now, styles.usageTheme);
   const brand = room - (quota ? displayWidth(quota) + 3 : 0) >= brandWidth ? `${styles.strong(BRAND)}  ` : "";
   const modeX = displayWidth(brand);
   const left = brand + styles.accent(mode) + (quota ? `   ${quota}` : "");
@@ -697,7 +725,9 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   const contentWidth = Math.max(1, width - 2);
   // Body text aligns under the title, after the stripe and state glyph; tiny panes keep those two columns for text.
   const indent = terminalWidth < 40 ? 2 : 4;
-  const marker = `${session.worktreeMarker ? ` ${session.worktreeMarker}` : ""}${session.unopened ? " new" : ""}`;
+  // Running subagents and extra repositories ride the title like on roster rows; tiny panes keep them on the metadata line.
+  const counts = roomy ? cardMarkers(session, styles) : "";
+  const marker = `${session.worktreeMarker ? ` ${session.worktreeMarker}` : ""}${stripAnsi(counts)}${session.unopened ? " new" : ""}`;
   const group = styles.muted(session.group);
   const state = session.attention ? attentionGlyph(session.attention.kind, styles) : styles.status(session.displayStatus, session.symbol);
   const disclosure = session.boardExpanded === undefined ? "" : `${session.boardExpanded ? glyphs.expanded : glyphs.collapsed} `;
@@ -713,10 +743,10 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   const branch = branchName ? styles.muted(` ${glyphs.pendingStep} ${branchName}`) : "";
   const branchOnTop = groupOnTop && branch !== "" && !repoNameSignal(session, styles, repoMode)
     && displayWidth(session.title + group + branch) + 2 <= titleRoom;
-  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(marker)}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
+  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(session.worktreeMarker ? ` ${session.worktreeMarker}` : "")}${counts}${styles.muted(session.unopened ? " new" : "")}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
   const top = `${selectionMarker(tone(glyphs.selected))} ${age ? twoColumn(title, age, contentWidth) : title}`;
   // Metadata sits under the title text (after the stripe and state glyph); STEP carries workflow position.
-  const metadata = inboxMetadataLine(session, Math.max(1, width - indent), terminalWidth, styles, repoMode, !groupOnTop, !branchOnTop);
+  const metadata = inboxMetadataLine(session, Math.max(1, width - indent), terminalWidth, styles, repoMode, !groupOnTop, !branchOnTop, !roomy);
   return { top, tone, indent, metadata: stripAnsi(metadata).trim() ? metadata : undefined };
 }
 
@@ -782,8 +812,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       : false;
     const gutterColumn = model.width >= 100 && !model.pinMode;
     const titleFirst = !board && shape === "full-parent";
-    const cell = titleFirst || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
     const inbox = !board && !model.pinMode;
+    // Roster rows name their own step; only board and pin rows sit under a shared grid.
+    const cell = (titleFirst && !inbox) || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
     const workspace = session.selected && model.workspace?.session.id === session.id ? model.workspace : undefined;
     const frame = inbox && session.selected && shape !== "micro-child" && !docked
       ? selectedCardIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo") : undefined;
@@ -796,7 +827,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const oneLine = titleFirst && (shortRows || (dense && (docked || session.cockpitOwnerId !== selectedOwnerId))) && !inline;
     // Fleet parents are modules; only an inline selected card replaces its module with the full card.
     const card = titleFirst && inbox && !inline;
-    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine: oneLine || card, card: card && !oneLine, workflowCell: cell });
+    const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine: oneLine || card, card, workflowCell: cell });
     pushLine(frame?.top ?? row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
     if (frame?.metadata) {
@@ -808,7 +839,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       if (!oneLine && !model.compactRows) {
         // Detail lines start under the state glyph.
         const detailIndent = gutterColumn ? 5 : 4;
-        for (const detail of moduleFieldLines(session, Math.max(1, width - detailIndent), rowStyles, { terminalWidth: model.width })) {
+        for (const detail of rosterLines(session, Math.max(1, width - detailIndent), rowStyles, model.width)) {
           pushLine(`${" ".repeat(detailIndent)}${detail.line}`, { kind: "session-continuation", id: session.id }, session);
           continuationPriorities.set(lines.length - 1, detail.priority);
         }
@@ -822,7 +853,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     }
     if (shape === "full-parent" && !model.compactRows && !oneLine && !card) {
       const hideFocusedQuestion = session.selected && model.workspace?.session.id === session.id && model.workspace.panel?.kind === "answer";
-      for (const continuation of adaptiveCardLines(session, contentWidth, rowStyles, board, model.width, inbox, hideFocusedQuestion)) {
+      const replying = session.selected && model.workspace?.session.id === session.id && Boolean(model.workspace.panel);
+      for (const continuation of adaptiveCardLines(session, contentWidth, rowStyles, board, model.width, inbox, hideFocusedQuestion, model.now, replying)) {
         pushLine(`${frame ? indent : styles.border(indent)}${continuation.line}`, { kind: "session-continuation", id: session.id }, session);
         continuationPriorities.set(lines.length - 1, continuation.priority);
       }
@@ -833,7 +865,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       const blocks = actionWorkspaceBlocks(workspace, contentWidth, model.now, rowStyles);
       for (const block of blocks) {
         if (["closure", "guidance"].includes(block.key) || (shape !== "full-parent" && ["request", "receipt", "task"].includes(block.key))) {
-          for (const line of block.lines) append(line);
+          // The card's ERR field already states the error; guidance adds only what to do about it.
+          const lines = block.key === "guidance" && shape === "full-parent" ? (workspace.guidance ? wrapWords(workspace.guidance, contentWidth, contentWidth) : []) : block.lines;
+          for (const line of lines) append(line);
         }
       }
       if (!workspace.panel) {
@@ -866,15 +900,26 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         return keyStart >= 0 && originalIndex >= keyStart && originalIndex < keyStart + (keyRows?.length ?? 0) ? [] : [sliceByColumn(line, indent.length, width)];
       });
       const focused = workspace?.panel;
+      // The panel's own rows come first: context above it gives way from its end when the pane is short.
+      if (focused && model.height) {
+        const own = renderFocusedPanel("", [], focused, width, undefined, rowStyles, indent).lines.length;
+        const room = Math.max(0, model.height - 3 - own - (frame.metadata ? 1 : 0));
+        if (prefix.length > room) prefix.length = room;
+      }
       if (focused && session.deliveryResult) {
         const receipt = stripAnsi(truncate(plainAttentionText(session.deliveryResult), contentWidth)).trim();
         const index = prefix.findIndex(line => stripAnsi(line).trim() === receipt);
         if (index >= 0) prefix.splice(index, 1);
       }
+      // A rule sets the question or reply apart from the context kept above it.
+      if (focused && prefix.length) {
+        const head = focused.kind === "answer" ? `${rowStyles.dim(glyphs.horizontal.repeat(2))} ${rowStyles.warning("ASK")} ` : "";
+        prefix.push(`${head}${rowStyles.dim(glyphs.horizontal.repeat(Math.max(0, contentWidth - displayWidth(head))))}`);
+      }
       panel = { bodyStart, width, indent, frame: { focused: Boolean(workspace?.panel), metadata: frame.metadata, tone: frame.tone, keys: keyRows },
         content: focused ? { ...focused, body: [...prefix, ...focused.body],
           hangingIndents: [...prefix.map(() => 0), ...(focused.hangingIndents ?? focused.body.map(() => 0))],
-          focusRows: focused.focusRows?.map(index => index + prefix.length) }
+          focusRows: focused.focusRows?.map(index => index + prefix.length), proseFrom: prefix.length }
           : { body: prefix.length ? prefix : [""], keyLine: keyRows?.filter(row => row.plain).map(row => row.plain).join("\n") ?? "Enter Open in Pi", offset: model.cardScrollOffset ?? 0 },
         ...(focused && session.deliveryResult ? { retainedText: plainAttentionText(session.deliveryResult) } : {}) };
       for (let index = rowStart; index < lines.length; index++) lineMeta[index] = { ...lineMeta[index]!, richTree: false };
@@ -906,11 +951,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   if (releaseCue && model.sections[0]?.cockpitTier !== "needs-you") pushReleaseCue();
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
-    // Below 40 columns rows show their current step label instead of a shared grid.
-    // Panel modules name their steps in STEP, so only one-line tiers keep a shared grid under the heading.
-    // Dense rows keep the shared grid: they have no STEP field.
-    const moduleSection = !dense && !board && !model.pinMode && section.cockpitTier !== undefined && moduleTier(section.cockpitTier);
-    gridWorkflow = moduleSection || model.width < (board || model.pinMode ? 40 : 80) ? undefined : board ? section.gridWorkflow : section.groups.flatMap((group) => group.sessions)
+    // Board and pin rows sit under a shared grid from 40 columns; roster rows name their own step.
+    gridWorkflow = (!board && !model.pinMode) || model.width < 40 ? undefined : board ? section.gridWorkflow : section.groups.flatMap((group) => group.sessions)
       .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow;
     const headingTitle = board || section.cockpitTier ? `${section.title} ${section.sessionsTotal}` : section.title;
     const headingRight = board
@@ -1105,6 +1147,11 @@ function windowList(list: SessionListContent, capacity: number, scrollTop: numbe
   return windowFilledSelectedSpan(list, safeCapacity, scrollTop, styles);
 }
 
+/** A line cut after the card's stripe still opens in the stripe's color; reset it before the first cell. */
+function withoutStripeTone(line: string): string {
+  return line.replace(/^((?:\u001b\[[0-9;:]*m)*)/u, "$1\u001b[39m");
+}
+
 function cardStripe(tone: (text: string) => string): string {
   return selectionMarker(tone(glyphs.selected));
 }
@@ -1228,7 +1275,8 @@ function windowFilledSelectedSpan(list: SessionListContent, capacity: number, sc
       if (priority >= 0) candidates.push({ index, distance, priority });
     }
     return candidates;
-  }).sort((a, b) => (list.docked ? 0 : a.distance - b.distance) || a.priority - b.priority || a.index - b.index);
+  // Requests and faults first, then live work and quiet notes; docked roster allocation stays independent of selection.
+  }).sort((a, b) => Math.min(a.priority, 2) - Math.min(b.priority, 2) || (list.docked ? 0 : a.distance - b.distance) || a.priority - b.priority || a.index - b.index);
   const keptContinuations = new Set(continuationCandidates.slice(0, remaining).map((candidate) => candidate.index));
   const emittedContexts = new Set<number>();
   const rowsForTitle = (titleIndex: number, includeSelectedSpan = false) => {
@@ -1370,6 +1418,8 @@ function adaptiveCardLines(
   terminalWidth: number,
   inbox = true,
   hideFocusedQuestion = false,
+  now = 0,
+  replying = false,
 ): { line: string; priority: number }[] {
   if (board) {
     const receipt = session.deliveryResult
@@ -1401,7 +1451,7 @@ function adaptiveCardLines(
   // In the fleet only the selected module reaches here: its full task, then the field grid.
   const summary = session.ticketSubtitle ?? session.ticketDescription;
   if (summary) for (const line of wrapWords(plainAttentionText(summary), width, width)) lines.push({ line: styles.muted(line), priority: 0 });
-  lines.push(...moduleFieldLines(session, width, styles, { terminalWidth, selected: true, hideQuestion: hideFocusedQuestion }));
+  lines.push(...detailFieldLines(session, width, styles, { terminalWidth, now, hideQuestion: hideFocusedQuestion, replying }));
   return lines;
 }
 
@@ -1476,11 +1526,16 @@ function renderFocusedPanel(title: string, context: string[], panel: NonNullable
     const hangingIndent = Math.max(0, Math.min(contentWidth - 1, panel.hangingIndents?.[index] ?? 0));
     const prefix = hangingIndent ? sliceByColumn(line, 0, hangingIndent) : "";
     const text = hangingIndent ? sliceByColumn(line, hangingIndent, displayWidth(line)) : line;
-    const parts = wrapTextWithAnsi(text, Math.max(1, contentWidth - hangingIndent))
+    // Options and questions wrap at the reading measure; the focus plate still spans the pane.
+    const measure = panel.proseFrom !== undefined && index >= panel.proseFrom ? PROSE_MEASURE : contentWidth;
+    const parts = wrapTextWithAnsi(text, Math.max(1, Math.min(contentWidth - hangingIndent, measure)))
       .map((part, partIndex) => (partIndex ? " ".repeat(hangingIndent) : prefix) + part);
     return parts.map(part => indent + (panel.focusRows?.includes(index) ? styles.option(pad(part, contentWidth)) : part));
   });
-  const keys = completeKeyLines(panel.keyLine, contentWidth, styles).map(line => indent + line);
+  const keyLines = completeKeyLines(panel.keyLine, contentWidth, styles).map(line => indent + line);
+  // A blank row sets the keys apart from the last option when the panel has rows to spare.
+  const spare = maxRows === undefined || body.length + context.length + retained.length + keyLines.length + 2 + (panel.statusLine ? 1 : 0) <= maxRows;
+  const keys = panel.kind && spare && body.length && stripAnsi(body.at(-1)!).trim() ? ["", ...keyLines] : keyLines;
   const retainedLines = retained.map(line => indent + truncate(line, contentWidth));
   const reserved = 1 + retainedLines.length + keys.length;
   const capacity = maxRows ?? body.length + context.length + reserved + (panel.statusLine ? 1 : 0);
@@ -1722,7 +1777,7 @@ function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: W
 }
 
 /** The selected module's identity line: group, repo and branch, then counts the title row had no room for. */
-function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean, includeGroup = true, includeBranch = true): string {
+function inboxMetadataLine(session: RenderSession, width: number, terminalWidth: number, styles: LayoutStyles, repoMode: boolean, includeGroup = true, includeBranch = true, includeCounts = true): string {
   const hidden = session.hiddenChildRequestCount ? ` ?${session.hiddenChildRequestCount}` : "";
   const budget = Math.max(0, width - displayWidth(hidden));
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
@@ -1740,9 +1795,9 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
     if (displayWidth(left) + tier.length + 1 <= budget) left += ` ${cockpitTone(session.cockpitTier, styles)(tier)}`;
   }
   left = truncate(left, budget) + styles.warning(hidden);
-  const running = session.runningSubagentCount ? ` ${glyphs.subagents}${session.runningSubagentCount}` : "";
+  const running = includeCounts && session.runningSubagentCount ? ` ${glyphs.subagents}${session.runningSubagentCount}` : "";
   if (displayWidth(left) + displayWidth(running) <= width) left += styles.live(running);
-  const repos = session.repoCount > 1 ? ` ${glyphs.repos} ${session.repoCount}` : "";
+  const repos = includeCounts && session.repoCount > 1 ? ` ${glyphs.repos} ${session.repoCount}` : "";
   if (displayWidth(left) + displayWidth(repos) <= width) left += styles.muted(repos);
   // Parts join with a leading separator; drop it when no identity precedes them.
   return trimLeadingSeparator(left);
@@ -1926,22 +1981,20 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
   // A module's title row ends with its age; its STEP field carries workflow position.
   if (options.card && moduleTier(session.cockpitTier)) {
     const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-    const age = rowAge(session) ? styles.muted(rowAge(session)!) : "";
-    return [[hidden, age], [hidden], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
+    const age = rowAge(session) ? styles.muted(rowAge(session)!.padStart(3)) : "";
+    const step = rosterStep(session, styles);
+    return [[hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
   }
-  // Below 80 columns card rows name their step in words, like the selected card's metadata.
-  const step = session.workflow?.steps[session.workflow.activeIndex];
-  const stepWords = options.card && options.terminalWidth < 80 && step ? styles.accent(step.label ?? step.short) : "";
-  const workflow = stepWords ? "" : options.workflowCell?.right ?? "";
+  // Pin rows: the shared grid, then group and age.
+  const workflow = options.workflowCell?.right ?? "";
   const grid = workflow + " ".repeat(Math.max(0, (options.workflowCell?.gridWidth ?? 0) - displayWidth(workflow)));
-  const compact = stepWords || (session.workflow ? railCompact(session.workflow, activeWorkflowMode(session), styles) : "");
+  const compact = session.workflow ? railCompact(session.workflow, activeWorkflowMode(session), styles) : "";
   // Selected short-window rows retain group metadata below; phones keep their title + progress shape.
   if (session.selected || options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH) return [grid, compact].find(fits) ?? "";
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-  // Roomy card rows show age only at 160+; dense rows keep group and age at every width.
-  const age = options.card && options.terminalWidth < 160 ? "" : rowAge(session) ?? "";
+  const age = rowAge(session) ?? "";
   const metadata = (group: boolean, withAge: boolean) => styles.muted([
-    ...(group && !options.card ? [session.group] : []), ...(withAge && age ? [age] : []),
+    ...(group ? [session.group] : []), ...(withAge && age ? [age] : []),
   ].join(` ${glyphs.pendingStep} `));
   return [
     [hidden, metadata(true, true), grid],
@@ -2131,15 +2184,16 @@ function cardMarkers(session: RenderSession, styles: LayoutStyles): string {
 }
 
 /** Group, then the task at 100+ columns; Repo grouping also names the tier. A module's mode rides its STEP field. */
-function cardIdentity(session: RenderSession, styles: LayoutStyles, options: SessionRowOptions): string {
-  const task = options.terminalWidth >= 100 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
+function cardIdentity(session: RenderSession, styles: LayoutStyles, options: SessionRowOptions, room: number): string {
+  // Beside the detail pane the roster is narrow, and the pane names the task.
+  const task = options.terminalWidth >= 160 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
   const parts = [session.group, ...(task ? [plainAttentionText(task)] : [])];
+  const text = styles.muted(parts.join(` ${glyphs.pendingStep} `));
+  // Repo grouping names the tier whole or not at all: a cut label reads as noise.
   const tier = options.repoMode && options.terminalWidth >= 100 ? ` ${cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])}` : "";
-  const mode = moduleTier(session.cockpitTier) ? undefined : activeWorkflowMode(session);
-  return `${styles.muted(parts.join(` ${glyphs.pendingStep} `))}${tier}${mode ? ` ${styles.accent(mode.short)}` : ""}`;
+  return tier && displayWidth(text) + displayWidth(tier) <= room ? `${text}${tier}` : truncate(text, room);
 }
 
-const CARD_REQUEST_LINES = 3;
 /** Field labels take four cells and two spaces, so every module's values start in one column. */
 const FIELD_LABEL_WIDTH = 4;
 const FIELD_INDENT = " ".repeat(FIELD_LABEL_WIDTH + 2);
@@ -2177,7 +2231,8 @@ function readoutFields(session: RenderSession, width: number, styles: LayoutStyl
   const live = session.status !== "stopped" && workflow?.currentStepComplete !== true;
   const plan = live ? executePlan(session) : undefined;
   const tasks = planTaskCount(plan);
-  const phase = plan?.phase ? `${plan.phase.index}/${plan.phase.count}` : "";
+  // The PLAN field names the phase when the producer sends its checklist.
+  const phase = plan?.phase && !plan.current ? `${plan.phase.index}/${plan.phase.count}` : "";
   const mode = activeWorkflowMode(session);
   const markers = workflow && terminalWidth >= 80
     ? workflow.steps.map((item, index) => `${styles.muted(item.short)}${styledWorkflowMarker(workflow, index, styles)}`).join(" ")
@@ -2212,63 +2267,215 @@ function lcdLines(fields: ReadoutField[], width: number, styles: LayoutStyles): 
   return [styles.lcd(labels), styles.lcd(values)];
 }
 
-interface ModuleFieldOptions {
-  terminalWidth: number;
-  /** The selected module shows requests whole, its pending question and artifact, and the LCD at 100+. */
-  selected?: boolean;
-  hideQuestion?: boolean;
+/** What one tool call was for: the tool's name in a fixed column, then its short argument. */
+function actionText(action: SessionAction, width: number, styles: LayoutStyles, tone: (text: string) => string): string {
+  const tool = pad(truncate(action.tool, ACTION_TOOL_WIDTH), ACTION_TOOL_WIDTH);
+  return `${tone(tool)} ${styles.muted(truncate(plainAttentionText(action.detail ?? ""), Math.max(0, width - ACTION_TOOL_WIDTH - 1)))}`;
+}
+const ACTION_TOOL_WIDTH = 7;
+const ACTION_AGE_WIDTH = 3;
+const PROSE_MEASURE = 76;
+const SAID_LINES_REPLYING = 4;
+
+/** The workflow step an agent is on, for a roster title row: its short name, checked when the step is complete. */
+function rosterStep(session: RenderSession, styles: LayoutStyles): string {
+  const workflow = session.workflow;
+  const step = workflow?.steps[workflow.activeIndex];
+  if (!workflow || !step) return "";
+  const mode = activeWorkflowMode(session);
+  return (mode ? styles.accent : styles.muted)(`${mode?.short ?? step.short}${workflow.currentStepComplete === true ? glyphs.ready : ""}`);
+}
+
+/** A roster status line's right edge: the plan's task meter and count while the agent executes it. */
+function rosterProgress(session: RenderSession, styles: LayoutStyles, width: number): string {
+  const live = session.status !== "stopped" && session.status !== "error" && session.workflow?.currentStepComplete !== true;
+  const tasks = live ? planTaskCount(executePlan(session)) : undefined;
+  if (!tasks) return "";
+  const count = styles.text(`${tasks.completed}/${tasks.total}`);
+  return width >= 40 ? `${taskMeter(tasks, styles)} ${count}` : count;
 }
 
 /**
- * A panel module's fields under its title, in fixed order: the request (ASK/RDY/BLK) or ERR, NOW, the
- * STEP, TASK and PHASE readout, then SUB. A label appears only with a value. Unselected requests keep three
- * lines with the recommendation; later lines carry lower priority so short windows drop them first.
+ * A roster module's one status line under its title: the request, the fault, the live tool call, the
+ * workflow activity, the running subagent, or the last progress note, in that order. Its right edge carries
+ * the plan's task meter. A request may take a second line when rows allow.
  */
-function moduleFieldLines(session: RenderSession, width: number, styles: LayoutStyles, options: ModuleFieldOptions): FieldLine[] {
+function rosterLines(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): FieldLine[] {
+  const right = rosterProgress(session, styles, width);
+  const valueWidth = Math.max(4, width - FIELD_INDENT.length - (right ? displayWidth(right) + 2 : 0));
+  // Requests and faults keep priority 0, so short windows keep them on every row; live work comes next.
+  const first = (label: string, tone: (text: string) => string, value: string, priority = 0): FieldLine => {
+    const left = `${fieldLabel(label, tone)}${value}`;
+    return { line: right ? twoColumn(left, right, width) : left, priority };
+  };
+  const attention = session.attention;
+  if (attention) {
+    const words = wrapWords(plainAttentionText(attention.text), valueWidth, Math.max(4, width - FIELD_INDENT.length));
+    const second = words.length > 1 ? truncate(words.slice(1).join(" "), Math.max(4, width - FIELD_INDENT.length)) : "";
+    return [first(requestLabel(attention.kind), styles.warning, styles.text(words[0] ?? "")),
+      ...(second ? [{ line: `${FIELD_INDENT}${styles.text(second)}`, priority: 2 }] : []),
+      ...(session.deliveryResult ? [{ line: receiptLine(session, width, styles), priority: 0 }] : [])];
+  }
+  const lines: FieldLine[] = [];
+  const live = session.displayStatus === "running";
+  const error = session.displayStatus === "error" && session.error ? plainAttentionText(session.error) : "";
+  const action = live ? session.activity?.current ?? session.activity?.recent?.[0] : undefined;
+  const activity = session.status !== "stopped" && session.workflow?.currentStepComplete !== true ? activityLabel(session.workflow?.activity) : "";
+  const child = session.boardExpanded ? undefined : session.runningSubagent;
+  // The title row names the task at 160+; below that the quiet fallback can.
+  const task = terminalWidth < 160 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
+  if (error) lines.push(first("ERR", styles.error, styles.text(truncate(error, valueWidth))));
+  else if (action) lines.push(first("NOW", styles.live, actionText(action, valueWidth, styles, styles.text), 1));
+  else if (activity && live) lines.push(first("NOW", styles.live, styles.text(truncate(activity, valueWidth)), 1));
+  else if (child) lines.push(first("SUB", styles.live, truncate([styles.text(child.agentName), child.taskPreview && styles.muted(plainAttentionText(child.taskPreview))].filter(Boolean).join(" "), valueWidth), 1));
+  else if (session.progress?.done) lines.push(first("DONE", styles.muted, styles.text(truncate(plainAttentionText(session.progress.done), valueWidth)), 2));
+  else if (activity) lines.push(first("NOW", styles.muted, styles.muted(truncate(activity, valueWidth)), 2));
+  // A quiet agent still says something useful: the handoff you already read, else the task it works on.
+  else if (session.context?.attention?.text) lines.push(first("SAID", styles.muted, styles.muted(truncate(plainAttentionText(session.context.attention.text), valueWidth)), 2));
+  else if (task) lines.push(first("TASK", styles.muted, styles.muted(truncate(plainAttentionText(task), valueWidth)), 2));
+  else if (right) lines.push({ line: twoColumn("", right, width), priority: 2 });
+  if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
+  return lines;
+}
+
+interface DetailFieldOptions {
+  terminalWidth: number;
+  now: number;
+  hideQuestion?: boolean;
+  /** An Answer or Reply panel is open: keep what the agent asked and said, drop position and activity. */
+  replying?: boolean;
+}
+
+const PLAN_TASKS_BEFORE = 2;
+const PLAN_TASKS_SHOWN = 7;
+const LOG_ACTIONS = 3;
+const SAID_LINES = 14;
+
+/** The plan as a checklist: the phase, then tasks around the first unchecked one, marked like workflow steps. */
+function planFieldLines(session: RenderSession, valueWidth: number, styles: LayoutStyles, compact: boolean): FieldLine[] {
+  const live = session.status !== "stopped" && session.workflow?.currentStepComplete !== true;
+  const plan = live ? executePlan(session) : undefined;
+  if (!plan) return [];
+  const head = plan.phase ? `${plan.phase.index}/${plan.phase.count} ${plainAttentionText(plan.phase.title)}` : "";
+  const values: string[] = [];
+  if (head) values.push(styles.text(truncate(head, valueWidth)));
+  const tasks = plan.current?.tasks ?? [];
+  const next = tasks.findIndex((task) => !task.done);
+  // Below the roster the card has few rows: it keeps the phase and the current task only.
+  const start = compact ? Math.max(0, next) : Math.max(0, Math.min((next < 0 ? tasks.length : next) - PLAN_TASKS_BEFORE, tasks.length - PLAN_TASKS_SHOWN));
+  const shown = compact ? tasks.slice(start, next < 0 ? start : start + 1) : tasks.slice(start, start + PLAN_TASKS_SHOWN);
+  const earlier = (plan.current?.before ?? 0) + start;
+  const later = (plan.current?.after ?? 0) + Math.max(0, tasks.length - start - shown.length);
+  if (earlier && !compact) values.push(styles.muted(`${glyphs.ready} ${earlier} earlier`));
+  for (const [offset, task] of shown.entries()) {
+    const current = start + offset === next;
+    const marker = task.done ? styles.muted(glyphs.ready) : current ? styles.accent(glyphs.activeStep) : styles.dim(glyphs.pendingStep);
+    const text = truncate(plainAttentionText(task.text), Math.max(1, valueWidth - 2));
+    values.push(`${marker} ${task.done ? styles.muted(text) : current ? styles.strong(text) : styles.text(text)}`);
+  }
+  if (later && !compact) values.push(styles.muted(`${glyphs.pendingStep} ${later} more`));
+  if (!tasks.length && plan.nextStep) values.push(`${styles.accent(glyphs.activeStep)} ${styles.text(truncate(plainAttentionText(plan.nextStep), Math.max(1, valueWidth - 2)))}`);
+  return fieldLines("PLAN", styles.muted, values, [1]);
+}
+
+/**
+ * The selected session's fields in fixed order: the request (ASK/RDY/BLK) or ERR, the STEP readout, the PLAN
+ * checklist, NOW and LOG tool calls, the DONE and NEXT progress note, SUB, then SAID, the agent's latest
+ * message. A label appears only with a value.
+ */
+function detailFieldLines(session: RenderSession, width: number, styles: LayoutStyles, options: DetailFieldOptions): FieldLine[] {
   const lines: FieldLine[] = [];
   const valueWidth = Math.max(4, width - FIELD_INDENT.length);
+  // Sentences wrap at a reading measure; a wide pane does not stretch them edge to edge.
+  const proseWidth = Math.min(valueWidth, PROSE_MEASURE);
   const attention = session.attention;
-  const question = options.selected ? session.pendingQuestion : undefined;
+  const question = session.pendingQuestion;
   // A focused answer panel already shows the question, and the request it answers.
   const request = question && options.hideQuestion ? undefined
     : question ? { kind: "question" as const, text: `${question.header} ${glyphs.pendingStep} ${question.question}` } : attention;
   if (request) {
-    const words = wrapWords(plainAttentionText(request.text), valueWidth, valueWidth);
-    const recommendation = attention?.recommendation ? `${glyphs.right} ${plainAttentionText(attention.recommendation)}` : "";
-    if (options.selected) {
-      const recommendations = recommendation ? wrapWords(recommendation, valueWidth, valueWidth).map(styles.muted) : [];
-      const artifact = attention?.artifact ? wrapWords(`${glyphs.artifact} ${plainAttentionText(attention.artifact)}`, valueWidth, valueWidth).map(styles.muted) : [];
-      lines.push(...fieldLines(requestLabel(request.kind), styles.warning, [...words.map(styles.text), ...recommendations, ...artifact], [0]));
-    } else {
-      const textRows = Math.min(words.length, recommendation && words.length < CARD_REQUEST_LINES ? CARD_REQUEST_LINES - 1 : CARD_REQUEST_LINES);
-      const shown = words.slice(0, textRows);
-      if (words.length > textRows) shown[textRows - 1] = truncate(words.slice(textRows - 1).join(" "), valueWidth);
-      const values = shown.map(styles.text);
-      if (recommendation && values.length < CARD_REQUEST_LINES) values.push(styles.muted(truncate(recommendation, valueWidth)));
-      lines.push(...fieldLines(requestLabel(request.kind), styles.warning, values, [0, 1, 2]));
-    }
+    const words = wrapWords(plainAttentionText(request.text), proseWidth, proseWidth);
+    const recommendations = attention?.recommendation ? wrapWords(`${glyphs.right} ${plainAttentionText(attention.recommendation)}`, proseWidth, proseWidth).map(styles.muted) : [];
+    // One line that keeps the file name: a long path loses its start, not its end.
+    const artifact = attention?.artifact ? [styles.muted(`${glyphs.artifact} ${truncateValue(plainAttentionText(attention.artifact), Math.max(1, valueWidth - 2), "start")}`)] : [];
+    lines.push(...fieldLines(requestLabel(request.kind), styles.warning, [...words.map(styles.strong), ...recommendations, ...artifact], [0]));
   }
   if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
-  if (!options.selected && !moduleTier(session.cockpitTier)) return lines;
   const error = session.displayStatus === "error" && session.error ? plainAttentionText(session.error) : "";
-  if (error) lines.push(...fieldLines("ERR", styles.error, [styles.text(truncate(error, valueWidth))], [0]));
-  const workflow = session.workflow;
-  const live = session.status !== "stopped" && workflow?.currentStepComplete !== true;
-  // A request or a fault already says what the agent is doing.
-  const activity = live && !request && !error ? activityLabel(workflow?.activity) : "";
-  if (activity) lines.push(...fieldLines("NOW", styles.muted, [styles.text(truncate(activity, valueWidth))], [2]));
-  const readout = readoutFields(session, width, styles, options.terminalWidth);
+  if (error) lines.push(...fieldLines("ERR", styles.error, wrapWords(error, proseWidth, proseWidth).map(styles.text), [0]));
+  const compact = options.terminalWidth < SIDE_PANE_MIN_WIDTH;
+  // The side pane has rows to spare: a blank row separates request, position, activity, progress and message.
+  const group = () => { if (!compact && lines.length && lines.at(-1)!.line !== "") lines.push({ line: "", priority: 4 }); };
+  group();
+  const note = (label: string, value: string | undefined) => {
+    if (value) lines.push(...fieldLines(label, styles.muted, wrapWords(plainAttentionText(value), proseWidth, proseWidth).map(styles.text), [2]));
+  };
+  const notes = () => {
+    // A ready handoff already says what was done.
+    if (request?.kind !== "ready") note("DONE", session.progress?.done);
+    // An open request is what comes next; the note's guess would only repeat it.
+    if (!request) note("NEXT", session.progress?.next);
+  };
+  // The side pane leads with the agent's own summary; the short dock keeps position and plan first.
+  if (!compact) notes();
+  group();
+  const readout = options.replying ? [] : readoutFields(session, width, styles, options.terminalWidth);
   if (readout.length) {
-    const rows = options.selected && options.terminalWidth >= 100 ? lcdLines(readout, width, styles) : [readoutLine(readout, width, styles)];
+    const rows = options.terminalWidth >= 100 ? lcdLines(readout, width, styles) : [readoutLine(readout, width, styles)];
     lines.push(...rows.map((line) => ({ line, priority: 3 })));
   }
+  if (!options.replying) lines.push(...planFieldLines(session, valueWidth, styles, compact));
+  group();
+  const workflow = session.workflow;
+  const live = session.status !== "stopped" && workflow?.currentStepComplete !== true;
+  // A timeline: how long ago in a fixed column beside the call, so the eye does not cross the pane for it.
+  const actionRow = (action: SessionAction, tone: (text: string) => string) =>
+    `${styles.dim(pad(ageLabel(Math.max(0, options.now - action.at)), ACTION_AGE_WIDTH))} ${actionText(action, valueWidth - ACTION_AGE_WIDTH - 1, styles, tone)}`;
+  const current = session.displayStatus === "running" ? session.activity?.current : undefined;
+  const activity = live && !request && !error ? activityLabel(workflow?.activity) : "";
+  const now = options.replying ? [] : [...(activity ? [styles.text(truncate(activity, valueWidth))] : []), ...(current ? [actionRow(current, styles.text)] : [])];
+  // A running agent between tool calls is thinking; the card says so instead of looking idle.
+  const thinking = !options.replying && !now.length && session.displayStatus === "running" && session.kind !== "subagent";
+  if (thinking) now.push(styles.text(`Thinking${glyphs.ellipsis}`));
+  if (now.length) lines.push(...fieldLines("NOW", current || thinking ? styles.live : styles.muted, now, [2]));
+  const recent = options.replying ? [] : (session.activity?.recent ?? []).slice(0, compact ? 1 : LOG_ACTIONS);
+  if (recent.length) lines.push(...fieldLines("LOG", styles.muted, recent.map((action) => actionRow(action, styles.muted)), [3]));
+  if (compact) notes();
   // A collapsed tree is doing whatever its running subagents are doing; an expanded tree lists them.
-  const child = session.boardExpanded ? undefined : session.runningSubagent;
+  const child = session.boardExpanded || options.replying ? undefined : session.runningSubagent;
   if (child) {
     const more = (session.runningSubagentCount ?? 1) - 1;
     const doing = [styles.text(child.agentName), child.taskPreview && styles.muted(plainAttentionText(child.taskPreview)), more > 0 && styles.muted(`+${more} more`)]
       .filter(Boolean).join(styles.muted(` ${glyphs.pendingStep} `));
     lines.push(...fieldLines("SUB", styles.muted, [truncate(doing, valueWidth)], [3]));
+  }
+  group();
+  // Without the live message (a session not yet reloaded), a handoff you already read still says what it reported.
+  const message = session.lastMessage ?? (!request && !options.replying && session.displayStatus !== "running" ? session.context?.attention?.text : undefined);
+  if (message) {
+    // The side pane sets the message apart under its own rule, from the label column, with its emphasis kept.
+    const ruled = !compact;
+    const said = renderMarkdown(message, ruled ? Math.min(width, PROSE_MEASURE + FIELD_INDENT.length) : valueWidth, styles.theme, true).filter((line, index, all) => stripAnsi(line).trim() || stripAnsi(all[index - 1] ?? "").trim());
+    // Collapsed, the cap counts text lines only, so paragraph breaks do not halve it.
+    let textLines = 0;
+    // Beside an open question or reply the message is context: a few lines, so the editor leads.
+    const cap = options.replying ? SAID_LINES_REPLYING : SAID_LINES;
+    const cut = session.messageExpanded && !options.replying ? said.length : said.findIndex((line) => stripAnsi(line).trim() && ++textLines > cap);
+    const shown = cut < 0 ? said : said.slice(0, cut);
+    while (shown.length && !stripAnsi(shown.at(-1)!).trim()) shown.pop();
+    // The panel owns the keys while it is open, so the fold names no key there.
+    if (shown.length < said.length) shown.push(styles.muted(`${glyphs.ellipsis} ${said.length - shown.length} more lines${options.replying ? "" : ` ${glyphs.pendingStep} C Full message`}`));
+    else if (session.messageExpanded) shown.push(styles.muted(`C Fold ${glyphs.pendingStep} c Conversation`));
+    if (ruled) {
+      const head = `${styles.dim(glyphs.horizontal.repeat(2))} ${styles.muted("SAID")} `;
+      lines.push({ line: `${head}${styles.dim(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(head))))}`, priority: 3 }, ...shown.map((line) => ({ line, priority: 3 })));
+    } else lines.push(...fieldLines("SAID", styles.muted, shown, [3]));
+  }
+  while (lines.at(-1)?.line === "") lines.pop();
+  // A card with nothing to report says so, with how long the session has been quiet.
+  if (!lines.length && !options.replying && session.kind !== "subagent") {
+    const quiet = `${session.displayStatus === "stopped" ? "Stopped" : "Idle"}${session.activityAge && session.activityAge !== "now" ? ` ${session.activityAge}` : ""}`;
+    lines.push({ line: styles.muted(`${quiet} ${glyphs.pendingStep} nothing reported yet`), priority: 3 });
   }
   return lines;
 }
@@ -2307,7 +2514,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     const title = truncate(session.title, titleSpace - displayWidth(newMarker));
     const identityRoom = titleSpace - displayWidth(title) - displayWidth(newMarker) - 3;
     // The group shows whole, or with enough of it left to read; a two-letter stub only adds noise.
-    const identity = options.card && identityRoom >= Math.min(displayWidth(session.group), 10) ? `   ${truncate(cardIdentity(session, styles, options), identityRoom)}` : "";
+    const identity = options.card && identityRoom >= Math.min(displayWidth(session.group), 10) ? `   ${cardIdentity(session, styles, options, identityRoom)}` : "";
     const left = `${prefix}${styles.strong(title)}${worktree}${markers}${newMarker}${identity}`;
     return right ? twoColumn(left, right, width) : truncate(left, width);
   }
