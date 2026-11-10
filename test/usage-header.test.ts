@@ -16,7 +16,7 @@ for (const width of [200, 140, 100, 80, 60, 40]) for (const mode of ["status", "
   assert.deepEqual(after.tierChips, before.tierChips);
   // The dashboard is frameless: the header band is always the first row.
   const plain = stripAnsi(after.lines[0]!);
-  assert.ok(plain.includes(mode === "status" ? "NEEDS YOU 1" : "1 needs you"));
+  assert.ok(mode === "status" ? /● {2}1 session$/.test(plain) : plain.includes("1 needs you"), plain);
   for (const line of after.lines) assert.ok(displayWidth(line) <= width);
   if (width >= 140) { assert.ok(plain.includes("Codex 1")); assert.ok(after.usageHit); }
   if (width >= 140) assert.ok(plain.includes("~Codex 2"));

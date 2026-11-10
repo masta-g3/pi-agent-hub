@@ -78,16 +78,16 @@ test("guidance shows only a specific reason, never a restated request", () => {
   }
 });
 
-test("a framed card right under its section header does not repeat the step labels", () => {
+test("selected modules name their steps in their own readout, wherever they sit", () => {
   const rows = render(120).lines.map(stripAnsi);
   const top = rows.findIndex(row => /^▌ \S/.test(row));
-  // Only the card's padding row separates it from the heading that names the steps.
-  assert.equal(rows[top - 1]!.trim(), "▌");
-  assert.match(rows[top - 2]!, /PL\s+EX\s+RV/);
-  assert.doesNotMatch(rows[top]!, /PL EX RV/);
+  assert.ok(rows.some(row => /^ ── NEEDS YOU 1 ─+\s*$/.test(row)), "module headings carry no grid labels");
+  assert.doesNotMatch(rows[top]!, /PL|EX|RV/);
+  assert.ok(rows.slice(top).some(row => /STEP/.test(row)) && rows.slice(top).some(row => /PL◉ EX·/.test(row)), rows.join("\n"));
   const other: RuntimeSession = { ...asking, id: "first", title: "First card", status: "running", context: undefined, lastActivityAt: now + 10 };
   const lower = renderSessions(buildRenderModel({ sessions: [other, { ...asking, status: "running", context: undefined }], selectedId: "s", width: 120, height: 30, now, guidanceHidden: true }), darkTheme).lines.map(stripAnsi);
-  assert.match(lower.find(row => /^▌ \S/.test(row))!, /PL EX RV/, "a card further down keeps its own labels");
+  const lowerTop = lower.findIndex(row => /^▌ \S/.test(row));
+  assert.ok(lower.slice(lowerTop).some(row => /PL◉ EX·/.test(row)), "a module further down keeps its own steps");
 });
 
 test("the collapsed request line leads with the asking sentence", async () => {

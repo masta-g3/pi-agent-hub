@@ -166,7 +166,9 @@ for (const host of ["fleet", "board-wide", "board-phone", "pin", "follow"]) test
   view.handleInput("p"); type(view, "keep this"); view.handleInput("\r"); await tick();
   const rendered = text(view, host === "board-phone" || host === "fleet" ? 60 : 160);
   const receipts = rendered.match(/Rejected · Producer refused/g) ?? [];
-  assert.equal(receipts.length, host === "board-wide" ? 2 : 1, "wide board retains its card receipt and its separate action-panel receipt");
+  // The wide board keeps its card receipt and a separate action-panel receipt; the fleet keeps the list
+  // module's receipt above the docked card's single shared one.
+  assert.equal(receipts.length, host === "board-wide" || host === "fleet" ? 2 : 1, "one receipt per surface");
 });
 
 for (const width of [160, 120, 80, 60, 30]) test(`footer puts Reply after Next at ${width}`, () => {

@@ -79,13 +79,15 @@ test("focused answers replace the collapsed question and restore it after Escape
     loadInteractionState: async () => ({ answerChannel: "rpiv-events", questionProtocol: true, pending: [pending] }), submitAnswer: async () => {}, sendMessage: async () => {}, attachOutsideTmux: () => {},
   });
   view.render(80); await view.refreshInteraction();
-  assert.match(text(view, 80), /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
+  assert.match(text(view, 80), /▌ +ASK +Boundary · Should the card shell own the answer form\?/);
   view.handleInput("\t");
   const focused = text(view, 80);
-  assert.doesNotMatch(focused, /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
-  assert.equal(focused.match(/Should the card shell own the answer form\?/g)?.length, 1);
+  assert.doesNotMatch(focused, /▌ +ASK +Boundary · Should the card shell own the answer form\?/);
+  // The docked panel shows the question once; the list row above keeps its module unchanged.
+  const dock = focused.slice(focused.search(/^─{20,}$/mu));
+  assert.equal(dock.match(/Should the card shell own the answer form\?/g)?.length, 1);
   view.handleInput("\x1b");
-  assert.match(text(view, 80), /QUESTION *\n▌ +Boundary · Should the card shell own the answer form\?/);
+  assert.match(text(view, 80), /▌ +ASK +Boundary · Should the card shell own the answer form\?/);
 });
 
 test("the shared panel wraps question prose at words without clipping or word fragments", async () => {

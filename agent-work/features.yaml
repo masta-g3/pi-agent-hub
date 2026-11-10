@@ -1531,14 +1531,16 @@
   - fleet-design-001
   discovered_from: fleet-design-001
 - id: fleet-design-003
-  status: pending
+  status: done
   title: Instrument panel
   subtitle: Industrial module panel for the fleet
-  description: Fleet shows agents as numbered-grid modules with labeled fields, one
-    signal color, meters, a dot-matrix fleet meter and an LCD readout on the selected
-    agent, in a Teenage Engineering and Dieter Rams style.
+  description: Fleet shows agents as modules with a fixed field grid (aligned labels,
+    no numbers), one signal color, meters, a dot-matrix fleet meter and an LCD readout
+    on the selected agent, in a Teenage Engineering and Dieter Rams style.
   priority: 2
   created_at: '2026-11-08'
   depends_on:
   - fleet-design-001
   discovered_from: fleet-design-001
+  plan_file: agent-work/history/20261109_fleet-design-003_instrument_panel.md
+  completed_at: '2026-11-09'
