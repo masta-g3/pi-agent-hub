@@ -86,8 +86,8 @@ test("NO_COLOR removes theme colors and keeps a reverse selected marker", () => 
   run(`
     assert.ok(frames.every(line => !/\\x1b\\[(?:[349][0-7]|[34]8[;:])/.test(line)));
     assert.ok(frames.some(line => line.includes('\\x1b[7m▌\\x1b[27m')));
-    // Pills and keycaps become plain bold words, without padding or background.
-    assert.ok(frames.some(line => line.includes('\\x1b[1mREADY\\x1b[22m')));
+    // Request labels read as plain words; keycaps become bold words without padding or background.
+    assert.ok(frames.some(line => line.includes('RDY')));
     assert.ok(frames.some(line => line.includes('\\x1b[1m]\\x1b[22m')));
     assert.equal(styleToken(darkTheme,'accent','hello'),'hello');
     assert.equal(styleBgToken(darkTheme,'selectedBg','hello'),'hello');

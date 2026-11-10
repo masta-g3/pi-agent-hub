@@ -41,14 +41,25 @@ function targetId(target: SessionListTarget | undefined): string | undefined {
   return target && "id" in target ? target.id : undefined;
 }
 
-/** Continuation lines rendered for one session, in order. */
 function titleLine(rendered: ReturnType<typeof render>, id: string): string {
   return rendered.lines[rendered.layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id)] ?? "";
 }
 
+/** The first row of the docked card below the dock rule, or -1 when nothing is docked. */
+function dockStart(rendered: ReturnType<typeof render>): number {
+  const rule = rendered.lines.findIndex((line, index) => index > 0 && /^─{20,}$/u.test(line.trim()));
+  return rule < 0 ? -1 : rule + 1;
+}
+
+/**
+ * The detail lines for one session: the docked card below its identity row when it is selected,
+ * otherwise the module's continuation lines under its title.
+ */
 function cardLines(rendered: ReturnType<typeof render>, id: string): string[] {
   const targets = rendered.layout.rowTargets;
-  const title = targets.findIndex((target) => target?.kind === "session" && target.id === id);
+  const dock = dockStart(rendered);
+  const docked = dock >= 0 && targetId(targets[dock]) === id;
+  const title = docked ? dock : targets.findIndex((target) => target?.kind === "session" && target.id === id);
   if (title < 0) return [];
   const lines: string[] = [];
   for (let index = title + 1; targets[index]?.kind === "session-continuation" && targetId(targets[index]) === id; index += 1) {
@@ -58,14 +69,22 @@ function cardLines(rendered: ReturnType<typeof render>, id: string): string[] {
   return lines;
 }
 
-test("wide active cards show repo beside group, then task and activity", () => {
+/** The docked card's identity row. */
+function dockTitle(rendered: ReturnType<typeof render>): string {
+  const dock = dockStart(rendered);
+  return dock < 0 ? "" : rendered.lines[dock] ?? "";
+}
+
+test("wide selected modules show repo beside group, then task, NOW and the LCD readout", () => {
   const rendered = render([rich]);
   const card = cardLines(rendered, "rich");
-  assert.equal(card.length, 3, card.join("\n"));
-  assert.match(rendered.lines[rendered.layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "rich")]!, /Dashboard UI polish ⎇ {2}cards/);
+  assert.equal(card.length, 5, card.join("\n"));
+  assert.match(dockTitle(rendered), /Dashboard UI polish ⎇ {2}cards/);
   assert.match(card[0]!, /hub-repo ⎇ feat\/taller-cards/);
   assert.match(card[1]!, /Taller fleet cards/);
-  assert.match(card[2]!, /writing plan \(pass 2\) · Phase 2\/4 · Tests/);
+  assert.match(card[2]!, /NOW {3}writing plan \(pass 2\)/);
+  assert.match(card[3]!, /STEP +TASK +PHASE/);
+  assert.match(card[4]!, /PL✓ EX◉ RV· +▰{3}▱{5} 3\/8 +2\/4/);
 });
 
 test("stopped cards omit stale activity", () => {
@@ -77,7 +96,7 @@ test("stopped cards omit stale activity", () => {
 test("repo grouping shows only the branch and omits the line without one", () => {
   // With no repo name beside it, the branch follows the group on the card's title line.
   const groupedRender = render([rich], { fleetGrouping: "repo" });
-  assert.match(titleLine(groupedRender, "rich"), /cards · feat\/taller-cards/);
+  assert.match(dockTitle(groupedRender), /cards · feat\/taller-cards/);
   assert.ok(!cardLines(groupedRender, "rich").some((line) => line.includes("feat/taller-cards") || line.includes("hub-repo")));
   const branchless = cardLines(render([{ ...rich, worktreeBranch: undefined }], { fleetGrouping: "repo" }), "rich");
   assert.ok(!branchless.some((line) => line.includes("⎇") || line.includes("◈ hub-repo")), branchless.join("\n"));
@@ -95,16 +114,15 @@ test("explicit requests stay the first continuation after metadata", () => {
     context: { version: 1 as const, updatedAt: NOW, attention: { kind: "question" as const, text: "Choose the boundary", requestId: "r1" } },
   };
   const card = cardLines(render([asking]), "rich");
-  assert.match(card[1]!, /QUESTION/);
-  assert.match(card[2]!, /Choose the boundary/);
+  assert.match(card[1]!, /ASK {3}Choose the boundary/);
   assert.ok(card.some((line) => line.includes("hub-repo ⎇ feat/taller-cards")));
 });
 
-test("below 100 columns cards keep task and metadata without activity", () => {
+test("below 100 columns the selected module folds its LCD into one readout line", () => {
   const card = cardLines(render([rich], { width: 99 }), "rich");
-  assert.equal(card.length, 2, card.join("\n"));
+  assert.equal(card.length, 4, card.join("\n"));
   assert.match(card[0]!, /hub-repo ⎇ feat\/taller-cards/);
-  assert.ok(!card.some((line) => line.includes("writing plan")));
+  assert.match(card[3]!, /STEP {2}PL✓ EX◉ RV· {3}TASK ▰{3}▱{5} 3\/8 {3}PHASE 2\/4/);
 });
 
 function linesBetween(rendered: ReturnType<typeof render>, firstId: string, secondId: string): string[] {
@@ -116,8 +134,21 @@ function linesBetween(rendered: ReturnType<typeof render>, firstId: string, seco
   return rendered.lines.slice(last + 1, second);
 }
 
+test("moving the selection never moves list rows: the selected card docks below the list", () => {
+  const sessions = [session("first"), rich, session("next")];
+  const rows = (selectedId: string) => {
+    const layout = render(sessions, { selectedId });
+    return sessions.map((item) => layout.layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === item.id));
+  };
+  assert.deepEqual(rows("rich"), rows("first"));
+  assert.deepEqual(rows("next"), rows("first"));
+  const docked = render(sessions, { selectedId: "rich" });
+  assert.match(dockTitle(docked), /Dashboard UI polish/);
+  assert.ok(cardLines(docked, "rich").some((line) => line.includes("Taller fleet cards")));
+});
+
 test("wide cards in one group are separated by one plain spacer", () => {
-  const rendered = render([rich, session("next")]);
+  const rendered = render([session("selected"), rich, session("next")]);
   const between = linesBetween(rendered, "rich", "next");
   assert.equal(between.length, 1, between.join("\n"));
   const spacer = between[0]!;
@@ -142,13 +173,14 @@ test("fleets taller than the pane render without spacers", () => {
   const rendered = render(sessions, { height: 20 });
   const targets = rendered.layout.rowTargets;
   const first = targets.findIndex((target) => target?.kind === "session");
-  let last = targets.length - 1;
+  // Only the list counts; the dock below its rule keeps blank rows reserved for longer cards.
+  let last = dockStart(rendered) - 2;
   while (last >= 0 && !targetId(targets[last])) last -= 1;
   const blank = rendered.lines.slice(first, last + 1).filter((line) => line.trim() === "");
   assert.deepEqual(blank, []);
 });
 
-test("neighbor cards keep group and task beside the title and drop only their activity line", () => {
+test("neighbor modules keep group and task beside the title and drop only their field lines", () => {
   const seen = new Set<number>();
   for (let height = 8; height <= 30; height += 1) {
     const rendered = render([session("selected"), { ...rich, group: "cards" }], { height });
@@ -156,17 +188,20 @@ test("neighbor cards keep group and task beside the title and drop only their ac
     if (!title) continue;
     assert.match(title, /Dashboard UI polish ⎇ {3}cards · Taller fleet cards/, `height ${height}`);
     const card = cardLines(rendered, "rich");
-    assert.ok(card.length <= 1, `height ${height}:\n${card.join("\n")}`);
-    if (card.length) assert.match(card[0]!, /writing plan \(pass 2\) · Phase 2\/4 · Tests · 3\/8 tasks/);
+    assert.ok(card.length <= 2, `height ${height}:\n${card.join("\n")}`);
+    if (card.length) assert.match(card[0]!, /NOW {3}writing plan \(pass 2\)/);
+    if (card.length > 1) assert.match(card[1]!, /STEP {2}PL✓ EX◉ RV· {3}TASK ▰{3}▱{5} 3\/8 {3}PHASE 2\/4/);
     seen.add(card.length);
   }
-  assert.deepEqual([...seen].sort(), [0, 1]);
+  assert.ok(seen.has(0) && seen.has(2), [...seen].join(","));
 });
 
 test("crowded panes keep the selected card whole with neighbors on both sides", () => {
   const sessions = Array.from({ length: 7 }, (_, index) => index === 3 ? { ...rich, id: "s3" } : session(`s${index}`));
   const rendered = render(sessions, { selectedId: "s3", height: 20 });
-  assert.equal(cardLines(rendered, "s3").length, 3);
+  // The fixed dock windows the card: identity, metadata and the keys stay.
+  assert.ok(cardLines(rendered, "s3").length >= 1);
+  assert.match(dockTitle(rendered), /Dashboard UI polish/);
   const titles = rendered.layout.rowTargets.flatMap((target) => target?.kind === "session" ? [target.id] : []);
   const selected = titles.indexOf("s3");
   assert.ok(selected > 0 && selected < titles.length - 1, titles.join(","));
@@ -204,7 +239,7 @@ test("muted group and repo names avoid repeating the same identity", () => {
   const same = cardLines(render([session("same", { group: "Hub Repo" })]), "same");
   assert.ok(!same.some((line) => /hub-repo/i.test(line)), same.join("\n"));
   const branchedRender = render([session("same", { group: "hub-repo", worktreeBranch: "feat/x" })]);
-  assert.match(titleLine(branchedRender, "same"), /hub-repo · feat\/x/);
+  assert.match(dockTitle(branchedRender), /hub-repo · feat\/x/);
   assert.ok(!cardLines(branchedRender, "same").some((line) => /hub-repo|feat\/x/.test(line)));
   const raw = renderSessions(buildRenderModel({ sessions: [session("same")], selectedId: "same", width: 160, height: 60, now: NOW, guidanceHidden: true }), darkTheme).lines;
   const groupLine = raw.find((line) => / {2}cards/.test(stripAnsi(line)))!;
@@ -240,51 +275,53 @@ test("narrow and pinned views carry a differing repo name on the metadata line",
 
 const longRequest = "Review complete with three findings fixed in the renderer, two tests added for the phone layout, and one open question about keycap spacing";
 
-test("unselected request cards show the whole request, wrapped to three lines, before the recommendation", () => {
+test("unselected request modules keep the request within three lines before the recommendation", () => {
   const asking = session("asking", { status: "waiting", context: { version: 1, updatedAt: NOW,
     attention: { kind: "ready", requestId: "r", text: longRequest, recommendation: "Run reflect next" } } });
   for (const width of [60, 100, 160]) {
     const rendered = render([session("selected"), asking], { width });
     const card = cardLines(rendered, "asking");
     assert.ok(card.length >= 2 && card.length <= 3, `${width}:\n${card.join("\n")}`);
-    assert.match(card[0]!, /READY +Review complete/);
+    assert.match(card[0]!, /RDY {3}Review complete/);
     const text = card.join(" ").replace(/\s+/g, " ");
     if (width >= 160) {
       assert.ok(text.includes("keycap spacing"), text);
       assert.match(card.at(-1)!, /→ Run reflect next/);
     }
-    // Continuation lines hang under the request text, not under the pill.
+    // Continuation lines hang under the request text, not under the label.
     if (card.length > 1) assert.equal(card[1]!.search(/\S/), card[0]!.indexOf("Review"), `${width}:\n${card.join("\n")}`);
   }
 });
 
-test("unselected active cards say which step they are on and what they are doing", () => {
+test("unselected active modules say what they are doing and where they are", () => {
   for (const width of [60, 100, 160]) {
     const rendered = render([session("selected"), { ...rich, id: "busy" }], { width });
     const card = cardLines(rendered, "busy");
-    assert.equal(card.length, 1, `${width}:\n${card.join("\n")}`);
-    assert.match(card[0]!, /writing plan \(pass 2\) · Phase 2\/4 · Tests · 3\/8 tasks/);
-    // Below 80 the title row already names the step.
-    if (width >= 80) assert.match(card[0]!, /^\s+Execute · writing plan/);
-    else assert.match(titleLine(rendered, "busy"), /Execute\s*$/);
+    assert.equal(card.length, 2, `${width}:\n${card.join("\n")}`);
+    assert.match(card[0]!, /NOW {3}writing plan \(pass 2\)/);
+    // Below 80 STEP names the step in words instead of the marker row.
+    assert.match(card[1]!, width >= 80 ? /STEP {2}PL✓ EX◉ RV·/ : /STEP {2}Execute/);
   }
   const idle = render([session("selected"), session("plain", { workflow })]);
-  assert.match(cardLines(idle, "plain")[0] ?? "", /^\s+Execute\s*$/, "a step without activity still names the step");
+  assert.match(cardLines(idle, "plain")[0] ?? "", /^\s+STEP {2}PL✓ EX◉ RV·\s*$/, "a step without activity still shows STEP");
 });
 
-test("unselected health cards show their error reason", () => {
+test("unselected health modules show their error reason", () => {
   const broken = session("broken", { status: "error", error: "MCP pool failed to start" });
   const rendered = renderSessions(buildRenderModel({ sessions: [session("selected"), broken], selectedId: "selected", width: 120, height: 40, now: NOW, guidanceHidden: true }), darkTheme);
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "broken");
   const detail = rendered.lines[index + 1]!;
-  assert.match(stripAnsi(detail), /MCP pool failed to start/);
-  assert.ok(detail.includes(styleToken(darkTheme, "error", "MCP pool failed to start")));
+  assert.match(stripAnsi(detail), /ERR {3}MCP pool failed to start/);
+  assert.ok(detail.includes(styleToken(darkTheme, "error", "ERR")));
 });
 
-test("quiet rows stay one line even with a workflow", () => {
+test("quiet modules show where a paused agent stopped", () => {
   const quiet = session("quiet", { status: "idle", workflow: rich.workflow });
   const rendered = render([session("selected", { status: "idle" }), quiet], { width: 160 });
-  assert.deepEqual(cardLines(rendered, "quiet"), []);
+  const card = cardLines(rendered, "quiet");
+  // A paused agent keeps its last producer activity, then step, tasks and phase.
+  assert.match(card[0]!, /NOW {3}writing plan \(pass 2\)/);
+  assert.match(card.at(-1)!, /STEP {2}PL✓ EX◉ RV· {3}TASK ▰{3}▱{5} 3\/8 {3}PHASE 2\/4/);
 });
 
 test("an idle parent with running subagents names what they are doing", () => {
@@ -293,21 +330,22 @@ test("an idle parent with running subagents names what they are doing", () => {
     session(id, { kind: "subagent", parentId: "parent", agentName, taskPreview, status });
   const rendered = render([session("selected"), parent, child("c1", "code-critic", "Review the pixel map diff"), child("c2", "scout", "Find tile loaders"), child("c3", "worker", "Done earlier", "stopped")]);
   assert.match(titleLine(rendered, "parent"), /Tile review ↳2/);
-  assert.deepEqual(cardLines(rendered, "parent").map((line) => line.trim()), ["↳ code-critic · Review the pixel map diff · +1 more"]);
+  assert.deepEqual(cardLines(rendered, "parent").map((line) => line.trim()), ["SUB   code-critic · Review the pixel map diff · +1 more"]);
   // An expanded tree shows the subagent rows themselves instead.
   const expanded = render([session("selected"), parent, child("c1", "code-critic", "Review the pixel map diff")], { expandedProjectParentIds: new Set(["parent"]) });
-  assert.ok(!cardLines(expanded, "parent").some((line) => line.trim().startsWith("↳")), cardLines(expanded, "parent").join("\n"));
-  // A parent with its own activity keeps that line instead.
-  const busy = render([session("selected"), { ...rich, id: "parent" }, child("c1", "code-critic", "Review the pixel map diff")]);
-  assert.match(cardLines(busy, "parent")[0]!, /writing plan/);
+  assert.ok(!cardLines(expanded, "parent").some((line) => line.trim().startsWith("SUB")), cardLines(expanded, "parent").join("\n"));
+  // A parent with its own activity shows it first and still names its subagents.
+  const busy = cardLines(render([session("selected"), { ...rich, id: "parent" }, child("c1", "code-critic", "Review the pixel map diff")]), "parent");
+  assert.match(busy[0]!, /NOW {3}writing plan/);
+  assert.match(busy.at(-1)!, /SUB {3}code-critic/);
 });
 
-test("painted unselected cards never draw dim text on their surface", () => {
+test("unselected modules keep dim for decoration off the plate", () => {
   const theme = { ...darkTheme, dim: "#010203", muted: "#040506" };
-  const sessions = [session("selected"), { ...rich, id: "busy" }, session("quiet", { status: "idle", workflow: rich.workflow })];
+  const sessions = [session("selected"), { ...rich, id: "busy" }];
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "selected", width: 160, height: 40, now: NOW, guidanceHidden: true }), theme);
-  const row = (id: string) => layout.lines[layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id)]!;
-  // Pending workflow markers on the ACTIVE card read in muted; the flat QUIET row keeps dim decoration.
-  assert.ok(row("busy").includes(styleToken(theme, "muted", "·")) && !row("busy").includes(styleToken(theme, "dim", "·")), row("busy"));
-  assert.ok(row("quiet").includes(styleToken(theme, "dim", "·")), row("quiet"));
+  const rows = layout.lines.filter((_line, index) => targetId(layout.rowTargets[index]) === "busy");
+  // Field labels and pending step markers read in muted; unselected modules sit on no surface.
+  assert.ok(rows.some((row) => row.includes(styleToken(theme, "muted", "STEP"))), rows.join("\n"));
+  assert.ok(rows.every((row) => !row.includes("\u001b[48;")));
 });

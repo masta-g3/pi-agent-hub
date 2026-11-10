@@ -17,11 +17,17 @@ function render(width: number, extra: Partial<Parameters<typeof buildRenderModel
   return renderSessions(buildRenderModel({ sessions: [session], selectedId: "s", width, height: 30, guidanceHidden: true, workspaceCommands: selectWorkspaceCommands(session, commands, 3), ...extra }), darkTheme);
 }
 const STRIPE = "▌";
-/** Card rows: every visible row whose target is the selected session and starts with the stripe. */
+/** The first row below the dock rule, or the line count when nothing is docked. */
+function dockStart(layout: ReturnType<typeof render>): number {
+  const rule = layout.lines.findIndex((line, index) => index > 0 && /^─{20,}$/u.test(stripAnsi(line).trim()));
+  return rule < 0 ? layout.lines.length : rule + 1;
+}
+/** Docked card rows: rows below the dock rule whose target is the session and that start with the stripe. */
 function cardRows(layout: ReturnType<typeof render>, id = "s"): number[] {
+  const start = dockStart(layout);
   return layout.lines.flatMap((line, index) => {
     const target = layout.rowTargets[index];
-    return target && "id" in target && target.id === id && stripAnsi(line).startsWith(STRIPE) ? [index] : [];
+    return index >= start && target && "id" in target && target.id === id && stripAnsi(line).startsWith(STRIPE) ? [index] : [];
   });
 }
 
@@ -37,10 +43,14 @@ test("every selected parent is a striped card in Status and Repo", () => {
     // Every row from the title through the keys carries the stripe and the exact session target.
     const keys = rows.findIndex((row, index) => index > top && row.includes("Open in Pi"));
     for (let index = top; index <= keys; index++) assert.ok(card.includes(index), `${width}: ${rows[index]}`);
-    assert.equal(rows.filter(row => row.includes("cards")).length, 1);
+    // The docked card names the group once.
+    assert.equal(rows.slice(dockStart(layout)).filter(row => row.includes("cards")).length, 1);
     assert.doesNotMatch(rows.join("\n"), /\[cards\]|◈/);
-    if (width >= 80) assert.match(rows[top - (width > 60 ? 2 : 1)]!, /PL\s+EX/, "a card right under its header leaves step labels to the header");
-    else assert.ok(rows[top + 1]!.includes("Execute"));
+    // Workflow position lives in the module's STEP field, never on its title row.
+    assert.doesNotMatch(rows[top]!, /PL|EX|◉/);
+    const step = rows.find((row, index) => index > top && /STEP/.test(row))!;
+    if (width >= 100) assert.match(rows[rows.indexOf(step) + 1]!, /PL✓ EX◉/);
+    else assert.match(step, width >= 80 ? /STEP {2}PL✓ EX◉/ : /STEP {2}Execute/);
     assert.ok(layout.lines.every(row => visibleWidth(row) <= width));
   }
   const plain = { ...session, title: "Plain working card", status: "running" as const, context: undefined };
@@ -52,57 +62,42 @@ test("every selected parent is a striped card in Status and Repo", () => {
   assert.equal(cardRows(moved, "s").length, 0);
 });
 
-test("the card stripe carries question, ready, blocker, error, and neutral tones", () => {
+test("the card stripe carries the request signal, error, and neutral tones", () => {
   const stripe = (layout: ReturnType<typeof render>, tone: "warning" | "success" | "error" | "accent") =>
     assert.ok(layout.lines.some(row => stripAnsi(row).startsWith(STRIPE) && row.includes(styleToken(darkTheme, tone, STRIPE))), tone);
   stripe(render(120, { selectedQuestion: { header: "Scope", question: "Choose one" } }), "warning");
-  stripe(render(120), "success");
-  stripe(render(120, { sessions: [{ ...session, context: { ...session.context!, attention: { kind: "blocked", text: "Cannot continue", requestId: "blocked" } } }] }), "error");
+  // Every request kind is the user's move, so ready and blocked share the one signal tone.
+  stripe(render(120), "warning");
+  stripe(render(120, { sessions: [{ ...session, context: { ...session.context!, attention: { kind: "blocked", text: "Cannot continue", requestId: "blocked" } } }] }), "warning");
   stripe(render(120, { sessions: [{ ...session, status: "error", error: "Pi stopped", context: undefined }] }), "error");
   stripe(render(120, { sessions: [{ ...session, status: "running", context: undefined }] }), "accent");
 });
 
-test("selected requests show a filled kind pill above their text", () => {
+test("selected requests show their kind label beside the text in the signal tone", () => {
   const ready = render(120).lines.map(stripAnsi);
-  const pill = ready.findIndex(row => /^▌ {3} READY\b/.test(row));
-  assert.ok(pill >= 0, ready.join("\n"));
-  assert.match(ready[pill + 1]!, /^▌ {3}Review these results/);
+  assert.ok(ready.some(row => /^▌ {3}RDY {3}Review these results/.test(row)), ready.join("\n"));
   const question = render(120, { selectedQuestion: { header: "Scope", question: "Choose one" } }).lines.map(stripAnsi);
-  const questionPill = question.findIndex(row => /^▌ {3} QUESTION\b/.test(row));
-  assert.ok(questionPill >= 0, question.join("\n"));
-  assert.match(question[questionPill + 1]!, /Scope · Choose one/);
-  const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
-  // Painted pills fill with the request tone (#9ece6a for ready in the default palette).
-  assert.ok(render(120, {}).lines.length && renderSessions(buildRenderModel({ sessions: [session], selectedId: "s", width: 120, height: 30, guidanceHidden: true }), mocha)
-    .lines.some(row => row.includes("\u001b[48;2;158;206;106m") && stripAnsi(row).includes(" READY ")));
+  assert.ok(question.some(row => /^▌ {3}ASK {3}Scope · Choose one/.test(row)), question.join("\n"));
+  assert.ok(render(120).lines.some(row => row.includes(styleToken(darkTheme, "warning", "RDY"))));
 });
 
 test("the selected task line is muted and never dim on the selected surface", () => {
   const layout = render(120);
-  const task = layout.lines.find(row => stripAnsi(row).includes("Keep the task"))!;
+  const task = layout.lines.slice(dockStart(layout)).find(row => stripAnsi(row).includes("Keep the task"))!;
   assert.ok(task.includes(styleToken(darkTheme, "muted", "Keep the task")), JSON.stringify(task));
   assert.ok(!task.includes(styleToken(darkTheme, "dim", "Keep the task")));
 });
 
-test("desktop cards pad above the title and below the keys only when rows spare", () => {
-  const roomy = render(120);
-  const rows = roomy.lines.map(stripAnsi);
-  const card = cardRows(roomy);
-  const title = rows.findIndex(row => row.includes("Selected request"));
-  assert.equal(rows[card[0]!]!.trim(), STRIPE, "a padding row opens the card");
-  assert.equal(card[0], title - 1);
-  assert.equal(rows[card.at(-1)!]!.trim(), STRIPE, "a padding row closes the card");
-  assert.match(rows[card.at(-1)! - 1]!, /Open in Pi/);
-  const phone = render(60);
-  const phoneRows = phone.lines.map(stripAnsi);
-  assert.ok(cardRows(phone).every(index => phoneRows[index]!.trim() !== STRIPE || phoneRows[index - 1]?.includes("Keep the task")), phoneRows.join("\n"));
-  assert.match(phoneRows[cardRows(phone)[0]!]!, /Selected request/);
-  const tight = render(120, { height: 9 });
-  const tightRows = tight.lines.map(stripAnsi);
-  assert.match(tightRows[cardRows(tight)[0]!]!, /Selected request/, tightRows.join("\n"));
-  assert.match(tightRows.join("\n"), /Open in Pi/);
+test("the docked card starts at its identity row and ends with its keys at every height", () => {
+  for (const [width, height] of [[120, 30], [60, 30], [120, 12]] as const) {
+    const layout = render(width, { height });
+    const rows = layout.lines.map(stripAnsi);
+    const card = cardRows(layout);
+    assert.equal(card[0], dockStart(layout), `${width}x${height}:\n${rows.join("\n")}`);
+    assert.match(rows[card[0]!]!, /Selected request/);
+    assert.match(rows[card.at(-1)!]!, /Open in Pi/, `${width}x${height}:\n${rows.join("\n")}`);
+  }
 });
-
 test("card key hits land on each rendered key", () => {
   for (const width of [160, 120, 60]) {
     const layout = render(width);
@@ -128,24 +123,25 @@ test("plain and request selections share one card content width", () => {
 test("selected subagent micro rows and synthetic headers stay unstriped cards", () => {
   const child: RuntimeSession = { ...session, id: "child", title: "Child", kind: "subagent", parentId: session.id, agentName: "worker", taskPreview: "Inspect tests" };
   const childLayout = render(120, { sessions: [session, child], selectedId: child.id, expandedProjectParentIds: new Set([session.id]) });
-  assert.ok(cardRows(childLayout, "child").length <= 1);
+  // A selected child docks its micro row and actions, not a parent card.
+  assert.match(stripAnsi(childLayout.lines[dockStart(childLayout)]!), /worker/);
   assert.equal(cardRows(childLayout, "s").length, 0);
   const synthetic = render(120, { selectedSection: "active" });
   assert.equal(cardRows(synthetic).length, 0);
 });
 
-test("a crowded title moves the group once and aligns its own producer labels and markers", () => {
+test("a crowded title moves the group once and its module still names its steps", () => {
   const selected = { ...session, title: "A complete readable title before its long group", group: "A complete long group", worktreePath: "/tmp/tree", worktreeBranch: "feature" };
   // A card below another one in its section names its own steps.
   const above = { ...session, id: "above", title: "Above", context: { ...session.context!, updatedAt: 5, attention: { kind: "ready" as const, text: "Newer", requestId: "newer" } }, lastActivityAt: 5 };
-  const rows = render(80, { sessions: [above, selected] }).lines.map(stripAnsi);
-  const top = rows.findIndex(row => row.startsWith(STRIPE) && row.includes("A complete readable title"));
+  const crowded = render(70, { sessions: [above, selected] });
+  const rows = crowded.lines.map(stripAnsi);
+  const top = rows.findIndex((row, index) => index >= dockStart(crowded) && row.includes("A complete readable title"));
   assert.doesNotMatch(rows[top]!, /A complete long group/);
   assert.match(rows[top]!, /A complete readable title before its long group ⎇/);
   assert.match(rows[top + 1]!, /A complete long group/);
-  assert.equal(rows[top]!.indexOf("PL"), rows[top + 1]!.indexOf("✓"));
-  assert.equal(rows[top]!.indexOf("EX"), rows[top + 1]!.indexOf("◉"));
-  assert.equal(rows.filter(row => row.includes("A complete long group")).length, 1);
+  assert.ok(rows.some((row, index) => index > top && /STEP {2}Execute/.test(row)), rows.join("\n"));
+  assert.equal(rows.slice(top).filter(row => row.includes("A complete long group")).length, 1);
 });
 
 test("card keys stay complete and fixed as the body scrolls at every width", () => {
@@ -163,14 +159,6 @@ test("card keys stay complete and fixed as the body scrolls at every width", () 
     assert.doesNotMatch(rows.join("\n"), /[╭╮╰╯]/);
     assert.ok(cardRows(first).length > 3);
   }
-});
-test("a request gains a blank above it only when the whole card fits", () => {
-  const roomy = render(80).lines.map(stripAnsi);
-  const task = roomy.findIndex(row => row.includes("Keep the task"));
-  assert.equal(roomy[task + 1]!.trim(), STRIPE);
-  const tight = render(80, { height: 8 }).lines.map(stripAnsi);
-  const tightTask = tight.findIndex(row => row.includes("Keep the task"));
-  if (tightTask >= 0) assert.notEqual(tight[tightTask + 1]!.trim(), STRIPE);
 });
 test("Accepted softens once after 600ms without moving or dismissing the receipt", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });

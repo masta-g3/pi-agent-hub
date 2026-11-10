@@ -263,10 +263,10 @@ export function styleBg(value: string | number, text: string): string {
 }
 
 export interface SurfaceTokens {
-  cardBg: string | number;
   bandBg: string | number;
   keycapBg: string | number;
-  pillInk: string | number;
+  /** The selected module's recessed readout strip. */
+  lcdBg: string | number;
 }
 
 /**
@@ -276,18 +276,25 @@ export interface SurfaceTokens {
  */
 export function surfaceTokens(theme: SessionsTheme): SurfaceTokens {
   const selected = hexRgb(theme.selectedBg);
-  if (!selected) return { cardBg: "", bandBg: "", keycapBg: "", pillInk: "" };
+  if (!selected) return { bandBg: "", keycapBg: "", lcdBg: "" };
   const hexText = hexRgb(theme.text);
   const dark = hexText ? luminance(hexText) > luminance(selected) : luminance(selected) < 0.5;
   const toward: Rgb = dark ? [0, 0, 0] : [255, 255, 255];
   const text = hexText ?? (dark ? [255, 255, 255] : [0, 0, 0]) as Rgb;
   const bandBg = theme.statusLineBg !== "" ? theme.statusLineBg : rgbHex(mixRgb(selected, toward, dark ? 0.5 : 0.75));
   return {
-    cardBg: rgbHex(mixRgb(selected, toward, dark ? 0.25 : 0.5)),
     bandBg,
     keycapBg: rgbHex(mixRgb(selected, text, 0.15)),
-    pillInk: bandBg,
+    lcdBg: rgbHex(mixRgb(selected, toward, dark ? 0.4 : 0.6)),
   };
+}
+
+/**
+ * The fleet's instrument-panel palette: `success` stays only on live work, which layout asks for explicitly,
+ * so finished marks and healthy quotas read as plain text. `accent` keeps marking controls.
+ */
+export function panelTheme(theme: SessionsTheme): SessionsTheme {
+  return { ...theme, success: theme.text };
 }
 
 type Rgb = [number, number, number];

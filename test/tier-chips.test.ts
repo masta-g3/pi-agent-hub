@@ -15,30 +15,29 @@ function modelWithWorkspace(input: BuildRenderModelInput) {
   return buildRenderModel({ ...input, workspaceCommands: selectWorkspaceCommands(selected, commands, 3) });
 }
 
-test("Status header chips show nonzero owner counts in tier order with exact hit ranges", () => {
+test("Status header meter shows one cell per owner in tier order with exact hit ranges", () => {
   for (const width of [120, 160]) {
     const layout = renderSessions(buildRenderModel({ sessions: fleet(), selectedId: "docs", width, now: COCKPIT_NOW }), darkTheme);
     const header = stripAnsi(layout.lines[layout.tierChipRow!]!);
-    assert.match(header, /NEEDS YOU 1 {3}HEALTH 1 {3}ACTIVE 2 {3}QUIET 3 {3}ARCHIVED 1 {3}8 sessions/);
-    assert.deepEqual(layout.tierChips.map(chip => header.slice(chip.x - 1, chip.x - 1 + chip.width)), [" NEEDS YOU 1 ", " HEALTH 1 ", " ACTIVE 2 ", " QUIET 3 ", " ARCHIVED 1 "]);
-    // Pills fill with their tier tone: warning #e0af68, error #f7768e.
-    assert.ok(layout.lines[layout.tierChipRow!]!.includes("\u001b[48;2;224;175;104m"));
-    assert.ok(layout.lines[layout.tierChipRow!]!.includes("\u001b[48;2;247;118;142m"));
-    const heading = layout.lines.find(line => /^ {3}NEEDS YOU {2}1/.test(stripAnsi(line)))!;
-    assert.match(stripAnsi(heading), /NEEDS YOU {2}1\s+PL\s+EX\s+RV/);
-    assert.doesNotMatch(stripAnsi(heading), /·1/);
+    assert.match(header, /● × ◐◐ ··· · {2}8 sessions$/);
+    assert.deepEqual(layout.tierChips.map(chip => header.slice(chip.x - 1, chip.x - 1 + chip.width)), ["●", "×", "◐◐", "···", "·"]);
+    // Cells take their tier's signal tone: warning for NEEDS YOU, error for HEALTH.
+    assert.ok(layout.lines[layout.tierChipRow!]!.includes(styleToken(darkTheme, "warning", "●")));
+    assert.ok(layout.lines[layout.tierChipRow!]!.includes(styleToken(darkTheme, "error", "×")));
+    const heading = layout.lines.find(line => / NEEDS YOU 1 /.test(stripAnsi(line)) && line !== layout.lines[0])!;
+    // Module tiers name their steps in STEP, so their heading is a plain rule.
+    assert.match(stripAnsi(heading).trimEnd(), /^ ── NEEDS YOU 1 ─+$/);
   }
   const layout = renderSessions(buildRenderModel({ sessions: fleet().filter(row => row.id === "docs"), width: 160 }));
   assert.deepEqual(layout.tierChips.map(chip => chip.tier), ["needs-you"]);
-  assert.doesNotMatch(stripAnsi(layout.lines[0]!), /HEALTH|ACTIVE|QUIET|ARCHIVED/);
+  assert.match(stripAnsi(layout.lines[0]!), /FLEET +● {2}1 session$/);
 });
 
-test("the NEW chip sits after HEALTH in accent tone and drops after ACTIVE", () => {
+test("the NEW cell sits after HEALTH in text tone and drops after ACTIVE", () => {
   const withNew = (rows: ReturnType<typeof fleet>) => [...rows, { ...rows.find(row => row.id === "release")!, id: "fresh", title: "Fresh fork", status: "idle" as const, unopened: true as const }];
   const header = renderSessions(buildRenderModel({ sessions: withNew(fleet()), width: 160, now: COCKPIT_NOW }), darkTheme);
-  assert.match(stripAnsi(header.lines[header.tierChipRow!]!), /NEEDS YOU 1 {3}HEALTH 1 {3}NEW 1 {3}ACTIVE 2 {3}QUIET 3 {3}ARCHIVED 1 {3}9 sessions/);
-  // NEW fills with the accent tone #7aa2f7.
-  assert.ok(header.lines[header.tierChipRow!]!.includes("\u001b[48;2;122;162;247m"));
+  assert.match(stripAnsi(header.lines[header.tierChipRow!]!), /● × ◉ ◐◐ ··· · {2}9 sessions$/);
+  assert.ok(!header.lines[header.tierChipRow!]!.includes(styleToken(darkTheme, "accent", "◉")));
 
   const sessions = Array.from({ length: 10 }, (_, i) => withNew(fleet()).map(row => ({ ...row, id: `${row.id}-${i}`, ...(row.parentId ? { parentId: `${row.parentId}-${i}` } : {}) }))).flat();
   const seen: string[][] = [];
@@ -46,30 +45,27 @@ test("the NEW chip sits after HEALTH in accent tone and drops after ACTIVE", () 
     const tiers = renderSessions(buildRenderModel({ sessions, width, now: COCKPIT_NOW })).tierChips.map(chip => chip.tier);
     if (JSON.stringify(seen.at(-1)) !== JSON.stringify(tiers)) seen.push(tiers);
   }
-  // Full labels shrink to counts with the same tiers before any tier drops.
+  // Every shape shortens with the same tiers before any tier drops.
   assert.deepEqual(seen, [
     ["needs-you", "health", "new", "active", "quiet", "archived"],
     ["needs-you", "health", "new", "active", "archived"],
     ["needs-you", "health", "new", "active"],
-    ["needs-you", "health", "new"],
-    ["needs-you", "health"],
   ]);
 });
 
-test("header chips shrink to counts, then drop QUIET, ARCHIVED, ACTIVE and HEALTH while keeping sessions", () => {
+test("the meter shortens large groups, then every group, then shows counts before dropping tiers", () => {
   const sessions = Array.from({ length: 10 }, (_, i) => fleet().map(row => ({ ...row, id: `${row.id}-${i}`, ...(row.parentId ? { parentId: `${row.parentId}-${i}` } : {}) }))).flat();
   const chips = (width: number) => {
     const layout = renderSessions(buildRenderModel({ sessions, width, now: COCKPIT_NOW }));
     assert.ok(layout.lines.every(line => visibleWidth(line) === width));
     const header = stripAnsi(layout.lines[0]!);
     assert.match(header, /80 sessions/);
-    return layout.tierChips.map(chip => header.slice(chip.x - 1, chip.x - 1 + chip.width).trim());
+    return layout.tierChips.map(chip => header.slice(chip.x - 1, chip.x - 1 + chip.width));
   };
-  assert.deepEqual(chips(120), ["NEEDS YOU 10", "HEALTH 10", "ACTIVE 20", "QUIET 30", "ARCHIVED 10"]);
-  assert.deepEqual(chips(80), ["10", "10", "20", "30", "10"]);
-  assert.deepEqual(chips(41), ["10", "10", "20", "10"]);
-  assert.deepEqual(chips(36), ["10", "10", "20"]);
-  assert.deepEqual(chips(31), ["10", "10"]);
+  assert.deepEqual(chips(120), ["●".repeat(10), "×".repeat(10), "◐20", "·30", "·".repeat(10)]);
+  assert.deepEqual(chips(50), ["●10", "×10", "◐20", "·30", "·10"]);
+  assert.deepEqual(chips(36), ["10", "10", "20", "30", "10"]);
+  assert.deepEqual(chips(31), ["10", "10", "20", "10"]);
 });
 
 test("list reclaims the navigator columns without changing workspace geometry", () => {
@@ -85,8 +81,8 @@ test("list reclaims the navigator columns without changing workspace geometry", 
 test("Repo headings still truncate long repository names before dropping workflow columns", () => {
   const row = { ...fleet().find(row => row.id === "release")!, cwd: "/tmp/repository-with-a-very-long-name-that-needs-truncation-before-the-workflow-grid-can-fit" };
   const layout = renderSessions(buildRenderModel({ sessions: [row], width: 80, fleetGrouping: "repo" }));
-  const header = stripAnsi(layout.lines.find(line => stripAnsi(line).startsWith("   repository-"))!);
-  assert.match(header, /…\s+·1\s+PL\s+EX\s+RV\s*│?$/);
+  const header = stripAnsi(layout.lines.find(line => stripAnsi(line).startsWith(" ── repository-"))!);
+  assert.match(header, /… (─+ )?·1\s+PL\s+EX\s+RV\s*$/);
 });
 
 test("board, Repo, pin and full-screen workspace headers have no chip targets", () => {
@@ -95,21 +91,4 @@ test("board, Repo, pin and full-screen workspace headers have no chip targets", 
     assert.deepEqual(layout.tierChips, []);
     assert.equal(layout.tierChipRow, undefined);
   }
-});
-
-const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
-
-test("painted tier pills fill their hit ranges and shrink to counts before dropping tiers", () => {
-  const wide = renderSessions(buildRenderModel({ sessions: fleet(), selectedId: "docs", width: 160, now: COCKPIT_NOW }), mocha);
-  const header = stripAnsi(wide.lines[0]!);
-  assert.match(header, /^pi hub {2}FLEET/);
-  assert.deepEqual(wide.tierChips.map(chip => header.slice(chip.x - 1, chip.x - 1 + chip.width)),
-    [" NEEDS YOU 1 ", " HEALTH 1 ", " ACTIVE 2 ", " QUIET 3 ", " ARCHIVED 1 "]);
-  // NEEDS YOU fills with the warning tone (#e0af68).
-  assert.ok(wide.lines[0]!.includes("\u001b[48;2;224;175;104m"), JSON.stringify(wide.lines[0]));
-
-  const phone = renderSessions(buildRenderModel({ sessions: fleet(), selectedId: "docs", width: 46, now: COCKPIT_NOW }), mocha);
-  const phoneHeader = stripAnsi(phone.lines[0]!);
-  assert.deepEqual(phone.tierChips.map(chip => chip.tier), ["needs-you", "health", "active", "quiet", "archived"]);
-  assert.deepEqual(phone.tierChips.map(chip => phoneHeader.slice(chip.x - 1, chip.x - 1 + chip.width)), [" 1 ", " 1 ", " 2 ", " 3 ", " 1 "]);
 });

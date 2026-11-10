@@ -142,13 +142,13 @@ test("narrow workspace keeps evidence behind i and Enter opens directly", async 
   let workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.match(workspace, /LIVE DETAILS/);
-  assert.match(workspace, /QUESTION *\n▌ +Choose rollout order/);
+  assert.match(workspace, /▌ +ASK +Choose rollout order/);
   view.handleInput("i");
   workspace = stripAnsi(view.render(60).join("\n"));
   assert.match(workspace, /\? Project API/);
   assert.doesNotMatch(workspace, /LIVE DETAILS/);
   view.handleInput("\u001b");
-  assert.match(stripAnsi(view.render(60).join("\n")), /^ {3}NEEDS YOU/m);
+  assert.match(stripAnsi(view.render(60).join("\n")), /^ ── NEEDS YOU/m);
 
   view.handleInput("\r");
   await new Promise((done) => setImmediate(done));
@@ -874,7 +874,7 @@ test("repo headers select without folding and Enter toggles the exact repo", () 
   const view = new SessionsView(controller, () => {}, { terminalRows: () => 30 });
   view.handleInput("v");
   const rendered = view.render(100);
-  const header = rendered.findIndex((line) => /^[ ▌] {2}api\s/.test(stripAnsi(line)));
+  const header = rendered.findIndex((line) => /^[ ▌]── api\s/.test(stripAnsi(line)));
   assert.ok(header >= 0);
 
   view.handleInput(mousePressAtLine(header, 4));
@@ -886,7 +886,7 @@ test("repo headers select without folding and Enter toggles the exact repo", () 
   assert.doesNotMatch(stripAnsi(collapsed.join("\n")), /API session/);
   assert.equal(controller.snapshot().selectedId, "api", "folding a repo does not retarget the stale session identity");
 
-  const collapsedHeader = collapsed.findIndex((line) => stripAnsi(line).includes("▸ api"));
+  const collapsedHeader = collapsed.findIndex((line) => stripAnsi(line).includes("▸─ api"));
   view.handleInput(mousePressAtLine(collapsedHeader, 4));
   view.handleInput(mousePressAtLine(collapsedHeader, 4));
   assert.match(stripAnsi(view.render(100).join("\n")), /API session/, "double-click expands the exact repo");
@@ -1400,11 +1400,21 @@ function rowIndexFor(rendered: string[], title: string): number {
   return index;
 }
 
+const METER_GLYPHS: Record<string, string> = { "NEEDS YOU": "●", HEALTH: "×", NEW: "◉", ACTIVE: "◐", QUIET: "·", ARCHIVED: "·" };
+
+/** The fleet meter group for a tier label such as "ACTIVE 1"; QUIET and ARCHIVED share a glyph, in that order. */
 function tierChipPosition(rendered: string[], label: string): { row: number; x: number } {
   const row = rendered.findIndex(line => /^(?:pi hub {2})?FLEET/.test(stripAnsi(line)));
-  const x = stripAnsi(rendered[row] ?? "").indexOf(label) + 1;
-  assert.ok(x > 0, `missing header chip ${label}`);
-  return { row, x };
+  const header = stripAnsi(rendered[row] ?? "");
+  const name = label.replace(/ \d+$/u, "");
+  const glyph = METER_GLYPHS[name]!;
+  const meter = /FLEET +(.*?) {2}[\d/]+ sessions?/u.exec(header);
+  assert.ok(meter, `missing fleet meter in ${header}`);
+  const start = header.indexOf(meter[1]!, meter.index);
+  const groups = [...meter[1]!.matchAll(/\S+/gu)].filter(group => group[0].startsWith(glyph));
+  const group = name === "ARCHIVED" ? groups.at(-1) : groups[0];
+  assert.ok(group, `missing header chip ${label}`);
+  return { row, x: start + group.index! + 1 };
 }
 
 test("tier chip mouse click selects each exact first owner and reveals collapsed tiers", () => {
@@ -1439,12 +1449,12 @@ test("header chip, separator and fleet hit maps do not overlap", () => {
   const activeRow = rowIndexFor(rendered, "active");
 
   const { row, x } = tierChipPosition(rendered, "ACTIVE 1");
-  // The pill's padding (x - 1) belongs to the chip; the gap before it (x - 2) does not.
-  view.handleInput(mousePressAtLine(row, x - 2));
+  // The gap before a meter group belongs to no chip.
+  view.handleInput(mousePressAtLine(row, x - 1));
   assert.equal(controller.selected()?.id, "needs");
   view.handleInput(mouseReleaseAtLine(row, x));
   assert.equal(controller.selected()?.id, "needs");
-  view.handleInput(mousePressAtLine(row, x + "ACTIVE 1".length - 1));
+  view.handleInput(mousePressAtLine(row, x));
   assert.equal(controller.selected()?.id, "active");
   view.handleInput(mousePressAtLine(activeRow, 1));
   assert.equal(controller.selected()?.id, "active");
@@ -1720,10 +1730,10 @@ test("Archived collapse persists its state", () => {
   view.handleInput("j"); // backlog row
   assert.equal(controller.snapshot().selectedId, "backlog");
   view.handleInput("j"); // Archived header
-  assert.match(stripAnsi(view.render(80).join("\n")), /▌  ARCHIVED/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▌── ARCHIVED/);
   view.handleInput("\r");
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ ARCHIVED/);
+  assert.match(collapsed, /▸─ ARCHIVED/);
   assert.doesNotMatch(collapsed, /\n.*○ \[default\] archived/);
   assert.match(collapsed, /backlog/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["archived"] });
@@ -1739,12 +1749,12 @@ test("all non-attention tiers can collapse and retain counts", () => {
     saveViewState: (state) => saved.push(state),
   });
   const collapsed = stripAnsi(view.render(80).join("\n"));
-  assert.match(collapsed, /▸ ACTIVE {2}1/);
-  assert.match(collapsed, /▸ QUIET {2}1/);
+  assert.match(collapsed, /▸─ ACTIVE 1 /);
+  assert.match(collapsed, /▸─ QUIET 1 /);
   assert.doesNotMatch(collapsed, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running|○ quiet/);
   view.handleInput("\r");
   const expanded = stripAnsi(view.render(80).join("\n"));
-  assert.match(expanded, /^[ ▌] {2}ACTIVE/m);
+  assert.match(expanded, /^[ ▌]── ACTIVE/m);
   assert.match(expanded, /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] running/);
   assert.deepEqual(saved.at(-1), { grouping: "project", collapsedSections: ["quiet"] });
 });
@@ -1764,11 +1774,11 @@ test("filtered tier folds are interactive and do not persist", () => {
     for (const char of "unique-match") view.handleInput(char);
     view.handleInput("\r");
     assert.match(fleetText(view.render(120)), /unique-match/);
-    const header = view.render(120).findIndex((line) => stripAnsi(line).startsWith(`   ${tier.toUpperCase()}  1`));
+    const header = view.render(120).findIndex((line) => new RegExp(`^[ ▌][─▸]─ ${tier.toUpperCase()} 1 `).test(stripAnsi(line)));
     view.handleInput(mousePressAtLine(header));
     view.handleInput("\r");
     assert.doesNotMatch(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
-    assert.match(fleetText(view.render(120)), new RegExp(`▸ ${tier.toUpperCase()}`));
+    assert.match(fleetText(view.render(120)), new RegExp(`▸─ ${tier.toUpperCase()}`));
     view.handleInput("\r");
     assert.match(fleetText(view.render(120)), /[●⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏×○] (?:\[default\] )?unique-match/);
     assert.deepEqual(saved.at(-1)?.collapsedSections, [tier]);
@@ -1818,7 +1828,7 @@ test("Archived header selection blocks session actions and Enter collapses it", 
   assert.match(stripAnsi(view.render(60).join("\n")), /select a session to show status evidence/);
   for (const key of ["A", "J", "\r"]) view.handleInput(key);
   assert.deepEqual(events, []);
-  assert.match(stripAnsi(view.render(80).join("\n")), /▸ ARCHIVED/);
+  assert.match(stripAnsi(view.render(80).join("\n")), /▸─ ARCHIVED/);
 });
 
 test("archive disclosure toggles with keyboard and blocks stale session actions", () => {
@@ -2061,7 +2071,7 @@ test("mouse section headers block stale actions and session rows restore exact w
   const rendered = view.render(120);
   const before = controller.snapshot().selectedId;
 
-  const headerIndex = rendered.findIndex((line) => /^ {3}QUIET {2}2/.test(stripAnsi(line)));
+  const headerIndex = rendered.findIndex((line) => /^ ── QUIET 2 /.test(stripAnsi(line)));
   const openIndex = rendered.findIndex((line) => /Enter Open in Pi/.test(stripAnsi(line)));
   const openColumn = stripAnsi(rendered[openIndex]!).indexOf("Enter Open in Pi") + 1;
   assert.notEqual(headerIndex, -1, "missing cockpit tier heading");
@@ -4681,7 +4691,7 @@ test("visible unselected runners and synthetic selections do not request animati
     view.render(120);
     assert.equal(view.hasAnimatingSelectedRow, true, id);
   }
-  const activeHeader = view.render(120).findIndex(line => /^[ ▌][ ▸] ACTIVE/.test(stripAnsi(line)));
+  const activeHeader = view.render(120).findIndex(line => /^[ ▌][─▸]─ ACTIVE/.test(stripAnsi(line)));
   view.handleInput(mousePressAtLine(activeHeader, 23));
   view.render(120);
   assert.equal(view.hasAnimatingSelectedRow, false, "synthetic tier header cannot animate a stale session");

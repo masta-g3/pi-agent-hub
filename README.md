@@ -74,7 +74,7 @@ Each parent session shows its group after the title. Press `v` to browse by repo
 
 `A` opens Archive session: `d` marks Done, `x` marks Abandoned, `a` archives without an outcome, and `Esc` cancels. Archive never stops Pi or completes its workflow. `U` reopens a closed session; `A` and `B` require reopening first. See [Session closure](docs/FEATURES.md#session-closure) for archived icons and conversation behavior.
 
-The selected fleet card expands in place with task context, the request, and actions. `i` toggles Details at every width. Only the workflow board keeps a side panel or a full-width view below 120 columns. `Enter` and double-click open Pi directly. Card context comes from producer metadata, never raw pane output or conversation search.
+The selected agent's full card, with task context, the request and actions, docks in a fixed strip below the fleet, so selection does not expand list rows. An overflowing list still scrolls to keep the selection visible. `i` toggles Details at every width. Only the workflow board keeps a side panel or a full-width view below 120 columns. `Enter` and double-click open Pi directly. Card context comes from producer metadata, never raw pane output or conversation search.
 
 Press `Tab` to answer a supported question on its card. Unsupported prompts offer **Open in Pi**. Press `c` for read-only completed messages and question/answer history below the fleet. Conversation does not store a second transcript or search message content. See [Answer from a card](docs/FEATURES.md#answer-from-a-card) and [question integration](docs/CONFIG.md#inline-questions).
 

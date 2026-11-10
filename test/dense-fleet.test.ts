@@ -32,21 +32,18 @@ function continuations(layout: SessionsLayout, id: string): number {
 
 for (const width of [120, 160]) {
   for (const fleetGrouping of ["status", "repo"] as const) {
-    test(`30 parents fit as one-line cards while selection keeps its padded card at ${width} in ${fleetGrouping}`, () => {
-      const layout = render(fleet(30), { width, fleetGrouping });
+    test(`30 parents fit as one-line modules beside the docked card at ${width} in ${fleetGrouping}`, () => {
+      // The dock below the list takes ten rows plus its rule on a tall window.
+      const layout = render(fleet(30), { width, fleetGrouping, height: 46 });
       assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 30);
-      // Metadata, task and keys; neighbor step lines use the spare rows, so decorative padding drops first.
-      assert.equal(continuations(layout, "s0"), 3);
-      for (let index = 1; index < 30; index += 1) assert.ok(continuations(layout, `s${index}`) <= 1);
+      for (let index = 0; index < 30; index += 1) assert.ok(continuations(layout, `s${index}`) <= (index ? 1 : 10));
       assert.equal(layout.listScrollTop, 0);
       assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more/);
-      const header = layout.lines.map(stripAnsi).find((line) => /PL\s+EX\s+RV/.test(line))!;
       const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
       assert.match(row, /Task 1 {3}core/);
-      // Roomy cards show age only at 160+.
-      if (width >= 160) assert.match(row, /23m/);
-      else assert.doesNotMatch(row, /23m/);
-      for (const [index, step] of workflow.steps.entries()) assert.equal(row[header.indexOf(step.short)], ["✓", "◉", "·"][index]);
+      // Module title rows end with their age; workflow position lives in STEP.
+      assert.match(row, /23m$/);
+      assert.doesNotMatch(row, /◉/);
       assert.ok(layout.lines.every((line) => visibleWidth(line) <= width));
       assert.ok(layout.lines[titleIndex(layout, "s1")]!.includes(styleToken(darkTheme, "muted", "core")));
     });
@@ -59,7 +56,8 @@ for (const width of [160]) {
       const sessions = fleet(30);
       sessions[2] = { ...sessions[2]!, workflow: undefined, group: "tools", lastActivityAt: NOW - 7 * 60_000 };
       sessions[3] = { ...sessions[3]!, workflow: { ...workflow, activeIndex: 0, steps: [{ id: "other", short: "OT" }] } };
-      const layout = render(sessions, { width, fleetGrouping });
+      // A shorter window forces the dense rung, whose rows share one grid.
+      const layout = render(sessions, { width, fleetGrouping, height: 36 });
       const withWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
       const withoutWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s2")]!);
       const otherWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s3")]!);
@@ -72,7 +70,7 @@ for (const width of [160]) {
       assert.equal(continuations(layout, "s2"), 0);
       assert.ok(layout.lines.every(line => visibleWidth(line) <= width));
 
-      const noGrid = render(sessions.map(session => ({ ...session, workflow: undefined })), { width, fleetGrouping });
+      const noGrid = render(sessions.map(session => ({ ...session, workflow: undefined })), { width, fleetGrouping, height: 36 });
       const noGridRow = stripAnsi(noGrid.lines[titleIndex(noGrid, "s2")]!);
       assert.ok(noGridRow.indexOf("7m") + 2 > ageEnd);
     });
@@ -83,8 +81,10 @@ const busy = (count: number) => fleet(count).map((session, index) => index ? { .
 
 test("eight parents keep their activity line when every neighbor fits", () => {
   const layout = render(busy(8));
-  assert.equal(continuations(layout, "s0"), 5);
-  for (let index = 1; index < 8; index += 1) assert.equal(continuations(layout, `s${index}`), 1);
+  // The selected module keeps its STEP line in the list; the dock adds its full card below.
+  assert.ok(continuations(layout, "s0") >= 2);
+  // NOW and the STEP readout.
+  for (let index = 1; index < 8; index += 1) assert.equal(continuations(layout, `s${index}`), 2);
 });
 
 test("neighbor activity lines appear together only once all of them fit", () => {
@@ -97,7 +97,7 @@ test("neighbor activity lines appear together only once all of them fit", () => 
   }
   // Rows only gain activity as height grows, ending with every neighbor's line.
   assert.deepEqual(seen, [...seen].sort((a, b) => a - b));
-  assert.equal(seen.at(-1), 7);
+  assert.equal(seen.at(-1), 14);
 });
 
 test("dense tail drops group before age, then grid before an unreadable title", () => {
@@ -125,7 +125,7 @@ test("age drops before the aligned grid when the title reaches its readable mini
   // The first short is two cells wider to use the columns the frameless shell returned to the list.
   const steps = Array.from({ length: 7 }, (_, index) => ({ id: `step-${index}`, short: index === 0 ? `STEP00000${index}` : `STEP00${index}`, label: `Step ${index}` }));
   const sessions = fleet(30).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
-  const layout = render(sessions, { width: 80 });
+  const layout = render(sessions, { width: 80, height: 36 });
   const header = layout.lines.map(stripAnsi).find((line) => line.includes("STEP00"))!;
   const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
   assert.match(row, /Readable/);
@@ -133,20 +133,20 @@ test("age drops before the aligned grid when the title reaches its readable mini
   for (const [index, step] of steps.entries()) assert.equal(row[header.indexOf(step.short)], index === 0 ? "✓" : index === 1 ? "◉" : "·");
 });
 
-test("below 80 columns card rows name their step in words instead of an over-wide grid", () => {
+test("below 80 columns modules name their step in words instead of an over-wide grid", () => {
   const steps = Array.from({ length: 6 }, (_, index) => ({ id: `step-${index}`, short: `STEP0${index}`, label: `Step ${index}` }));
-  const sessions = fleet(30).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
+  const sessions = fleet(8).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
   const layout = render(sessions, { width: 61 });
-  const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
-  assert.match(row, /Readable title/);
-  assert.match(row, /Step 1 *$/);
-  assert.doesNotMatch(row, /✓\s+◉\s+·|◉STEP/);
+  const index = titleIndex(layout, "s1");
+  assert.match(stripAnsi(layout.lines[index]!), /Readable title/);
+  assert.doesNotMatch(stripAnsi(layout.lines[index]!), /✓\s+◉\s+·|◉STEP|Step 1/);
+  assert.match(stripAnsi(layout.lines[index + 1]!), /STEP {2}Step 1 *$/);
 });
 
 for (const width of [120, 160]) {
   test(`dense row clicks select the exact session with a real workspace at ${width}`, () => {
     const controller = new SessionsController({ version: 1, sessions: fleet(30) });
-    const view = new SessionsView(controller, () => {}, { terminalRows: () => 44, now: () => NOW });
+    const view = new SessionsView(controller, () => {}, { terminalRows: () => 46, now: () => NOW });
     const rendered = view.render(width);
     const state = view as unknown as Pick<SessionsLayout, "rowTargets" | "listStartX">;
     assert.equal(state.rowTargets.filter((target) => target?.kind === "session").length, 30);
@@ -163,22 +163,19 @@ for (const width of [120, 160]) {
   });
 }
 
-test("selected short-window rows keep group and age only on their retained metadata line", () => {
+test("short windows keep the selected row one line, like its neighbors, and dock its group", () => {
   const sessions = fleet(8);
   sessions[0]!.title = "Readable title without repeated group";
   for (const width of [61, 80, 99]) {
     const layout = render(sessions, { width, height: 18 });
     const index = titleIndex(layout, "s0");
-    const title = stripAnsi(layout.lines[index]!);
-    const metadata = stripAnsi(layout.lines[index + 1]!);
-    assert.match(title, /Readable title without repeated group/);
-    assert.match(title, /Readable title without repeated group {2}core/);
-    assert.doesNotMatch(title, /23m/);
-    assert.doesNotMatch(metadata, /\bcore\b|23m/);
-    // Directly under its section header, the framed card's markers ride the top edge.
-    if (width >= 80) assert.match(title, /✓\s+◉\s+·/);
-    else assert.match(metadata, /· Execute/);
-    assert.deepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: "s0" });
+    const lines = layout.lines.map(stripAnsi);
+    assert.match(lines[index]!, /Readable title without repeated group/);
+    // Like every neighbor in a short window, the selected row is a single line with its progress.
+    assert.notDeepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: "s0" });
+    const rule = lines.findIndex((line, row) => row > 0 && /^─{20,}$/u.test(line.trim()));
+    assert.ok(rule > index, lines.join("\n"));
+    assert.match(lines[rule + 1]!, /Readable title without repeated group {2}core/);
   }
 });
 

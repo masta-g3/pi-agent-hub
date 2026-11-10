@@ -299,7 +299,7 @@ test("frameless public renders stay aligned at narrow, normal, and wide widths",
       for (const line of lines) assert.equal(stripAnsi(line).length, lines === dashboard ? Math.max(30, width) : Math.max(22, Math.min(Math.max(22, width), 88)), `${width}: ${stripAnsi(line)}`);
     }
     // The dashboard draws no outer frame; forms and dialogs keep theirs.
-    assert.match(stripAnsi(dashboard[0] ?? ""), width >= 60 ? /^pi hub {2}FLEET/ : /^FLEET/);
+    assert.match(stripAnsi(dashboard[0] ?? ""), width >= 60 ? /^pi hub {2}FLEET/ : /^(?:pi hub {2})?FLEET/);
     assert.ok(dashboard.every((line) => !/^[╭╰│]/.test(stripAnsi(line))));
     assert.equal(stripAnsi(form[0] ?? "").at(0), "╭");
     assert.equal(stripAnsi(dialog[0] ?? "").at(0), "╭");
@@ -385,32 +385,30 @@ test("renderForm keeps stable width and marks one focused field", () => {
   }
 });
 
-test("surfaceTokens derives card, band, keycap and pill ink from a dark hex theme", () => {
+test("surfaceTokens derives band, keycap and LCD surfaces from a dark hex theme", () => {
   const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
-  assert.deepEqual(surfaceTokens(mocha), { cardBg: "#252633", bandBg: "#191922", keycapBg: "#484b5e", pillInk: "#191922" });
+  assert.deepEqual(surfaceTokens(mocha), { bandBg: "#191922", keycapBg: "#484b5e", lcdBg: "#1d1e29" });
 });
 
-test("surfaceTokens prefers statusLineBg for the band and pill ink", () => {
+test("surfaceTokens prefers statusLineBg for the band", () => {
   const tokens = surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "#181825" });
   assert.equal(tokens.bandBg, "#181825");
-  assert.equal(tokens.pillInk, "#181825");
 });
 
 test("surfaceTokens mixes toward white when text is darker than the selection", () => {
   const tokens = surfaceTokens({ ...lightTheme, text: "#4c4f69", selectedBg: "#c8d0dc", statusLineBg: "" });
-  assert.equal(tokens.cardBg, "#e4e8ee");
   assert.equal(tokens.bandBg, "#f1f3f6");
+  assert.equal(tokens.lcdBg, "#e9ecf1");
 });
 
-test("surfaceTokens keeps mid-luminance dark themes readable", () => {
+test("surfaceTokens keeps mid-luminance dark themes readable on the LCD", () => {
   const text = "#839496";
   const tokens = surfaceTokens({ ...darkTheme, text, selectedBg: "#073642", statusLineBg: "" });
-  assert.equal(tokens.cardBg, "#052932");
-  assert.ok(contrastRatio(text, tokens.cardBg as string) >= 4.5);
+  assert.ok(contrastRatio(text, tokens.lcdBg as string) >= 4.5);
 });
 
 test("surfaceTokens derives nothing without a hex selection color", () => {
-  const empty = { cardBg: "", bandBg: "", keycapBg: "", pillInk: "" };
+  const empty = { bandBg: "", keycapBg: "", lcdBg: "" };
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: 236, statusLineBg: "" }), empty);
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: "", statusLineBg: "" }), empty);
 });
@@ -418,8 +416,8 @@ test("surfaceTokens derives nothing without a hex selection color", () => {
 test("surfaceTokens judges default-text themes by the selection's brightness", () => {
   // Catppuccin Mocha leaves text to the terminal default; its dark selection still yields dark surfaces.
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "", selectedBg: "#313244", statusLineBg: "" }),
-    { cardBg: "#252633", bandBg: "#191922", keycapBg: "#505160", pillInk: "#191922" });
-  assert.equal(surfaceTokens({ ...lightTheme, text: "", selectedBg: "#c8d0dc", statusLineBg: "" }).cardBg, "#e4e8ee");
+    { bandBg: "#191922", keycapBg: "#505160", lcdBg: "#1d1e29" });
+  assert.equal(surfaceTokens({ ...lightTheme, text: "", selectedBg: "#c8d0dc", statusLineBg: "" }).lcdBg, "#e9ecf1");
 });
 
 function contrastRatio(left: string, right: string): number {

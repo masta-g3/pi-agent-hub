@@ -23,21 +23,27 @@ function render(width: number, height = 30, details = false, grouping: "project"
     workspaceCommands: selectWorkspaceCommands(asking, commands, 3), workspaceEvidenceVisible: details }));
 }
 
+/** Rows of the docked card, below the dock rule. */
+function dockRowsOf(lines: string[]): string[] {
+  const plain = lines.map(stripAnsi);
+  const rule = plain.findIndex((line, index) => index > 0 && /^─{20,}$/u.test(line.trim()));
+  return rule < 0 ? [] : plain.slice(rule + 1);
+}
+
 test("inbox cards retain separate task and request at every approved width", () => {
   for (const width of [160, 120, 80, 60, 30]) {
     const layout = render(width);
-    const lines = layout.lines;
-    const task = lines.findIndex(line => stripAnsi(line).includes("Taller fleet cards"));
-    const request = lines.findIndex(line => /^▌ +Choose the boundary/.test(line));
-    assert.ok(task >= 0 && request > task, `${width}:\n${lines.join("\n")}`);
-    assert.match(lines[request - 1]!, /QUESTION/);
-    const metadata = lines[lines.findIndex(line => stripAnsi(line).includes("Dashboard UI polish")) + 1]!;
+    const lines = dockRowsOf(layout.lines);
+    const task = lines.findIndex(line => line.includes("Taller fleet cards"));
+    const request = lines.findIndex(line => /^▌ +ASK {3}Choose the boundary/.test(line));
+    assert.ok(task >= 0 && request > task, `${width}:\n${layout.lines.map(stripAnsi).join("\n")}`);
+    const metadata = lines[1]!;
     if (width >= 60) assert.match(metadata, /^▌ +hub-repo ⎇ feat\/taller-cards/);
     else assert.doesNotMatch(metadata, /hub-repo|feat\/taller-cards/);
-    if (width < 80) assert.match(metadata, /· Execute/);
-    else assert.match(lines.join("\n"), /PL\s+EX\s+RV/);
-    if (width >= 160) assert.match(metadata, /3\/8 tasks · now/);
-    else assert.doesNotMatch(metadata, /tasks|now/);
+    assert.doesNotMatch(metadata, /tasks|now|Execute/);
+    // Workflow position and tasks live in the module's readout.
+    const text = lines.join("\n");
+    assert.match(text, width >= 100 ? /PL✓ EX◉ RV· +▰{3}▱{5} 3\/8/ : width >= 80 ? /STEP {2}PL✓ EX◉ RV·/ : /STEP {2}Execute/);
     assert.equal(layout.workspaceStartX, undefined);
     assert.ok(lines.every(line => visibleWidth(line) <= width));
   }
@@ -64,11 +70,10 @@ test("selected pending questionnaires keep the producer header and fit only the 
     const model = buildRenderModel({ sessions: [asking, other], selectedId: asking.id, width, height: 40, now, guidanceHidden: true,
       selectedQuestion: { header: "Scope", question: "Should we keep the complete ticket subtitle above the request? ".repeat(4) } });
     const layout = renderSessions(model);
-    // The selected card names the questionnaire in a pill and wraps its complete text.
-    const request = layout.lines.findIndex(line => /^▌ +Scope · Should/.test(stripAnsi(line)));
+    // The selected module labels the questionnaire ASK and wraps its complete text.
+    const request = layout.lines.findIndex(line => /^▌ +ASK +Scope · Should/.test(stripAnsi(line)));
     assert.ok(request > 0, layout.lines.map(stripAnsi).join("\n"));
-    assert.match(stripAnsi(layout.lines[request - 1]!), /QUESTION/);
-    assert.ok(layout.lines.some(line => /QUESTION +Choose the/.test(stripAnsi(line))), "unselected card retains its producer attention text");
+    assert.ok(layout.lines.some(line => /ASK +Choose the/.test(stripAnsi(line))), "unselected module retains its producer attention text");
     assert.equal(model.sections[0]!.sessionsTotal, 2);
   }
   const model = buildRenderModel({ sessions: [{ ...asking, context: undefined }], selectedId: asking.id, width: 60, height: 30,
@@ -147,9 +152,10 @@ test("the same focused panel renders in board and pinned/follow surfaces", () =>
 });
 
 test("short fleet retains selected task and request rather than dense compaction", () => {
-  const layout = render(80, 11);
-  assert.ok(layout.lines.some(line => stripAnsi(line).includes("Taller fleet cards")), layout.lines.join("\n"));
-  assert.ok(layout.lines.some(line => /^▌ +Choose the boundary/.test(stripAnsi(line))), layout.lines.join("\n"));
+  // A short window keeps the docked card's task, then its request one page down.
+  const pages = [0, 1, 2].map(cardScrollOffset => renderSessions(buildRenderModel({ sessions: [asking], selectedId: asking.id, width: 80, height: 11, now, guidanceHidden: true, cardScrollOffset })).lines.map(stripAnsi).join("\n")).join("\n");
+  assert.match(pages, /Taller fleet cards/);
+  assert.match(pages, /▌ +ASK {3}Choose the boundary/);
 });
 
 test("selected fleet cards wrap complete task and handoff text through card scrolling", () => {
@@ -163,7 +169,7 @@ test("selected fleet cards wrap complete task and handoff text through card scro
   const commands = buildDashboardCommands({ sessions: [selected], selectedId: selected.id, capabilities: { openSession: true } });
   const input = { sessions: [selected], selectedId: selected.id, width: 60, height: 10, now, guidanceHidden: true,
     workspaceCommands: selectWorkspaceCommands(selected, commands, 3) };
-  const pages = [0, 6, 12, 18, 24].map(cardScrollOffset => renderSessions(buildRenderModel({ ...input, cardScrollOffset })).lines.join("\n")).join("\n");
+  const pages = Array.from({ length: 40 }, (_, cardScrollOffset) => cardScrollOffset).map(cardScrollOffset => renderSessions(buildRenderModel({ ...input, cardScrollOffset })).lines.join("\n")).join("\n");
   for (const tail of [taskTail, "REQUEST-END", recommendationTail, evidenceTail]) assert.match(pages, new RegExp(tail), pages);
 });
 

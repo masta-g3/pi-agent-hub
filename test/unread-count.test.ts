@@ -21,7 +21,7 @@ function render(input: Partial<BuildRenderModelInput> = {}, sessions = fleet()) 
 }
 
 function header(lines: string[], label: string): string | undefined {
-  return lines.map(stripAnsi).find((line) => new RegExp(`^[ ▌][ ▸] ${label} {2}\\d+`).test(line));
+  return lines.map(stripAnsi).find((line) => new RegExp(`^[ ▌][─▸]─ ${label} \\d+`).test(line));
 }
 
 test("collapsed ACTIVE and QUIET headers count hidden waiting parents only", () => {
@@ -30,7 +30,8 @@ test("collapsed ACTIVE and QUIET headers count hidden waiting parents only", () 
   assert.match(header(layout.lines, "QUIET")!, /◐ 1 unread\s*│?$/);
   assert.ok(layout.lines.some((line) => line.includes(styleToken(darkTheme, "warning", "◐ 1 unread"))));
   for (const label of ["NEEDS YOU", "HEALTH", "ARCHIVED"]) assert.doesNotMatch(header(layout.lines, label)!, /unread/, label);
-  assert.doesNotMatch(stripAnsi(layout.lines[0]!), /unread|◐/);
+  // The header meter draws ACTIVE owners as ◐ cells but never an unread count.
+  assert.doesNotMatch(stripAnsi(layout.lines[0]!), /unread/);
 });
 
 test("the count disappears when rows are visible or nothing is unread", () => {
@@ -68,9 +69,9 @@ test("narrow headers shorten the count before the tier title or child label is c
       assert.ok(layout.lines.every((line) => visibleWidth(line) <= width), `width ${width}`);
       const line = header(layout.lines, "QUIET");
       assert.ok(line, `QUIET header at ${width}`);
-      assert.match(line, /▸ QUIET {2}5 /, `title whole at ${width}`);
+      assert.match(line, /▸─ QUIET 5 /, `title whole at ${width}`);
       assert.match(line, /\?1 child/, `child label kept at ${width}`);
-      assert.match(line, width === 30 ? /\?1 child · ◐1\s*$/ : /\?1 child · ◐ 1 unread\s*│?$/, `unread label at ${width}`);
+      assert.match(line, width <= 34 ? /\?1 child · ◐1\s*$/ : /\?1 child · ◐ 1 unread\s*│?$/, `unread label at ${width}`);
     }
   }
 });

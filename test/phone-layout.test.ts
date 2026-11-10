@@ -48,25 +48,22 @@ test("phone metadata shows the plain step instead of a grid", () => {
     for (const session of sessions) {
       const index = titleIndex(layout, session.id);
       const label = steps[session.workflow!.activeIndex]!.label;
-      // The selected card names its step on the metadata line; other cards end their title row with it.
-      if (session.id === "s0") assert.ok(lines[index + 1]!.includes(`· ${label}`), lines[index + 1]);
-      else assert.ok(lines[index]!.trimEnd().endsWith(label!), `${width}: ${lines[index]}`);
+      // Modules name their step in words on a STEP line; one-line rows end their title with it.
+      const own = lines[index]!.trimEnd().endsWith(label!) || lines.slice(index + 1, index + 6).some(line => line.includes(`STEP  ${label}`));
+      assert.ok(own, `${width}:\n${lines.slice(index, index + 6).join("\n")}`);
     }
   }
 });
 
-test("short phone windows use one-line rows and keep metadata only for the selected row", () => {
+test("short phone windows use one-line rows and dock the selected card's details", () => {
   const { layout, lines } = render({ width: 44, height: 14, selectedId: "s1" });
+  // Every list row, the selected one included, is a single line; its group and task move to the dock.
   for (const session of sessions) {
     const index = titleIndex(layout, session.id);
     if (index < 0) continue;
-    const next = layout.rowTargets[index + 1];
-    if (session.id === "s1") {
-      assert.deepEqual(next, { kind: "session-continuation", id: "s1" });
-      assert.match(lines[index]!, /agent-atlas/);
-      assert.doesNotMatch(lines[index + 1]!, /agent-atlas/);
-    } else assert.notDeepEqual(next, { kind: "session-continuation", id: session.id });
+    assert.notDeepEqual(layout.rowTargets[index + 1], { kind: "session-continuation", id: session.id });
   }
+  assert.ok(lines.some((line) => /agent-atlas/.test(line)), lines.join("\n"));
   assert.ok(lines.some((line) => line.includes("Task explanation")), lines.join("\n"));
 });
 

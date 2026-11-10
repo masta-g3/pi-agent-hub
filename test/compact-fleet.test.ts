@@ -22,6 +22,19 @@ for (const width of [40, 50, 60, 100, 120, 160, 220]) {
     const pinSlots = width <= 60 ? ["s0"] : undefined;
     const rendered = renderSessions(buildRenderModel({ sessions, selectedId: "s0", width, height: 35, pinSlots, ...(!pinSlots ? { selectedSection: "active" as const } : {}) }), darkTheme);
     const lines = rendered.lines.map(stripAnsi);
+    if (!pinSlots) {
+      // Fleet modules name their own steps in STEP; no shared header grid.
+      assert.ok(!lines.some((line) => /PL\s+EX\s+RV\s*$/.test(line.trimEnd()) && !line.includes("STEP")));
+      for (const session of sessions) {
+        const titleIndex = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === session.id);
+        assert.ok(lines[titleIndex].includes(session.title), lines[titleIndex]);
+        const step = lines.slice(titleIndex + 1).find((line) => line.includes("STEP"))!;
+        assert.ok(step.includes(`${workflow.steps[session.workflow!.activeIndex]!.short}◉`), step);
+      }
+      assert.ok(rendered.lines.every((line) => visibleWidth(line) <= width));
+      assert.equal(rendered.lines.length, 35);
+      return;
+    }
     const header = lines.find((line) => /PL\s+EX\s+RV/.test(line));
     assert.ok(header, "one producer-owned shared header");
     assert.equal(lines.filter((line) => /PL\s+EX\s+RV/.test(line)).length, 1);
@@ -31,9 +44,9 @@ for (const width of [40, 50, 60, 100, 120, 160, 220]) {
       assert.ok(titleIndex >= 0);
       assert.ok(lines[titleIndex].includes(session.title), lines[titleIndex]);
       assert.ok(!lines[titleIndex].includes("[pi-"));
-      // Pin rows keep a metadata line; fleet cards carry the grid on their title row.
-      const markers = pinSlots ? lines[titleIndex + 1] : lines[titleIndex];
-      if (pinSlots) assert.deepEqual(rendered.rowTargets[titleIndex + 1], { kind: "session-continuation", id: session.id });
+      // Pin rows keep the grid on their metadata line.
+      const markers: string = lines[titleIndex + 1]!;
+      assert.deepEqual(rendered.rowTargets[titleIndex + 1], { kind: "session-continuation", id: session.id });
       assert.equal(markers[positions[session.workflow!.activeIndex]], "◉", markers);
     }
     assert.ok(rendered.lines.every((line) => visibleWidth(line) <= width));
@@ -56,16 +69,13 @@ test("five-step pinned grids leave titles readable and fit beside group metadata
   }
 });
 
-test("completed steps stay checked in their exact shared columns", () => {
+test("completed steps stay checked in the module's STEP field", () => {
   for (const activeIndex of [0, 1, 2]) {
     const complete = { ...sessions[0], status: "stopped" as const, workflow: { ...workflow, activeIndex, currentStepComplete: true } };
     const rendered = renderSessions(buildRenderModel({ sessions: [complete], selectedSection: "quiet", width: 100 }));
-    const lines = rendered.lines.map(stripAnsi);
-    const header = lines.find((line) => /PL\s+EX\s+RV/.test(line))!;
-    const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s0");
-    for (const [index, step] of workflow.steps.entries()) {
-      assert.equal(lines[title][header.indexOf(step.short)], index <= activeIndex ? "✓" : "·");
-    }
+    const step = rendered.lines.map(stripAnsi).find((line) => line.includes("STEP"))!;
+    const markers = workflow.steps.map((item, index) => `${item.short}${index <= activeIndex ? "✓" : "·"}`).join(" ");
+    assert.ok(step.includes(markers), step);
   }
 });
 
@@ -73,15 +83,16 @@ test("different pipelines show explicit step labels rather than misleading grid 
   const other = { ...sessions[1], workflow: { ...workflow, steps: [{ id: "ship", short: "SHIP", label: "Ship" }], activeIndex: 0 } };
   const rendered = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedSection: "active", width: 100 }));
   const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s1");
-  assert.match(stripAnsi(rendered.lines[title]), /◉SHIP/);
+  assert.match(stripAnsi(rendered.lines[title + 1]), /STEP {2}SHIP◉/);
 });
 
 test("focus decoration does not move the producer grid columns", () => {
   const focused = { ...sessions[0], workflow: { ...workflow, activeMode: { id: "focus", short: "FOC", label: "Focus" } } };
   const rendered = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedSection: "active" }));
   const lines = rendered.lines.map(stripAnsi);
-  assert.ok(lines.some((line) => /PL\s+EX\s+RV/.test(line)));
-  assert.ok(lines.some((line) => line.includes("FOC")));
+  // The mode follows the markers, so the step columns stay put.
+  assert.ok(lines.some((line) => /STEP {2}PL✓ EX◉ RV· FOC/.test(line)), lines.join("\n"));
+  assert.ok(lines.some((line) => /STEP {2}PL✓ EX✓ RV◉$/.test(line.trimEnd())));
 });
 
 test("dense pinned cards retain group and hidden requests without clipping grid labels", () => {
@@ -121,13 +132,14 @@ test("crowded fleet panels keep progress with every visible title", () => {
       for (const [index, target] of rendered.rowTargets.entries()) {
         if (target?.kind !== "session") continue;
         // Short phone windows and dense unselected parents carry progress on the title row.
-        if (width < 100 || target.id !== (selectedId ?? "s0")) {
+        if (target.id !== (selectedId ?? "s0")) {
           assert.match(stripAnsi(rendered.lines[index]), /✓\s+◉\s+·/, `${width}: ${target.id} lost its progress`);
           if (target.id !== (selectedId ?? "s0")) assert.notEqual(rendered.rowTargets[index + 1]?.kind, "session-continuation");
           continue;
         }
-        // A framed card under a header that names the steps carries its markers on the top edge.
-        assert.match(stripAnsi(rendered.lines[index] + rendered.lines[index + 1]), /✓\s+◉\s+·/, `${width}: ${target.id} lost its progress`);
+        // The selected row keeps its grid like its neighbors, or names its steps in STEP.
+        const own = rendered.lines.slice(index, index + 8).map(stripAnsi).join("\n");
+        assert.match(own, /✓\s+◉\s+·|STEP {2}Execute|PL✓ EX◉ RV·/, `${width}: ${target.id} lost its progress\n${own}`);
       }
       assert.equal(rendered.lines.length, 18);
     }
@@ -139,8 +151,9 @@ test("selected task survives at minimum card height beside plain step metadata",
   const rendered = renderSessions(buildRenderModel({ sessions: [withTask], selectedId: "s0", width: 60, height: 7 }));
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session");
   assert.ok(index >= 0);
-  assert.match(stripAnsi(rendered.lines[index]), /Subagent efficiency {2}pi-tmux-subagents/);
-  assert.match(stripAnsi(rendered.lines[index + 1]), /· Execute/);
+  // The list keeps the selected row; the dock below it keeps identity, task and keys.
+  assert.ok(rendered.lines.map(stripAnsi).some((line) => /Subagent efficiency {2}pi-tmux-subagents/.test(line)), rendered.lines.map(stripAnsi).join("\n"));
+  assert.ok(rendered.lines.map(stripAnsi).some((line) => /Open in Pi/.test(line)));
   assert.ok(rendered.lines.map(stripAnsi).some((line) => line.includes("Task explanation")));
 });
 
