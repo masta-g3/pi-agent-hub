@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel } from "../src/tui/render-model.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
-import { renderSessions } from "../src/tui/layout.js";
+import { renderSessions, type SessionsLayout } from "../src/tui/layout.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { stripAnsi } from "../src/tui/theme.js";
 
@@ -30,15 +30,27 @@ function dockRowsOf(lines: string[]): string[] {
   return rule < 0 ? [] : plain.slice(rule + 1);
 }
 
+/** Rows of the selected card: the side pane right of the roster at 100+ columns, the dock below it otherwise. */
+function cardRowsOf(layout: SessionsLayout): string[] {
+  const plain = layout.lines.map(stripAnsi);
+  const width = Math.max(...plain.map((line) => visibleWidth(line)));
+  if (layout.listWidth >= width) return dockRowsOf(layout.lines);
+  return plain.flatMap((line) => sliceByColumn(line, layout.listWidth, 1) === "│" ? [sliceByColumn(line, layout.listWidth + 1, width).trimEnd()] : [])
+    .filter((line, index, all) => line || all.slice(index).some(Boolean));
+}
+
 test("inbox cards retain separate task and request at every approved width", () => {
   for (const width of [160, 120, 80, 60, 30]) {
     const layout = render(width);
-    const lines = dockRowsOf(layout.lines);
+    const lines = cardRowsOf(layout);
+    // The side pane carries no stripe; the dock below the roster keeps it.
+    const stripe = width >= 100 ? "" : "▌";
     const task = lines.findIndex(line => line.includes("Taller fleet cards"));
-    const request = lines.findIndex(line => /^▌ +ASK {3}Choose the boundary/.test(line));
+    const request = lines.findIndex(line => new RegExp(`^${stripe} +ASK {3}Choose the boundary`).test(line));
     assert.ok(task >= 0 && request > task, `${width}:\n${layout.lines.map(stripAnsi).join("\n")}`);
+    assert.match(lines[0]!, new RegExp(`^${stripe} +\\? Dashboard UI polish`));
     const metadata = lines[1]!;
-    if (width >= 60) assert.match(metadata, /^▌ +hub-repo ⎇ feat\/taller-cards/);
+    if (width >= 60) assert.match(metadata, new RegExp(`^${stripe} +hub-repo ⎇ feat/taller-cards`));
     else assert.doesNotMatch(metadata, /hub-repo|feat\/taller-cards/);
     assert.doesNotMatch(metadata, /tasks|now|Execute/);
     // Workflow position and tasks live in the module's readout.
@@ -55,9 +67,11 @@ test("both fleet groupings reclaim the full width and synthetic headers carry no
     const input = { sessions: [asking], selectedId: asking.id, width, height: 30, now, fleetGrouping, guidanceHidden: true,
       workspaceCommands: selectWorkspaceCommands(asking, commands, 3) };
     const layout = renderSessions(buildRenderModel(input));
-    assert.equal(layout.listWidth, width);
+    // No board workspace column: the roster takes about 38% and the side pane the rest.
+    assert.equal(layout.listWidth, width === 120 ? 46 : 61);
     assert.equal(layout.workspaceStartX, undefined);
-    assert.ok(layout.cardCommandHits.some(hit => hit.commandId === `action:${asking.id}:open`));
+    const open = layout.cardCommandHits.find(hit => hit.commandId === `action:${asking.id}:open`);
+    assert.ok(open && open.x > layout.listStartX + layout.listWidth);
     const synthetic = buildRenderModel({ ...input, ...(fleetGrouping === "status" ? { selectedSection: "health" as const } : { selectedRepo: "/tmp/hub-repo" }) });
     assert.equal(synthetic.workspace, undefined);
     assert.equal(renderSessions(synthetic).cardCommandHits.length, 0);
@@ -70,9 +84,11 @@ test("selected pending questionnaires keep the producer header and fit only the 
     const model = buildRenderModel({ sessions: [asking, other], selectedId: asking.id, width, height: 40, now, guidanceHidden: true,
       selectedQuestion: { header: "Scope", question: "Should we keep the complete ticket subtitle above the request? ".repeat(4) } });
     const layout = renderSessions(model);
-    // The selected module labels the questionnaire ASK and wraps its complete text.
-    const request = layout.lines.findIndex(line => /^▌ +ASK +Scope · Should/.test(stripAnsi(line)));
+    // The selected card labels the questionnaire ASK and wraps its text.
+    const card = cardRowsOf(layout);
+    const request = card.findIndex(line => /^▌? +ASK +Scope · Should/.test(line));
     assert.ok(request > 0, layout.lines.map(stripAnsi).join("\n"));
+    assert.match(card[request + 1]!, /^▌? +\S/);
     assert.ok(layout.lines.some(line => /ASK +Choose the/.test(stripAnsi(line))), "unselected module retains its producer attention text");
     assert.equal(model.sections[0]!.sessionsTotal, 2);
   }
@@ -88,7 +104,12 @@ test("selected fleet actions and details expand inline, board keeps its column",
     assert.ok(layout.lines.some(line => stripAnsi(line).includes("LIVE DETAILS")));
     assert.ok(layout.lines.some(line => stripAnsi(line).includes("Enter Open in Pi")));
     const detail = layout.lines.findIndex(line => stripAnsi(line).includes("LIVE DETAILS"));
-    assert.deepEqual(layout.rowTargets[detail], { kind: "session-continuation", id: asking.id });
+    if (width >= 100) {
+      // Details expand inside the side pane; its rows stay beside, not inside, the roster's targets.
+      assert.ok(cardRowsOf(layout).some(line => line.includes("LIVE DETAILS")));
+      assert.ok(stripAnsi(layout.lines[detail]!).indexOf("LIVE DETAILS") > layout.listWidth);
+      assert.notEqual(layout.rowTargets[detail]?.kind, "session-continuation");
+    } else assert.deepEqual(layout.rowTargets[detail], { kind: "session-continuation", id: asking.id });
   }
   assert.notEqual(render(120, 40, false, "stage").workspaceStartX, undefined);
 });

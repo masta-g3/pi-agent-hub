@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readConversation, conversationText } from "../src/core/conversation.js";
+import { readConversation, conversationText, lastAssistantText } from "../src/core/conversation.js";
 
 const entry = (id: string, message: unknown) => ({ type: "message", id, message });
 const text = (text: string) => ({ type: "text", text });
@@ -92,4 +92,38 @@ test("output is bounded in bytes, explicitly shortened and always makes paging p
 test("terminal sanitizing preserves Markdown whitespace and strips control sequences", () => {
   assert.equal(conversationText("\x1b[31mRed\x1b[0m\n\n```ts\n\tcode\n```\x07"), "Red\n\n```ts\n\tcode\n```");
   assert.equal(conversationText("\x1b]52;c;secret\x07visible"), "visible");
+});
+
+test("the latest assistant message is the newest finished text, bounded and sanitized", () => {
+  const branch = [
+    entry("older", { role: "assistant", content: [text("Older answer.")] }),
+    entry("said", { role: "assistant", content: [{ type: "thinking", thinking: "secret" }, text("\u001b[31mDone\u001b[0m with **parsers**."), text("Next: tests.")] }),
+    entry("user", { role: "user", content: [text("Thanks")] }),
+    entry("tools", { role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "secret" } }] }),
+    entry("result", { role: "toolResult", toolName: "bash", content: [text("secret output")] }),
+    entry("pending", { role: "assistant", stopReason: "pending", content: [text("Still streaming")] }),
+  ];
+  // Since "Thanks" the agent has only run tools: its earlier answer no longer stands as what it said.
+  assert.equal(lastAssistantText(branch, 2_000), undefined);
+  const answered = branch.slice(0, 2);
+  assert.equal(lastAssistantText(answered, 2_000), "Done with **parsers**.\nNext: tests.");
+  assert.equal(lastAssistantText(answered, 4), "Done…");
+  // Text the agent writes while working on the new message shows, with later tool calls after it.
+  const working = [...branch.slice(0, 3), entry("note", { role: "assistant", content: [text("Checking the parser first.")] }), ...branch.slice(3)];
+  assert.equal(lastAssistantText(working, 100), "Checking the parser first.");
+  assert.equal(lastAssistantText([entry("plain", { role: "assistant", content: "Plain \u0007string" })], 100), "Plain string");
+  assert.equal(lastAssistantText([entry("emoji", { role: "assistant", content: [text("😀😀😀")] })], 2), "😀😀…", "bounds count characters, not UTF-16 units");
+  assert.equal(lastAssistantText(branch.slice(3), 100), undefined);
+  assert.equal(lastAssistantText([], 100), undefined);
+});
+
+test("emphasized markdown keeps bold and paints inline code in the accent", async () => {
+  const { renderMarkdown } = await import("../src/tui/conversation.js");
+  const { darkTheme, styleToken, stripAnsi } = await import("../src/tui/theme.js");
+  const lines = renderMarkdown("Run `pnpm build` for the **new** pane.", 80, darkTheme, true).join("\n");
+  assert.ok(lines.includes(styleToken(darkTheme, "accent", "pnpm build")), JSON.stringify(lines));
+  assert.match(lines, /\u001b\[1m(?:\u001b\[[0-9;]*m)*new/u);
+  const flat = renderMarkdown("Run `pnpm build` for the **new** pane.", 80, darkTheme).join("\n");
+  assert.ok(!flat.includes("\u001b[1m") && !flat.includes(styleToken(darkTheme, "accent", "pnpm build")));
+  assert.equal(stripAnsi(lines), stripAnsi(flat));
 });

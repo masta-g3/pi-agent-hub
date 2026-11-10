@@ -1544,3 +1544,17 @@
   discovered_from: fleet-design-001
   plan_file: agent-work/history/20261109_fleet-design-003_instrument_panel.md
   completed_at: '2026-11-09'
+- id: fleet-design-004
+  status: done
+  title: Mission control
+  subtitle: Roster plus live detail pane
+  description: The fleet shows each agent as a short roster row and the selected agent
+    in a side pane with its plan checklist, live tool calls, progress note and latest
+    message.
+  priority: 2
+  created_at: '2026-11-09'
+  depends_on:
+  - fleet-design-003
+  discovered_from: fleet-design-003
+  plan_file: agent-work/history/20261109_fleet-design-004_mission_control.md
+  completed_at: '2026-11-09'

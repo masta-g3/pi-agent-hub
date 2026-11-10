@@ -8,13 +8,16 @@ import { SPINNER_FRAMES, SPINNER_FRAME_MS } from "./render-model.js";
 
 export { conversationText as cleanMarkdown } from "../core/conversation.js";
 
-export function renderMarkdown(text: string, width: number, theme?: SessionsTheme): string[] {
+export function renderMarkdown(text: string, width: number, theme?: SessionsTheme, emphasis = false): string[] {
   const token = (name: ThemeToken) => (value: string) => theme ? styleToken(theme, name, value) : value;
   const normal = token("text");
+  const bold = (value: string) => `\u001b[1m${normal(value)}\u001b[22m`;
+  // With emphasis, commands and paths take the accent, so what you can run or open stands out from prose.
+  const code = emphasis ? token("accent") : normal;
   const markdownTheme: MarkdownTheme = {
-    heading: token("accent"), link: normal, linkUrl: token("muted"), code: normal, codeBlock: normal,
+    heading: emphasis ? (value) => bold(token("accent")(value)) : token("accent"), link: normal, linkUrl: token("muted"), code, codeBlock: normal,
     codeBlockBorder: token("border"), quote: normal, quoteBorder: token("border"), hr: token("border"),
-    listBullet: token("accent"), bold: normal, italic: normal, strikethrough: normal, underline: normal,
+    listBullet: token("accent"), bold: emphasis ? bold : normal, italic: normal, strikethrough: normal, underline: normal,
   };
   return new Markdown(cleanMarkdown(text), 0, 0, markdownTheme, { color: normal }).render(Math.max(1, width))
     .map(line => truncateToWidth(line, Math.max(1, width)));

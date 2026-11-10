@@ -5,15 +5,16 @@ import { join } from "node:path";
 import { FORK_COMPACT_ENV, KIND_ENV, PARENT_ID_ENV, SESSION_ID_ENV, STATE_ENV, WORKTREE_GUIDANCE_ENV } from "../core/names.js";
 import { WORKTREE_GUIDANCE_MAX_LENGTH } from "../core/worktree-context.js";
 import { sessionsStateDir } from "../core/paths.js";
+import { plainTerminalText } from "../core/terminal-text.js";
 import { loadThemeCommand } from "../core/theme-command.js";
 import { loadNameCommand, NAME_COMMAND_TIMEOUT_MS } from "../core/name-command.js";
 import { colorFromAnsi } from "../core/theme-color.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS } from "../core/status.js";
-import { parseWorkflowEntry } from "../core/heartbeat.js";
+import { ACTION_DETAIL_MAX, ACTIVITY_RECENT_MAX, parseWorkflowEntry } from "../core/heartbeat.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, SessionAction, WorkflowRuntimeSnapshot } from "../core/types.js";
 
 type PiTheme = {
   name?: string;
@@ -94,6 +95,18 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   let lifecycleRevision = 0;
   let promptSnapshot: { state: Heartbeat["state"]; stateSince: number; ownedRevision: number } | undefined;
   let heartbeatWrite: Promise<void> = Promise.resolve();
+  // Tool names and one short argument only; the dashboard shows what the agent is doing, never tool output.
+  const running = new Map<string, SessionAction>();
+  let recentActions: SessionAction[] = [];
+  let activityTimer: ReturnType<typeof setTimeout> | undefined;
+  let activityCtx: PiContext | undefined;
+  const publishActivity = (ctx: PiContext) => {
+    activityCtx = ctx;
+    activityTimer ??= setTimeout(() => {
+      activityTimer = undefined;
+      if (activityCtx) void heartbeat(currentState, activityCtx);
+    }, ACTIVITY_HEARTBEAT_DELAY_MS);
+  };
   let lastThemeRevision: string | undefined;
   let lastNameRevision: string | undefined;
   let acceptingNameCommands = false;
@@ -175,6 +188,10 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
         piSessionName: normalizedName(pi.getSessionName?.()),
         context: sessionContextSnapshot(ctx),
         workflow: workflowSnapshot(ctx),
+        ...(state !== "shutdown" && (running.size || recentActions.length) ? { activity: {
+          ...(running.size ? { current: [...running.values()].at(-1)! } : {}),
+          ...(recentActions.length ? { recent: recentActions } : {}),
+        } } : {}),
         ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
       } satisfies Heartbeat);
     });
@@ -328,7 +345,22 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
     settledHeartbeatTimers = [];
     await publishLifecycle("running", ctx as PiContext);
   });
+  pi.on("tool_execution_start", (event, ctx) => {
+    // Requests and handoffs already show as the session's request; they are not work to log.
+    if (event.parentToolCallId || CONVERSATION_TOOLS.has(event.toolName)) return;
+    const detail = actionDetail(event.toolName, event.args, (ctx as PiContext).cwd);
+    running.set(event.toolCallId, { tool: (TOOL_LABELS[event.toolName] ?? event.toolName.replace(/^mcp__.*__/u, "")).slice(0, 40), ...(detail ? { detail } : {}), at: Date.now() });
+    publishActivity(ctx as PiContext);
+  });
+  pi.on("tool_execution_end", (event, ctx) => {
+    const action = running.get(event.toolCallId);
+    if (!action) return;
+    running.delete(event.toolCallId);
+    recentActions = [action, ...recentActions].slice(0, ACTIVITY_RECENT_MAX);
+    publishActivity(ctx as PiContext);
+  });
   pi.on("agent_end", async (_event, ctx) => {
+    running.clear();
     clearCompaction();
     await publishLifecycle("waiting", ctx as PiContext);
   });
@@ -383,6 +415,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
       promptSnapshot = undefined;
       lifecycleRevision += 1;
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (activityTimer) clearTimeout(activityTimer);
+      activityTimer = undefined;
       if (commandTimer) clearInterval(commandTimer);
       for (const timer of startupHeartbeatTimers) clearTimeout(timer);
       startupHeartbeatTimers = [];
@@ -396,6 +430,34 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
       delete globalState[EXTENSION_KEY];
     }
   });
+}
+
+const ACTIVITY_HEARTBEAT_DELAY_MS = 750;
+const PATH_TOOLS = new Set(["read", "edit", "write"]);
+/** Short names for common tools, so they fit the dashboard's tool column. */
+const TOOL_LABELS: Record<string, string> = { tmux_subagent: "agent", web_search: "search", fetch_content: "fetch" };
+const CONVERSATION_TOOLS = new Set(["ask_user_question", "hand_off"]);
+
+/** One short argument that says what a tool call is for: a path, a command's first line, or its first text field. */
+export function actionDetail(toolName: string, args: unknown, cwd: string): string | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
+  const input = args as Record<string, unknown>;
+  const text = (value: unknown) => typeof value === "string" && value.trim() ? value : undefined;
+  let detail: string | undefined;
+  if (PATH_TOOLS.has(toolName)) {
+    const path = text(input.path) ?? text(input.file_path);
+    detail = path?.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+  } else if (toolName === "bash") {
+    // The first line, without a leading `cd <dir> &&` that only says where the command runs.
+    detail = text(input.command)?.split(/\r?\n/u).find((line) => line.trim())?.replace(/^\s*cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*/u, "");
+  } else {
+    detail = ["action", "agent", "label", "query", "url", "name", "task", "message", "prompt"].map((key) => text(input[key])).filter(Boolean).slice(0, 2).join(" ")
+      || text(Object.values(input).find((value) => typeof value === "string" && value.trim()));
+  }
+  const clean = detail && plainTerminalText(detail);
+  if (!clean) return undefined;
+  const chars = [...clean];
+  return chars.length <= ACTION_DETAIL_MAX ? clean : `${chars.slice(0, ACTION_DETAIL_MAX - 1).join("")}…`;
 }
 
 function workflowSnapshot(ctx: PiContext): WorkflowRuntimeSnapshot | undefined {

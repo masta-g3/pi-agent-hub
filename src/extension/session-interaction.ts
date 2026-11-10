@@ -4,8 +4,8 @@ import { createConnection, createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { isErrno } from "../core/atomic-json.js";
 import { effectiveDashboardShortcuts } from "../core/config.js";
-import { conversationText, questionCallArguments, readConversation } from "../core/conversation.js";
-import { OPTION_PREVIEW_BYTE_CAP, INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState } from "../core/session-interaction.js";
+import { conversationText, lastAssistantText, questionCallArguments, readConversation } from "../core/conversation.js";
+import { LAST_MESSAGE_CHARS, OPTION_PREVIEW_BYTE_CAP, INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState } from "../core/session-interaction.js";
 
 function boundedPreview(source: string, bytes: number): string | undefined {
   if (bytes < 2) return;
@@ -150,6 +150,10 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
           });
         });
       }
+      // The questionnaire comes first; the latest message takes what the frame has left.
+      const lastMessage = lastAssistantText(branch, LAST_MESSAGE_CHARS);
+      const fitted = lastMessage && boundedPreview(lastMessage, budget - 16);
+      if (fitted) state.lastMessage = fitted;
       return state;
     }
     if (request.kind === "submit-answer") {

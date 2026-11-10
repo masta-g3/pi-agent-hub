@@ -338,7 +338,7 @@ test("workspace selection keeps guidance exceptional and aligns the primary acti
     { name: "archived", values: { bucket: "archived", status: "idle" }, actions: ["open", "archive", "restore"], primaryLabel: "Open in Pi" },
     { name: "backlog", values: { bucket: "backlog", status: "idle" }, actions: ["open", "restore", "archive"], primaryLabel: "Open in Pi" },
     { name: "idle", values: { status: "idle" }, actions: ["open", "send", "archive"], primaryLabel: "Open in Pi" },
-    { name: "active", values: { status: "running" }, actions: ["open", "pin", "archive"], primaryLabel: "Open in Pi" },
+    { name: "active", values: { status: "running" }, actions: ["open", "send", "pin"], primaryLabel: "Open in Pi" },
     { name: "closed-stopped", values: { status: "stopped", closure: "done", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
     { name: "closed-running", values: { status: "running", closure: "abandoned", bucket: "archived" }, actions: ["restore", "open", "delete"], primaryLabel: "Reopen" },
     { name: "closed-question", values: { status: "waiting", closure: "done", bucket: "archived", context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which release?" } } }, actions: ["open", "restore", "mark-read"], primaryLabel: "Open in Pi" },
@@ -444,17 +444,17 @@ test("named filters include lifecycle, status, and sorted current groups", () =>
   ]);
 });
 
-test("A opens Archive for open parents, U is the only Reopen, and C is unbound", () => {
+test("A opens Archive for open parents, U is the only Reopen, and C is Full message", () => {
   const open = session("open", { status: "running" });
   const archived = session("archived", { status: "idle", bucket: "archived" });
   const closed = session("closed", { status: "stopped", closure: "done", bucket: "archived" });
   const child = session("child", { kind: "subagent", parentId: "open" });
   const build = (selected: RuntimeSession) => buildDashboardCommands({ sessions: [open, archived, closed, child], selectedId: selected.id, capabilities: allCapabilities, pinState: emptyPinState });
-  const reopenOrClose = (commands: DashboardCommand[]) => commands.filter((command) => /:(close|reopen)$/.test(command.id) || command.bindings.some((binding) => binding.key === "C"));
+  const reopenOrClose = (commands: DashboardCommand[]) => commands.filter((command) => /:(close|reopen)$/.test(command.id));
 
   const openCommands = build(open);
   assert.deepEqual(reopenOrClose(openCommands), []);
-  assert.equal(commandForKey(openCommands, "C"), undefined);
+  assert.equal(commandForKey(openCommands, "C")?.id, "action:open:message");
   assert.equal(commandForKey(openCommands, "c")?.id, "view:conversation");
   assert.equal(commandForKey(openCommands, "A")?.id, "action:open:archive");
   assert.equal(commandForKey(openCommands, "A")?.label, "Archive…");

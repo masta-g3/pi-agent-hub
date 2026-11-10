@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import type { RuntimeSession } from "../src/core/types.js";
 import { SessionsController } from "../src/app/controller.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
@@ -29,21 +29,32 @@ function titleIndex(layout: SessionsLayout, id: string): number {
 function continuations(layout: SessionsLayout, id: string): number {
   return layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === id).length;
 }
+/** The roster's and the side pane's text on one screen row. */
+function columns(layout: SessionsLayout, row: number): { roster: string; pane: string } {
+  const line = stripAnsi(layout.lines[row] ?? "");
+  return { roster: sliceByColumn(line, 0, layout.listWidth), pane: sliceByColumn(line, layout.listWidth + 1, visibleWidth(line)) };
+}
+function paneText(layout: SessionsLayout): string {
+  return layout.lines.map((_line, row) => columns(layout, row).pane).join("\n");
+}
 
 for (const width of [120, 160]) {
   for (const fleetGrouping of ["status", "repo"] as const) {
-    test(`30 parents fit as one-line modules beside the docked card at ${width} in ${fleetGrouping}`, () => {
-      // The dock below the list takes ten rows plus its rule on a tall window.
+    test(`30 parents fit as one-line modules beside the side pane at ${width} in ${fleetGrouping}`, () => {
       const layout = render(fleet(30), { width, fleetGrouping, height: 46 });
       assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 30);
-      for (let index = 0; index < 30; index += 1) assert.ok(continuations(layout, `s${index}`) <= (index ? 1 : 10));
+      // The selected card sits in the pane beside the roster; its rows are not roster targets. Only s0 has a
+      // task, which its quiet status line names when the title row has no room for it (below 160).
+      for (let index = 1; index < 30; index += 1) assert.equal(continuations(layout, `s${index}`), 0);
+      assert.equal(continuations(layout, "s0"), width < 160 ? 1 : 0);
       assert.equal(layout.listScrollTop, 0);
-      assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more/);
-      const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
+      assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more|─{20,}$/m);
+      const row = columns(layout, titleIndex(layout, "s1")).roster;
       assert.match(row, /Task 1 {3}core/);
-      // Module title rows end with their age; workflow position lives in STEP.
-      assert.match(row, /23m$/);
+      // Module title rows end with the step short and the age; the grid lives in the card's STEP.
+      assert.match(row, /EX {2}23m$/);
       assert.doesNotMatch(row, /◉/);
+      assert.match(paneText(layout), /Task 0[^]*Keep the selected card rich[^]*PL✓ EX◉ RV·/);
       assert.ok(layout.lines.every((line) => visibleWidth(line) <= width));
       assert.ok(layout.lines[titleIndex(layout, "s1")]!.includes(styleToken(darkTheme, "muted", "core")));
     });
@@ -52,27 +63,27 @@ for (const width of [120, 160]) {
 
 for (const width of [160]) {
   for (const fleetGrouping of ["status", "repo"] as const) {
-    test(`mixed dense rows align group and age before the section grid at ${width} in ${fleetGrouping}`, () => {
+    test(`mixed dense rows end with their step and one age column at ${width} in ${fleetGrouping}`, () => {
       const sessions = fleet(30);
       sessions[2] = { ...sessions[2]!, workflow: undefined, group: "tools", lastActivityAt: NOW - 7 * 60_000 };
       sessions[3] = { ...sessions[3]!, workflow: { ...workflow, activeIndex: 0, steps: [{ id: "other", short: "OT" }] } };
-      // A shorter window forces the dense rung, whose rows share one grid.
-      const layout = render(sessions, { width, fleetGrouping, height: 36 });
-      const withWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
-      const withoutWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s2")]!);
-      const otherWorkflow = stripAnsi(layout.lines[titleIndex(layout, "s3")]!);
-      const header = layout.lines.map(stripAnsi).find(line => /PL\s+EX\s+RV/.test(line))!;
+      // A short window forces the dense rung, whose rows share one grid.
+      const layout = render(sessions, { width, fleetGrouping, height: 20 });
+      const withWorkflow = columns(layout, titleIndex(layout, "s1")).roster;
+      const withoutWorkflow = columns(layout, titleIndex(layout, "s2")).roster;
+      const otherWorkflow = columns(layout, titleIndex(layout, "s3")).roster;
+      // Dense rows are module title rows: no shared grid, so no heading names workflow columns.
+      assert.ok(!layout.lines.some((_line, row) => /PL\s+EX\s+RV/.test(columns(layout, row).roster)));
       const ageEnd = withWorkflow.indexOf("23m") + 3;
+      assert.equal(ageEnd, layout.listWidth);
       assert.equal(withoutWorkflow.indexOf("7m") + 2, ageEnd);
       assert.equal(otherWorkflow.indexOf("23m") + 3, ageEnd);
-      assert.match(otherWorkflow, /◉OT/);
-      assert.match(withoutWorkflow.slice(header.indexOf("PL"), layout.listStartX - 1 + layout.listWidth), /^\s*$/);
+      // Each row names its own step before the age, whatever its pipeline; a row without workflow names none.
+      assert.match(withWorkflow, /core.* EX  23m$/);
+      assert.match(otherWorkflow, / OT  23m$/);
+      assert.match(withoutWorkflow, /tools( ACTIVE)?\s+ 7m$/);
       assert.equal(continuations(layout, "s2"), 0);
       assert.ok(layout.lines.every(line => visibleWidth(line) <= width));
-
-      const noGrid = render(sessions.map(session => ({ ...session, workflow: undefined })), { width, fleetGrouping, height: 36 });
-      const noGridRow = stripAnsi(noGrid.lines[titleIndex(noGrid, "s2")]!);
-      assert.ok(noGridRow.indexOf("7m") + 2 > ageEnd);
     });
   }
 }
@@ -81,10 +92,14 @@ const busy = (count: number) => fleet(count).map((session, index) => index ? { .
 
 test("eight parents keep their activity line when every neighbor fits", () => {
   const layout = render(busy(8));
-  // The selected module keeps its STEP line in the list; the dock adds its full card below.
-  assert.ok(continuations(layout, "s0") >= 2);
-  // NOW and the STEP readout.
-  for (let index = 1; index < 8; index += 1) assert.equal(continuations(layout, `s${index}`), 2);
+  // The selected module has no activity; at 160 its title row already names its task, so it keeps one row.
+  assert.equal(continuations(layout, "s0"), 0);
+  // One NOW status line each; the STEP readout lives only in the card.
+  for (let index = 1; index < 8; index += 1) {
+    assert.equal(continuations(layout, `s${index}`), 1);
+    assert.match(columns(layout, titleIndex(layout, `s${index}`) + 1).roster, new RegExp(`NOW {3}Working ${index}`));
+  }
+  assert.doesNotMatch(layout.lines.map((_line, row) => columns(layout, row).roster).join("\n"), /STEP|PL✓/);
 });
 
 test("neighbor activity lines appear together only once all of them fit", () => {
@@ -97,19 +112,20 @@ test("neighbor activity lines appear together only once all of them fit", () => 
   }
   // Rows only gain activity as height grows, ending with every neighbor's line.
   assert.deepEqual(seen, [...seen].sort((a, b) => a - b));
-  assert.equal(seen.at(-1), 14);
+  assert.equal(seen.at(-1), 7);
 });
 
-test("dense tail drops group before age, then grid before an unreadable title", () => {
+test("a dense row keeps its whole title and age; an over-long group is cut, then dropped", () => {
   const sessions = fleet(30).map((session) => ({ ...session, title: "Readable title", group: "a-very-long-group-label-that-cannot-fit-beside-the-title-and-grid" }));
   // A short window forces dense rows, whose tail carries group · age.
   const layout = render(sessions, { width: 80, height: 20 });
   const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
-  assert.match(row, /Readable title/);
-  assert.doesNotMatch(row, /a-very-long-group-label/);
-  assert.match(row, /23m/);
-  const tight = render(sessions, { width: 61 });
-  assert.match(stripAnsi(tight.lines[titleIndex(tight, "s1")]!), /Readable/);
+  assert.match(row, /Readable title {3}a-very-long-group-label.*… EX  23m$/);
+  assert.equal(visibleWidth(row), 80);
+  const tight = stripAnsi(render(sessions, { width: 34, height: 20 }).lines[titleIndex(render(sessions, { width: 34, height: 20 }), "s1")]!);
+  assert.match(tight, /Readable title/);
+  assert.match(tight, /23m$/);
+  assert.doesNotMatch(tight, /a-very/);
 });
 
 test("dense rows retain trailing worktree and new markers after the bold title", () => {
@@ -121,26 +137,26 @@ test("dense rows retain trailing worktree and new markers after the bold title",
   assert.match(row, /\u001b\[1m[^]*Task 1/);
 });
 
-test("age drops before the aligned grid when the title reaches its readable minimum", () => {
-  // The first short is two cells wider to use the columns the frameless shell returned to the list.
+test("a dense row names only its current step, however many steps the pipeline has", () => {
   const steps = Array.from({ length: 7 }, (_, index) => ({ id: `step-${index}`, short: index === 0 ? `STEP00000${index}` : `STEP00${index}`, label: `Step ${index}` }));
   const sessions = fleet(30).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
   const layout = render(sessions, { width: 80, height: 36 });
-  const header = layout.lines.map(stripAnsi).find((line) => line.includes("STEP00"))!;
   const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
-  assert.match(row, /Readable/);
-  assert.doesNotMatch(row, /core|23m/);
-  for (const [index, step] of steps.entries()) assert.equal(row[header.indexOf(step.short)], index === 0 ? "✓" : index === 1 ? "◉" : "·");
+  assert.match(row, /Readable title {3}core +STEP001  23m$/);
+  // No tier heading lists the pipeline's steps; only the docked card's STEP readout does.
+  assert.ok(!layout.lines.map(stripAnsi).some((line) => / ── /.test(line) && /STEP00/.test(line)));
 });
 
-test("below 80 columns modules name their step in words instead of an over-wide grid", () => {
+test("below 80 columns modules name their step short instead of an over-wide grid", () => {
   const steps = Array.from({ length: 6 }, (_, index) => ({ id: `step-${index}`, short: `STEP0${index}`, label: `Step ${index}` }));
   const sessions = fleet(8).map((session) => ({ ...session, title: "Readable title", workflow: { ...workflow, steps } }));
   const layout = render(sessions, { width: 61 });
   const index = titleIndex(layout, "s1");
   assert.match(stripAnsi(layout.lines[index]!), /Readable title/);
   assert.doesNotMatch(stripAnsi(layout.lines[index]!), /✓\s+◉\s+·|◉STEP|Step 1/);
-  assert.match(stripAnsi(layout.lines[index + 1]!), /STEP {2}Step 1 *$/);
+  // The title row carries the step short before the age; a session with no status has no second line.
+  assert.match(stripAnsi(layout.lines[index]!), /STEP01 {2}23m$/);
+  assert.deepEqual(layout.rowTargets[index + 1], { kind: "session", id: "s2" });
 });
 
 for (const width of [120, 160]) {
@@ -182,9 +198,10 @@ test("short windows keep the selected row one line, like its neighbors, and dock
 test("overflow still windows after the one-line rung and preserves the selected card", () => {
   const layout = render(fleet(50), { selectedId: "s25" });
   assert.ok(titleIndex(layout, "s25") >= 0);
-  assert.ok(continuations(layout, "s25") >= 1);
   assert.ok(layout.rowTargets.filter((target) => target?.kind === "session").length < 50);
-  for (const target of layout.rowTargets) {
-    if (target?.kind === "session-continuation") assert.equal(target.id, "s25");
-  }
+  // The card stays in the side pane, whatever part of the roster is windowed in.
+  assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation").length, 0);
+  assert.match(paneText(layout), /Task 25[^]*PL✓ EX◉ RV·/);
+  assert.doesNotMatch(paneText(layout), /Task (?!25)\d/);
+  assert.ok(layout.lines.every((line) => visibleWidth(line) <= 160));
 });

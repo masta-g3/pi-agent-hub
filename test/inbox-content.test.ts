@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildRenderModel, visibleAttention } from "../src/tui/render-model.js";
-import { renderSessions } from "../src/tui/layout.js";
+import { sliceByColumn } from "@earendil-works/pi-tui";
+import { renderSessions, type SessionsLayout } from "../src/tui/layout.js";
 import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import { markAcknowledged } from "../src/core/status.js";
@@ -30,6 +31,9 @@ function render(width: number, extra: Partial<Parameters<typeof buildRenderModel
     workspaceCommands: selectWorkspaceCommands(session, commands, 3), ...extra }), darkTheme);
 }
 const text = (layout: ReturnType<typeof render>) => layout.lines.map(stripAnsi).join("\n");
+/** Roster and side-pane text per screen row. */
+const roster = (layout: SessionsLayout) => layout.lines.map(line => sliceByColumn(stripAnsi(line), 0, layout.listWidth));
+const pane = (layout: SessionsLayout) => layout.lines.map(line => sliceByColumn(stripAnsi(line), layout.listWidth + 1, 400));
 
 test("an open question or blocker stays in NEEDS YOU after being read; only mark-read or a new request clears it", () => {
   const read = { ...asking, acknowledgedAt: now + 5 };
@@ -79,15 +83,19 @@ test("guidance shows only a specific reason, never a restated request", () => {
 });
 
 test("selected modules name their steps in their own readout, wherever they sit", () => {
-  const rows = render(120).lines.map(stripAnsi);
-  const top = rows.findIndex(row => /^▌ \S/.test(row));
-  assert.ok(rows.some(row => /^ ── NEEDS YOU 1 ─+\s*$/.test(row)), "module headings carry no grid labels");
-  assert.doesNotMatch(rows[top]!, /PL|EX|RV/);
-  assert.ok(rows.slice(top).some(row => /STEP/.test(row)) && rows.slice(top).some(row => /PL◉ EX·/.test(row)), rows.join("\n"));
+  const layout = render(120);
+  const rows = roster(layout);
+  const top = rows.findIndex(row => /^▌ +\S/.test(row));
+  assert.ok(rows.some(row => /^ ── NEEDS YOU 1 ─+$/.test(row)), "module headings carry no grid labels");
+  // The roster row names only the current step; the card's readout names them all.
+  assert.match(rows[top]!, /Workflow Rewrite Plan.* PL +now$/);
+  assert.doesNotMatch(rows.join("\n"), /STEP|PL◉/);
+  assert.ok(pane(layout).some(row => /STEP/.test(row)) && pane(layout).some(row => /PL◉ EX·/.test(row)), layout.lines.map(stripAnsi).join("\n"));
   const other: RuntimeSession = { ...asking, id: "first", title: "First card", status: "running", context: undefined, lastActivityAt: now + 10 };
-  const lower = renderSessions(buildRenderModel({ sessions: [other, { ...asking, status: "running", context: undefined }], selectedId: "s", width: 120, height: 30, now, guidanceHidden: true }), darkTheme).lines.map(stripAnsi);
-  const lowerTop = lower.findIndex(row => /^▌ \S/.test(row));
-  assert.ok(lower.slice(lowerTop).some(row => /PL◉ EX·/.test(row)), "a module further down keeps its own steps");
+  const lower = renderSessions(buildRenderModel({ sessions: [other, { ...asking, status: "running", context: undefined }], selectedId: "s", width: 120, height: 30, now, guidanceHidden: true }), darkTheme);
+  const lowerTop = roster(lower).findIndex(row => /^▌ +\S/.test(row));
+  assert.ok(lowerTop > roster(lower).findIndex(row => row.includes("First card")), "the selected module sits below its neighbor");
+  assert.match(pane(lower).join("\n"), /Workflow Rewrite Plan[^]*PL◉ EX·/, "a module further down keeps its own steps");
 });
 
 test("the collapsed request line leads with the asking sentence", async () => {

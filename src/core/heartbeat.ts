@@ -1,10 +1,13 @@
 import { readJsonOr } from "./atomic-json.js";
+import { plainTerminalText } from "./terminal-text.js";
 import { heartbeatPath } from "./paths.js";
 import { parseSessionContext } from "./session-context.js";
 import type {
   ActiveThemeSnapshot,
   ActiveThemeToken,
   Heartbeat,
+  SessionAction,
+  SessionActivity,
   SessionPlanSummary,
   WorkflowActivityDisplay,
   WorkflowModeDisplay,
@@ -39,6 +42,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   const workflow = parseWorkflowSnapshot(value.workflow);
   const activeTheme = parseActiveTheme(value.activeTheme);
   const operation = parseHeartbeatOperation(value.operation);
+  const activity = parseSessionActivity(value.activity);
   return {
     managedSessionId,
     ...(isObject(value.interaction) && value.interaction.version === 1 && typeof value.interaction.instanceId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value.interaction.instanceId)
@@ -60,7 +64,33 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...optionalStringField("piSessionName", value.piSessionName),
     ...(context ? { context } : {}),
     ...(workflow ? { workflow } : {}),
+    ...(activity ? { activity } : {}),
   };
+}
+
+export const ACTIVITY_RECENT_MAX = 6;
+const ACTION_TOOL_MAX = 40;
+export const ACTION_DETAIL_MAX = 100;
+
+function parseAction(value: unknown): SessionAction | undefined {
+  if (!isObject(value) || !nonnegativeFinite(value.at)) return undefined;
+  const tool = actionText(value.tool, ACTION_TOOL_MAX);
+  if (!tool) return undefined;
+  const detail = actionText(value.detail, ACTION_DETAIL_MAX);
+  return { tool, ...(detail ? { detail } : {}), at: value.at };
+}
+
+function actionText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = plainTerminalText(value);
+  return text && [...text].length <= max ? text : undefined;
+}
+
+export function parseSessionActivity(value: unknown): SessionActivity | undefined {
+  if (!isObject(value)) return undefined;
+  const current = parseAction(value.current);
+  const recent = Array.isArray(value.recent) ? value.recent.slice(0, ACTIVITY_RECENT_MAX).flatMap((item) => parseAction(item) ?? []) : [];
+  return current || recent.length ? { ...(current ? { current } : {}), ...(recent.length ? { recent } : {}) } : undefined;
 }
 
 export function parseWorkflowEntry(value: unknown): WorkflowRuntimeSnapshot | undefined {
@@ -146,8 +176,8 @@ function parseWorkflowPlan(value: unknown): SessionPlanSummary | undefined {
   const index = phase?.index;
   const count = phase?.count;
   const parsedPhase = title && positiveInt(index) && positiveInt(count) && index <= count && [...title].length <= 160 ? { title, index, count } : undefined;
-  const phases = Array.isArray(value.phases) && value.phases.length <= 100 ? value.phases.map(parseCount) : undefined;
-  const parsedPhases = phases?.every(Boolean) ? phases as { completed: number; total: number }[] : undefined;
+  const phases = Array.isArray(value.phases) && value.phases.length <= 100 ? value.phases.map(parsePhase) : undefined;
+  const parsedPhases = phases?.every(Boolean) ? phases as { completed: number; total: number; title?: string }[] : undefined;
   const validPhases = parsedPhases && parsedPhases.reduce((sum, item) => sum + item.total, 0) <= PLAN_TASK_MAX ? parsedPhases : undefined;
   const nextStep = typeof value.nextStep === "string" && value.nextStep.trim() && [...value.nextStep.trim()].length <= 240 ? value.nextStep.trim() : undefined;
   const plan = {
@@ -155,8 +185,30 @@ function parseWorkflowPlan(value: unknown): SessionPlanSummary | undefined {
     ...(tasks ? { tasks } : {}),
     ...(validPhases?.length ? { phases: validPhases } : {}),
     ...(nextStep ? { nextStep } : {}),
+    ...(parseCurrentTasks(value.current) ?? {}),
   };
   return Object.keys(plan).length ? plan : undefined;
+}
+
+function parsePhase(value: unknown): { completed: number; total: number; title?: string } | undefined {
+  const count = parseCount(value);
+  if (!count) return undefined;
+  const title = isObject(value) ? actionText(value.title, 160) : undefined;
+  return { ...count, ...(title ? { title } : {}) };
+}
+
+const PLAN_CURRENT_TASKS_MAX = 24;
+
+/** A malformed checklist is dropped without hiding the plan's counts. */
+function parseCurrentTasks(value: unknown): Pick<SessionPlanSummary, "current"> | undefined {
+  if (!isObject(value) || !Array.isArray(value.tasks) || !value.tasks.length || value.tasks.length > PLAN_CURRENT_TASKS_MAX) return undefined;
+  const tasks = value.tasks.map((task) => {
+    const text = isObject(task) && typeof task.done === "boolean" ? actionText(task.text, 240) : undefined;
+    return text ? { done: (task as { done: boolean }).done, text } : undefined;
+  });
+  if (!tasks.every(Boolean)) return undefined;
+  const hidden = (count: unknown) => nonnegativeInt(count) ? count : 0;
+  return { current: { tasks: tasks as { done: boolean; text: string }[], before: hidden(value.before), after: hidden(value.after) } };
 }
 
 function parseCount(value: unknown): { completed: number; total: number } | undefined {

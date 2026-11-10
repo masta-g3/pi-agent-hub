@@ -83,3 +83,21 @@ test("generic context rejects malformed versions, fields, and text bounds", () =
     { version: 1, updatedAt: 1, attention: { kind: "ready", text: "x".repeat(151) } },
   ]) assert.equal(parseSessionContext(value), undefined);
 });
+
+test("progress notes are bounded, optional, and isolated from ticket and attention", () => {
+  const ticket = { id: "ticket-1" };
+  const attention = { kind: "question", text: "Choose", requestId: "r-1" };
+  const parse = (progress: unknown) => parseSessionContext({ version: 1, updatedAt: 1, ticket, attention, progress });
+  assert.deepEqual(parse({ done: " Wrote   the parser ", next: "Run tests", updatedAt: 5, extra: true })?.progress, { done: "Wrote the parser", next: "Run tests", updatedAt: 5 });
+  assert.deepEqual(parse({ next: "Run tests", updatedAt: 5 })?.progress, { next: "Run tests", updatedAt: 5 });
+  // An over-long field is dropped on its own; the other one stays.
+  assert.deepEqual(parse({ done: "x".repeat(121), next: "Run tests", updatedAt: 5 })?.progress, { next: "Run tests", updatedAt: 5 });
+  assert.deepEqual(parse({ done: "x".repeat(120), updatedAt: 5 })?.progress, { done: "x".repeat(120), updatedAt: 5 });
+  for (const progress of [{ done: "", next: " ", updatedAt: 5 }, { updatedAt: 5 }, { done: "Wrote", next: "x".repeat(121), updatedAt: Number.NaN }, { done: "Wrote" }, "Wrote", 3]) {
+    const context = parse(progress);
+    assert.equal(context?.progress, undefined, JSON.stringify(progress));
+    // A malformed note never hides the ticket or the request.
+    assert.deepEqual(context?.ticket, ticket);
+    assert.deepEqual(context?.attention, attention);
+  }
+});

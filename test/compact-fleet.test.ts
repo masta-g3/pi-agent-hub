@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel } from "../src/tui/render-model.js";
-import { renderSessions } from "../src/tui/layout.js";
+import { renderSessions, type SessionsLayout } from "../src/tui/layout.js";
 import { darkTheme, stripAnsi } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 
@@ -17,19 +17,32 @@ const sessions: RuntimeSession[] = [0, 1].map((index) => ({
   workflow: { ...workflow, activeIndex: index + 1 },
 }));
 
+/** The roster's and the side pane's text on one screen row (100+ columns); the pane is empty below that. */
+function columns(layout: SessionsLayout, row: number): { roster: string; pane: string } {
+  const line = stripAnsi(layout.lines[row] ?? "");
+  return { roster: sliceByColumn(line, 0, layout.listWidth), pane: sliceByColumn(line, layout.listWidth + 1, visibleWidth(line)) };
+}
+function paneText(layout: SessionsLayout): string {
+  return layout.lines.map((_line, row) => columns(layout, row).pane).join("\n");
+}
+function titleRow(layout: SessionsLayout, id: string): number {
+  return layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
+}
+
 for (const width of [40, 50, 60, 100, 120, 160, 220]) {
   test(`compact fleet titles and workflow columns at ${width} columns`, () => {
     const pinSlots = width <= 60 ? ["s0"] : undefined;
     const rendered = renderSessions(buildRenderModel({ sessions, selectedId: "s0", width, height: 35, pinSlots, ...(!pinSlots ? { selectedSection: "active" as const } : {}) }), darkTheme);
     const lines = rendered.lines.map(stripAnsi);
     if (!pinSlots) {
-      // Fleet modules name their own steps in STEP; no shared header grid.
-      assert.ok(!lines.some((line) => /PL\s+EX\s+RV\s*$/.test(line.trimEnd()) && !line.includes("STEP")));
+      // Fleet modules end their title row with their own step short; no shared header grid, no STEP readout.
+      assert.ok(!lines.some((line) => /PL\s+EX\s+RV/.test(line)), lines.join("\n"));
+      assert.ok(!lines.some((line) => line.includes("STEP")));
       for (const session of sessions) {
-        const titleIndex = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === session.id);
-        assert.ok(lines[titleIndex].includes(session.title), lines[titleIndex]);
-        const step = lines.slice(titleIndex + 1).find((line) => line.includes("STEP"))!;
-        assert.ok(step.includes(`${workflow.steps[session.workflow!.activeIndex]!.short}◉`), step);
+        const titleIndex = titleRow(rendered, session.id);
+        const roster = columns(rendered, titleIndex).roster;
+        assert.ok(roster.includes(session.title), roster);
+        assert.ok(roster.trimEnd().endsWith(workflow.steps[session.workflow!.activeIndex]!.short), roster);
       }
       assert.ok(rendered.lines.every((line) => visibleWidth(line) <= width));
       assert.equal(rendered.lines.length, 35);
@@ -69,30 +82,42 @@ test("five-step pinned grids leave titles readable and fit beside group metadata
   }
 });
 
-test("completed steps stay checked in the module's STEP field", () => {
+test("completed steps stay checked on the module's title row and in the card's STEP field", () => {
   for (const activeIndex of [0, 1, 2]) {
     const complete = { ...sessions[0], status: "stopped" as const, workflow: { ...workflow, activeIndex, currentStepComplete: true } };
-    const rendered = renderSessions(buildRenderModel({ sessions: [complete], selectedSection: "quiet", width: 100 }));
-    const step = rendered.lines.map(stripAnsi).find((line) => line.includes("STEP"))!;
+    const unselected = renderSessions(buildRenderModel({ sessions: [complete], selectedSection: "quiet", width: 100 }));
+    const roster = columns(unselected, titleRow(unselected, "s0")).roster.trimEnd();
+    assert.ok(roster.endsWith(`${workflow.steps[activeIndex]!.short}✓`), roster);
+    const selected = renderSessions(buildRenderModel({ sessions: [complete], selectedId: "s0", width: 100 }));
     const markers = workflow.steps.map((item, index) => `${item.short}${index <= activeIndex ? "✓" : "·"}`).join(" ");
-    assert.ok(step.includes(markers), step);
+    assert.ok(paneText(selected).includes(markers), paneText(selected));
   }
 });
 
 test("different pipelines show explicit step labels rather than misleading grid positions", () => {
   const other = { ...sessions[1], workflow: { ...workflow, steps: [{ id: "ship", short: "SHIP", label: "Ship" }], activeIndex: 0 } };
   const rendered = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedSection: "active", width: 100 }));
-  const title = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "s1");
-  assert.match(stripAnsi(rendered.lines[title + 1]), /STEP {2}SHIP◉/);
+  const lines = rendered.lines.map(stripAnsi);
+  assert.ok(!lines.some((line) => /PL\s+EX\s+RV|SHIP\s/.test(line)), lines.join("\n"));
+  assert.match(columns(rendered, titleRow(rendered, "s1")).roster, /Sidebar readability +SHIP$/);
+  const selected = renderSessions(buildRenderModel({ sessions: [sessions[0], other], selectedId: "s1", width: 100 }));
+  assert.match(paneText(selected), /SHIP◉/);
 });
 
 test("focus decoration does not move the producer grid columns", () => {
   const focused = { ...sessions[0], workflow: { ...workflow, activeMode: { id: "focus", short: "FOC", label: "Focus" } } };
-  const rendered = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedSection: "active" }));
-  const lines = rendered.lines.map(stripAnsi);
-  // The mode follows the markers, so the step columns stay put.
-  assert.ok(lines.some((line) => /STEP {2}PL✓ EX◉ RV· FOC/.test(line)), lines.join("\n"));
-  assert.ok(lines.some((line) => /STEP {2}PL✓ EX✓ RV◉$/.test(line.trimEnd())));
+  const unselected = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedSection: "active" }));
+  // On the title row the mode short replaces the step short in the same right-aligned slot.
+  const focusedRow = columns(unselected, titleRow(unselected, "s0")).roster;
+  const plainRow = columns(unselected, titleRow(unselected, "s1")).roster;
+  assert.match(focusedRow, /FOC$/);
+  assert.match(plainRow, /RV$/);
+  assert.equal(visibleWidth(focusedRow), visibleWidth(plainRow));
+  // In the card the mode follows the markers, so the step columns stay put.
+  const first = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedId: "s0" }));
+  assert.match(paneText(first), /PL✓ EX◉ RV· FOC/);
+  const second = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedId: "s1" }));
+  assert.match(paneText(second), /PL✓ EX✓ RV◉ *$/m);
 });
 
 test("dense pinned cards retain group and hidden requests without clipping grid labels", () => {
@@ -131,16 +156,13 @@ test("crowded fleet panels keep progress with every visible title", () => {
       const rendered = renderSessions(buildRenderModel({ sessions: crowded, selectedId, width, height: 18, pinSlots: width <= 60 ? ["s0"] : undefined }));
       for (const [index, target] of rendered.rowTargets.entries()) {
         if (target?.kind !== "session") continue;
-        // Short phone windows and dense unselected parents carry progress on the title row.
-        if (target.id !== (selectedId ?? "s0")) {
-          assert.match(stripAnsi(rendered.lines[index]), /✓\s+◉\s+·/, `${width}: ${target.id} lost its progress`);
-          if (target.id !== (selectedId ?? "s0")) assert.notEqual(rendered.rowTargets[index + 1]?.kind, "session-continuation");
-          continue;
-        }
-        // The selected row keeps its grid like its neighbors, or names its steps in STEP.
-        const own = rendered.lines.slice(index, index + 8).map(stripAnsi).join("\n");
-        assert.match(own, /✓\s+◉\s+·|STEP {2}Execute|PL✓ EX◉ RV·/, `${width}: ${target.id} lost its progress\n${own}`);
+        // Pin rows share the grid; fleet roster rows (selected ones included) end with their step short.
+        const roster = columns(rendered, index).roster.trimEnd();
+        assert.match(roster, width <= 60 ? /✓\s+◉\s+·$/ : /EX$/, `${width}: ${target.id} lost its progress`);
+        if (target.id !== (selectedId ?? "s0") || width > 60) assert.notEqual(rendered.rowTargets[index + 1]?.kind, "session-continuation");
       }
+      // The fleet's selected card names every step in the side pane.
+      if (width > 60) assert.match(paneText(rendered), /PL✓ EX◉ RV·/);
       assert.equal(rendered.lines.length, 18);
     }
   }

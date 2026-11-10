@@ -152,5 +152,8 @@ export function isFreshHeartbeat(heartbeat: Heartbeat | undefined, now: number):
 function retainedWorkflow(workflow: Heartbeat["workflow"]): ManagedSession["workflow"] {
   if (!workflow) return undefined;
   const { activeMode: _activeMode, ...snapshot } = workflow;
-  return snapshot;
+  // The checklist is live detail like the mode: it stays out of the registry.
+  if (!snapshot.plan?.current) return snapshot;
+  const { current: _current, ...plan } = snapshot.plan;
+  return { ...snapshot, plan } as ManagedSession["workflow"];
 }

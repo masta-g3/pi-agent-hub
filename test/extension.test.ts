@@ -35,14 +35,14 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
-  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
+  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
 
   await handlers.get("session_shutdown")?.({}, { cwd: "/repo" });
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
   assert.deepEqual(events, [
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
@@ -446,6 +446,77 @@ test("compaction watchdog restores the prior state when completion is missing", 
     await new Promise<void>((resolve) => setImmediate(resolve));
     heartbeat = await readCompactionHeartbeat((item) => item.state === "running");
     assert.equal(heartbeat.state, "running");
+  } finally {
+    await handlers.get("session_shutdown")?.({}, ctx);
+    t.mock.timers.reset();
+    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
+    else process.env[SESSION_ID_ENV] = previousSessionId;
+    if (previousStateDir === undefined) delete process.env[STATE_ENV];
+    else process.env[STATE_ENV] = previousStateDir;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
+});
+
+test("tool calls publish a debounced live activity heartbeat that agent_end clears", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 200_000 });
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-activity-"));
+  const previousSessionId = process.env[SESSION_ID_ENV];
+  const previousStateDir = process.env[STATE_ENV];
+  process.env[SESSION_ID_ENV] = "tool-activity";
+  process.env[STATE_ENV] = root;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+  };
+  const ctx = { cwd: root, hasUI: false };
+  const flush = async () => { for (let i = 0; i < 20; i += 1) await new Promise<void>((resolve) => setImmediate(resolve)); };
+  // Heartbeat writes are real file I/O while timers are mocked; poll by wall-clock turns, not a fixed count.
+  const readHeartbeat = async (predicate: (heartbeat: Heartbeat) => boolean): Promise<Heartbeat> => {
+    let last: Heartbeat | undefined;
+    for (let i = 0; i < 2_000; i += 1) {
+      try {
+        last = JSON.parse(await readFile(heartbeatPath("tool-activity", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+        if (predicate(last)) return last;
+      } catch {}
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.fail(`timed out waiting for activity heartbeat: ${JSON.stringify(last?.activity)}`);
+  };
+
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    // Drain the startup heartbeats so only the activity debounce can write during the window below.
+    t.mock.timers.tick(3_000);
+    await flush();
+    await handlers.get("agent_start")?.({}, ctx);
+    let heartbeat = await readHeartbeat((item) => item.state === "running");
+    assert.equal(heartbeat.activity, undefined);
+
+    await handlers.get("tool_execution_start")?.({ toolCallId: "read-1", toolName: "read", args: { path: `${root}/src/a.ts` } }, ctx);
+    t.mock.timers.tick(749);
+    await flush();
+    heartbeat = await readHeartbeat(() => true);
+    assert.equal(heartbeat.activity, undefined, "activity publishes only after the 750 ms debounce");
+    t.mock.timers.tick(1);
+    heartbeat = await readHeartbeat((item) => item.activity !== undefined);
+    assert.deepEqual(heartbeat.activity, { current: { tool: "read", detail: "src/a.ts", at: 203_000 } });
+
+    t.mock.timers.tick(250);
+    await handlers.get("tool_execution_start")?.({ toolCallId: "bash-1", toolName: "bash", args: { command: "npm test\nrm -rf dist" } }, ctx);
+    await handlers.get("tool_execution_end")?.({ toolCallId: "read-1", toolName: "read", isError: false }, ctx);
+    t.mock.timers.tick(750);
+    heartbeat = await readHeartbeat((item) => item.activity?.current?.tool === "bash");
+    assert.deepEqual(heartbeat.activity, {
+      current: { tool: "bash", detail: "npm test", at: 204_000 },
+      recent: [{ tool: "read", detail: "src/a.ts", at: 203_000 }],
+    });
+
+    await handlers.get("agent_end")?.({}, ctx);
+    heartbeat = await readHeartbeat((item) => item.state === "waiting");
+    assert.deepEqual(heartbeat.activity, { recent: [{ tool: "read", detail: "src/a.ts", at: 203_000 }] });
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     t.mock.timers.reset();
@@ -1136,3 +1207,12 @@ async function waitForHeartbeat(root: string, sessionId: string, predicate: (hea
   }
   assert.fail(`Timed out waiting for heartbeat; last=${JSON.stringify(last)}`);
 }
+
+test("tool details drop a leading cd and stay one bounded line; conversation tools are not work", async () => {
+  const { actionDetail } = await import("../src/extension/index.js");
+  assert.equal(actionDetail("bash", { command: "cd /repo/x && npm test -- --watch\necho done" }, "/repo"), "npm test -- --watch");
+  assert.equal(actionDetail("bash", { command: "cd \"/a b\"; git status" }, "/repo"), "git status");
+  assert.equal(actionDetail("bash", { command: "ls -la" }, "/repo"), "ls -la");
+  assert.equal(actionDetail("read", { path: "/repo/src/a.ts" }, "/repo"), "src/a.ts");
+  assert.equal([...actionDetail("bash", { command: "x".repeat(300) }, "/repo")!].length, 100);
+});

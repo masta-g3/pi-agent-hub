@@ -100,6 +100,25 @@ function answerText(details: unknown, params: Question[]): string | undefined {
   return sections.length ? sections.join("\n\n") : undefined;
 }
 
+/**
+ * The newest assistant text since your last message on the supplied branch, read from its end; no search and
+ * no file access. An agent still working on a new message has said nothing yet, so its old answer is not shown.
+ */
+export function lastAssistantText(branch: readonly unknown[], maxChars: number): string | undefined {
+  for (let index = branch.length - 1; index >= 0; index -= 1) {
+    const entry = branch[index];
+    if (record(entry) && entry.type === "message" && record(entry.message) && entry.message.role === "user") return undefined;
+    if (!record(entry) || entry.type !== "message" || !record(entry.message) || entry.message.role !== "assistant" || entry.message.stopReason === "pending") continue;
+    const content = entry.message.content;
+    const body = conversationText(typeof content === "string" ? content : Array.isArray(content)
+      ? content.filter((block) => record(block) && block.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n")
+      : "").trim();
+    if (!body) continue;
+    const chars = [...body];
+    return chars.length <= maxChars ? body : `${chars.slice(0, maxChars).join("")}…`;
+  }
+}
+
 /** Exact typed tool-call arguments from the supplied live branch, not a conversation search. */
 export function questionCallArguments(branch: readonly unknown[], toolCallId: string): RecordValue | undefined {
   for (const entry of branch) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { sliceByColumn } from "@earendil-works/pi-tui";
 import { SessionsController } from "../src/app/controller.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
 import { createRepoPicker, renderRepoPicker } from "../src/tui/repo-picker.js";
@@ -114,7 +115,8 @@ for (const width of [80, 120, 160]) {
     for (const selectedId of ["active", "child"]) {
       const layout = renderSessions(buildRenderModel({ sessions, selectedId, width, height: 60, now: 300_000,
         expandedProjectParentIds: new Set(["active"]) }), theme);
-      const painted = layout.lines.filter(line => line.includes("\u001b[48;2;51;64;94m"));
+      // At 100+ the selected card's pane sits right of the roster's dim `│` on the base background; only the plate counts.
+      const painted = layout.lines.map(line => sliceByColumn(line, 0, layout.listWidth)).filter(line => line.includes("\u001b[48;2;51;64;94m"));
       assert.ok(painted.length > 1);
       for (const line of painted) assert.ok(!line.includes(dimCode), stripAnsi(line));
     }
