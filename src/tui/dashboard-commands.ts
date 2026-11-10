@@ -90,6 +90,8 @@ export interface DashboardCommandInput {
   attentionBellEnabled?: boolean;
   followDefaultEnabled?: boolean;
   visibleRequestCount?: number;
+  /** Label of the in-memory undo entry; undo targets that entry, so selection never disables it. */
+  undoLabel?: string;
   deliveryResult?: "submitting" | "accepted" | "rejected" | "unknown";
   /** Set while another modal, pending choice, or busy operation owns input. */
   interactionBlockedReason?: string;
@@ -516,6 +518,18 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       enabled: (input.visibleRequestCount ?? 0) > 0,
       disabledReason: (input.visibleRequestCount ?? 0) > 0 ? undefined : "no visible requests",
       searchText: "] next request needs you attention waiting jump",
+    }),
+    makeCommand({
+      id: "view:undo",
+      group: "views",
+      label: input.undoLabel ? `Undo: ${input.undoLabel}` : "Undo",
+      helpLabel: "Undo last change",
+      hint: "reverse the last Backlog, Archive, Restore, Mark read, or Move group",
+      displayKey: "z",
+      bindings: [{ key: "z" }],
+      enabled: Boolean(input.undoLabel),
+      disabledReason: "nothing to undo",
+      searchText: "z undo revert last change backlog archive restore reopen read group",
     }),
     makeCommand({ id: "view:usage", group: "views", label: "Usage", hint: "account limits, token history and API-equivalent cost estimates", displayKey: "u", bindings: [{ key: "u" }], enabled: true, searchText: "u usage quota limits tokens costs analytics" }),
     makeCommand({ id: "view:help", group: "views", label: "Help", hint: "show all dashboard shortcuts", displayKey: "?", bindings: [{ key: "?" }], enabled: true, searchText: "? help shortcuts" }),

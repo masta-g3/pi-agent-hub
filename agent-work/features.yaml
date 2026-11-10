@@ -1488,6 +1488,19 @@
   created_at: '2026-11-06'
   plan_file: agent-work/history/20261106_subagents-001_subagent_runtime_fixes.md
   completed_at: '2026-11-06'
+- id: dashboard-polish-004
+  status: done
+  title: Action undo
+  subtitle: Name moved sessions; z reverses changes
+  description: After Backlog, Archive, Restore, Mark read, or group moves, show which
+    session moved and where, and let z reverse the last change from in-memory state.
+  priority: 2
+  created_at: '2026-11-06'
+  references:
+  - https://github.com/jesseduffield/lazygit/blob/master/VISION.md
+  - src/tui/sessions-view.ts:2618
+  plan_file: agent-work/history/20261110_dashboard-polish-004_action_undo.md
+  completed_at: '2026-11-10'
 - id: dashboard-scanability-013
   status: done
   title: Unfocused sidebar quiets

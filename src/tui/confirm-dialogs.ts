@@ -92,7 +92,7 @@ export function handleArchiveInput(dialog: ArchiveDialog, data: string, ctx: Con
       ? ctx.actions.archiveSession(target!.id, closure, expected)
       : closure ? ctx.controller.closeSession(target!.id, closure, expected) : ctx.controller.moveSessionToBucket(target!.id, "archived", undefined, expected),
     "archiving session...",
-    () => ctx.flashMessage(`${done} ${glyphs.right} ${target!.title}`),
+    (result) => ctx.recordUndo("lifecycle", target!.id, `${done} ${glyphs.right} ${target!.title}`, result),
   );
   return undefined;
 }

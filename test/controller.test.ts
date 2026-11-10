@@ -7,6 +7,7 @@ import { SessionsController } from "../src/app/controller.js";
 import { heartbeatPath, multiRepoWorkspacePath } from "../src/core/paths.js";
 import { loadRegistry, updateRegistry } from "../src/core/registry.js";
 import { HEARTBEAT_STALE_MS } from "../src/core/status.js";
+import { sessionUndo, type RegistryChange, type UndoKind } from "../src/core/session-undo.js";
 import type { ManagedSession } from "../src/core/types.js";
 import type { TmuxPresence } from "../src/core/tmux.js";
 
@@ -1156,5 +1157,62 @@ test("heartbeat refresh preserves registry-owned closure", async () => {
     assert.equal(refreshed.status, "running");
     assert.equal(refreshed.closure, "abandoned");
     assert.equal(refreshed.bucket, "archived");
+  });
+});
+
+test("lifecycle, group, and read changes return registry changes that undo exactly", async () => {
+  await withTempSessionsDir(async () => {
+    const now = 1_000_000;
+    const parent = session("idle", { id: "api", title: "api", group: "a", order: 0, piSessionId: "pi-1" });
+    const child = session("running", { id: "child", title: "child", group: "a", kind: "subagent", parentId: "api" });
+    const registry = { version: 1 as const, sessions: [parent, child] };
+    await updateRegistry(() => registry);
+    await mkdir(join(process.env.PI_AGENT_HUB_DIR!, "heartbeats"), { recursive: true });
+    await writeFile(heartbeatPath("api"), `${JSON.stringify({
+      managedSessionId: "api", cwd: "/tmp/api", piSessionId: "pi-1", state: "waiting", stateSince: 10, updatedAt: now,
+      context: { version: 1, updatedAt: now, attention: { requestId: "req-1", kind: "question", text: "Which?" } },
+    })}\n`, "utf8");
+    const controller = new SessionsController(registry, async () => "present");
+    await controller.refresh(now);
+    const saved = async () => (await loadRegistry()).sessions;
+    const fields = (rows: ManagedSession[]) => rows.map(({ id, bucket, bucketChangedAt, closure, group, order, acknowledgedAt, dismissedRequestId, status }) =>
+      ({ id, bucket, bucketChangedAt, closure, group, order, acknowledgedAt, dismissedRequestId, status }));
+    const roundTrip = async (kind: UndoKind, change: () => Promise<RegistryChange | undefined>) => {
+      const start = fields(await saved());
+      const undo = sessionUndo(kind, await change(), "api", "api", "label");
+      assert.ok(undo, kind);
+      assert.notDeepEqual(fields(await saved()), start, kind);
+      await controller.undoChange(undo);
+      assert.deepEqual(fields(await saved()), start, kind);
+    };
+
+    await roundTrip("read", () => controller.acknowledgeSession("api", now + 1, "req-1", true));
+    await roundTrip("lifecycle", () => controller.moveSessionToBucket("api", "backlog", now + 2));
+    await roundTrip("lifecycle", () => controller.moveSessionToBucket("api", "archived", now + 3));
+    await roundTrip("lifecycle", () => controller.closeSession("api", "done", { piSessionId: "pi-1" }, now + 4));
+    await roundTrip("group", () => controller.moveSessionToGroup("api", "b", now + 5));
+    await controller.closeSession("api", "abandoned", { piSessionId: "pi-1" }, now + 6);
+    await roundTrip("lifecycle", () => controller.restoreSessionBucket("api", now + 7));
+    assert.equal((await saved()).find((row) => row.id === "child")?.bucket, "archived");
+    assert.equal(await controller.acknowledgeSession("api", now + 8, "stale-id", true), undefined);
+  });
+});
+
+test("undoChange refuses later edits and replaced conversations without writing", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = { version: 1 as const, sessions: [session("idle", { id: "api", title: "api", piSessionId: "pi-1", closure: "done", bucket: "archived", bucketChangedAt: 5 })] };
+    await updateRegistry(() => registry);
+    const controller = new SessionsController(registry, async () => "present");
+
+    const reopen = sessionUndo("lifecycle", await controller.restoreSessionBucket("api", 10), "api", "api", "Reopened → api")!;
+    await updateRegistry((latest) => ({ ...latest, sessions: latest.sessions.map((row) => ({ ...row, piSessionId: "pi-2" })) }));
+    await controller.refresh();
+    await assert.rejects(() => controller.undoChange(reopen), /api changed since; nothing undone/);
+    assert.equal((await loadRegistry()).sessions[0]?.closure, undefined);
+
+    const backlog = sessionUndo("lifecycle", await controller.moveSessionToBucket("api", "backlog", 20), "api", "api", "Backlog → api")!;
+    await controller.moveSessionToBucket("api", "archived", 30);
+    await assert.rejects(() => controller.undoChange(backlog), /changed since/);
+    assert.equal((await loadRegistry()).sessions[0]?.bucket, "archived");
   });
 });

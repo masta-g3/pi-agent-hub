@@ -20,6 +20,7 @@ import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
 import { sessionSection } from "../core/session-bucket.js";
+import type { RegistryChange } from "../core/session-undo.js";
 import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renameSessionFavorite, removeSessionFavorite } from "../core/session-favorites.js";
@@ -343,14 +344,13 @@ export async function archiveDashboardSession(
   sessionId: string,
   closure: SessionClosure | undefined,
   expected: { piSessionId?: string },
-): Promise<void> {
+): Promise<RegistryChange | undefined> {
   const session = (await loadRegistry()).sessions.find((item) => item.id === sessionId);
   // Validate latest saved identity before detaching; the controller rechecks before mutation.
   if (!session || session.kind === "subagent" || session.closure !== undefined
     || (expected.piSessionId !== undefined && session.piSessionId !== expected.piSessionId)) throw new Error("target changed; archive cancelled");
   await detach(session.tmuxSession);
-  if (closure) await controller.closeSession(sessionId, closure, expected);
-  else await controller.moveSessionToBucket(sessionId, "archived", undefined, expected);
+  return closure ? controller.closeSession(sessionId, closure, expected) : controller.moveSessionToBucket(sessionId, "archived", undefined, expected);
 }
 
 export async function runTui(): Promise<void> {
@@ -494,7 +494,7 @@ export async function runTui(): Promise<void> {
     sessions: () => controller.snapshot().registry.sessions,
     selectedSessionId: () => view?.selectedSessionTarget,
     revealSession: (sessionId) => view.revealSession(sessionId),
-    acknowledgeSession: (sessionId, requestId) => mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)),
+    acknowledgeSession: async (sessionId, requestId) => { await mutateRegistry(() => controller.acknowledgeSession(sessionId, Date.now(), requestId)); },
     touchSession: (sessionId) => mutateRegistry(() => controller.touchSession(sessionId)),
     activeAttentionRequestId: currentAttentionRequestId,
     configureManagedSession: applyManagedSessionTheme,
@@ -642,6 +642,9 @@ export async function runTui(): Promise<void> {
     },
     restoreSession(sessionId) {
       return mutateRegistry(() => controller.restoreSessionBucket(sessionId));
+    },
+    undoChange(undo) {
+      return mutateRegistry(() => controller.undoChange(undo));
     },
     renameSession(sessionId, title) {
       return renameManagedSession(sessionId, title);

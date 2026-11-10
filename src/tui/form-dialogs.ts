@@ -1,6 +1,7 @@
 import { glyphs } from "./glyphs.js";
 import { Key, matchesKey } from "@earendil-works/pi-tui";
 import { orderedSessionRows } from "../core/session-tree.js";
+import { normalizeGroup } from "../core/registry.js";
 import { isEnterKey } from "./text-input.js";
 import { createForm, editField, moveFocus, setFocus, setValue, validateRequired, type FormState } from "./form.js";
 import type { DialogHit } from "./dialog-mouse.js";
@@ -176,7 +177,8 @@ function submitGroupDialog(dialog: FormDialog, ctx: FormDialogContext): FormDial
   const result = validateRequired(dialog.form);
   if (!result.ok) return { ...dialog, form: result.state };
   const group = result.state.fields.group.value;
-  ctx.runAction(() => ctx.actions.changeGroup ? ctx.actions.changeGroup(target.id, group) : ctx.controller.moveSessionToGroup(target.id, group), "moving session...");
+  ctx.runAction(() => ctx.actions.changeGroup ? ctx.actions.changeGroup(target.id, group) : ctx.controller.moveSessionToGroup(target.id, group), "moving session...",
+    (result) => ctx.recordUndo("group", target.id, `Group ${normalizeGroup(group)} ${glyphs.right} ${target.title}`, result));
   return undefined;
 }
 

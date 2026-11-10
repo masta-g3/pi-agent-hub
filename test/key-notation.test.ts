@@ -31,7 +31,7 @@ function context(width: number): DialogContext {
         save: () => ({ version: 1, favorites: [] }), update: () => ({ version: 1, favorites: [] }),
         rename: () => ({ version: 1, favorites: [] }), remove: () => ({ version: 1, favorites: [] }) } },
     theme: darkTheme, now: () => 0, close: () => {}, setDialog: () => {}, dialog: () => undefined,
-    setMessage: () => {}, message: () => undefined, flashMessage: () => {}, runAction: () => {}, attachSession: () => {}, stop: () => {},
+    setMessage: () => {}, message: () => undefined, flashMessage: () => {}, recordUndo: () => {}, runAction: () => {}, attachSession: () => {}, stop: () => {},
   };
 }
 

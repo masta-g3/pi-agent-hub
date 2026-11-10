@@ -189,7 +189,7 @@ test("Conversation bounds every width, reads only selected live rows, and never 
 
 test("Answer is separate from Open and shortcut reasons are discoverable", () => {
   const selected = liveSession("a");
-  const commands = buildDashboardCommands({ sessions: [selected], selectedId: "a", interactionState: { answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }, capabilities: { answerQuestion: true, openSession: true, runConfiguredShortcut: true }, configuredShortcuts: [{ key: "z", send: "/skill:review" }] });
+  const commands = buildDashboardCommands({ sessions: [selected], selectedId: "a", interactionState: { answerChannel: "rpiv-events", questionProtocol: true, pending: [request] }, capabilities: { answerQuestion: true, openSession: true, runConfiguredShortcut: true }, configuredShortcuts: [{ key: "L", send: "/skill:review" }] });
   assert.equal(commands.find(command => command.id.includes(":answer:"))?.label, "Answer");
   assert.equal(commands.find(command => command.id.startsWith("shortcut:"))?.enabled, false);
   const previous = commands.find(command => command.id.includes(":answer:"))!.id;
@@ -323,7 +323,7 @@ test("unconfirmed answer waits for fresh producer validity and native completion
 
 test("ready configured actions appear in the positive-only workspace", () => {
   const selected = liveSession("a");
-  const input = { sessions: [selected], selectedId: selected.id, capabilities: { openSession: true, runConfiguredShortcut: true }, configuredShortcuts: [{ key: "z", label: "Review", send: "/skill:review" }] };
+  const input = { sessions: [selected], selectedId: selected.id, capabilities: { openSession: true, runConfiguredShortcut: true }, configuredShortcuts: [{ key: "L", label: "Review", send: "/skill:review" }] };
   const ready = buildDashboardCommands({ ...input, interactionState: { questionProtocol: false, pending: [] } });
   assert.ok(selectWorkspaceCommands(selected, ready, 3).actions.some(command => command.label === "Review"));
   const drafted = buildDashboardCommands({ ...input, interactionState: { questionProtocol: false, pending: [], shortcutDisabledReason: "Pi editor contains a draft" } });

@@ -4,6 +4,7 @@ import type { SessionsController, SyncPiNameResult } from "../app/controller.js"
 import type { CloseSidePaneResult, FocusSidePaneResult, FollowSidePaneResult, ResizeSidePaneResult, SidePaneResult, SidePaneSlot, SpatialDirection } from "../app/side-pane.js";
 import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import type { ManagedSession, SessionClosure } from "../core/types.js";
+import type { SessionUndo, UndoKind } from "../core/session-undo.js";
 import type { NewFormContext, NewFormSubmission } from "./new-form.js";
 import type { SessionFavorites } from "../core/session-favorites.js";
 import type { FavoritesDialog } from "./session-favorites-dialog.js";
@@ -52,6 +53,7 @@ export interface SessionLifecycleActions {
   archiveSession: (sessionId: string, closure: SessionClosure | undefined, expected: { piSessionId?: string }) => unknown;
   backlogSession: (sessionId: string) => unknown;
   restoreSession: (sessionId: string) => unknown;
+  undoChange: (undo: SessionUndo) => unknown;
   renameSession: (sessionId: string, title: string) => unknown;
   syncPiName: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup: (from: string, to: string) => unknown;
@@ -201,6 +203,7 @@ export interface SessionsViewActions {
   archiveSession?: (sessionId: string, closure: SessionClosure | undefined, expected: { piSessionId?: string }) => unknown;
   backlogSession?: (sessionId: string) => unknown;
   restoreSession?: (sessionId: string) => unknown;
+  undoChange?: (undo: SessionUndo) => unknown;
   renameSession?: (sessionId: string, title: string) => unknown;
   syncPiName?: (sessionId: string) => SyncPiNameResult | Promise<SyncPiNameResult>;
   renameGroup?: (from: string, to: string) => unknown;
@@ -245,6 +248,8 @@ export interface DialogContext {
   setFilter?: (filter: string | undefined) => void;
   message(): string | undefined;
   flashMessage(text: string): void;
+  /** Records the resolved registry change of a B/A/U/a/g action as the single undo entry and shows its receipt. */
+  recordUndo(kind: UndoKind, sessionId: string, label: string, result: unknown): void;
   /** `onSuccess` receives the action's resolved value. */
   runAction(action: () => unknown, pending: string, onSuccess?: (result: unknown) => void): void;
   revealSession?: (sessionId: string) => void;

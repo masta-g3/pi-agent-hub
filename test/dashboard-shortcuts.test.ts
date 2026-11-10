@@ -25,8 +25,8 @@ test("matchesDashboardShortcut falls back to exact printable-key matching", () =
   assert.equal(matchesDashboardShortcut("P", "p"), false);
 });
 
-test("slot, pin, follow and fleet grouping keys are reserved while L and O remain explicit sends", () => {
-  for (const key of ["P", "1", "2", "3", "4", "M-1", "M-2", "M-3", "M-4", "x", "+", "-", "v", "o", "]", "M-w"]) {
+test("slot, pin, follow, fleet grouping and undo keys are reserved while L and O remain explicit sends", () => {
+  for (const key of ["P", "1", "2", "3", "4", "M-1", "M-2", "M-3", "M-4", "x", "+", "-", "v", "o", "]", "M-w", "z"]) {
     assert.throws(() => validateDashboardShortcut({ key, send: "/pin" }, 0), /conflicts with a built-in dashboard shortcut/, key);
   }
   for (const key of ["L", "O"]) {

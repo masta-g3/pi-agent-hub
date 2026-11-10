@@ -1,4 +1,5 @@
 import { glyphs } from "./glyphs.js";
+import { sessionUndo, type RegistryChange, type SessionUndo, type UndoKind } from "../core/session-undo.js";
 import { createUsageView, handleUsageInput, renderUsageView } from "./usage-view.js";
 import { mergeUsageSnapshots } from "../core/usage.js";
 import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
@@ -76,6 +77,7 @@ import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAtt
 
 const MIN_RENDER_WIDTH = MIN_LAYOUT_WIDTH;
 const DOUBLE_CLICK_MS = 400;
+const RECEIPT_TTL_MS = 4_000;
 /** Follow view waits for the selection to settle so held j/k does not retarget per row. */
 const FOLLOW_SETTLE_MS = 200;
 /** Two pane polls: after input the dashboard stays bright until the poll can confirm focus. */
@@ -123,6 +125,8 @@ export class SessionsView implements Component {
   private helpMaxScroll = 0;
   private message: string | undefined;
   private flash: { text: string; expiresAt: number } | undefined;
+  /** Most recent recorded B/A/U/a/g change; in memory only, replaced by the next one. */
+  private undo: SessionUndo | undefined;
   private workspaceSessionId: string | undefined;
   private workspaceEvidenceSessionId: string | undefined;
   private messageExpandedSessionId: string | undefined;
@@ -1034,6 +1038,7 @@ export class SessionsView implements Component {
       setFilter: (filter) => this.applyFilter(filter),
       message: () => this.message,
       flashMessage: (text) => this.flashMessage(text),
+      recordUndo: (kind, sessionId, label, result) => this.recordUndo(kind, sessionId, label, result),
       runAction: (action, pending, onSuccess) => this.runAction(action, pending, onSuccess),
       revealSession: (sessionId) => { this.revealSession(sessionId); },
       attachSession: (session) => this.attachSession(session),
@@ -1171,6 +1176,7 @@ export class SessionsView implements Component {
       attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
       followDefaultEnabled: this.actions.followPreference?.followDefault() ?? false,
       visibleRequestCount: this.visibleRequestIds().length,
+      undoLabel: this.undo?.label,
       pinState: {
         slots: this.pinState().slots,
         activeSessionId: this.pinState().activeSessionId,
@@ -1372,8 +1378,10 @@ export class SessionsView implements Component {
         case "info": this.toggleInfo(); return;
         case "message": this.toggleMessage(); return;
         case "mark-read": {
-          const requestId = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId)?.context?.attention?.requestId;
-          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId, true), "marking read...");
+          const target = this.controller.snapshot().sessions.find((session) => session.id === command.targetSessionId);
+          const requestId = target?.context?.attention?.requestId;
+          this.runAction(() => this.acknowledgeSession(command.targetSessionId!, requestId, true), "marking read...",
+            (result) => this.recordUndo("read", command.targetSessionId!, `Marked read ${glyphs.right} ${target?.title ?? command.targetSessionId}`, result));
           return;
         }
         case "reorder-up": this.reorderSelected(-1); return;
@@ -1399,6 +1407,7 @@ export class SessionsView implements Component {
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
       case "view:palette": this.openCommandPalette(); return;
       case "view:next-request": this.selectNextRequest(); return;
+      case "view:undo": this.undoLastChange(); return;
       case "view:usage": this.dialog = { kind: "usage" }; return;
       case "view:help": this.helpScroll = 0; this.dialog = { kind: "help" }; return;
       case "view:quit": this.stop(); return;
@@ -2611,7 +2620,8 @@ export class SessionsView implements Component {
     }
     this.clearPendingRestart();
     this.clearFlash();
-    this.runAction(() => this.actions.backlogSession ? this.actions.backlogSession(selected.id) : this.controller.moveSessionToBucket(selected.id, "backlog"), "moving to backlog...");
+    this.runAction(() => this.actions.backlogSession ? this.actions.backlogSession(selected.id) : this.controller.moveSessionToBucket(selected.id, "backlog"), "moving to backlog...",
+      (result) => this.recordUndo("lifecycle", selected.id, `Backlog ${glyphs.right} ${selected.title}`, result));
   }
 
   private restoreSelectedBucket() {
@@ -2627,7 +2637,9 @@ export class SessionsView implements Component {
     }
     this.clearPendingRestart();
     this.clearFlash();
-    this.runAction(() => this.actions.restoreSession ? this.actions.restoreSession(selected.id) : this.controller.restoreSessionBucket(selected.id), "restoring session...");
+    const restored = selected.closure ? "Reopened" : "Active";
+    this.runAction(() => this.actions.restoreSession ? this.actions.restoreSession(selected.id) : this.controller.restoreSessionBucket(selected.id), "restoring session...",
+      (result) => this.recordUndo("lifecycle", selected.id, `${restored} ${glyphs.right} ${selected.title}`, result));
   }
 
   private syncPiNameSelected() {
@@ -2721,6 +2733,28 @@ export class SessionsView implements Component {
     if (!artifact) return;
     this.actions.copy?.(artifact);
     this.flashMessage("Copied path");
+  }
+
+  /** `result` is the action's resolved registry change; no recorded-field change means no entry and no receipt. */
+  private recordUndo(kind: UndoKind, sessionId: string, label: string, result: unknown): void {
+    const title = this.controller.snapshot().registry.sessions.find((session) => session.id === sessionId)?.title ?? sessionId;
+    const undo = sessionUndo(kind, result as RegistryChange | undefined, sessionId, title, label);
+    if (!undo) return;
+    this.undo = undo;
+    this.flashMessage(`z Undo ${glyphs.pendingStep} ${label}`, RECEIPT_TTL_MS);
+  }
+
+  private undoLastChange(): void {
+    const undo = this.undo;
+    this.undo = undefined;
+    // The catalog keeps `z` disabled with "nothing to undo" while no entry exists.
+    if (!undo) return;
+    this.clearPendingRestart();
+    this.clearFlash();
+    this.runAction(() => this.actions.undoChange ? this.actions.undoChange(undo) : this.controller.undoChange(undo), "undoing...", () => {
+      this.revealSession(undo.sessionId);
+      this.flashMessage(`Undone ${glyphs.pendingStep} ${undo.label}`, RECEIPT_TTL_MS);
+    });
   }
 
   private flashMessage(text: string, ttlMs = 1_500): void {

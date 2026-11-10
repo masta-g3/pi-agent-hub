@@ -76,6 +76,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `a` | Mark the selected session read; this also clears an open question or blocker from `NEEDS YOU` |
 | `y` | Copy the selected handoff's evidence path |
 | `A` / `B` / `U` | Archive (Done, Abandoned, or archive only) / move to Backlog / restore or reopen to Active |
+| `z` | Undo the last Backlog, Archive, Restore/Reopen, Mark read, or Move group |
 | `w` | Finish the selected hub-owned worktree session |
 | `N` | Sync the Hub title from Pi's saved name |
 | `g` / `G` | Move a session to a group / rename its group |
@@ -377,6 +378,8 @@ Groups are labels, not project records. `g` moves a session to a label, creating
 Within Status sections, errors and unread waits come first across all groups; every other session follows by last interaction, newest-first, whatever its runtime status. Your own open, pin focus, answer, or send counts as interaction. `K` / `J` breaks exact priority/activity ties only, and is unavailable while filtering or in Repo/board views. Archived always uses archive time.
 
 Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; Backlog does not. Children follow their parent's lifecycle and cannot move independently.
+
+After `B`, `A`, `U`, `a`, or `g`, the footer names the change, such as `z Undo · Backlog → Checkout flow`. `z` reverses only the most recent of these changes, for the session and its children, then selects and reveals the session without opening it. It stays available until the next such change or a dashboard restart, and is never saved. If the session changed since, now runs a different Pi conversation, or was removed, `z` changes nothing and says so. Undo does not reopen a pin that Archive closed.
 
 Archived shows five recent parent trees by default. Select the older-items row and press `Enter` to show more. After seven days, dashboard cleanup can forget an archived tree only when every parent/child tmux session is confirmed gone. It removes Hub records and owned symlink workspaces, not Pi conversations or worktrees.
 

@@ -9,6 +9,7 @@ import {
   searchDashboardCommands,
   selectWorkspaceCommands,
   dashboardFooter,
+  dashboardHelpSections,
   pinnedDashboardFooter,
   type DashboardCommand,
   type DashboardCommandCapabilities,
@@ -268,13 +269,13 @@ test("configured shortcuts bind the exact session and preserve validated order",
   const selected = session("alpha");
   const commands = buildDashboardCommands({
     sessions: [selected], selectedId: selected.id, capabilities: allCapabilities,
-    configuredShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "!", send: "/urgent" }, { key: "z", send: "/verify" }],
+    configuredShortcuts: [{ key: "C-x", label: "Summarize", send: "/summary" }, { key: "!", send: "/urgent" }, { key: "L", send: "/verify" }],
   });
   const configured = commands.filter((command) => command.id.startsWith("shortcut:"));
-  assert.deepEqual(configured.map((command) => command.id), ["shortcut:alpha:0:C-x", "shortcut:alpha:1:!", "shortcut:alpha:2:z"]);
+  assert.deepEqual(configured.map((command) => command.id), ["shortcut:alpha:0:C-x", "shortcut:alpha:1:!", "shortcut:alpha:2:L"]);
   assert.deepEqual(configured.map((command) => command.label), ["Summarize", "/urgent", "/verify"]);
   assert.equal(commandForKey(commands, "\u0018")?.id, "shortcut:alpha:0:C-x");
-  assert.equal(commandForKey(commands, "z")?.id, "shortcut:alpha:2:z");
+  assert.equal(commandForKey(commands, "L")?.id, "shortcut:alpha:2:L");
 
   const stopped = buildDashboardCommands({ sessions: [{ ...selected, status: "error" }], selectedId: selected.id, capabilities: allCapabilities, configuredShortcuts: [{ key: "!", send: "/urgent" }] });
   assert.equal(stopped.find((command) => command.id.startsWith("shortcut:"))?.disabledReason, "session is not live");
@@ -483,4 +484,20 @@ test("A opens Archive for open parents, U is the only Reopen, and C is Full mess
   const childCommands = build(child);
   assert.equal(commandForKey(childCommands, "A")?.enabled, false);
   assert.match(commandForKey(childCommands, "A")?.disabledReason ?? "", /subagent/);
+});
+
+test("undo command follows the stored entry, not the selection", () => {
+  const undo = (input: Parameters<typeof buildDashboardCommands>[0]) => buildDashboardCommands(input).find((command) => command.id === "view:undo")!;
+  const empty = undo({ sessions: [session("a")], selectedId: "a" });
+  assert.equal(empty.enabled, false);
+  assert.equal(empty.disabledReason, "nothing to undo");
+  assert.equal(empty.label, "Undo");
+
+  const ready = undo({ sessions: [session("a")], undoLabel: "Backlog → Session a", interactionBlockedReason: "select a visible session first" });
+  assert.equal(ready.enabled, true);
+  assert.equal(ready.label, "Undo: Backlog → Session a");
+  assert.equal(commandForKey(buildDashboardCommands({ sessions: [], undoLabel: "x" }), "z")?.id, "view:undo");
+
+  const views = dashboardHelpSections().find((section) => section.label === "Views")!;
+  assert.ok(views.commands.some((command) => command.label === "Undo last change" && command.displayKey === "z"));
 });

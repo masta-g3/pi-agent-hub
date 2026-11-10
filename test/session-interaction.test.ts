@@ -25,11 +25,11 @@ test("bridge binds identities, pages branches, and guards/replays configured dis
     const page = await request({ kind: "read", limit: 20 }) as { branchId: string };
     server.branchChanged();
     await assert.rejects(request({ kind: "read", branchId: page.branchId, limit: 20 }), /branch/i);
-    await writeFile(`${dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "z", send: "/skill:review" }] } }));
+    await writeFile(`${dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "L", send: "/skill:review" }] } }));
     draft = "native draft";
-    await assert.rejects(request({ kind: "run-shortcut", key: "z", expectedSend: "/skill:review" }), /draft/i);
+    await assert.rejects(request({ kind: "run-shortcut", key: "L", expectedSend: "/skill:review" }), /draft/i);
     draft = "";
-    const body = { kind: "run-shortcut", key: "z", expectedSend: "/skill:review" };
+    const body = { kind: "run-shortcut", key: "L", expectedSend: "/skill:review" };
     await Promise.all([request(body, "once"), request(body, "once")]);
     assert.equal(sends, 1);
     await assert.rejects(request(body), /dispatch|busy/i);
@@ -221,9 +221,9 @@ for (const [name, overrides] of [
 ] as const) test(`configured dispatch rejects ${name} at delivery`, async () => {
   const f = await fixture(overrides);
   try {
-    await writeFile(`${f.dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "z", send: "/skill:review" }] } }));
-    await assert.rejects(f.request({ kind: "run-shortcut", key: "z", expectedSend: "/skill:other" }), /changed/);
-    await assert.rejects(f.request({ kind: "run-shortcut", key: "z", expectedSend: "/skill:review" }), new RegExp(name));
+    await writeFile(`${f.dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "L", send: "/skill:review" }] } }));
+    await assert.rejects(f.request({ kind: "run-shortcut", key: "L", expectedSend: "/skill:other" }), /changed/);
+    await assert.rejects(f.request({ kind: "run-shortcut", key: "L", expectedSend: "/skill:review" }), new RegExp(name));
   } finally { await f.close(); }
 });
 
@@ -231,10 +231,10 @@ test("configured dispatch stays blocked by an unsupported questionnaire until it
   const f = await fixture();
   f.bus.on("rpiv:ask-user:answer", r => f.bus.emit("rpiv:ask-user:answer-result", { requestId: r.requestId, ok: false, code: "unsupported_host" }));
   try {
-    await writeFile(`${f.dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "z", send: "/skill:review" }] } }));
+    await writeFile(`${f.dir}/config.json`, JSON.stringify({ version: 1, dashboard: { shortcuts: [{ key: "L", send: "/skill:review" }] } }));
     prompt(f);
     await assert.rejects(f.request({ kind: "submit-answer", toolCallId: "call", answers: [] }), /only be answered in Pi/);
-    await assert.rejects(f.request({ kind: "run-shortcut", key: "z", expectedSend: "/skill:review" }), /pending Pi question/);
+    await assert.rejects(f.request({ kind: "run-shortcut", key: "L", expectedSend: "/skill:review" }), /pending Pi question/);
   } finally { await f.close(); }
 });
 

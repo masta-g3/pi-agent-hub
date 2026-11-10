@@ -6,6 +6,7 @@ import { readUsageDir, type UsageData, type UsageCache } from "../core/usage.js"
 import { nameCommandPath } from "../core/name-command.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, updateRegistry } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
+import { applySessionUndo, type RegistryChange, type SessionUndo } from "../core/session-undo.js";
 import { ARCHIVE_PRUNE_AFTER_MS, closeBucket, moveToBucket, restoreBucket, sessionClosure, sessionSection } from "../core/session-bucket.js";
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
@@ -168,12 +169,12 @@ export class SessionsController {
     await this.acknowledgeSession(selected.id, now);
   }
 
-  async acknowledgeSession(id: string, now = Date.now(), requestId?: string, dismiss = false): Promise<void> {
+  async acknowledgeSession(id: string, now = Date.now(), requestId?: string, dismiss = false): Promise<RegistryChange | undefined> {
     if (requestId !== undefined) {
       const runtime = this.sessionsWithMetadata().find((session) => session.id === id);
-      if ((runtime?.status !== "waiting" && runtime?.status !== "idle") || runtime.context?.attention?.requestId !== requestId) return;
+      if ((runtime?.status !== "waiting" && runtime?.status !== "idle") || runtime.context?.attention?.requestId !== requestId) return undefined;
     }
-    await this.mutateRegistry((latest) => ({
+    return this.mutateRegistry((latest) => ({
       ...latest,
       sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined, dismiss ? requestId : undefined) : session),
     }));
@@ -186,9 +187,9 @@ export class SessionsController {
     }));
   }
 
-  async moveSessionToGroup(id: string, group: string, now = Date.now()): Promise<void> {
+  async moveSessionToGroup(id: string, group: string, now = Date.now()): Promise<RegistryChange> {
     const normalized = normalizeGroup(group);
-    await this.mutateRegistry((latest) => {
+    return this.mutateRegistry((latest) => {
       const selected = latest.sessions.find((session) => session.id === id);
       if (!selected || selected.group === normalized) return latest;
       const section = sessionSection(selected);
@@ -234,13 +235,13 @@ export class SessionsController {
   }
 
   /** `expected` opts into the Archive chooser guard: a missing, replaced or closed latest parent rejects instead of no-op. */
-  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now(), expected?: { piSessionId?: string }): Promise<void> {
+  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now(), expected?: { piSessionId?: string }): Promise<RegistryChange | undefined> {
     const selected = this.registry.sessions.find((session) => session.id === id);
-    if (!expected && (!selected || isSubagentSession(selected))) return;
+    if (!expected && (!selected || isSubagentSession(selected))) return undefined;
     const wasSelected = this.selectedId === id;
     const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
     let failure: string | undefined;
-    await this.mutateRegistry((latest) => {
+    const change = await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
       failure = expected ? parentTargetFailure(current, expected, "archive") ?? (sessionClosure(current!) ? "session is closed; Reopen it first" : undefined) : undefined;
       if (failure || !current || isSubagentSession(current) || sessionClosure(current)) return latest;
@@ -249,14 +250,15 @@ export class SessionsController {
     });
     if (failure) throw new Error(failure);
     if (wasSelected && bucket === "archived") this.selectedId = selectionAboveArchivedRow(this.visibleSessions(), oldIndex) ?? this.selectedId;
+    return change;
   }
 
   /** Closes the exact parent conversation; `expected.piSessionId` guards against restart-new replacement. */
-  async closeSession(id: string, closure: SessionClosure, expected: { piSessionId?: string } = {}, now = Date.now()): Promise<void> {
+  async closeSession(id: string, closure: SessionClosure, expected: { piSessionId?: string } = {}, now = Date.now()): Promise<RegistryChange> {
     const wasSelected = this.selectedId === id;
     const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
     let failure: string | undefined;
-    await this.mutateRegistry((latest) => {
+    const change = await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
       failure = parentTargetFailure(current, expected, "close")
         ?? (current!.closure !== undefined && current!.closure !== closure ? "session is already closed; reopen it before changing the outcome" : undefined);
@@ -269,12 +271,13 @@ export class SessionsController {
     });
     if (failure) throw new Error(failure);
     if (wasSelected) this.selectedId = selectionAboveArchivedRow(this.visibleSessions(), oldIndex) ?? this.selectedId;
+    return change;
   }
 
-  async restoreSessionBucket(id: string, now = Date.now()): Promise<void> {
+  async restoreSessionBucket(id: string, now = Date.now()): Promise<RegistryChange | undefined> {
     const selected = this.registry.sessions.find((session) => session.id === id);
-    if (!selected || isSubagentSession(selected)) return;
-    await this.mutateRegistry((latest) => {
+    if (!selected || isSubagentSession(selected)) return undefined;
+    return this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
       if (!current || isSubagentSession(current)) return latest;
       const ids = sessionCascadeIds(latest.sessions, id);
@@ -302,6 +305,11 @@ export class SessionsController {
       };
     });
     return { status: "synced", name };
+  }
+
+  /** Throws without writing when any recorded row changed since; see `applySessionUndo`. */
+  async undoChange(undo: SessionUndo, now = Date.now()): Promise<void> {
+    await this.mutateRegistry((latest) => ({ ...latest, sessions: applySessionUndo(latest.sessions, undo, now) }));
   }
 
   async renameGroup(from: string, to: string): Promise<void> {
@@ -337,9 +345,14 @@ export class SessionsController {
     return this.visibleSessions().find((session) => session.id === this.selectedId);
   }
 
-  private async mutateRegistry(mutate: (latest: SessionsRegistry) => SessionsRegistry): Promise<void> {
-    this.registry = await updateRegistry(mutate);
+  private async mutateRegistry(mutate: (latest: SessionsRegistry) => SessionsRegistry): Promise<RegistryChange> {
+    let before: readonly ManagedSession[] = this.registry.sessions;
+    this.registry = await updateRegistry((latest) => {
+      before = latest.sessions;
+      return mutate(latest);
+    });
     this.repairSelection();
+    return { before, after: this.registry.sessions };
   }
 
   private repairSelection(): void {
