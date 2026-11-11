@@ -26,3 +26,10 @@
 ## Boundaries
 
 Global group rename, delete, restart, fork, reorder, implicit reads, and pin reconstruction remain outside undo scope. Unrelated local mockups, browser artifacts, install evidence, session exports, and the pending README demo ticket are excluded from the feature commit.
+
+## Reflection Outcomes
+
+- `docs/FEATURES.md` key row and undo paragraph: resolved during execution.
+- `AGENTS.md`: resolved; `z` undo added to the established shortcuts that must not be repurposed.
+- `docs/STRUCTURE.md`: resolved; one bullet records the in-memory undo contract, the changed-since and conversation guards, and how to extend `UNDO_FIELDS`.
+- Reserved-key drift: no action; `test/dashboard-commands.test.ts` already proves configured shortcuts cannot claim any built-in catalog key.

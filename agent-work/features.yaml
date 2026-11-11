@@ -1488,6 +1488,18 @@
   created_at: '2026-11-06'
   plan_file: agent-work/history/20261106_subagents-001_subagent_runtime_fixes.md
   completed_at: '2026-11-06'
+- id: dashboard-polish-003
+  status: pending
+  title: README demo refresh
+  subtitle: Current screenshot and daily-loop GIF
+  description: Replace the README screenshot, which still shows the removed TIERS
+    navigator, and add a scripted, re-recordable GIF of the Next, Answer, Next daily
+    loop.
+  priority: 3
+  created_at: '2026-11-06'
+  references:
+  - assets/pi-agent-hub-dashboard.png
+  - README.md:9
 - id: dashboard-polish-004
   status: done
   title: Action undo
