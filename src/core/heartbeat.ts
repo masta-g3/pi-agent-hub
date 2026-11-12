@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { readJsonOr } from "./atomic-json.js";
 import { plainTerminalText } from "./terminal-text.js";
 import { heartbeatPath } from "./paths.js";
@@ -10,6 +11,8 @@ import type {
   SessionActivity,
   SessionPlanSummary,
   WorkflowActivityDisplay,
+  WorkflowLens,
+  WorkflowLensState,
   WorkflowModeDisplay,
   WorkflowRuntimeSnapshot,
   WorkflowStep,
@@ -115,6 +118,7 @@ function workflowSnapshot(data: Record<string, unknown>, steps: WorkflowStep[], 
   const activeMode = parseWorkflowMode(data.activeMode);
   const activity = parseWorkflowActivity(data.activity);
   const plan = parseWorkflowPlan(data.plan);
+  const lens = parseWorkflowLens(data.lens);
   return {
     steps,
     activeIndex,
@@ -122,6 +126,7 @@ function workflowSnapshot(data: Record<string, unknown>, steps: WorkflowStep[], 
     ...(activeMode ? { activeMode } : {}),
     ...(activity ? { activity } : {}),
     ...(plan ? { plan } : {}),
+    ...(lens ? { lens } : {}),
     ...(ticketId ? { ticketId } : {}),
     updatedAt: data.updatedAt,
   };
@@ -185,7 +190,6 @@ function parseWorkflowPlan(value: unknown): SessionPlanSummary | undefined {
     ...(tasks ? { tasks } : {}),
     ...(validPhases?.length ? { phases: validPhases } : {}),
     ...(nextStep ? { nextStep } : {}),
-    ...(parseCurrentTasks(value.current) ?? {}),
   };
   return Object.keys(plan).length ? plan : undefined;
 }
@@ -197,18 +201,53 @@ function parsePhase(value: unknown): { completed: number; total: number; title?:
   return { ...count, ...(title ? { title } : {}) };
 }
 
-const PLAN_CURRENT_TASKS_MAX = 24;
+const LENS_STATES: WorkflowLensState[] = ["done", "active", "pending", "attention", "skipped"];
+const LENS_STAGE_STATES = ["done", "active", "pending"] as const;
+const LENS_ITEMS_MAX = 12;
+const LENS_LABEL_CELLS = 6;
 
-/** A malformed checklist is dropped without hiding the plan's counts. */
-function parseCurrentTasks(value: unknown): Pick<SessionPlanSummary, "current"> | undefined {
-  if (!isObject(value) || !Array.isArray(value.tasks) || !value.tasks.length || value.tasks.length > PLAN_CURRENT_TASKS_MAX) return undefined;
-  const tasks = value.tasks.map((task) => {
-    const text = isObject(task) && typeof task.done === "boolean" ? actionText(task.text, 240) : undefined;
-    return text ? { done: (task as { done: boolean }).done, text } : undefined;
+/** Each lens field validates on its own, so one malformed field never hides the rest. */
+function parseWorkflowLens(value: unknown): WorkflowLens | undefined {
+  if (!isObject(value)) return undefined;
+  const doing = actionText(value.doing, 160);
+  const stages = Array.isArray(value.stages) && value.stages.length && value.stages.length <= LENS_ITEMS_MAX ? value.stages.map(parseLensStage) : undefined;
+  const progress = parseCount(value.progress);
+  const unit = isObject(value.progress) && value.progress.unit !== undefined ? actionText(value.progress.unit, 16) : undefined;
+  const validProgress = progress && (!isObject(value.progress) || value.progress.unit === undefined || unit) ? progress : undefined;
+  const pass = Number.isInteger(value.pass) && (value.pass as number) >= 2 && (value.pass as number) <= 999 ? value.pass as number : undefined;
+  const list = parseLensList(value.list);
+  const lens: WorkflowLens = {
+    ...(doing ? { doing } : {}),
+    ...(stages?.every(Boolean) ? { stages: stages as NonNullable<WorkflowLens["stages"]> } : {}),
+    ...(validProgress ? { progress: { ...validProgress, ...(unit ? { unit } : {}) } } : {}),
+    ...(pass ? { pass } : {}),
+    ...(list ? { list } : {}),
+  };
+  return Object.keys(lens).length ? lens : undefined;
+}
+
+function parseLensStage(value: unknown): NonNullable<WorkflowLens["stages"]>[number] | undefined {
+  if (!isObject(value)) return undefined;
+  const label = actionText(value.label, 24);
+  const state = LENS_STAGE_STATES.find((item) => item === value.state);
+  return label && state ? { label, state } : undefined;
+}
+
+function parseLensList(value: unknown): WorkflowLens["list"] {
+  if (!isObject(value) || !Array.isArray(value.items) || !value.items.length || value.items.length > LENS_ITEMS_MAX) return undefined;
+  const label = actionText(value.label, LENS_LABEL_CELLS);
+  if (!label || visibleWidth(label) > LENS_LABEL_CELLS) return undefined;
+  const head = value.head === undefined ? undefined : actionText(value.head, 120);
+  if (value.head !== undefined && !head) return undefined;
+  if (!nonnegativeInt(value.before) || !nonnegativeInt(value.after)) return undefined;
+  const items = value.items.map((item) => {
+    if (!isObject(item)) return undefined;
+    const text = actionText(item.text, 120);
+    const state = LENS_STATES.find((candidate) => candidate === item.state);
+    return text && state ? { state, text } : undefined;
   });
-  if (!tasks.every(Boolean)) return undefined;
-  const hidden = (count: unknown) => nonnegativeInt(count) ? count : 0;
-  return { current: { tasks: tasks as { done: boolean; text: string }[], before: hidden(value.before), after: hidden(value.after) } };
+  if (!items.every(Boolean)) return undefined;
+  return { label, ...(head ? { head } : {}), items: items as { state: WorkflowLensState; text: string }[], before: value.before, after: value.after };
 }
 
 function parseCount(value: unknown): { completed: number; total: number } | undefined {

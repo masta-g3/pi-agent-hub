@@ -15,7 +15,7 @@ function clearedContext(value: unknown): boolean {
 
 function clearedWorkflow(value: unknown): boolean {
   return object(value) && typeof value.updatedAt === "number" && Number.isFinite(value.updatedAt)
-    && ["ticketId", "activeStep", "plan", "execution", "activity", "activityPasses", "currentStepComplete", "activeMode"]
+    && ["ticketId", "activeStep", "plan", "execution", "activity", "activityPasses", "currentStepComplete", "activeMode", "lens"]
       .every((field) => value[field] === undefined);
 }
 
