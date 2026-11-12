@@ -317,6 +317,33 @@ test("a lens under any step id renders fully: the card checks no step name", () 
   assert.match(moduleLines(render([picked, custom], { width: 80 }), "custom")[1]!, /^ +DOING {2}Compiling assets.* 2\/4$/);
 });
 
+// Lenses as Rules publishes them for Plan during critic review and for a completed two-repo Commit.
+const planLens = { doing: "Reviewing plan", stages: stagesAt(["inspect", "scope", "write", "critic", "ready"], 3),
+  list: { label: "PLAN", head: "3 phases · 10 tasks · 5 criteria", items: [{ state: "done" as const, text: "4 answered" },
+    { state: "attention" as const, text: "1 waiting: Keep the \"Use as reply\" button?" }, { state: "active" as const, text: "critic pass 1" }], before: 0, after: 0 } };
+const commitLens = { doing: "Commit complete", stages: stagesAt(["archive", "commit"], 2),
+  list: { label: "CLOSE", head: "2 commits", items: [{ state: "done" as const, text: "Plan archived" }, { state: "done" as const, text: "Ticket card-lens-002 done" },
+    { state: "done" as const, text: "pi-agent-hub 3f9c2e1 Add step lens contract" }, { state: "done" as const, text: "rules a1b2c3d Publish the workflow lens" }], before: 0, after: 0 } };
+
+test("Plan and completed Commit lenses render their lists at 100 and 160 columns", () => {
+  const planning = session("planning", { title: "Plan lenses", status: "waiting", workflow: panelWorkflow(0, { activity: { id: "reviewing-plan", label: "Reviewing plan" }, lens: planLens }) });
+  const closed = session("closed", { title: "Commit lenses", status: "idle", workflow: panelWorkflow(4, { currentStepComplete: true, activity: { id: "commit-complete", label: "Commit complete" }, lens: commitLens }) });
+  for (const width of [100, 160]) {
+    const plan = cardText(render([planning, closed], { width, selectedId: "planning" }));
+    assert.ok(plan.some((line) => /^ *DOING {2}Reviewing plan$/.test(line)), plan.join("\n"));
+    // The 100-column side pane is too narrow for the stages, so WHERE keeps the rail.
+    const planWhere = width === 160 ? / │ inspect✓ scope✓ write✓ critic◉ ready·$/ : /CM·$/;
+    assert.ok(plan.some((line) => /^ *WHERE {2}PL◉ EX· RV· RF· CM·/.test(line) && planWhere.test(line)), plan.join("\n"));
+    assert.deepEqual(field(plan, "PLAN").map((line) => line.trim()), ["PLAN   3 phases · 10 tasks · 5 criteria", "✓ 4 answered", "! 1 waiting: Keep the \"Use as reply\" button?", "◉ critic pass 1"]);
+
+    const commit = cardText(render([planning, closed], { width, selectedId: "closed" }));
+    assert.ok(commit.some((line) => /^ *DOING {2}Commit complete$/.test(line)), commit.join("\n"));
+    assert.ok(commit.some((line) => /^ *WHERE {2}PL✓ EX✓ RV✓ RF✓ CM✓ │ archive✓ commit✓$/.test(line)), commit.join("\n"));
+    assert.deepEqual(field(commit, "CLOSE").map((line) => line.trim()), ["CLOSE  2 commits", "✓ Plan archived", "✓ Ticket card-lens-002 done",
+      "✓ pi-agent-hub 3f9c2e1 Add step lens contract", "✓ rules a1b2c3d Publish the workflow lens"]);
+  }
+});
+
 test("without color the LCD keeps labels above values and selection keeps its stripe and keys", () => {
   process.env.NO_COLOR = "1";
   try {
