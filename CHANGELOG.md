@@ -18,17 +18,20 @@ Use this section while developing. Move entries into a versioned section before 
 - Add producer-owned workflow progress, completion markers, and optional focus-mode display.
 - Add dashboard theme preview and Pi theme synchronization.
 - Add `pi-hub web`, a phone inbox served on localhost for Tailscale Serve: answer questions, reply with Send/Steer/Queue, mark requests read, and receive a Web Push notification for each new request.
+- Add a live agent card beside the fleet roster: request, progress note, workflow step, plan checklist, live and recent tool calls, subagents, and the agent's latest message.
+- Add `z` to undo the last Backlog, Archive, Restore, Mark read, or group move; the footer names the moved session.
 - Document optional Rules and subagent setup and refresh the dashboard image.
 
 ### Changed
 
 - Start fleet and board subagent trees collapsed; use arrow keys for one tree and Shift with arrows for all trees.
+- Replace the framed dashboard and tier navigator with painted header and footer bands, ruled tier headings, a clickable fleet meter, and keycap footer controls.
 - Size session rows to the available space and show each parent's group after its title, alongside worktree and multi-repo indicators.
 - Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
 - Reserve `u` for Usage. Move any configured `u` shortcut to a free key before starting the dashboard.
 - Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
-- Use an inbox-first loop: `]` Next request, `Tab` Answer through stock rpiv 2.15+ events, or `p` Reply with Send/Steer/Queue and retained drafts. Fleet cards expand in place with task, request, delivery feedback, and `i` Details; `Enter` opens Pi and `Alt+W` opens the next request from inside Pi. Managed parents receive dashboard guidance. Only the board keeps a side/full-width workspace.
+- Use an inbox-first loop: `]` Next request, `Tab` Answer through stock rpiv 2.15+ events, or `p` Reply with Send/Steer/Queue and retained drafts. The fleet is a roster with one status line per agent, and the selected agent's card sits beside it (docked below under 100 columns) with task, request, delivery feedback, and `i` Details; `Enter` opens Pi and `Alt+W` opens the next request from inside Pi. Managed parents receive dashboard guidance. Only the board keeps a side/full-width workspace.
 - Use distinct initial session/fork names and preserve linked ticket titles.
 - Keep the dashboard responsive while compact forks prepare; expose retry and cancellation for failed preparation.
 - Send configured commands through Pi's guarded input pipeline instead of simulated keystrokes.

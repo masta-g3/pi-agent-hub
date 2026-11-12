@@ -8,7 +8,7 @@ New here? See [Features](docs/FEATURES.md) for the daily workflow and full key m
 
 ![pi-agent-hub dashboard](assets/pi-agent-hub-dashboard.png)
 
-*Current dashboard renderer with example sessions. Ticket, request, and workflow context comes from optional Pi extensions.*
+*The fleet at 150 columns, drawn by the current renderer with example sessions. The roster is on the left; the selected agent's card is on the right. Ticket, request, plan, and workflow context comes from optional Pi extensions.*
 
 ## Why pi-agent-hub?
 
@@ -20,8 +20,10 @@ Pi runs the agents. tmux keeps them alive. Hub gives you one keyboard-driven das
 | Repository view | Group sessions by their source repo, including worktrees and multi-repo sessions. |
 | Pinned live sessions | Keep up to four Pi sessions beside the dashboard and focus them by number. |
 | Actions and search | Find sessions, send a message, or run an action without leaving the dashboard. |
+| Live agent card | Follow the selected agent's plan checklist, live tool call, recent tool calls, and latest message without opening it. |
 | Card answers and replies | Answer supported questions with `Tab`, or write a reply with `p`. |
 | Conversation | Read completed messages and question/answer history below the fleet. |
+| Phone inbox | Answer and reply from a phone browser with `pi-hub web`, with a notification for each new request. |
 | Optional workflow board | See workflow position, task progress, and nested subagents from compatible Pi extensions. |
 | Usage and account quotas | Press `u` for token/cost history and account limits from an optional producer. |
 | Project skills and MCP | Choose capabilities for the selected session's primary repo. |
@@ -47,6 +49,7 @@ Use `Enter` to open Pi, `Ctrl+Q` to return, and `i` for Details. Inside Pi, `Alt
 | `n` | Create a Pi session |
 | `Enter` | Open/switch to the selected session, or restart it if stopped |
 | `Ctrl+Q` | Return from a managed session or live pin |
+| `o` | Turn follow view on or off |
 | `1`–`4` / `P` | Pin into an exact free slot / the first free slot |
 | `Alt+1`–`Alt+4` | Focus an occupied pin |
 | `x` | Close the selected session's pin without stopping Pi |
@@ -61,6 +64,7 @@ Use `Enter` to open Pi, `Ctrl+Q` to return, and `i` for Details. Inside Pi, `Alt
 | `f` / `F` | Fork / fork and compact |
 | `g` / `G` | Move a session to a group / rename its group |
 | `A` / `B` / `U` | Archive as Done, Abandoned, or archive only / move to Backlog / restore or reopen |
+| `z` | Undo the last Backlog, Archive, Restore, Mark read, or group move |
 | `s` / `m` | Pick project skills / MCP servers |
 | `t` | Choose a theme |
 | `u` | Open Usage: Cost, Tokens, and Limits |
@@ -72,7 +76,7 @@ The default Status view puts explicit requests in `NEEDS YOU`, runtime errors in
 
 Each parent session shows its group after the title. Press `v` to browse by repository instead. Worktrees stay with their source repo; multi-repo sessions appear under their primary repo. Groups and Backlog/Archive organize sessions without stopping their agents.
 
-`A` opens Archive session: `d` marks Done, `x` marks Abandoned, `a` archives without an outcome, and `Esc` cancels. Archive never stops Pi or completes its workflow. `U` reopens a closed session; `A` and `B` require reopening first. See [Session closure](docs/FEATURES.md#session-closure) for archived icons and conversation behavior.
+`A` opens Archive session: `d` marks Done, `x` marks Abandoned, `a` archives without an outcome, and `Esc` cancels. Archive never stops Pi or completes its workflow. `U` reopens a closed session; `A` and `B` require reopening first. After these moves the footer names the session and where it went; `z` reverses the last one. See [Session closure](docs/FEATURES.md#session-closure) for archived icons and conversation behavior.
 
 The fleet is a roster: each agent shows its name, workflow step and one status line with its request, error, live tool call or last progress note. The selected agent's card sits beside the roster (below it under 100 columns) with the request, plan checklist, recent tool calls, progress note and the agent's latest message, so you can follow and reply without opening the session. Selection never moves roster rows; an overflowing roster scrolls to keep the selection visible. `i` toggles Details at every width. Only the workflow board keeps a side panel or a full-width view below 120 columns. `Enter` and double-click open Pi directly. Card context comes from producer metadata, tool-call names and the selected session's latest message, never raw pane output, tool output or conversation search.
 
@@ -136,6 +140,7 @@ pi-hub add . -g default
 pi-hub add ./api --add-cwd ../web --add-cwd ../shared
 pi-hub delete <session-id>
 pi-hub mcp-pool      # run the pooled MCP socket daemon
+pi-hub web           # serve the phone inbox on 127.0.0.1
 pi-hub config get
 pi-hub config set session-prelude '<shell snippet>'
 pi-hub config unset session-prelude
@@ -144,6 +149,8 @@ pi-hub config unset worktree-default
 ```
 
 `explain` reports the live evidence behind a session's runtime status and dashboard placement without changing registry state.
+
+`web` serves the [phone inbox](docs/FEATURES.md#phone-inbox) on localhost. Publish it to your phone with Tailscale Serve; see [Phone inbox setup](docs/CONFIG.md#phone-inbox).
 
 `add --add-cwd` creates a symlink workspace for multiple repos. Skills and MCP stay attached to the primary repo.
 
