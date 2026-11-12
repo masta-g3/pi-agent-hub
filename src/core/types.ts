@@ -41,6 +41,8 @@ export interface WorkflowLens {
   stages?: { label: string; state: "done" | "active" | "pending" }[];
   progress?: { completed: number; total: number; unit?: string };
   pass?: number;
+  /** Extra counts shown after the progress count on WHERE, such as `2 running · 1 parked`. */
+  summary?: string;
   list?: { label: string; head?: string; items: { state: WorkflowLensState; text: string }[]; before: number; after: number };
 }
 
@@ -180,6 +182,8 @@ export interface ManagedSession {
   resultSummary?: string;
   activeTheme?: ActiveThemeSnapshot;
   workflow?: WorkflowSnapshot;
+  /** A producer lens published without a workflow position, such as an orchestrator's run; retained like the workflow. */
+  lens?: WorkflowLens;
   worktreePath?: string;
   worktreeRepoRoot?: string;
   worktreeBranch?: string;
@@ -265,6 +269,8 @@ export interface Heartbeat {
   piSessionName?: string;
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
+  /** Lens-only producer snapshot; present only without a workflow. */
+  lens?: WorkflowLens;
   activity?: SessionActivity;
 }
 

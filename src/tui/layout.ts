@@ -2219,7 +2219,7 @@ function taskMeter(count: { completed: number; total: number }, styles: LayoutSt
 
 /** The producer's lens is work state like the rail: a stopped or stale session keeps it. */
 function lensOf(session: RenderSession): WorkflowLens | undefined {
-  return session.workflow?.lens;
+  return session.workflow?.lens ?? session.lens;
 }
 
 function lensProgress(lens: WorkflowLens | undefined): { completed: number; total: number } | undefined {
@@ -2227,35 +2227,47 @@ function lensProgress(lens: WorkflowLens | undefined): { completed: number; tota
 }
 
 /**
- * WHERE: the rail, then a rule and the lens stages, the task meter and count, `pass N`, and the mode. Narrow widths
- * drop the mode, the pass, the meter (its count stays), the stages, then the count, before the rail turns compact.
+ * WHERE: the rail, then a rule and the lens stages, the task meter and count, the summary, `pass N`, and the mode.
+ * Narrow widths drop the summary, the mode, the pass, the meter (its count stays), the stages, then the count,
+ * before the rail turns compact. A lens without a workflow position has no rail: its count names its unit.
  */
 function whereLine(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): string {
   const workflow = session.workflow;
   const step = workflow?.steps[workflow.activeIndex];
-  if (!workflow || !step) return "";
   const lens = lensOf(session);
+  if (!(workflow && step) && !lens) return "";
   const mode = activeWorkflowMode(session);
   const progress = lensProgress(lens);
   const stages = lens?.stages?.map(({ label, state }) =>
     `${styles.muted(label)}${styles[state === "done" ? "success" : state === "active" ? "accent" : "dim"](state === "done" ? glyphs.ready : state === "active" ? glyphs.activeStep : glyphs.pendingStep)}`).join(" ") ?? "";
-  const count = progress ? styles.text(`${progress.completed}/${progress.total}`) : "";
+  // Without a rail the count names its unit, such as `2/6 committed`.
+  const unit = !workflow && progress && lens?.progress?.unit ? ` ${lens.progress.unit}` : "";
+  const count = progress ? styles.text(`${progress.completed}/${progress.total}${unit}`) : "";
   const meter = progress ? `${taskMeter(progress, styles)} ` : "";
+  const summary = lens?.summary ? styles.muted(plainAttentionText(lens.summary)) : "";
   const pass = lens?.pass ? styles.muted(`pass ${lens.pass}`) : "";
   // Producer markers at 80+; a plain step name below, which already names the mode.
-  const full = terminalWidth >= 80
-    ? workflow.steps.map((item, index) => `${styles.muted(item.short)}${styledWorkflowMarker(workflow, index, styles)}`).join(" ")
-    : styles.text(mode?.short ?? step.label ?? step.short);
-  const compact = terminalWidth >= 80 ? railCompact(workflow, mode, styles) : full;
-  const line = (rail: string, parts: { stages?: boolean; meter?: boolean; count?: boolean; pass?: boolean; mode?: boolean }) => [
-    rail,
-    parts.stages && stages ? `${styles.dim(` ${glyphs.vertical} `)}${stages}` : "",
-    parts.count && count ? `  ${parts.meter ? meter : ""}${count}` : "",
-    parts.pass && pass ? `  ${pass}` : "",
+  const full = !workflow || !step ? ""
+    : terminalWidth >= 80
+      ? workflow.steps.map((item, index) => `${styles.muted(item.short)}${styledWorkflowMarker(workflow, index, styles)}`).join(" ")
+      : styles.text(mode?.short ?? step.label ?? step.short);
+  const compact = workflow && terminalWidth >= 80 ? railCompact(workflow, mode, styles) : full;
+  const line = (rail: string, parts: { stages?: boolean; meter?: boolean; count?: boolean; summary?: boolean; pass?: boolean; mode?: boolean }) => {
+    // A separator leads a part only after an earlier one, so a lens without a rail starts at its first part.
+    let value = rail;
+    const append = (separator: string, part: string) => { if (part) value += `${value ? separator : ""}${part}`; };
+    const rule = styles.dim(` ${glyphs.vertical} `);
+    append(rule, parts.stages ? stages : "");
+    const counted = parts.count && count;
+    append("  ", counted ? `${parts.meter ? meter : ""}${count}` : "");
+    append(counted ? styles.dim(` ${glyphs.pendingStep} `) : rule, parts.summary ? summary : "");
+    append("  ", parts.pass ? pass : "");
     // The compact rail and the plain step already name the mode.
-    parts.mode && mode && rail !== compact ? `  ${styles.text(mode.short)}` : "",
-  ].join("");
+    append("  ", parts.mode && mode && rail !== compact ? styles.text(mode.short) : "");
+    return value;
+  };
   const ladder = [
+    { stages: true, meter: true, count: true, summary: true, pass: true, mode: true },
     { stages: true, meter: true, count: true, pass: true, mode: true },
     { stages: true, meter: true, count: true, pass: true },
     { stages: true, meter: true, count: true },
@@ -2267,10 +2279,10 @@ function whereLine(session: RenderSession, width: number, styles: LayoutStyles, 
   for (const rail of full === compact ? [full] : [full, compact]) {
     for (const parts of ladder) {
       const value = line(rail, parts);
-      if (displayWidth(value) <= room) return `${fieldLabel("WHERE", styles.muted)}${value}`;
+      if (value && displayWidth(value) <= room) return `${fieldLabel("WHERE", styles.muted)}${value}`;
     }
   }
-  return truncate(`${fieldLabel("WHERE", styles.muted)}${compact}`, width);
+  return compact ? truncate(`${fieldLabel("WHERE", styles.muted)}${compact}`, width) : "";
 }
 
 const LENS_MARKS: Record<NonNullable<WorkflowLens["list"]>["items"][number]["state"], { glyph: string; tone: keyof Pick<LayoutStyles, "muted" | "accent" | "dim" | "warning"> }> = {

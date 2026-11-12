@@ -251,6 +251,7 @@ The producer owns step order, ids, short codes, and optional labels. `activeStep
 - `stages`: 1–12 `{ label, state }`, label up to 24 characters, state `done`, `active` or `pending`. They follow the rail on the card's `WHERE` line.
 - `progress`: `{ completed, total, unit? }`, counts as for plan tasks, unit up to 16 characters. `WHERE` and the roster line's right edge show its meter and count.
 - `pass`: an integer of 2 or more, shown as `pass N` on `WHERE`.
+- `summary`: one line, up to 80 characters, shown after the count on `WHERE`, such as `2 running · 1 parked`. It is the first part dropped on narrow widths.
 - `list`: `{ label, head?, items, before, after }`. The label is at most 6 display cells; `head` and each item `text` are up to 120 characters; 1–12 items, each with state `done`, `active`, `pending`, `attention` or `skipped`; `before`/`after` count items left out. The card shows it under its label with `✓ ◉ · ! –` marks.
 
 The producer chooses the list wording; Hub draws any label the same way. Rules, for example, publishes Plan's questions and critic pass, Review's findings as `FOUND` and Reflect's candidates as `CANDS` (both reported by the agent), and a completed Commit keeps its closeout list:
@@ -274,6 +275,8 @@ The producer chooses the list wording; Hub draws any label the same way. Rules, 
 ```
 
 Unlike the mode, the lens is work state: `registry.json` keeps it with the base workflow, so a stale or stopped session keeps its card. Without a lens the card shows DONE/NEXT and `WHERE` with the rail only.
+
+An entry without `activeStep` but with a valid `lens` is a lens-only snapshot, such as an orchestrator's run: Hub carries it as the heartbeat's and the session's top-level `lens`, beside an absent workflow, and keeps it in `registry.json` the same way. The card shows its DOING, a `WHERE` line without a rail (the count names its `unit`, such as `2/6 committed`, then the summary), and its list. Hub invents no step position: the session has no rail, no workflow lane, and stays in `OTHER ACTIVE` on the board. Rules publishes this shape from `set_orchestration`.
 
 Optional `currentStepComplete: true` marks the current workflow position complete. Earlier positions also show checks; later ones stay pending. These markers show position, not proof that each step ran. Completion does not change runtime status or move the session to another lane.
 

@@ -43,6 +43,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
 
   const context = parseSessionContext(value.context);
   const workflow = parseWorkflowSnapshot(value.workflow);
+  const lens = workflow ? undefined : parseWorkflowLens(value.lens);
   const activeTheme = parseActiveTheme(value.activeTheme);
   const operation = parseHeartbeatOperation(value.operation);
   const activity = parseSessionActivity(value.activity);
@@ -67,6 +68,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...optionalStringField("piSessionName", value.piSessionName),
     ...(context ? { context } : {}),
     ...(workflow ? { workflow } : {}),
+    ...(lens ? { lens } : {}),
     ...(activity ? { activity } : {}),
   };
 }
@@ -96,8 +98,14 @@ export function parseSessionActivity(value: unknown): SessionActivity | undefine
   return current || recent.length ? { ...(current ? { current } : {}), ...(recent.length ? { recent } : {}) } : undefined;
 }
 
-export function parseWorkflowEntry(value: unknown): WorkflowRuntimeSnapshot | undefined {
-  if (!isObject(value) || "activeIndex" in value || typeof value.activeStep !== "string" || !value.activeStep.trim()) return undefined;
+/** A Rules entry with a step gives a positioned workflow; one without a step but with a lens gives that lens alone. */
+export function parseWorkflowEntry(value: unknown): WorkflowRuntimeSnapshot | { lens: WorkflowLens } | undefined {
+  if (!isObject(value) || "activeIndex" in value) return undefined;
+  if (value.activeStep === undefined) {
+    const lens = parseWorkflowLens(value.lens);
+    return lens ? { lens } : undefined;
+  }
+  if (typeof value.activeStep !== "string" || !value.activeStep.trim()) return undefined;
   const steps = parseWorkflowSteps(value.steps);
   if (!steps) return undefined;
   const activeIndex = steps.findIndex((step) => step.id === value.activeStep);
@@ -215,12 +223,14 @@ function parseWorkflowLens(value: unknown): WorkflowLens | undefined {
   const unit = isObject(value.progress) && value.progress.unit !== undefined ? actionText(value.progress.unit, 16) : undefined;
   const validProgress = progress && (!isObject(value.progress) || value.progress.unit === undefined || unit) ? progress : undefined;
   const pass = Number.isInteger(value.pass) && (value.pass as number) >= 2 && (value.pass as number) <= 999 ? value.pass as number : undefined;
+  const summary = actionText(value.summary, 80);
   const list = parseLensList(value.list);
   const lens: WorkflowLens = {
     ...(doing ? { doing } : {}),
     ...(stages?.every(Boolean) ? { stages: stages as NonNullable<WorkflowLens["stages"]> } : {}),
     ...(validProgress ? { progress: { ...validProgress, ...(unit ? { unit } : {}) } } : {}),
     ...(pass ? { pass } : {}),
+    ...(summary ? { summary } : {}),
     ...(list ? { list } : {}),
   };
   return Object.keys(lens).length ? lens : undefined;

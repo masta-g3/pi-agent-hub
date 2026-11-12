@@ -8,6 +8,8 @@ import { mergeUsageSnapshots, parseUsageSnapshot } from "../src/core/usage.js";
 import { darkTheme, stripAnsi, styleToken, type SessionsTheme } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { usageFixture, USAGE_NOW } from "./usage-fixture.js";
+import { parseWorkflowEntry } from "../src/core/heartbeat.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const NOW = USAGE_NOW;
 const mocha: SessionsTheme = {
@@ -758,4 +760,31 @@ test("a running agent between tool calls says Thinking and does not repeat a han
   // Its text since your message shows as soon as there is some.
   const speaking = cardText(render([thinking, ...panelFleet], { width: 130, height: 40, selectedId: "thinking", selectedMessage: "Checking the parser first." }));
   assert.ok(speaking.some((line) => line.includes("Checking the parser first.")));
+});
+
+test("orchestrator lenses render DOING, a rail-free WHERE with summary, and the ticket list", () => {
+  const lensOf = (entry: unknown) => (parseWorkflowEntry(entry) as { lens: NonNullable<RuntimeSession["lens"]> }).lens;
+  const epic = session("epic", { title: "Pixel Map Review", lens: lensOf(ORCHESTRATION_EPIC_ENTRY), ...request("blocked", "sfcity-014 parked · Which tile CDN?") });
+  const single = session("single", { title: "Run web-002", lens: lensOf(ORCHESTRATION_TICKET_ENTRY) });
+  const where = (subject: RuntimeSession, width: number) =>
+    cardText(render([subject], { width, selectedId: subject.id })).find((line) => /^\W*WHERE /.test(line))?.replace(/^▌/u, " ").trim() ?? "";
+  for (const width of [100, 160]) {
+    const card = cardText(render([epic], { width, selectedId: "epic" }));
+    assert.ok(card.some((line) => /BLK +sfcity-014 parked · Which tile CDN\?/.test(line)), card.join("\n"));
+    assert.ok(card.some((line) => /DOING +Running 2 tickets; next gate sfcity-013 review/.test(line)), card.join("\n"));
+    // No rail and no fabricated step position.
+    assert.ok(!card.some((line) => /PL[✓◉·]|step \d of/.test(line)), card.join("\n"));
+    const list = field(card, "TIX").map((line) => line.trim());
+    assert.equal(list[0], "TIX    ✓ 2 earlier");
+    assert.ok(list.includes("◉ sfcity-012 EX") && list.includes("! sfcity-014 parked"), list.join("\n"));
+  }
+  assert.equal(where(epic, 160), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed · 2 running · 1 parked · 19 queued");
+  // The summary drops first, then the meter.
+  assert.equal(where(epic, 100), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed");
+  assert.equal(where(epic, 30), "WHERE  2/24 committed");
+  assert.equal(where(single, 120), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ 2 gates ✓");
+  const card = cardText(render([single], { width: 120, selectedId: "single" }));
+  assert.ok(card.some((line) => /DOING +Waiting for the runner to finish review/.test(line)), card.join("\n"));
+  // The roster line names what the orchestrator is doing.
+  assert.ok(rosterPlain(render([epic, single], { width: 160, selectedId: "epic" })).some((line) => /Waiting for the runner/.test(line)));
 });
