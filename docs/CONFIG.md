@@ -253,6 +253,26 @@ The producer owns step order, ids, short codes, and optional labels. `activeStep
 - `pass`: an integer of 2 or more, shown as `pass N` on `WHERE`.
 - `list`: `{ label, head?, items, before, after }`. The label is at most 6 display cells; `head` and each item `text` are up to 120 characters; 1–12 items, each with state `done`, `active`, `pending`, `attention` or `skipped`; `before`/`after` count items left out. The card shows it under its label with `✓ ◉ · ! –` marks.
 
+The producer chooses the list wording; Hub draws any label the same way. Rules, for example, publishes Plan's questions and critic pass, and a completed Commit keeps its closeout list:
+
+```json
+"lens": {
+  "doing": "Commit complete",
+  "stages": [{ "label": "archive", "state": "done" }, { "label": "commit", "state": "done" }],
+  "list": {
+    "label": "CLOSE",
+    "head": "2 commits",
+    "items": [
+      { "state": "done", "text": "Plan archived" },
+      { "state": "done", "text": "pi-agent-hub 3f9c2e1 Add step lens contract" },
+      { "state": "done", "text": "rules a1b2c3d Publish the workflow lens" }
+    ],
+    "before": 0,
+    "after": 0
+  }
+}
+```
+
 Unlike the mode, the lens is work state: `registry.json` keeps it with the base workflow, so a stale or stopped session keeps its card. Without a lens the card shows DONE/NEXT and `WHERE` with the rail only.
 
 Optional `currentStepComplete: true` marks the current workflow position complete. Earlier positions also show checks; later ones stay pending. These markers show position, not proof that each step ran. Completion does not change runtime status or move the session to another lane.

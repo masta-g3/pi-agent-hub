@@ -29,6 +29,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Size session rows to the available space and show each parent's group after its title, alongside worktree and multi-repo indicators.
 - Use `Ctrl+Q` to return to the dashboard; leave `Alt+Q` available for Pi message editing.
 - Draw a producer-owned step lens on the agent card and roster: `DOING` says what the workflow step is doing, one `WHERE` line shows the rail with the step's stages, progress and review pass, and the step's list replaces the plan checklist. Hub draws it under any step name and keeps it for stopped sessions. `NOW` shows only live tool calls. The STEP/TASK/PHASE readout is gone.
+- Show Plan's question counts, plan facts and critic pass, and Commit's closeout list with one line per commit, on the agent card; a completed Commit keeps its list.
 - Reserve `u` for Usage. Move any configured `u` shortcut to a free key before starting the dashboard.
 - Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.
