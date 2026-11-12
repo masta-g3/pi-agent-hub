@@ -215,13 +215,18 @@ test("apply computed status retains producer activity and plan while dropping tr
     activeMode: { id: "focus", short: "FOC" },
     activity: { id: "review", label: "Reviewing implementation", pass: 2 },
     plan: { tasks: { completed: 2, total: 3 } },
+    lens: { doing: "Reviewing implementation", stages: [{ label: "review", state: "active" as const }], pass: 2 },
   };
   const updated = applyComputedStatus(managed, { status: "waiting" }, now, heartbeat({ workflow: runtime }));
-  assert.deepEqual(updated.workflow, {
+  const retained = {
     steps: [{ id: "build", short: "BLD" }], activeIndex: 0, updatedAt: 10,
     activity: { id: "review", label: "Reviewing implementation", pass: 2 },
     plan: { tasks: { completed: 2, total: 3 } },
-  });
+    lens: { doing: "Reviewing implementation", stages: [{ label: "review", state: "active" }], pass: 2 },
+  };
+  assert.deepEqual(updated.workflow, retained);
+  const stale = applyComputedStatus(updated, { status: "waiting" }, now, heartbeat({ workflow: { ...runtime, lens: { doing: "Newer" } }, updatedAt: now - HEARTBEAT_STALE_MS - 1 }));
+  assert.deepEqual(stale.workflow, retained);
 });
 
 test("mark acknowledged turns waiting into idle", () => {

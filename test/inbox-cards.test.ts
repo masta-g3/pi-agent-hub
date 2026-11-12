@@ -46,16 +46,16 @@ test("inbox cards retain separate task and request at every approved width", () 
     // The side pane carries no stripe; the dock below the roster keeps it.
     const stripe = width >= 100 ? "" : "▌";
     const task = lines.findIndex(line => line.includes("Taller fleet cards"));
-    const request = lines.findIndex(line => new RegExp(`^${stripe} +ASK {3}Choose the boundary`).test(line));
+    const request = lines.findIndex(line => new RegExp(`^${stripe} +ASK {4}Choose the boundary`).test(line));
     assert.ok(task >= 0 && request > task, `${width}:\n${layout.lines.map(stripAnsi).join("\n")}`);
     assert.match(lines[0]!, new RegExp(`^${stripe} +\\? Dashboard UI polish`));
     const metadata = lines[1]!;
     if (width >= 60) assert.match(metadata, new RegExp(`^${stripe} +hub-repo ⎇ feat/taller-cards`));
     else assert.doesNotMatch(metadata, /hub-repo|feat\/taller-cards/);
     assert.doesNotMatch(metadata, /tasks|now|Execute/);
-    // Workflow position and tasks live in the module's readout.
+    // Workflow position lives on the module's WHERE line.
     const text = lines.join("\n");
-    assert.match(text, width >= 100 ? /PL✓ EX◉ RV· +▰{3}▱{5} 3\/8/ : width >= 80 ? /STEP {2}PL✓ EX◉ RV·/ : /STEP {2}Execute/);
+    assert.match(text, width >= 80 ? /WHERE {2}PL✓ EX◉ RV·/ : /WHERE {2}Execute/);
     assert.equal(layout.workspaceStartX, undefined);
     assert.ok(lines.every(line => visibleWidth(line) <= width));
   }
@@ -176,7 +176,7 @@ test("short fleet retains selected task and request rather than dense compaction
   // A short window keeps the docked card's task, then its request one page down.
   const pages = [0, 1, 2].map(cardScrollOffset => renderSessions(buildRenderModel({ sessions: [asking], selectedId: asking.id, width: 80, height: 11, now, guidanceHidden: true, cardScrollOffset })).lines.map(stripAnsi).join("\n")).join("\n");
   assert.match(pages, /Taller fleet cards/);
-  assert.match(pages, /▌ +ASK {3}Choose the boundary/);
+  assert.match(pages, /▌ +ASK {4}Choose the boundary/);
 });
 
 test("selected fleet cards wrap complete task and handoff text through card scrolling", () => {

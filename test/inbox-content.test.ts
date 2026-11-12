@@ -18,7 +18,7 @@ const asking: RuntimeSession = {
     repositories: [{ sourcePath: "/Users/me/Code/wf", worktreePath: "/Users/me/.local/share/agent-worktrees/arch-003/wf", branch: "arch-003", role: "primary", state: "active" }] },
   context: { version: 1, updatedAt: now, ticket: { id: "arch-003", subtitle: "Replace shell runner with Python core" },
     attention: { kind: "question", text: "Do you approve the approach?", requestId: "req-1" } },
-  workflow: { updatedAt: now, activeIndex: 0, activity: { id: "clarifying-requirements", label: "Clarifying scope" },
+  workflow: { updatedAt: now, activeIndex: 0, activity: { id: "clarifying-requirements", label: "Clarifying scope" }, lens: { doing: "Clarifying scope" },
     steps: [{ id: "plan", short: "PL", label: "Plan" }, { id: "execute", short: "EX", label: "Execute" }, { id: "review", short: "RV", label: "Review" }] },
 };
 const question = { header: "Approve plan", question: "Do you approve the approach and these checks for arch-003? The approach: one Python package.", options: [{ label: "Approve", description: "Go" }, { label: "Change", description: "Edit" }] };
@@ -55,12 +55,14 @@ test("mark-read records the exact dismissed request; plain reading does not", ()
   assert.equal(dismissed.acknowledgedAt, now);
 });
 
-test("the selected card shows the task in primary text and hides activity while a request shows", () => {
+test("the selected card shows the task in primary text and DOING under a request", () => {
   const layout = render(120);
-  const rows = layout.lines.map(stripAnsi);
+  const rows = pane(layout);
   const task = layout.lines.find(line => stripAnsi(line).includes("Replace shell runner"))!;
   assert.ok(!task.includes(styleToken(darkTheme, "muted", "Replace")), "task is not muted on the selected card");
-  assert.doesNotMatch(rows.join("\n"), /Clarifying scope/);
+  const ask = rows.findIndex(row => /ASK /.test(row));
+  const doing = rows.findIndex(row => /DOING {2}Clarifying scope/.test(row));
+  assert.ok(ask >= 0 && doing > ask, rows.join("\n"));
   const working = { ...asking, status: "running" as const, context: { ...asking.context!, attention: undefined } };
   assert.match(text(render(120, {}, undefined, working)), /Clarifying scope/);
 });
@@ -87,10 +89,10 @@ test("selected modules name their steps in their own readout, wherever they sit"
   const rows = roster(layout);
   const top = rows.findIndex(row => /^▌ +\S/.test(row));
   assert.ok(rows.some(row => /^ ── NEEDS YOU 1 ─+$/.test(row)), "module headings carry no grid labels");
-  // The roster row names only the current step; the card's readout names them all.
+  // The roster row names only the current step; the card's WHERE line names them all.
   assert.match(rows[top]!, /Workflow Rewrite Plan.* PL +now$/);
-  assert.doesNotMatch(rows.join("\n"), /STEP|PL◉/);
-  assert.ok(pane(layout).some(row => /STEP/.test(row)) && pane(layout).some(row => /PL◉ EX·/.test(row)), layout.lines.map(stripAnsi).join("\n"));
+  assert.doesNotMatch(rows.join("\n"), /WHERE|PL◉/);
+  assert.ok(pane(layout).some(row => /WHERE {2}PL◉ EX·/.test(row)), layout.lines.map(stripAnsi).join("\n"));
   const other: RuntimeSession = { ...asking, id: "first", title: "First card", status: "running", context: undefined, lastActivityAt: now + 10 };
   const lower = renderSessions(buildRenderModel({ sessions: [other, { ...asking, status: "running", context: undefined }], selectedId: "s", width: 120, height: 30, now, guidanceHidden: true }), darkTheme);
   const lowerTop = roster(lower).findIndex(row => /^▌ +\S/.test(row));

@@ -28,7 +28,20 @@ export interface WorkflowSnapshot {
   activeIndex: number;
   currentStepComplete?: boolean;
   ticketId?: string;
+  /** Producer-owned card lens; retained with the base workflow so stopped sessions keep their card. */
+  lens?: WorkflowLens;
   updatedAt: number;
+}
+
+export type WorkflowLensState = "done" | "active" | "pending" | "attention" | "skipped";
+
+/** What the active step is doing, where it stands, and one list; every field is optional and step-agnostic. */
+export interface WorkflowLens {
+  doing?: string;
+  stages?: { label: string; state: "done" | "active" | "pending" }[];
+  progress?: { completed: number; total: number; unit?: string };
+  pass?: number;
+  list?: { label: string; head?: string; items: { state: WorkflowLensState; text: string }[]; before: number; after: number };
 }
 
 export interface WorkflowActivityDisplay {
@@ -55,8 +68,6 @@ export interface SessionPlanSummary {
   };
   phases?: { completed: number; total: number; title?: string }[];
   nextStep?: string;
-  /** The current phase's checklist, windowed by the producer; `before`/`after` count tasks it left out. */
-  current?: { tasks: { done: boolean; text: string }[]; before: number; after: number };
 }
 
 /** One tool call an agent made: the tool's name and a short argument, never its output. */

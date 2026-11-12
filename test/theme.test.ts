@@ -385,9 +385,9 @@ test("renderForm keeps stable width and marks one focused field", () => {
   }
 });
 
-test("surfaceTokens derives band, keycap and LCD surfaces from a dark hex theme", () => {
+test("surfaceTokens derives band and keycap surfaces from a dark hex theme", () => {
   const mocha = { ...darkTheme, text: "#cdd6f4", selectedBg: "#313244", statusLineBg: "" };
-  assert.deepEqual(surfaceTokens(mocha), { bandBg: "#191922", keycapBg: "#484b5e", lcdBg: "#1d1e29" });
+  assert.deepEqual(surfaceTokens(mocha), { bandBg: "#191922", keycapBg: "#484b5e" });
 });
 
 test("surfaceTokens prefers statusLineBg for the band", () => {
@@ -398,17 +398,10 @@ test("surfaceTokens prefers statusLineBg for the band", () => {
 test("surfaceTokens mixes toward white when text is darker than the selection", () => {
   const tokens = surfaceTokens({ ...lightTheme, text: "#4c4f69", selectedBg: "#c8d0dc", statusLineBg: "" });
   assert.equal(tokens.bandBg, "#f1f3f6");
-  assert.equal(tokens.lcdBg, "#e9ecf1");
-});
-
-test("surfaceTokens keeps mid-luminance dark themes readable on the LCD", () => {
-  const text = "#839496";
-  const tokens = surfaceTokens({ ...darkTheme, text, selectedBg: "#073642", statusLineBg: "" });
-  assert.ok(contrastRatio(text, tokens.lcdBg as string) >= 4.5);
 });
 
 test("surfaceTokens derives nothing without a hex selection color", () => {
-  const empty = { bandBg: "", keycapBg: "", lcdBg: "" };
+  const empty = { bandBg: "", keycapBg: "" };
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: 236, statusLineBg: "" }), empty);
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "#cdd6f4", selectedBg: "", statusLineBg: "" }), empty);
 });
@@ -416,16 +409,6 @@ test("surfaceTokens derives nothing without a hex selection color", () => {
 test("surfaceTokens judges default-text themes by the selection's brightness", () => {
   // Catppuccin Mocha leaves text to the terminal default; its dark selection still yields dark surfaces.
   assert.deepEqual(surfaceTokens({ ...darkTheme, text: "", selectedBg: "#313244", statusLineBg: "" }),
-    { bandBg: "#191922", keycapBg: "#505160", lcdBg: "#1d1e29" });
-  assert.equal(surfaceTokens({ ...lightTheme, text: "", selectedBg: "#c8d0dc", statusLineBg: "" }).lcdBg, "#e9ecf1");
+    { bandBg: "#191922", keycapBg: "#505160" });
+  assert.equal(surfaceTokens({ ...lightTheme, text: "", selectedBg: "#c8d0dc", statusLineBg: "" }).bandBg, "#f1f3f6");
 });
-
-function contrastRatio(left: string, right: string): number {
-  const luminance = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16) / 255)
-      .map((value) => value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
-    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  };
-  const [high, low] = [luminance(left), luminance(right)].sort((a, b) => b - a);
-  return (high! + 0.05) / (low! + 0.05);
-}
