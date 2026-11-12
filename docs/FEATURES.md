@@ -228,10 +228,10 @@ The selected agent's card sits beside the roster at 100+ columns and in a fixed 
 |---|---|
 | `ASK` / `RDY` / `BLK` | The request in full, with its `→` recommendation and `▤` evidence path |
 | `ERR` | The runtime error |
-| `DOING` | What the workflow step is doing: during Execute the first open task, in other steps the current activity such as `Fixing findings` |
+| `DOING` | What the workflow step is doing: during Execute the first open task, during Review and Reflect the finding or candidate being worked on, otherwise the current activity such as `Fixing findings` |
 | `DONE` / `NEXT` | The agent's progress note in plain words, shown only without `DOING`; `NEXT` hides while a request is open, and `DONE` while a ready handoff already says what was done |
 | `WHERE` | Workflow position (`PL✓ EX◉ RV·`), then `│` and the step's own stages (plan phases `1✓ 2◉ 3·`, or stages such as `review✓ fix◉ done·`), the task meter and count, `pass N`, and any mode. Narrow windows drop the mode, pass, meter, stages and count in that order |
-| `PLAN` / `CLOSE` | The step's list, named by the workflow: during Execute, the current phase and its tasks; during Plan, the plan's phase, task and criteria counts, answered and waiting questions, and the critic pass; during Commit, `CLOSE` with the archived plan, the finished ticket and one line per commit (repo, short hash, subject), kept after the workflow completes. Marks: `✓` done, `◉` underway, `·` to do, `!` needs attention, `–` skipped |
+| `PLAN` / `FOUND` / `CANDS` / `CLOSE` | The step's list, named by the workflow: during Execute, the current phase and its tasks; during Plan, the plan's phase, task and criteria counts, answered and waiting questions, and the critic pass; during Review, `FOUND` with fixed, open and deferred counts and one line per finding; during Reflect, `CANDS` with applied, now, needs-you and no-action counts and one line per candidate; Review and Reflect keep their final list after the step completes; during Commit, `CLOSE` with the archived plan, the finished ticket and one line per commit (repo, short hash, subject), kept after the workflow completes. Marks: `✓` done, `◉` underway, `·` to do, `!` needs attention, `–` skipped |
 | `NOW` | The tool call in progress, with how long it has run in front; `Thinking…` while a running agent is between tool calls |
 | `LOG` | The last three finished tool calls, each with how long ago it ran |
 | `SUB` | A collapsed tree's running subagent |

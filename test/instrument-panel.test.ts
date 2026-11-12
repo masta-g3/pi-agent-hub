@@ -344,6 +344,34 @@ test("Plan and completed Commit lenses render their lists at 100 and 160 columns
   }
 });
 
+// Lenses as Rules publishes them from set_workflow_activity items while fixing findings and while applying candidates.
+const reviewLens = { doing: "Parser stall on long backtick runs", stages: stagesAt(["review", "fix", "done"], 1), pass: 2,
+  list: { label: "FOUND", head: "2 fixed · 2 open · 1 deferred", items: [{ state: "done" as const, text: "Retry after unknown delivery showed twice" },
+    { state: "done" as const, text: "Lost history cursor on empty session" }, { state: "active" as const, text: "Parser stall on long backtick runs" },
+    { state: "pending" as const, text: "Failed read dropped loaded history" }, { state: "skipped" as const, text: "Login in a link: deferred" }], before: 0, after: 0 } };
+const reflectLens = { doing: "STRUCTURE.md: Markdown safety rule", stages: stagesAt(["review", "update", "done"], 1),
+  list: { label: "CANDS", head: "1 applied · 1 now · 1 needs you · 1 no action", items: [{ state: "done" as const, text: "STRUCTURE.md: transcript source" },
+    { state: "active" as const, text: "STRUCTURE.md: Markdown safety rule" }, { state: "attention" as const, text: "New ticket: keyboard dock check" },
+    { state: "skipped" as const, text: "Retry wording: no change" }], before: 0, after: 0 } };
+
+test("Review and Reflect lenses render their item lists at 100 and 160 columns", () => {
+  const reviewing = session("reviewing", { title: "Review lenses", workflow: panelWorkflow(2, { activity: { id: "fixing-review-findings", label: "Fixing findings", pass: 2 }, lens: reviewLens }) });
+  const reflecting = session("reflecting", { title: "Reflect lenses", workflow: panelWorkflow(3, { activity: { id: "updating-guidance", label: "Updating guidance" }, lens: reflectLens }) });
+  for (const width of [100, 160]) {
+    const review = cardText(render([reviewing, reflecting], { width, selectedId: "reviewing" }));
+    assert.ok(review.some((line) => /^ *DOING {2}Parser stall on long backtick runs$/.test(line)), review.join("\n"));
+    assert.ok(review.some((line) => /^ *WHERE {2}PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done· {2}pass 2$/.test(line)), review.join("\n"));
+    assert.deepEqual(field(review, "FOUND").map((line) => line.trim()), ["FOUND  2 fixed · 2 open · 1 deferred", "✓ Retry after unknown delivery showed twice",
+      "✓ Lost history cursor on empty session", "◉ Parser stall on long backtick runs", "· Failed read dropped loaded history", "– Login in a link: deferred"]);
+
+    const reflect = cardText(render([reviewing, reflecting], { width, selectedId: "reflecting" }));
+    assert.ok(reflect.some((line) => /^ *DOING {2}STRUCTURE\.md: Markdown safety rule$/.test(line)), reflect.join("\n"));
+    assert.ok(reflect.some((line) => /^ *WHERE {2}PL✓ EX✓ RV✓ RF◉ CM· │ review✓ update◉ done·$/.test(line)), reflect.join("\n"));
+    assert.deepEqual(field(reflect, "CANDS").map((line) => line.trim()), ["CANDS  1 applied · 1 now · 1 needs you · 1 no action", "✓ STRUCTURE.md: transcript source",
+      "◉ STRUCTURE.md: Markdown safety rule", "! New ticket: keyboard dock check", "– Retry wording: no change"]);
+  }
+});
+
 test("without color the LCD keeps labels above values and selection keeps its stripe and keys", () => {
   process.env.NO_COLOR = "1";
   try {
