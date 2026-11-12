@@ -64,10 +64,9 @@ test("every selected parent is a striped roster module with its card beside or b
       assert.match(pane.at(-1)!, /Open in Pi/, `${width}:\n${pane.join("\n")}`);
       assert.ok(layout.cardCommandHits.length > 0 && layout.cardCommandHits.every((hit) => hit.x > layout.listWidth + 1));
       assert.equal(pane.filter((row) => row.includes("cards")).length, 1);
-      // Workflow position lives in the card's STEP readout, never on its title row.
+      // Workflow position lives in the card's WHERE line, never on its title row.
       assert.doesNotMatch(pane[0]!, /PL|EX|◉/);
-      const step = pane.findIndex((row) => /STEP/.test(row));
-      assert.match(pane[step + 1]!, /PL✓ EX◉/);
+      assert.ok(pane.some((row) => /WHERE {2}PL✓ EX◉/.test(row)), pane.join("\n"));
     } else {
       const top = rows.findIndex(row => row.startsWith(`${STRIPE} ✓ Selected request`));
       assert.ok(top >= dockStart(layout), rows.join("\n"));
@@ -79,8 +78,8 @@ test("every selected parent is a striped roster module with its card beside or b
       // The docked card names the group once.
       assert.equal(rows.slice(dockStart(layout)).filter(row => row.includes("cards")).length, 1);
       assert.doesNotMatch(rows[top]!, /PL|EX|◉/);
-      const step = rows.find((row, index) => index > top && /STEP/.test(row))!;
-      assert.match(step, width >= 80 ? /STEP {2}PL✓ EX◉/ : /STEP {2}Execute/);
+      const step = rows.find((row, index) => index > top && /WHERE/.test(row))!;
+      assert.match(step, width >= 80 ? /WHERE {2}PL✓ EX◉/ : /WHERE {2}Execute/);
     }
     assert.doesNotMatch(rows.join("\n"), /\[cards\]|◈/);
     assert.ok(layout.lines.every(row => visibleWidth(row) <= width));
@@ -117,9 +116,9 @@ test("selected requests show their kind label beside the text in the signal tone
       return paneRows(layout) ?? layout.lines.slice(dockStart(layout)).map(stripAnsi);
     };
     const ready = card();
-    assert.ok(ready.some(row => /^[▌ ] {3}RDY {3}Review these results/.test(row)), ready.join("\n"));
+    assert.ok(ready.some(row => /^[▌ ] {3}RDY {4}Review these results/.test(row)), ready.join("\n"));
     const question = card({ selectedQuestion: { header: "Scope", question: "Choose one" } });
-    assert.ok(question.some(row => /^[▌ ] {3}ASK {3}Scope · Choose one/.test(row)), question.join("\n"));
+    assert.ok(question.some(row => /^[▌ ] {3}ASK {4}Scope · Choose one/.test(row)), question.join("\n"));
   }
   assert.ok(render(120).lines.some(row => row.includes(styleToken(darkTheme, "warning", "RDY"))));
 });
@@ -186,7 +185,7 @@ test("selected subagent micro rows and synthetic headers stay unstriped cards", 
     // A selected child shows its micro row and actions, not a parent card.
     const card = paneRows(childLayout) ?? childLayout.lines.slice(dockStart(childLayout)).map(stripAnsi);
     assert.match(card[0]!, /worker/, `${width}`);
-    assert.ok(!card.some((row) => /Selected request|STEP/.test(row)), card.join("\n"));
+    assert.ok(!card.some((row) => /Selected request|WHERE/.test(row)), card.join("\n"));
     assert.equal(cardRows(childLayout, "s").length, 0);
     assert.ok(moduleRows(childLayout, "s").every((row) => !row.startsWith(STRIPE)));
     const synthetic = render(width, { selectedSection: "active" });
@@ -206,7 +205,7 @@ test("a crowded title moves the group once and its module still names its steps"
   assert.doesNotMatch(rows[top]!, /A complete long group/);
   assert.match(rows[top]!, /A complete readable title before its long group ⎇/);
   assert.match(rows[top + 1]!, /A complete long group/);
-  assert.ok(rows.some((row, index) => index > top && /STEP {2}Execute/.test(row)), rows.join("\n"));
+  assert.ok(rows.some((row, index) => index > top && /WHERE {2}Execute/.test(row)), rows.join("\n"));
   assert.equal(rows.slice(top).filter(row => row.includes("A complete long group")).length, 1);
 });
 

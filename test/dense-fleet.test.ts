@@ -51,7 +51,7 @@ for (const width of [120, 160]) {
       assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more|─{20,}$/m);
       const row = columns(layout, titleIndex(layout, "s1")).roster;
       assert.match(row, /Task 1 {3}core/);
-      // Module title rows end with the step short and the age; the grid lives in the card's STEP.
+      // Module title rows end with the step short and the age; the grid lives in the card's WHERE.
       assert.match(row, /EX {2}23m$/);
       assert.doesNotMatch(row, /◉/);
       assert.match(paneText(layout), /Task 0[^]*Keep the selected card rich[^]*PL✓ EX◉ RV·/);
@@ -88,18 +88,18 @@ for (const width of [160]) {
   }
 }
 
-const busy = (count: number) => fleet(count).map((session, index) => index ? { ...session, workflow: { ...workflow, activity: { id: `a${index}`, label: `Working ${index}` } } } : session);
+const busy = (count: number) => fleet(count).map((session, index) => index ? { ...session, workflow: { ...workflow, lens: { doing: `Working ${index}` } } } : session);
 
 test("eight parents keep their activity line when every neighbor fits", () => {
   const layout = render(busy(8));
-  // The selected module has no activity; at 160 its title row already names its task, so it keeps one row.
+  // The selected module has no lens; at 160 its title row already names its task, so it keeps one row.
   assert.equal(continuations(layout, "s0"), 0);
-  // One NOW status line each; the STEP readout lives only in the card.
+  // One DOING status line each; WHERE lives only in the card.
   for (let index = 1; index < 8; index += 1) {
     assert.equal(continuations(layout, `s${index}`), 1);
-    assert.match(columns(layout, titleIndex(layout, `s${index}`) + 1).roster, new RegExp(`NOW {3}Working ${index}`));
+    assert.match(columns(layout, titleIndex(layout, `s${index}`) + 1).roster, new RegExp(`DOING {2}Working ${index}`));
   }
-  assert.doesNotMatch(layout.lines.map((_line, row) => columns(layout, row).roster).join("\n"), /STEP|PL✓/);
+  assert.doesNotMatch(layout.lines.map((_line, row) => columns(layout, row).roster).join("\n"), /WHERE|PL✓/);
 });
 
 test("neighbor activity lines appear together only once all of them fit", () => {
@@ -143,7 +143,7 @@ test("a dense row names only its current step, however many steps the pipeline h
   const layout = render(sessions, { width: 80, height: 36 });
   const row = stripAnsi(layout.lines[titleIndex(layout, "s1")]!);
   assert.match(row, /Readable title {3}core +STEP001  23m$/);
-  // No tier heading lists the pipeline's steps; only the docked card's STEP readout does.
+  // No tier heading lists the pipeline's steps; only the docked card's WHERE line does.
   assert.ok(!layout.lines.map(stripAnsi).some((line) => / ── /.test(line) && /STEP00/.test(line)));
 });
 

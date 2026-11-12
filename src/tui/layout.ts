@@ -2,7 +2,7 @@ import { glyphs } from "./glyphs.js";
 import { quotaSegment } from "./usage-view.js";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
-import type { SessionAction, WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { SessionAction, WorkflowLens, WorkflowModeDisplay, WorkflowRuntimeSnapshot } from "../core/types.js";
 import { alwaysExpanded, type CockpitTier, type RenderModel, type RenderSession, type RenderWorkspace } from "./render-model.js";
 import { ageLabel } from "./age.js";
 import { renderMarkdown } from "./conversation.js";
@@ -422,8 +422,6 @@ interface LayoutStyles {
   selected(text: string): string;
   /** Live work: running glyphs and running-subagent counts, which keep `success` in the panel palette. */
   live(text: string): string;
-  /** The selected module's recessed readout strip. */
-  lcd(text: string): string;
   /** The no-pin fleet's instrument-panel palette: every request kind reads as the one signal color. */
   panel: boolean;
   /** Header and footer band. */
@@ -453,7 +451,6 @@ function createStyles(theme: SessionsTheme, live: string | number = theme.succes
     padded,
     panel,
     live: (text) => styleFg(live, text),
-    lcd: (text) => styleBg(surfaces.lcdBg, text),
     accent: (text) => styleToken(theme, "accent", text),
     border: (text) => styleToken(theme, "border", text),
     dim: (text) => styleToken(theme, "dim", text),
@@ -2194,8 +2191,8 @@ function cardIdentity(session: RenderSession, styles: LayoutStyles, options: Ses
   return tier && displayWidth(text) + displayWidth(tier) <= room ? `${text}${tier}` : truncate(text, room);
 }
 
-/** Field labels take four cells and two spaces, so every module's values start in one column. */
-const FIELD_LABEL_WIDTH = 4;
+/** Field labels take five cells and two spaces, so every module's values start in one column. */
+const FIELD_LABEL_WIDTH = 5;
 const FIELD_INDENT = " ".repeat(FIELD_LABEL_WIDTH + 2);
 const TASK_METER_CELLS = 8;
 
@@ -2205,8 +2202,9 @@ function requestLabel(kind: NonNullable<RenderSession["attention"]>["kind"]): st
   return kind === "ready" ? "RDY" : kind === "question" ? "ASK" : "BLK";
 }
 
+/** Producer labels can be wider than the column; they keep one space before the value instead of throwing. */
 function fieldLabel(label: string, tone: (text: string) => string): string {
-  return `${tone(label)}${" ".repeat(FIELD_LABEL_WIDTH + 2 - displayWidth(label))}`;
+  return `${tone(label)}${" ".repeat(Math.max(1, FIELD_LABEL_WIDTH + 2 - displayWidth(label)))}`;
 }
 
 /** A labeled field: the label, then its value lines hanging at the shared value column. */
@@ -2219,52 +2217,96 @@ function taskMeter(count: { completed: number; total: number }, styles: LayoutSt
   return `${styles.text(glyphs.quotaFilled.repeat(filled))}${styles.muted(glyphs.quotaEmpty.repeat(TASK_METER_CELLS - filled))}`;
 }
 
-interface ReadoutField { label: string; value: string }
+/** The producer's lens is work state like the rail: a stopped or stale session keeps it. */
+function lensOf(session: RenderSession): WorkflowLens | undefined {
+  return session.workflow?.lens;
+}
+
+function lensProgress(lens: WorkflowLens | undefined): { completed: number; total: number } | undefined {
+  return lens?.progress && lens.progress.total > 0 ? lens.progress : undefined;
+}
 
 /**
- * STEP, TASK and PHASE in a fixed order. Narrow widths drop PHASE, then the task meter (its count stays),
- * then TASK, before STEP gives way.
+ * WHERE: the rail, then a rule and the lens stages, the task meter and count, `pass N`, and the mode. Narrow widths
+ * drop the mode, the pass, the meter (its count stays), the stages, then the count, before the rail turns compact.
  */
-function readoutFields(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): ReadoutField[] {
+function whereLine(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): string {
   const workflow = session.workflow;
   const step = workflow?.steps[workflow.activeIndex];
-  const live = session.status !== "stopped" && workflow?.currentStepComplete !== true;
-  const plan = live ? executePlan(session) : undefined;
-  const tasks = planTaskCount(plan);
-  // The PLAN field names the phase when the producer sends its checklist.
-  const phase = plan?.phase && !plan.current ? `${plan.phase.index}/${plan.phase.count}` : "";
+  if (!workflow || !step) return "";
+  const lens = lensOf(session);
   const mode = activeWorkflowMode(session);
-  const markers = workflow && terminalWidth >= 80
+  const progress = lensProgress(lens);
+  const stages = lens?.stages?.map(({ label, state }) =>
+    `${styles.muted(label)}${styles[state === "done" ? "success" : state === "active" ? "accent" : "dim"](state === "done" ? glyphs.ready : state === "active" ? glyphs.activeStep : glyphs.pendingStep)}`).join(" ") ?? "";
+  const count = progress ? styles.text(`${progress.completed}/${progress.total}`) : "";
+  const meter = progress ? `${taskMeter(progress, styles)} ` : "";
+  const pass = lens?.pass ? styles.muted(`pass ${lens.pass}`) : "";
+  // Producer markers at 80+; a plain step name below, which already names the mode.
+  const full = terminalWidth >= 80
     ? workflow.steps.map((item, index) => `${styles.muted(item.short)}${styledWorkflowMarker(workflow, index, styles)}`).join(" ")
-    : step ? styles.text(mode?.short ?? step.label ?? step.short) : "";
-  const fullStep = markers && mode && terminalWidth >= 80 ? `${markers} ${styles.text(mode.short)}` : markers;
-  const stepValue = workflow && displayWidth(fullStep) + FIELD_INDENT.length > width
-    ? railCompact(workflow, mode, styles) : fullStep;
-  const fits = (fields: ReadoutField[]) => fields.reduce((sum, field) => sum + displayWidth(field.label) + 1 + displayWidth(field.value), 0) + Math.max(0, fields.length - 1) * 3 <= width;
-  const candidates = [
-    [stepValue && { label: "STEP", value: stepValue }, tasks && { label: "TASK", value: `${taskMeter(tasks, styles)} ${styles.text(`${tasks.completed}/${tasks.total}`)}` }, phase && { label: "PHASE", value: styles.text(phase) }],
-    [stepValue && { label: "STEP", value: stepValue }, tasks && { label: "TASK", value: `${taskMeter(tasks, styles)} ${styles.text(`${tasks.completed}/${tasks.total}`)}` }],
-    [stepValue && { label: "STEP", value: stepValue }, tasks && { label: "TASK", value: styles.text(`${tasks.completed}/${tasks.total}`) }],
-    [stepValue && { label: "STEP", value: stepValue }],
-  ].map((fields) => fields.filter((field): field is ReadoutField => Boolean(field)));
-  return candidates.find(fits) ?? candidates.at(-1)!;
+    : styles.text(mode?.short ?? step.label ?? step.short);
+  const compact = terminalWidth >= 80 ? railCompact(workflow, mode, styles) : full;
+  const line = (rail: string, parts: { stages?: boolean; meter?: boolean; count?: boolean; pass?: boolean; mode?: boolean }) => [
+    rail,
+    parts.stages && stages ? `${styles.dim(` ${glyphs.vertical} `)}${stages}` : "",
+    parts.count && count ? `  ${parts.meter ? meter : ""}${count}` : "",
+    parts.pass && pass ? `  ${pass}` : "",
+    // The compact rail and the plain step already name the mode.
+    parts.mode && mode && rail !== compact ? `  ${styles.text(mode.short)}` : "",
+  ].join("");
+  const ladder = [
+    { stages: true, meter: true, count: true, pass: true, mode: true },
+    { stages: true, meter: true, count: true, pass: true },
+    { stages: true, meter: true, count: true },
+    { stages: true, count: true },
+    { count: true },
+    {},
+  ];
+  const room = width - FIELD_INDENT.length;
+  for (const rail of full === compact ? [full] : [full, compact]) {
+    for (const parts of ladder) {
+      const value = line(rail, parts);
+      if (displayWidth(value) <= room) return `${fieldLabel("WHERE", styles.muted)}${value}`;
+    }
+  }
+  return truncate(`${fieldLabel("WHERE", styles.muted)}${compact}`, width);
 }
 
-/** One line of `LABEL value` pairs; the first label sits in the module's label column. */
-function readoutLine(fields: ReadoutField[], width: number, styles: LayoutStyles): string {
-  const [first, ...rest] = fields;
-  if (!first) return "";
-  return truncate(`${fieldLabel(first.label, styles.muted)}${[first.value, ...rest.map((field) => `${styles.muted(field.label)} ${field.value}`)].join("   ")}`, width);
-}
+const LENS_MARKS: Record<NonNullable<WorkflowLens["list"]>["items"][number]["state"], { glyph: string; tone: keyof Pick<LayoutStyles, "muted" | "accent" | "dim" | "warning"> }> = {
+  done: { glyph: glyphs.ready, tone: "muted" },
+  active: { glyph: glyphs.activeStep, tone: "accent" },
+  pending: { glyph: glyphs.pendingStep, tone: "dim" },
+  attention: { glyph: glyphs.blocked, tone: "warning" },
+  skipped: { glyph: glyphs.range, tone: "muted" },
+};
 
-/** The selected module's LCD strip: muted labels above values on a recessed surface, at fixed columns. */
-function lcdLines(fields: ReadoutField[], width: number, styles: LayoutStyles): string[] {
-  const columns = fields.map((field) => Math.max(displayWidth(field.label), displayWidth(field.value)));
-  const row = (cells: string[]) => ` ${cells.map((cell, index) => pad(cell, columns[index]!)).join("   ")} `;
-  const labels = row(fields.map((field) => styles.muted(field.label)));
-  const values = row(fields.map((field) => field.value));
-  if (displayWidth(labels) > width) return [readoutLine(fields, width, styles)];
-  return [styles.lcd(labels), styles.lcd(values)];
+const LIST_ITEMS_BEFORE = 2;
+const LIST_ITEMS_SHOWN = 7;
+
+/** The lens list: its head, then items around the first open one, with the producer's and the window's skips counted. */
+function lensListLines(session: RenderSession, valueWidth: number, styles: LayoutStyles, compact: boolean): FieldLine[] {
+  const list = lensOf(session)?.list;
+  if (!list) return [];
+  const items = list.items;
+  const active = items.findIndex((item) => item.state === "active");
+  const next = active >= 0 ? active : items.findIndex((item) => item.state !== "done" && item.state !== "skipped");
+  // Below the roster the card has few rows: it keeps the head and the open item only.
+  const start = compact ? Math.max(0, next) : Math.max(0, Math.min((next < 0 ? items.length : next) - LIST_ITEMS_BEFORE, items.length - LIST_ITEMS_SHOWN));
+  const shown = compact ? items.slice(start, next < 0 ? start : start + 1) : items.slice(start, start + LIST_ITEMS_SHOWN);
+  const earlier = list.before + start;
+  const later = list.after + Math.max(0, items.length - start - shown.length);
+  const values: string[] = [];
+  if (list.head) values.push(styles.text(truncate(plainAttentionText(list.head), valueWidth)));
+  if (earlier && !compact) values.push(styles.muted(`${glyphs.ready} ${earlier} earlier`));
+  for (const [offset, item] of shown.entries()) {
+    const mark = LENS_MARKS[item.state];
+    const text = truncate(plainAttentionText(item.text), Math.max(1, valueWidth - 2));
+    const focus = start + offset === next;
+    values.push(`${styles[mark.tone](mark.glyph)} ${item.state === "done" || item.state === "skipped" ? styles.muted(text) : focus ? styles.strong(text) : styles.text(text)}`);
+  }
+  if (later && !compact) values.push(styles.muted(`${glyphs.pendingStep} ${later} more`));
+  return values.length ? fieldLines(plainAttentionText(list.label), styles.muted, values, [1]) : [];
 }
 
 /** What one tool call was for: the tool's name in a fixed column, then its short argument. */
@@ -2286,19 +2328,18 @@ function rosterStep(session: RenderSession, styles: LayoutStyles): string {
   return (mode ? styles.accent : styles.muted)(`${mode?.short ?? step.short}${workflow.currentStepComplete === true ? glyphs.ready : ""}`);
 }
 
-/** A roster status line's right edge: the plan's task meter and count while the agent executes it. */
+/** A roster status line's right edge: the lens progress meter and count. */
 function rosterProgress(session: RenderSession, styles: LayoutStyles, width: number): string {
-  const live = session.status !== "stopped" && session.status !== "error" && session.workflow?.currentStepComplete !== true;
-  const tasks = live ? planTaskCount(executePlan(session)) : undefined;
+  const tasks = session.status !== "error" ? lensProgress(lensOf(session)) : undefined;
   if (!tasks) return "";
   const count = styles.text(`${tasks.completed}/${tasks.total}`);
   return width >= 40 ? `${taskMeter(tasks, styles)} ${count}` : count;
 }
 
 /**
- * A roster module's one status line under its title: the request, the fault, the live tool call, the
- * workflow activity, the running subagent, or the last progress note, in that order. Its right edge carries
- * the plan's task meter. A request may take a second line when rows allow.
+ * A roster module's one status line under its title: the request, the fault, the lens DOING, the live tool
+ * call, the running subagent, or the last progress note, in that order. Its right edge carries the lens
+ * progress. A request may take a second line when rows allow.
  */
 function rosterLines(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): FieldLine[] {
   const right = rosterProgress(session, styles, width);
@@ -2320,16 +2361,15 @@ function rosterLines(session: RenderSession, width: number, styles: LayoutStyles
   const live = session.displayStatus === "running";
   const error = session.displayStatus === "error" && session.error ? plainAttentionText(session.error) : "";
   const action = live ? session.activity?.current ?? session.activity?.recent?.[0] : undefined;
-  const activity = session.status !== "stopped" && session.workflow?.currentStepComplete !== true ? activityLabel(session.workflow?.activity) : "";
+  const doing = lensOf(session)?.doing;
   const child = session.boardExpanded ? undefined : session.runningSubagent;
   // The title row names the task at 160+; below that the quiet fallback can.
   const task = terminalWidth < 160 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
   if (error) lines.push(first("ERR", styles.error, styles.text(truncate(error, valueWidth))));
+  else if (doing) lines.push(first("DOING", live ? styles.live : styles.muted, styles.text(truncate(plainAttentionText(doing), valueWidth)), 1));
   else if (action) lines.push(first("NOW", styles.live, actionText(action, valueWidth, styles, styles.text), 1));
-  else if (activity && live) lines.push(first("NOW", styles.live, styles.text(truncate(activity, valueWidth)), 1));
   else if (child) lines.push(first("SUB", styles.live, truncate([styles.text(child.agentName), child.taskPreview && styles.muted(plainAttentionText(child.taskPreview))].filter(Boolean).join(" "), valueWidth), 1));
   else if (session.progress?.done) lines.push(first("DONE", styles.muted, styles.text(truncate(plainAttentionText(session.progress.done), valueWidth)), 2));
-  else if (activity) lines.push(first("NOW", styles.muted, styles.muted(truncate(activity, valueWidth)), 2));
   // A quiet agent still says something useful: the handoff you already read, else the task it works on.
   else if (session.context?.attention?.text) lines.push(first("SAID", styles.muted, styles.muted(truncate(plainAttentionText(session.context.attention.text), valueWidth)), 2));
   else if (task) lines.push(first("TASK", styles.muted, styles.muted(truncate(plainAttentionText(task), valueWidth)), 2));
@@ -2346,42 +2386,13 @@ interface DetailFieldOptions {
   replying?: boolean;
 }
 
-const PLAN_TASKS_BEFORE = 2;
-const PLAN_TASKS_SHOWN = 7;
 const LOG_ACTIONS = 3;
 const SAID_LINES = 14;
 
-/** The plan as a checklist: the phase, then tasks around the first unchecked one, marked like workflow steps. */
-function planFieldLines(session: RenderSession, valueWidth: number, styles: LayoutStyles, compact: boolean): FieldLine[] {
-  const live = session.status !== "stopped" && session.workflow?.currentStepComplete !== true;
-  const plan = live ? executePlan(session) : undefined;
-  if (!plan) return [];
-  const head = plan.phase ? `${plan.phase.index}/${plan.phase.count} ${plainAttentionText(plan.phase.title)}` : "";
-  const values: string[] = [];
-  if (head) values.push(styles.text(truncate(head, valueWidth)));
-  const tasks = plan.current?.tasks ?? [];
-  const next = tasks.findIndex((task) => !task.done);
-  // Below the roster the card has few rows: it keeps the phase and the current task only.
-  const start = compact ? Math.max(0, next) : Math.max(0, Math.min((next < 0 ? tasks.length : next) - PLAN_TASKS_BEFORE, tasks.length - PLAN_TASKS_SHOWN));
-  const shown = compact ? tasks.slice(start, next < 0 ? start : start + 1) : tasks.slice(start, start + PLAN_TASKS_SHOWN);
-  const earlier = (plan.current?.before ?? 0) + start;
-  const later = (plan.current?.after ?? 0) + Math.max(0, tasks.length - start - shown.length);
-  if (earlier && !compact) values.push(styles.muted(`${glyphs.ready} ${earlier} earlier`));
-  for (const [offset, task] of shown.entries()) {
-    const current = start + offset === next;
-    const marker = task.done ? styles.muted(glyphs.ready) : current ? styles.accent(glyphs.activeStep) : styles.dim(glyphs.pendingStep);
-    const text = truncate(plainAttentionText(task.text), Math.max(1, valueWidth - 2));
-    values.push(`${marker} ${task.done ? styles.muted(text) : current ? styles.strong(text) : styles.text(text)}`);
-  }
-  if (later && !compact) values.push(styles.muted(`${glyphs.pendingStep} ${later} more`));
-  if (!tasks.length && plan.nextStep) values.push(`${styles.accent(glyphs.activeStep)} ${styles.text(truncate(plainAttentionText(plan.nextStep), Math.max(1, valueWidth - 2)))}`);
-  return fieldLines("PLAN", styles.muted, values, [1]);
-}
-
 /**
- * The selected session's fields in fixed order: the request (ASK/RDY/BLK) or ERR, the STEP readout, the PLAN
- * checklist, NOW and LOG tool calls, the DONE and NEXT progress note, SUB, then SAID, the agent's latest
- * message. A label appears only with a value.
+ * The selected session's fields in fixed order: the request (ASK/RDY/BLK) or ERR, the lens DOING (else the
+ * DONE and NEXT progress note), WHERE, the lens list, NOW and LOG tool calls, SUB, then SAID, the agent's
+ * latest message. A label appears only with a value.
  */
 function detailFieldLines(session: RenderSession, width: number, styles: LayoutStyles, options: DetailFieldOptions): FieldLine[] {
   const lines: FieldLine[] = [];
@@ -2416,31 +2427,28 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
     // An open request is what comes next; the note's guess would only repeat it.
     if (!request) note("NEXT", session.progress?.next);
   };
-  // The side pane leads with the agent's own summary; the short dock keeps position and plan first.
-  if (!compact) notes();
+  // The producer's DOING replaces the progress note; without one the side pane leads with the agent's own
+  // summary and the short dock keeps position first.
+  const doing = lensOf(session)?.doing;
+  if (doing) lines.push(...fieldLines("DOING", styles.muted, wrapWords(plainAttentionText(doing), proseWidth, proseWidth).map(styles.strong), [1]));
+  else if (!compact) { notes(); group(); }
+  const where = options.replying ? "" : whereLine(session, width, styles, options.terminalWidth);
+  if (where) lines.push({ line: where, priority: 3 });
   group();
-  const readout = options.replying ? [] : readoutFields(session, width, styles, options.terminalWidth);
-  if (readout.length) {
-    const rows = options.terminalWidth >= 100 ? lcdLines(readout, width, styles) : [readoutLine(readout, width, styles)];
-    lines.push(...rows.map((line) => ({ line, priority: 3 })));
-  }
-  if (!options.replying) lines.push(...planFieldLines(session, valueWidth, styles, compact));
+  if (!options.replying) lines.push(...lensListLines(session, valueWidth, styles, compact));
   group();
-  const workflow = session.workflow;
-  const live = session.status !== "stopped" && workflow?.currentStepComplete !== true;
   // A timeline: how long ago in a fixed column beside the call, so the eye does not cross the pane for it.
   const actionRow = (action: SessionAction, tone: (text: string) => string) =>
     `${styles.dim(pad(ageLabel(Math.max(0, options.now - action.at)), ACTION_AGE_WIDTH))} ${actionText(action, valueWidth - ACTION_AGE_WIDTH - 1, styles, tone)}`;
   const current = session.displayStatus === "running" ? session.activity?.current : undefined;
-  const activity = live && !request && !error ? activityLabel(workflow?.activity) : "";
-  const now = options.replying ? [] : [...(activity ? [styles.text(truncate(activity, valueWidth))] : []), ...(current ? [actionRow(current, styles.text)] : [])];
+  const now = options.replying || !current ? [] : [actionRow(current, styles.text)];
   // A running agent between tool calls is thinking; the card says so instead of looking idle.
   const thinking = !options.replying && !now.length && session.displayStatus === "running" && session.kind !== "subagent";
   if (thinking) now.push(styles.text(`Thinking${glyphs.ellipsis}`));
-  if (now.length) lines.push(...fieldLines("NOW", current || thinking ? styles.live : styles.muted, now, [2]));
+  if (now.length) lines.push(...fieldLines("NOW", styles.live, now, [2]));
   const recent = options.replying ? [] : (session.activity?.recent ?? []).slice(0, compact ? 1 : LOG_ACTIONS);
   if (recent.length) lines.push(...fieldLines("LOG", styles.muted, recent.map((action) => actionRow(action, styles.muted)), [3]));
-  if (compact) notes();
+  if (compact && !doing) notes();
   // A collapsed tree is doing whatever its running subagents are doing; an expanded tree lists them.
   const child = session.boardExpanded || options.replying ? undefined : session.runningSubagent;
   if (child) {

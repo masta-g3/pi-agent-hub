@@ -265,8 +265,6 @@ export function styleBg(value: string | number, text: string): string {
 export interface SurfaceTokens {
   bandBg: string | number;
   keycapBg: string | number;
-  /** The selected module's recessed readout strip. */
-  lcdBg: string | number;
 }
 
 /**
@@ -276,7 +274,7 @@ export interface SurfaceTokens {
  */
 export function surfaceTokens(theme: SessionsTheme): SurfaceTokens {
   const selected = hexRgb(theme.selectedBg);
-  if (!selected) return { bandBg: "", keycapBg: "", lcdBg: "" };
+  if (!selected) return { bandBg: "", keycapBg: "" };
   const hexText = hexRgb(theme.text);
   const dark = hexText ? luminance(hexText) > luminance(selected) : luminance(selected) < 0.5;
   const toward: Rgb = dark ? [0, 0, 0] : [255, 255, 255];
@@ -285,7 +283,6 @@ export function surfaceTokens(theme: SessionsTheme): SurfaceTokens {
   return {
     bandBg,
     keycapBg: rgbHex(mixRgb(selected, text, 0.15)),
-    lcdBg: rgbHex(mixRgb(selected, toward, dark ? 0.4 : 0.6)),
   };
 }
 
