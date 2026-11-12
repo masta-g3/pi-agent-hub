@@ -1,6 +1,6 @@
 # pi-agent-hub Features
 
-`pi-agent-hub` keeps Pi agents alive in tmux. Supervise them and reply from one session list.
+`pi-agent-hub` keeps Pi agents alive in tmux. You watch them and reply to them from one session list.
 
 ## Daily loop
 
@@ -10,7 +10,15 @@ Start `pi-hub` and press `n` to create a session. Then work from the list:
 ] Next request → Tab Answer or p Reply → ] Next request
 ```
 
-The dashboard reads like an instrument panel. A header band shows `pi hub`, the view name and a fleet meter with one dot per agent, and a footer band shows keycaps. Each tier starts with a ruled heading. Active-lifecycle parent agents are modules: short labels on the left, such as `ASK`, `ERR`, `NOW`, `STEP` and `SUB`, say what each agent is doing or where it stopped. Archived rows stay one line, and every module shrinks to one line when the window is too short. Only the selected agent sits on a plate, with a colored stripe down its left edge: yellow when it needs you, red for an error, and the accent color otherwise. Yellow always means your move: every request kind, including `RDY` and `BLK`, uses it. Red means a fault, green means work is running, and the accent color marks things you can press. Colors follow the theme you pick with `t`. `i` Details; `Enter` opens Pi; `Ctrl+Q` returns; Pi's `Alt+W` opens the next request.
+The top band shows `pi hub`, the view name, and a fleet meter with one dot per agent. The bottom band shows keys you can press or tap. Each section starts with a ruled heading.
+
+Every agent that is not archived gets a title line and at most one status line. Short labels on the left, such as `ASK`, `ERR`, `NOW`, and `DONE`, say what the agent is doing or where it stopped. Archived agents take one line. In a short window every agent drops to one line.
+
+The selected agent has a shaded row and a colored stripe on its left edge. Yellow means it needs you, red means an error, and the accent color is used otherwise.
+
+Colors keep one meaning everywhere. Yellow is your move, for every request kind, including `RDY` and `BLK`. Red is a fault. Green is work in progress. The accent color marks things you can press. The theme you pick with `t` sets the actual colors.
+
+`i` toggles Details, `Enter` opens Pi, and `Ctrl+Q` returns. Inside Pi, `Alt+W` opens the next request.
 
 Pins and follow view are opt-in. Use `P` to keep a live session beside the list, or `o` for one pane that follows selection. `Alt+1`–`Alt+4` focuses a pin; `Ctrl+Q` returns.
 
