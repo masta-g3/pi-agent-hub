@@ -13,6 +13,9 @@ import { buildInboxSnapshot, type InboxSession } from "./inbox.js";
 
 export const WEB_BODY_CAP = 64 * 1024;
 export const WEB_PING_MS = 4_000;
+const CURSOR_CHARS = 256;
+/** The extension's two errors for a `read` whose branch or cursor is no longer current. */
+const CURSOR_GONE = /^Conversation (?:branch changed|cursor is no longer on the current branch)$/u;
 
 export interface PushSubscriptionInput { endpoint: string; p256dh: string; auth: string }
 
@@ -21,7 +24,8 @@ export interface WebServerDeps {
   sessions(): RuntimeSession[];
   now?: () => number;
   loadState(target: InteractionTarget): Promise<SessionInteractionState>;
-  loadConversation(target: InteractionTarget): Promise<ConversationPage>;
+  /** The newest page of the live branch, or the page before a cursor on the branch the page displays. */
+  loadConversation(target: InteractionTarget, options?: { before: string; branchId: string }): Promise<ConversationPage>;
   submitAnswer(target: InteractionTarget, toolCallId: string, answers: AnswerInput[]): Promise<void>;
   sendMessage(target: InteractionTarget, text: string, delivery: MessageDelivery): Promise<void>;
   acknowledge(sessionId: string, requestId: string | undefined, dismiss: boolean, expected: { piSessionId?: string }): Promise<void>;
@@ -40,6 +44,20 @@ export interface WebServer {
   close(): Promise<void>;
 }
 
+const unavailableReason = (session: RuntimeSession) => session.status === "stopped" || session.status === "error" ? "Session is not running" : "Restart this session to reply from Hub";
+
+/** Only the fields the page renders; an item an older extension sent has no time. */
+function conversationPage(page: ConversationPage) {
+  return {
+    branchId: page.branchId,
+    revision: page.revision,
+    ...(page.before === undefined ? {} : { before: page.before }),
+    items: page.items.map(({ id, role, text, truncated, toolCallId, at }) => ({
+      id, role, text, ...(truncated ? { truncated } : {}), ...(toolCallId === undefined ? {} : { toolCallId }), ...(at === undefined ? {} : { at }),
+    })),
+  };
+}
+
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
@@ -48,6 +66,8 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/": { file: "index.html", type: "text/html; charset=utf-8" },
   "/app.css": { file: "app.css", type: "text/css; charset=utf-8" },
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
+  "/chat.js": { file: "chat.js", type: "text/javascript; charset=utf-8" },
+  "/markdown.js": { file: "markdown.js", type: "text/javascript; charset=utf-8" },
   "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
   "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json" },
   "/icon-192.png": { file: "icon-192.png", type: "image/png" },
@@ -117,7 +137,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!origin) throw new HttpError(403, "Host not allowed");
     const url = new URL(req.url ?? "/", origin);
     const path = url.pathname;
-    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read))?$/u.exec(path);
+    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read|conversation))?$/u.exec(path);
 
     if (req.method === "GET") {
       const asset = STATIC_FILES[path];
@@ -141,6 +161,23 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         const session = findSession(sessionRoute[1]!);
         return json(res, 200, await detail(session, url.searchParams.get("conversation") !== "0"));
       }
+      if (sessionRoute?.[2] === "conversation") {
+        const before = url.searchParams.get("before");
+        const branchId = url.searchParams.get("branch");
+        if (!before || !branchId || before.length > CURSOR_CHARS || branchId.length > CURSOR_CHARS) throw new HttpError(400, "Invalid conversation cursor");
+        const session = findSession(sessionRoute[1]!);
+        const target = interactionTarget(session);
+        if (!target) throw new HttpError(503, unavailableReason(session));
+        let page: ConversationPage;
+        try { page = await deps.loadConversation(target, { before, branchId }); }
+        catch (error) {
+          const message = error instanceof Error ? error.message : "Session interaction unavailable";
+          // 409 only when the cursor left the session's branch: the page then drops its history and reloads.
+          // A read that merely failed must leave the history the reader loaded.
+          throw new HttpError(CURSOR_GONE.test(message) ? 409 : 503, message);
+        }
+        return json(res, 200, conversationPage(page));
+      }
       throw new HttpError(404, "Not found");
     }
 
@@ -161,7 +198,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       await deps.push.unsubscribe(body.endpoint);
       return json(res, 200, { ok: true });
     }
-    if (!sessionRoute?.[2]) throw new HttpError(404, "Not found");
+    // Reading the conversation is a GET; only these three routes write.
+    if (!sessionRoute?.[2] || sessionRoute[2] === "conversation") throw new HttpError(404, "Not found");
     const session = findSession(sessionRoute[1]!);
 
     if (sessionRoute[2] === "read") {
@@ -192,7 +230,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   const detail = async (session: RuntimeSession, withConversation: boolean) => {
     const row = inboxRow(session.id);
     const target = interactionTarget(session);
-    if (!target) return { session: row, unavailable: session.status === "stopped" || session.status === "error" ? "Session is not running" : "Restart this session to reply from Hub" };
+    if (!target) return { session: row, unavailable: unavailableReason(session) };
     try {
       const [state, conversation] = await Promise.all([deps.loadState(target), withConversation ? deps.loadConversation(target) : undefined]);
       return {
@@ -202,7 +240,6 @@ export function createWebServer(deps: WebServerDeps): WebServer {
           ...(state.answerChannel ? {} : { answerUnavailable: "Reload Pi in this session to answer from Hub" }),
           ...(state.questionUnavailableReason ? { answerUnavailable: state.questionUnavailableReason } : {}),
           messageDelivery: state.messageDelivery ?? "idle",
-          ...(state.lastMessage ? { lastMessage: state.lastMessage } : {}),
           pending: state.pending.map((request) => ({
             toolCallId: request.toolCallId,
             questions: request.params.questions.map((question) => {
@@ -211,7 +248,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
             }),
           })),
         },
-        ...(conversation ? { conversation: conversation.items.map(({ id, role, text, truncated }) => ({ id, role, text, ...(truncated ? { truncated } : {}) })) } : {}),
+        ...(conversation ? { conversation: conversationPage(conversation) } : {}),
       };
     } catch (error) {
       return { session: row, unavailable: error instanceof Error ? error.message : "Session interaction unavailable" };

@@ -96,7 +96,16 @@ Create the matching GitHub Release from the generated `vX.Y.Z` tag and copy the 
 
 ## Phone inbox checks
 
-The `web/` page has no build step: edit it and reload. `npm test` covers the server, projection, and push code, not the page itself. To check the page in a browser against temporary state, create a directory with `tmp=$(mktemp -d)`, run `PI_AGENT_HUB_DIR="$tmp" node dist/cli.js web --port 4791`, and open `http://127.0.0.1:4791` at a phone-size viewport. Remove `$tmp` after stopping the server. When Playwright reports a missing browser revision, pass an installed one with `executablePath` (`~/Library/Caches/ms-playwright/chromium_headless_shell-*/…/chrome-headless-shell`) instead of downloading. iOS behavior, such as Home Screen push and suspended pages, needs a real iPhone over `tailscale serve`.
+The `web/` page has no build step: edit it and reload. `npm test` covers the server, projection, push code, Markdown parser, and transcript merge, but not the page in a browser.
+
+```bash
+npm run test:web                              # build, then every browser check
+node scripts/web-check.mjs "Earlier messages" # only checks whose name contains the text; needs a current build
+```
+
+`scripts/web-check.mjs` serves the real page from the built server over an in-memory fleet, with no registry, tmux, or Pi, and drives it in Chrome at 390 × 844. It is not part of `npm test` and adds no dependency. It uses the Playwright in `PLAYWRIGHT_PATH`, else in this repository's `node_modules`, else in Pi's package directory, and the installed Chrome or the executable in `PLAYWRIGHT_CHROME`. Without Playwright or a browser it prints `WARNING: web check skipped` and exits 0, so read its output before relying on a pass. Run it after any change under `web/` or `src/web/`, and add a check with each page behavior.
+
+To open the page by hand against temporary state, create a directory with `tmp=$(mktemp -d)`, run `PI_AGENT_HUB_DIR="$tmp" node dist/cli.js web --port 4791`, and open `http://127.0.0.1:4791` at a phone-size viewport. Remove `$tmp` after stopping the server. iOS behavior, such as Home Screen push, suspended pages, and the keyboard over the dock, needs a real iPhone over `tailscale serve`.
 
 ## Package smoke before publishing
 

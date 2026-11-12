@@ -58,6 +58,22 @@ test("custom, empty multiselect and cancellation are distinct from fabricated an
   assert.match(result({ cancelled: true, answers: [] }).items.at(-1)!.text, /cancelled/i);
 });
 
+test("items carry the time Pi recorded them, when it is a valid date", () => {
+  const at = "2026-11-11T14:02:03.000Z";
+  const result = readConversation([
+    { ...entry("u", { role: "user", content: "Hi" }), timestamp: at },
+    { ...entry("ask", { role: "assistant", content: [text("Choose."), call] }), timestamp: "2026-11-11T14:05:00.000Z" },
+    { ...entry("bad", { role: "assistant", content: "No clock" }), timestamp: "yesterday" },
+    { ...entry("number", { role: "assistant", content: "Number" }), timestamp: 1_700_000_000_000 },
+    entry("none", { role: "assistant", content: "Untimed" }),
+  ], { branchId: "branch" });
+  assert.deepEqual(result.items.map((item) => [item.role, item.at]), [
+    ["user", Date.parse(at)], ["assistant", Date.parse("2026-11-11T14:05:00.000Z")], ["question", Date.parse("2026-11-11T14:05:00.000Z")],
+    ["assistant", undefined], ["assistant", undefined], ["assistant", undefined],
+  ]);
+  assert.equal("at" in result.items[3]!, false);
+});
+
 test("older-page cursors stay stable on append and reject foreign cursors", () => {
   const branch = Array.from({ length: 27 }, (_, i) => entry(`m${i}`, { role: "user", content: `message ${i}` }));
   const latest = readConversation(branch, { branchId: "b", limit: 20 });

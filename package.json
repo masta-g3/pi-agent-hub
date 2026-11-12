@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --import ./dist/test/setup-env.js --test dist/test/*.test.js",
     "test:unit": "npm test",
+    "test:web": "npm run build && node scripts/web-check.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
     "prepack": "npm run build && node scripts/check-package.mjs",
     "package:check": "npm run build && node scripts/check-package.mjs && npm pack --dry-run"

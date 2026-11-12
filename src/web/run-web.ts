@@ -28,7 +28,7 @@ export async function runWeb(options: { port?: number } = {}): Promise<void> {
     staticDir: webAssetsDir(),
     sessions: () => controller.snapshot().sessions,
     loadState: loadSessionInteractionState,
-    loadConversation: (target) => loadSessionConversation(target, { limit: 20 }),
+    loadConversation: (target, options) => loadSessionConversation(target, { ...options, limit: 20 }),
     submitAnswer: submitSessionAnswer,
     sendMessage: sendSessionMessage,
     acknowledge: (id, requestId, dismiss, expected) => mutate(async () => { await controller.acknowledgeSession(id, Date.now(), requestId, dismiss, expected); }),

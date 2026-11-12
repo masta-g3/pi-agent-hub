@@ -115,6 +115,7 @@ function validResult(kind: InteractionRequest["kind"], value: unknown): value is
     && (value.before === undefined || typeof value.before === "string") && Array.isArray(value.items) && value.items.length <= 20
     && value.items.every((item) => isObject(item) && typeof item.id === "string" && typeof item.text === "string"
       && ["user", "assistant", "question", "answer"].includes(String(item.role)) && (item.truncated === undefined || typeof item.truncated === "boolean")
-      && (item.toolCallId === undefined || typeof item.toolCallId === "string"));
+      && (item.toolCallId === undefined || typeof item.toolCallId === "string")
+      && (item.at === undefined || Number.isFinite(item.at)));
   return value.accepted === true;
 }

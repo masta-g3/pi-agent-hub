@@ -6,6 +6,8 @@ export interface ConversationItem {
   text: string;
   truncated?: boolean;
   toolCallId?: string;
+  /** When Pi recorded the message, in epoch milliseconds. Absent from extensions that predate it. */
+  at?: number;
 }
 
 export interface ConversationPage {
@@ -37,15 +39,16 @@ export function conversationText(value: string): string {
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "");
 }
 
-function item(id: string, role: ConversationItem["role"], source: string): ConversationItem | undefined {
+function item(id: string, role: ConversationItem["role"], source: string, at?: number): ConversationItem | undefined {
   const text = conversationText(source);
   if (!text.trim()) return undefined;
+  const time = at === undefined ? {} : { at };
   const bytes = Buffer.from(text);
-  if (bytes.length <= ITEM_BYTES) return { id, role, text };
+  if (bytes.length <= ITEM_BYTES) return { id, role, text, ...time };
   let end = ITEM_BYTES - Buffer.byteLength(SHORTENED);
   // Do not split a multibyte UTF-8 character at the limit.
   while ((bytes[end]! & 0xc0) === 0x80) end -= 1;
-  return { id, role, text: bytes.subarray(0, end).toString("utf8") + SHORTENED, truncated: true };
+  return { id, role, text: bytes.subarray(0, end).toString("utf8") + SHORTENED, truncated: true, ...time };
 }
 
 function questions(value: unknown): Question[] | undefined {
@@ -140,27 +143,29 @@ export function readConversation(
   for (const entry of branch) {
     if (!record(entry) || entry.type !== "message" || typeof entry.id !== "string" || !record(entry.message)) continue;
     const message = entry.message;
+    const recorded = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;
+    const at = Number.isFinite(recorded) ? recorded : undefined;
     if (message.role === "user" || message.role === "assistant") {
       if (message.stopReason === "pending") continue;
       const content = message.content;
       const body = typeof content === "string" ? content : Array.isArray(content)
         ? content.filter((block) => record(block) && block.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n")
         : "";
-      push(item(entry.id, message.role, body));
+      push(item(entry.id, message.role, body, at));
       if (message.role !== "assistant" || !Array.isArray(content)) continue;
       for (const block of content) {
         if (!record(block) || block.type !== "toolCall" || block.name !== "ask_user_question" || typeof block.id !== "string") continue;
         const params = questions(block.arguments);
         if (!params || pending.has(block.id)) continue;
         pending.set(block.id, params);
-        const exchange = item(`${entry.id}:question:${block.id}`, "question", params.map((q) => [q.question, ...q.options.map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)].join("\n")).join("\n\n"));
+        const exchange = item(`${entry.id}:question:${block.id}`, "question", params.map((q) => [q.question, ...q.options.map((o, i) => `${i + 1}. ${o.label} — ${o.description}`)].join("\n")).join("\n\n"), at);
         if (exchange) push({ ...exchange, toolCallId: block.id });
       }
     } else if (message.role === "toolResult" && message.toolName === "ask_user_question" && typeof message.toolCallId === "string" && message.isError !== true) {
       const params = pending.get(message.toolCallId);
       if (!params) continue;
       const text = answerText(message.details, params);
-      if (text !== undefined) push(item(entry.id, "answer", text));
+      if (text !== undefined) push(item(entry.id, "answer", text, at));
       pending.delete(message.toolCallId);
     }
   }

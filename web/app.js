@@ -1,7 +1,11 @@
-// Phone inbox for pi-agent-hub. Producer text only ever reaches the page through textContent.
+// Phone inbox for pi-agent-hub. Producer text only ever reaches the page through text nodes.
+import { acceptPage, clearChat, newChat, settleSent } from "/chat.js";
+import { renderMarkdown } from "/markdown.js";
 
 const STALE_MS = 10_000;
-const DETAIL_POLL_MS = 3_000;
+const DETAIL_POLL_MS = 1_500;
+const FOLLOW_PX = 120;             // this close to the end, the view follows new messages
+const TIME_GAP_MS = 5 * 60_000;    // a turn shows its time only after a pause this long
 const WRITE_TIMEOUT_MS = 15_000;
 const INLINE_CARD_LIMIT = 8;
 const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", active: "ACTIVE", quiet: "QUIET" };
@@ -9,7 +13,8 @@ const STATUS_GLYPHS = { starting: "●", running: "●", waiting: "◐", idle: "
 const KIND_GLYPHS = { question: "?", ready: "✓", blocked: "!" };
 const KIND_LABELS = { question: "Question", ready: "Ready", blocked: "Blocked" };
 const STEP_GLYPHS = { done: "✓", active: "◉", pending: "·" };
-const ROLE_LABELS = { user: "you", assistant: "agent", question: "question", answer: "answer" };
+const ROLE_LABELS = { user: "YOU", assistant: "AGENT", question: "? QUESTION", answer: "ANSWER" };
+const SENT_LABELS = { sending: "Sending…", unknown: "Delivery unknown" };
 
 const state = {
   snapshot: undefined,
@@ -18,6 +23,10 @@ const state = {
   stale: true,
   collapsed: new Set(["quiet"]),
   detail: undefined,           // { id, data?, missing? }
+  chat: undefined,             // transcript of the open session: { id, piSessionId, ...newChat() }
+  sent: [],                    // replies shown before Pi records them: { localId, text, delivery, status }
+  earlier: false,              // an earlier page is loading
+  reveal: undefined,           // id of the first message the last poll added
   inline: new Map(),           // session id -> { requestId, question?, toolCallId?, selected? }
   forms: new Map(),            // "id:toolCallId" -> per-question { option, selected:Set, text, notes }
   drafts: new Map(),           // "id:piSessionId" -> reply text
@@ -36,14 +45,19 @@ function h(tag, props, ...children) {
     else if (key in el && key !== "list") el[key] = value;
     else el.setAttribute(key, value === true ? "" : value);
   }
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === undefined || child === null || child === false) continue;
     el.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return el;
 }
 
-/** Rebuild a child only when its data changed, so typing and focus survive live updates. */
+/** A key is a value, or a list of values compared one by one, so an object can be a key without being serialized. */
+function sameKey(a, b) {
+  return Array.isArray(a) && Array.isArray(b) ? a.length === b.length && a.every((value, index) => value === b[index]) : a === b;
+}
+
+/** Rebuild a child only when its data changed, so typing, selection and focus survive live updates. */
 function sync(root, parts) {
   const previous = root.hubParts ?? new Map();
   const next = new Map();
@@ -51,7 +65,7 @@ function sync(root, parts) {
   for (const [name, key, build] of parts) {
     if (!build) continue;
     const old = previous.get(name);
-    const entry = old && old.key === key ? old : { key, el: build() };
+    const entry = old && sameKey(old.key, key) ? old : { key, el: build() };
     next.set(name, entry);
     wanted.push(entry.el);
   }
@@ -127,25 +141,85 @@ function loadInlineQuestions() {
 }
 
 let detailToken = 0;
+let detailLoading = false;
+let detailAgain = false;
+
+/** One read at a time. A call during a read discards that read's result and reads once more after it. */
 async function loadDetail() {
-  const id = route();
-  if (!id) return;
-  const token = ++detailToken;
+  if (!route()) return;
+  detailToken += 1;
+  if (detailLoading) { detailAgain = true; return; }
+  detailLoading = true;
   try {
-    const data = await getJson(`/api/sessions/${id}`);
-    if (token !== detailToken || route() !== id) return;
-    state.detail = data.session ? { id, data } : { id, missing: true };
-  } catch (error) {
-    if (token !== detailToken || route() !== id) return;
-    if (error.status === 404) state.detail = { id, missing: true };
-  }
-  render();
+    do {
+      detailAgain = false;
+      const id = route();
+      if (!id) break;
+      const token = detailToken;
+      let data;
+      let missing = false;
+      try { data = await getJson(`/api/sessions/${id}`); }
+      catch (error) { if (error.status !== 404) continue; missing = true; }
+      if (token !== detailToken || route() !== id) continue;
+      if (missing || !data.session) state.detail = { id, missing: true };
+      else applyDetail(id, data);
+      render();
+    } while (detailAgain);
+  } finally { detailLoading = false; }
 }
 
-/** Every write shows a receipt and is sent once; a lost response is unknown, never retried. */
+function applyDetail(id, data) {
+  state.detail = { id, data };
+  const piSessionId = data.session.piSessionId;
+  // Leaving the screen drops the transcript, so only a restarted session can differ here.
+  if (!state.chat || state.chat.piSessionId !== piSessionId) {
+    state.chat = { id, piSessionId, ...newChat() };
+    state.sent = [];
+  }
+  if (!data.conversation) return;
+  const chat = state.chat;
+  const branchId = chat.branchId;
+  const appended = acceptPage(chat, data.conversation);
+  // A reply sent on a branch the session has left will not be recorded on this one.
+  state.sent = branchId !== undefined && branchId !== chat.branchId ? [] : settleSent(state.sent, appended);
+  // Not for a first or replaced page: those open at the end.
+  if (appended.length && appended.length < chat.items.length) state.reveal = appended[0].id;
+}
+
+async function loadEarlier() {
+  const chat = state.chat;
+  if (!chat?.before || state.earlier) return;
+  const { branchId, before } = chat;
+  state.earlier = true;
+  render();
+  let page;
+  let refused = false;
+  try { page = await getJson(`/api/sessions/${chat.id}/conversation?before=${encodeURIComponent(before)}&branch=${encodeURIComponent(branchId)}`); }
+  catch (error) { refused = error.status === 409; }
+  state.earlier = false;
+  // Apply only to the transcript and cursor the page was requested for.
+  const current = state.chat === chat && chat.branchId === branchId && chat.before === before;
+  if (current && refused) {
+    // The cursor is no longer on the session's branch: start again from the newest page.
+    clearChat(chat);
+    void loadDetail();
+  }
+  // Keep the message that was first where it is on screen. Its element may be rebuilt, so it is found by id.
+  const anchor = chat.items[0] && `t:${chat.items[0].id}`;
+  const top = () => app.hubParts?.get("body")?.el.hubParts?.get(anchor)?.el.getBoundingClientRect().top;
+  const was = top();
+  if (current && page) acceptPage(chat, page, true);
+  render();
+  const now = top();
+  if (current && page && was !== undefined && now !== undefined) window.scrollBy(0, now - was);
+}
+
+/** Every write shows a receipt and is sent once; a lost response is unknown, never retried. Returns the receipt kind. */
 async function write(session, action, body) {
-  if (state.pending.has(session.id) || state.stale) return false;
+  if (state.pending.has(session.id) || state.stale) return undefined;
   state.pending.add(session.id);
+  // A read that began before this write cannot show its effect.
+  detailToken += 1;
   state.receipts.set(session.id, { kind: "submitting", text: "Submitting…" });
   render();
   let receipt;
@@ -164,7 +238,7 @@ async function write(session, action, body) {
   state.receipts.set(session.id, receipt);
   render();
   if (route() === session.id) void loadDetail();
-  return receipt.kind === "accepted";
+  return receipt.kind;
 }
 
 const target = (session) => ({ piSessionId: session.piSessionId, instanceId: session.instanceId });
@@ -228,7 +302,7 @@ function inlineActions(session) {
     h("button", { class: "btn primary", type: "button", disabled: busy, onclick: async () => {
       const optionIndex = entry.selected;
       const sent = await write(session, "answer", { ...target(session), toolCallId: entry.toolCallId, requestId: entry.requestId, answers: [{ questionIndex: 0, kind: "option", optionIndex }] });
-      if (sent) state.inline.delete(session.id); else { entry.selected = undefined; render(); }
+      if (sent === "accepted") state.inline.delete(session.id); else { entry.selected = undefined; render(); }
     } }, `Send “${chosen.label}”`),
     h("button", { class: "btn quiet", type: "button", disabled: busy, onclick: () => { entry.selected = undefined; render(); } }, "Cancel"));
 }
@@ -341,7 +415,7 @@ function requestBlock(session, interaction) {
         // Prefill only: nothing is sent until Send.
         state.drafts.set(draftKey(session), attention.recommendation);
         const box = document.querySelector(".dock textarea");
-        if (box) { box.value = attention.recommendation; box.focus(); }
+        if (box) { box.value = attention.recommendation; fitComposer(box); box.focus(); }
       } }, "Use as reply"))]);
     if (attention.artifact) parts.push(["artifact", attention.artifact, () => h("div", {}, h("div", { class: "label" }, "Evidence"), h("p", { class: "path" }, attention.artifact))]);
   } else if (session.status === "error") {
@@ -357,7 +431,7 @@ function requestBlock(session, interaction) {
           const current = answersFor(request, formFor(session, request));
           if (!current) return;
           const sent = await write(session, "answer", { ...target(session), toolCallId: request.toolCallId, requestId: attention?.requestId, answers: current });
-          if (sent) state.forms.delete(`${session.id}:${request.toolCallId}`);
+          if (sent === "accepted") state.forms.delete(`${session.id}:${request.toolCallId}`);
         } }, answers ? "Send answer" : "Answer every question to send")]);
     }
   } else if (pending.length) {
@@ -366,24 +440,49 @@ function requestBlock(session, interaction) {
   return { tone: !attention && session.status === "error" ? "fault" : "request", parts };
 }
 
+let localId = 0;
+
+/** The reply box is one line and grows with its text, up to the limit set in the stylesheet. */
+function fitComposer(box) {
+  if (!box) return;
+  box.style.height = "auto";
+  box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
+  // The dock grew or shrank under a reader who is at the end.
+  if (state.chat?.following) scrollToEnd();
+}
+
 function composer(session, interaction) {
   const busy = interaction?.messageDelivery === "busy";
   const blocked = state.pending.has(session.id) || state.stale;
   const key = draftKey(session);
-  const box = h("textarea", { class: "field grow", rows: 2, "data-draft": key, placeholder: busy ? "Message a working agent" : "Reply", "aria-label": "Reply", value: state.drafts.get(key) ?? "",
-    oninput: (event) => { state.drafts.set(key, event.target.value); } });
+  const box = h("textarea", { class: "field grow", rows: 1, "data-draft": key, placeholder: busy ? "Message a working agent" : "Reply", "aria-label": "Reply", value: state.drafts.get(key) ?? "",
+    oninput: (event) => { state.drafts.set(key, event.target.value); fitComposer(event.target); } });
   const send = (delivery) => async () => {
     const text = box.value.trim();
     if (!text) { box.focus(); return; }
-    if (!await write(session, "reply", { ...target(session), text, delivery })) return;
+    if (state.pending.has(session.id) || state.stale) return;
+    // Pi runs a slash command instead of recording it as typed, so only the receipt reports it.
+    const reply = delivery === "send" && text.startsWith("/") ? undefined : { localId: localId += 1, text, delivery, status: "sending" };
+    if (reply && state.chat?.id === session.id) {
+      state.sent = [...state.sent, reply];
+      state.chat.following = true;
+    }
+    const result = await write(session, "reply", { ...target(session), text, delivery });
+    if (reply) {
+      state.sent = result === "accepted" || result === "unknown"
+        ? state.sent.map((entry) => entry.localId === reply.localId ? { ...entry, status: result } : entry)
+        : state.sent.filter((entry) => entry.localId !== reply.localId);
+      render();
+    }
+    if (result !== "accepted") return;
     // Keep anything typed while the reply was in flight.
     if ((state.drafts.get(key) ?? "").trim() !== text) return;
     state.drafts.delete(key);
     const shown = document.querySelector(`.dock textarea[data-draft="${CSS.escape(key)}"]`);
-    if (shown) shown.value = "";
+    if (shown) { shown.value = ""; fitComposer(shown); }
   };
   const canRead = Boolean(session.attention) || session.status === "waiting";
-  return h("div", {},
+  return h("div", { class: "composer" },
     box,
     h("div", { class: "dock-row" },
       canRead && h("button", { class: "btn quiet", type: "button", disabled: blocked, onclick: () => markRead(session) }, "Mark read"),
@@ -394,35 +493,104 @@ function composer(session, interaction) {
         : h("button", { class: "btn primary", type: "button", disabled: blocked, onclick: send("send") }, "Send")));
 }
 
+// ---- transcript ----
+
+function timeLabel(at) {
+  const date = new Date(at);
+  const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
+}
+
+/** One message. Only the agent writes Markdown; what a person typed is shown as typed. */
+function turn(item, time) {
+  // A kind this page does not know yet is still shown, as plain text under its own name.
+  const role = String(item.role);
+  return h("article", { class: `turn is-${role.replace(/[^a-z0-9]/giu, "")}` },
+    h("div", { class: "turn-role" }, h("span", {}, ROLE_LABELS[role] ?? role.toUpperCase()), time && h("time", {}, time)),
+    role === "assistant" ? h("div", { class: "turn-body md" }, renderMarkdown(item.text, h)) : h("div", { class: "turn-body pre" }, item.text));
+}
+
+/** A reply the user sent that Pi has not recorded yet. */
+function localTurn(reply) {
+  const status = SENT_LABELS[reply.status] ?? (reply.delivery === "followUp" ? "Queued" : "Sent");
+  return h("article", { class: `turn is-user local ${reply.status}` },
+    h("div", { class: "turn-role" }, h("span", {}, ROLE_LABELS.user), h("span", { class: "turn-state" }, status)),
+    h("div", { class: "turn-body pre" }, reply.text));
+}
+
+const fromEnd = () => document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+const scrollToEnd = () => window.scrollTo(0, document.documentElement.scrollHeight);
+
+let shownHeight = 0;
+/** After a render: a reader at the end sees new content from its first line. */
+function followTranscript(body) {
+  const chat = state.chat;
+  const reveal = state.reveal;
+  state.reveal = undefined;
+  const height = document.documentElement.scrollHeight;
+  if (height === shownHeight) return;
+  shownHeight = height;
+  if (!chat?.following) return;
+  const first = reveal && body.hubParts.get(`t:${reveal}`)?.el;
+  if (!first) { scrollToEnd(); return; }
+  // A message taller than the screen starts under the band; a short one ends the page.
+  const band = app.querySelector(".band").getBoundingClientRect().bottom;
+  window.scrollTo(0, Math.min(first.getBoundingClientRect().top + window.scrollY - band, height - window.innerHeight));
+}
+
+function goToEnd() {
+  const chat = state.chat;
+  if (!chat) return;
+  chat.following = true;
+  chat.fresh = false;
+  render();
+  scrollToEnd();
+  // More than a page may have arrived while the reader was away from the end.
+  void loadDetail();
+}
+
 function renderDetail() {
   const detail = state.detail;
-  const band = ["band", `${state.stale}:${state.stale ? ageSince(state.snapshotAt) : ""}`, () => h("header", { class: "band" },
-    h("div", { class: "band-row" }, h("a", { class: "back", href: "#/" }, "‹ Inbox"), h("span", { class: "band-fill" }), connection()),
+  // The list snapshot is fresher than the last detail fetch for everything it carries.
+  const session = detail?.data && (rows().find((row) => row.id === detail.id) ?? detail.data.session);
+  const band = ["band", JSON.stringify([state.stale, state.stale ? ageSince(state.snapshotAt) : "", session?.title, session?.steps]), () => h("header", { class: "band" },
+    h("div", { class: "band-row" }, h("a", { class: "back", href: "#/" }, "‹ Inbox"),
+      session ? h("span", { class: "band-name" }, session.title) : h("span", { class: "band-fill" }), connection()),
+    session?.steps && h("div", { class: "lcd" }, session.steps.map((step) => `${step.short} ${STEP_GLYPHS[step.state]}`).join("  ")),
     staleBanner())];
-  if (!detail?.data) {
+  if (!session) {
     sync(app, [band, ["empty", String(detail?.missing), () => h("main", { class: "detail" },
       h("p", { class: "empty" }, detail?.missing ? "This session is no longer in the inbox." : "Loading…"))]]);
     return;
   }
-  sync(app, [band, ["body", "body", () => h("main", { class: "detail" })], ["dock", "dock", () => h("footer", { class: "dock" })]]);
+  sync(app, [band, ["body", "body", () => h("main", { class: "detail transcript" })], ["dock", "dock", () => h("footer", { class: "dock" })]]);
   const body = app.hubParts.get("body").el;
   const dock = app.hubParts.get("dock").el;
-  // The list snapshot is fresher than the last detail fetch for everything it carries.
-  const session = rows().find((row) => row.id === detail.id) ?? detail.data.session;
-  const { interaction, conversation, unavailable } = detail.data;
+  const { interaction, unavailable } = detail.data;
+  const chat = state.chat?.id === detail.id ? state.chat : undefined;
   const request = requestBlock(session, interaction);
+
+  // A question that can be answered here is shown once, as the form.
+  const answering = new Set(interaction?.canAnswer ? interaction.pending.map((pending) => pending.toolCallId) : []);
+  let lastAt;
+  const turns = (chat?.items ?? []).filter((item) => item.role !== "question" || !answering.has(item.toolCallId)).map((item) => {
+    const time = item.at !== undefined && (lastAt === undefined || item.at - lastAt >= TIME_GAP_MS) ? timeLabel(item.at) : "";
+    if (item.at !== undefined) lastAt = item.at;
+    return [`t:${item.id}`, [item, time], () => turn(item, time)];
+  });
+  const working = session.status === "running" || session.status === "starting";
   sync(body, [
-    ["header", JSON.stringify([session.title, session.ticketId, session.subtitle, session.group, session.steps]), () => h("div", {},
+    ["intro", JSON.stringify([session.title, session.ticketId, session.subtitle, session.group]), () => h("div", { class: "intro" },
       h("h1", { class: "detail-title" }, session.title),
-      h("p", { class: "detail-sub" }, [session.ticketId, session.subtitle, session.group].filter(Boolean).join(" · ")),
-      session.steps && h("div", { class: "lcd" }, session.steps.map((step) => `${step.short} ${STEP_GLYPHS[step.state]}`).join("  ")))],
+      h("p", { class: "detail-sub" }, [session.ticketId, session.subtitle, session.group].filter(Boolean).join(" · ")))],
+    chat?.before && !unavailable
+      ? ["earlier", String(state.earlier), () => h("button", { class: "earlier", type: "button", disabled: state.earlier, onclick: loadEarlier }, "Earlier messages")]
+      : ["start", `${Boolean(chat?.before)}:${turns.length}`, !chat?.before && turns.length && (() => h("p", { class: "start" }, "Start of conversation"))],
+    ...turns,
+    ...(chat ? state.sent : []).map((reply) => [`l:${reply.localId}`, reply.status, () => localTurn(reply)]),
+    ["activity", working && (session.statusLine ?? ""), working && (() => h("p", { class: "activity", role: "status" },
+      h("span", { class: "activity-dot" }, "●"), session.statusLine ?? "Working"))],
     ["request", request ? request.tone : "", request && (() => h("section", { class: `block ${request.tone}` }))],
-    ["said", interaction?.lastMessage ?? "", interaction?.lastMessage && (() => h("section", { class: "said" }, h("div", { class: "label" }, "SAID"), h("p", { class: "pre" }, interaction.lastMessage)))],
-    ["status", session.statusLine ?? "", !session.attention && session.status !== "error" && session.statusLine && (() => h("p", { class: "notice" }, session.statusLine))],
-    ["log", JSON.stringify(conversation ?? []), conversation?.length && (() => h("details", {}, h("summary", {}, `Recent messages (${conversation.length})`),
-      h("div", { class: "log" }, conversation.map((item) => h("div", {},
-        h("div", { class: "log-role" }, ROLE_LABELS[item.role] ?? item.role),
-        h("p", { class: "log-text" }, item.text))))))],
   ]);
   if (request) sync(body.hubParts.get("request").el, request.parts);
   const canRead = Boolean(session.attention) || session.status === "waiting";
@@ -433,6 +601,7 @@ function renderDetail() {
   // The composer is rebuilt when its buttons change; the draft is in state, so only focus needs restoring.
   const typing = document.activeElement?.matches?.(".dock textarea");
   sync(dock, [
+    ["pill", "pill", chat?.fresh && (() => h("button", { class: "pill", type: "button", onclick: goToEnd }, "New messages ↓"))],
     ["receipt", JSON.stringify(receipt ?? null), receipt && (() => receiptLine(session.id))],
     session.canInteract && !unavailable
       ? ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}:${readKey}`, () => composer(session, interaction)]
@@ -440,7 +609,10 @@ function renderDetail() {
           h("p", { class: "notice" }, `${unavailable ?? "Session is not running"}. Open it in the terminal dashboard.`),
           canRead && h("div", { class: "dock-row" }, h("button", { class: "btn quiet", type: "button", disabled: blocked, onclick: () => markRead(session) }, "Mark read")))],
   ]);
-  if (typing) dock.querySelector("textarea")?.focus();
+  const box = dock.querySelector("textarea");
+  if (box && !box.style.height) fitComposer(box);
+  if (typing) box?.focus();
+  followTranscript(body);
 }
 
 // ---- render ----
@@ -452,6 +624,7 @@ function render() {
     shownRoute = id;
     app.hubParts = undefined;
     app.replaceChildren();
+    shownHeight = 0;
     window.scrollTo(0, 0);
   }
   const count = state.snapshot?.requestCount ?? 0;
@@ -468,6 +641,10 @@ function render() {
 function onRoute() {
   const id = route();
   state.detail = id ? { id } : undefined;
+  // The transcript and unrecorded replies belong to the screen that was left.
+  state.chat = undefined;
+  state.sent = [];
+  state.earlier = false;
   render();
   if (id) void loadDetail();
 }
@@ -551,6 +728,15 @@ document.addEventListener("visibilitychange", () => {
   if (route()) void loadDetail();
 });
 setInterval(watchConnection, 1_000);
-setInterval(() => { if (route() && !document.hidden && !state.stale && !state.pending.size) void loadDetail(); }, DETAIL_POLL_MS);
+window.addEventListener("scroll", () => {
+  const chat = state.chat;
+  if (!chat || !route()) return;
+  const following = fromEnd() <= FOLLOW_PX;
+  if (following === chat.following) return;
+  chat.following = following;
+  // The reader came back to the end by hand.
+  if (following && chat.fresh) goToEnd();
+}, { passive: true });
+setInterval(() => { if (route() && !document.hidden && !state.stale && !state.pending.size && !detailLoading) void loadDetail(); }, DETAIL_POLL_MS);
 connect();
 onRoute();

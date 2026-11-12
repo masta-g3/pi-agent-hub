@@ -28,6 +28,7 @@ interface Harness {
   origin: string;
   calls: string[];
   sessions: RuntimeSession[];
+  staticDir: string;
   fail?: Error;
   publish(): void;
   post(path: string, body: unknown, headers?: Record<string, string>): Promise<Response>;
@@ -36,13 +37,19 @@ interface Harness {
 async function withServer(fn: (h: Harness) => Promise<void>, sessions: RuntimeSession[] = [asking()]): Promise<void> {
   const staticDir = await mkdtemp(join(tmpdir(), "pi-agent-hub-web-"));
   await writeFile(join(staticDir, "index.html"), "<!doctype html><title>Hub</title>");
-  const h = { calls: [] as string[], sessions } as Harness;
+  const h = { calls: [] as string[], sessions, staticDir } as Harness;
   const deps: WebServerDeps = {
     staticDir,
     sessions: () => h.sessions,
     now: () => 1_000,
     loadState: async () => STATE,
-    loadConversation: async () => ({ branchId: "b", revision: "r", items: [{ id: "1", role: "assistant", text: "Hello", toolCallId: "x" }] }),
+    async loadConversation(target, options) {
+      h.calls.push(`read:${target.instanceId}:${JSON.stringify(options ?? {})}`);
+      if (h.fail) throw h.fail;
+      return options?.before
+        ? { branchId: "b", revision: "r", items: [{ id: "0", role: "user", text: "Earlier" }] }
+        : { branchId: "b", revision: "r", before: "1", items: [{ id: "1", role: "assistant", text: "Hello", toolCallId: "x", at: 1_700_000_000_000 }, { id: "2", role: "user", text: "Long", truncated: true }] };
+    },
     async submitAnswer(target, toolCallId, answers) {
       h.calls.push(`answer:${target.instanceId}:${toolCallId}:${JSON.stringify(answers)}`);
       if (h.fail) throw h.fail;
@@ -86,6 +93,15 @@ test("serves the page with a strict content security policy and rejects foreign 
     assert.equal(page.headers.get("content-security-policy"), "default-src 'self'; frame-ancestors 'none'");
     assert.match(await page.text(), /Hub/);
     assert.equal((await fetch(`${h.base}/../package.json`)).status, 404);
+    // The page's own modules are served by name; nothing else in the directory is.
+    for (const name of ["markdown.js", "chat.js"]) {
+      await writeFile(join(h.staticDir, name), "export {};");
+      const module = await fetch(`${h.base}/${name}`);
+      assert.equal(module.status, 200, name);
+      assert.match(module.headers.get("content-type") ?? "", /^text\/javascript/u);
+    }
+    await writeFile(join(h.staticDir, "other.js"), "export {};");
+    assert.equal((await fetch(`${h.base}/other.js`)).status, 404);
     // fetch() cannot forge Host; a rebinding browser sends the attacker's name here.
     const status = await new Promise<number>((done, fail) => {
       request(`${h.base}/`, { headers: { Host: "evil.example.com" } }, (res) => { res.resume(); done(res.statusCode ?? 0); }).on("error", fail).end();
@@ -114,18 +130,67 @@ test("event stream sends a snapshot on connect and again only after a change", a
   });
 });
 
-test("session detail returns formatted questions, the latest message and bounded history", async () => {
+test("session detail returns formatted questions and the newest page of the conversation", async () => {
   await withServer(async (h) => {
     const body = await (await fetch(`${h.base}/api/sessions/ask`)).json() as any;
     assert.equal(body.session.id, "ask");
     assert.equal(body.interaction.canAnswer, true);
-    assert.equal(body.interaction.lastMessage, "Tests pass.");
+    // The transcript carries the latest message, so the detail does not repeat it.
+    assert.equal("lastMessage" in body.interaction, false);
     assert.equal(body.interaction.pending[0].toolCallId, "call-1");
     assert.equal(body.interaction.pending[0].questions[0].ask, "Which one?");
     assert.equal(body.interaction.pending[0].questions[0].context, "Context first.");
-    assert.deepEqual(body.conversation, [{ id: "1", role: "assistant", text: "Hello" }]);
+    assert.deepEqual(body.conversation, { branchId: "b", revision: "r", before: "1", items: [
+      { id: "1", role: "assistant", text: "Hello", toolCallId: "x", at: 1_700_000_000_000 }, { id: "2", role: "user", text: "Long", truncated: true },
+    ] });
     assert.equal((await (await fetch(`${h.base}/api/sessions/ask?conversation=0`)).json() as any).conversation, undefined);
     assert.equal((await fetch(`${h.base}/api/sessions/missing`)).status, 404);
+  });
+});
+
+test("earlier messages are read from the displayed branch and cursor only", async () => {
+  await withServer(async (h) => {
+    const earlier = await fetch(`${h.base}/api/sessions/ask/conversation?before=1&branch=b`);
+    assert.equal(earlier.status, 200);
+    assert.deepEqual(await earlier.json(), { branchId: "b", revision: "r", items: [{ id: "0", role: "user", text: "Earlier" }] });
+    assert.deepEqual(h.calls, ['read:inst-1:{"before":"1","branchId":"b"}']);
+    h.calls.length = 0;
+
+    for (const query of ["", "?before=1", "?branch=b", "?before=&branch=b", `?before=${"x".repeat(257)}&branch=b`, `?before=1&branch=${"x".repeat(257)}`]) {
+      assert.equal((await fetch(`${h.base}/api/sessions/ask/conversation${query}`)).status, 400, query);
+    }
+    assert.deepEqual(h.calls, []);
+    assert.equal((await fetch(`${h.base}/api/sessions/missing/conversation?before=1&branch=b`)).status, 404);
+
+    // The extension rejects a cursor from a branch the session has left.
+    h.fail = new Error("Conversation branch changed");
+    const moved = await fetch(`${h.base}/api/sessions/ask/conversation?before=1&branch=old`);
+    assert.equal(moved.status, 409);
+    assert.deepEqual(await moved.json(), { error: "Conversation branch changed" });
+    h.fail = new Error("Conversation cursor is no longer on the current branch");
+    assert.equal((await fetch(`${h.base}/api/sessions/ask/conversation?before=gone&branch=b`)).status, 409);
+
+    // Only a moved branch or cursor is a 409: the page drops its history on one, and must not for a read that merely failed.
+    for (const message of ["Session interaction timed out", "Session interaction unavailable", "Interaction response too large"]) {
+      h.fail = new Error(message);
+      const failed = await fetch(`${h.base}/api/sessions/ask/conversation?before=1&branch=b`);
+      assert.equal(failed.status, 503, message);
+      assert.deepEqual(await failed.json(), { error: message });
+    }
+    h.fail = undefined;
+
+    h.sessions = [asking({ status: "stopped" })];
+    const stopped = await fetch(`${h.base}/api/sessions/ask/conversation?before=1&branch=b`);
+    assert.equal(stopped.status, 503);
+    assert.deepEqual(await stopped.json(), { error: "Session is not running" });
+
+    // Reading is not activity, and it is not a write route.
+    assert.doesNotMatch(h.calls.join("\n"), /touch|ack|send|answer/u);
+    assert.equal((await h.post("/api/sessions/ask/conversation?before=1&branch=b", {})).status, 404);
+    const status = await new Promise<number>((done, fail) => {
+      request(`${h.base}/api/sessions/ask/conversation?before=1&branch=b`, { headers: { Host: "evil.example.com" } }, (res) => { res.resume(); done(res.statusCode ?? 0); }).on("error", fail).end();
+    });
+    assert.equal(status, 403);
   });
 });
 

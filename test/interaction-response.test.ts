@@ -26,6 +26,13 @@ test("client rejects malformed state, history and acceptance payloads before the
     await assert.rejects(request("read"), /Invalid interaction response/);
     result = { branchId: "b", revision: "r", items: [{ id: "i", role: "assistant", text: null }] };
     await assert.rejects(request("read"), /Invalid interaction response/);
+    result = { branchId: "b", revision: "r", items: [{ id: "i", role: "assistant", text: "Hi", at: "14:02" }] };
+    await assert.rejects(request("read"), /Invalid interaction response/);
+    result = { branchId: "b", revision: "r", items: [{ id: "i", role: "assistant", text: "Hi", at: Number.MAX_VALUE * 2 }] };
+    await assert.rejects(request("read"), /Invalid interaction response/);
+    // An extension from before message times sends none; a current one sends epoch milliseconds.
+    result = { branchId: "b", revision: "r", items: [{ id: "i", role: "assistant", text: "Hi" }, { id: "j", role: "user", text: "Yo", at: 1_700_000_000_000 }] };
+    assert.deepEqual(await request("read"), result);
     result = { accepted: false };
     await assert.rejects(request("submit-answer"), /Invalid interaction response/);
     result = { accepted: true };
