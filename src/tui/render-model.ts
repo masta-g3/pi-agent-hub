@@ -713,6 +713,10 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
     fullScreen: board && Boolean(input.workspaceFullScreen || (input.cardPanel && input.width < 120)),
     panel: input.cardPanel,
   } : undefined;
+  // The no-pin fleet card shows its own keycaps whenever it has no open panel.
+  const cardKeys = workspace && !board && !pinMode && !workspace.panel
+    ? [...workspace.actions, workspace.evidenceCommand, workspace.moreCommand].flatMap((command) => command.displayKey ? [command.displayKey] : [])
+    : [];
   const boardParents = mapped.filter((session) => session.kind !== "subagent");
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
@@ -748,6 +752,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
       coaching: coach,
       requestCount: input.visibleRequestCount ?? visible.filter((session) => visibleAttention(session)).length,
       filter: input.filter,
+      cardKeys,
     }),
     filter: input.filter,
     filterEditing: input.filterEditing,

@@ -2285,7 +2285,8 @@ test("enter inside tmux flashes switch command then restores footer without touc
     now = 1_700;
     const rendered = view.render(100).join("\n");
     assert.doesNotMatch(rendered, /tmux switch-client -t pi-agent-hub-api/);
-    assert.match(stripAnsi(rendered), /\] Next request {4}p Reply {4}: All actions {4}\? Help/);
+    // The card shows `: Actions`, so the footer leaves it out.
+    assert.match(stripAnsi(rendered), /\] Next request {4}p Reply {4}\? Help/);
   } finally {
     if (oldTmux === undefined) delete process.env.TMUX;
     else process.env.TMUX = oldTmux;
@@ -4724,9 +4725,6 @@ function tapFooterKey(view: SessionsView, lines: string[], key: string): void {
 
 test("phone footer taps follow the same dashboard key paths", () => {
   const view = new SessionsView(new SessionsController({ version: 1, sessions: manyViewSessions(3) }), () => {}, { terminalRows: () => 22, now: () => 0 });
-  tapFooterKey(view, view.render(60), ":");
-  assert.match(stripAnsi(view.render(60).join("\n")), /ACTIONS/);
-  view.handleInput("\u001b");
   tapFooterKey(view, view.render(60), "?");
   assert.match(stripAnsi(view.render(60).join("\n")), /Session actions/);
 });

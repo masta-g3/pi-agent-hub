@@ -472,7 +472,7 @@ const replyPanel = { kind: "reply" as const, body: ["Reply to Mission control", 
 function field(card: string[], label: string): string[] {
   const start = card.findIndex((line) => new RegExp(`^ *${label}\\b`).test(line));
   if (start < 0) return [];
-  const end = card.findIndex((line, index) => index > start && (/^ *[A-Z]{3,5}\b/.test(line) || !line.trim() || /Open in Pi/.test(line)));
+  const end = card.findIndex((line, index) => index > start && (/^ *[A-Z]{3,5}\b/.test(line) || !line.trim() || /^ *Enter /.test(line)));
   return card.slice(start, end < 0 ? undefined : end);
 }
 

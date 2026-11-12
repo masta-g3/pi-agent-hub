@@ -1528,8 +1528,20 @@ test("narrow layout hides preview and uses readable compact footer", () => {
 
 
 test("wide footer groups keys by intent", () => {
-  const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 120 });
+  const model = buildRenderModel({ sessions: [session("a", "default", "idle")], width: 160 });
   assert.equal(model.footer, "] Next request · p Reply · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
+});
+
+test("half-screen footer stays short and omits keys the selected card already shows", () => {
+  const sessions = [session("a", "default", "idle")];
+  assert.equal(buildRenderModel({ sessions, width: 120 }).footer, "] Next request · p Reply · : All actions · ? Help");
+  const fleet = workspaceModel({ sessions, selectedId: "a", width: 120 });
+  const cardKeys = [...fleet.workspace!.actions, fleet.workspace!.moreCommand].map((command) => command.displayKey);
+  assert.ok(cardKeys.includes(":"));
+  for (const item of fleet.footer.split(" · ")) assert.ok(!cardKeys.includes(item.split(" ")[0]), fleet.footer);
+  assert.match(fleet.footer, /^\] Next request · .*\? Help$/);
+  // The board's workspace is not the fleet card, so the footer keeps every key.
+  assert.equal(workspaceModel({ sessions, selectedId: "a", width: 120, grouping: "stage" }).footer, "] Next request · p Reply · : All actions · ? Help");
 });
 
 test("footer request count follows the visible projection at medium and wide widths", () => {
@@ -1542,10 +1554,20 @@ test("footer request count follows the visible projection at medium and wide wid
   }
 });
 
+test("fleet card keys stay on one line, keeping the primary key and Actions at every width", () => {
+  const sessions = [session("a", "default", "running")];
+  for (let width = 30; width <= 200; width += 1) {
+    const layout = renderSessions(workspaceModel({ sessions, selectedId: "a", width, height: 30, workspaceEvidenceVisible: false }));
+    const keyRows = cardRowsOf(layout).filter((line) => /: (All )?[Aa]ctions/.test(line) || /Enter Open/.test(line));
+    assert.equal(keyRows.length, 1, `${width}:\n${keyRows.join("\n")}`);
+    assert.match(keyRows[0]!, /Enter Open.*: (All )?[Aa]ctions/, `${width}`);
+  }
+});
+
 test("wide footer stays stable for worktree sessions", () => {
   const model = buildRenderModel({
     sessions: [{ ...session("a", "default", "idle"), worktreeOwnedByHub: true, worktreePath: "/tmp/wt" }],
-    width: 120,
+    width: 160,
   });
   assert.equal(model.footer, "] Next request · p Reply · : All actions · ? Help · n New · / Filter · b Backlog · v Group · S Board");
 });
@@ -2244,13 +2266,13 @@ test("action workspace keeps only positive decision content across responsive wi
     const model = workspaceModel({ sessions: [parent, child], selectedId: "parent", width, now, workspaceEvidenceVisible: true });
     const layout = renderSessions(model, darkTheme);
     const text = cardRowsOf(layout).join("\n");
-    const positions = ["Package the macOS release", "Approve the package rollout?", "Execute · step 2 of 5", "LIVE DETAILS", "Enter Open in Pi"].map((label) => text.indexOf(label));
+    const positions = ["Package the macOS release", "Approve the package rollout?", "Execute · step 2 of 5", "LIVE DETAILS", "Enter Open"].map((label) => text.indexOf(label));
     assert.ok(positions.every((position) => position >= 0), `${width}: ${positions.join(",")}`);
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
     assert.doesNotMatch(text, /Ship once notarization/, `${width}: description must not trail a complete subtitle`);
     if (width >= 60) assert.match(text, /i Details/);
-    assert.match(text, /: All actions/);
+    assert.match(text, /: (All )?[Aa]ctions/);
     assert.ok(layout.cardCommandHits.length >= (width >= 60 ? 3 : 1));
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }

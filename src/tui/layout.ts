@@ -1858,13 +1858,32 @@ function completeKeyLines(keyLine: string, width: number, styles: LayoutStyles):
   return keyLine.split("\n").flatMap(line => line ? layoutKeyRows(keyItems(line), width, styles).map(row => row.line) : [""]);
 }
 
+/** Shorter card key labels, applied one at a time in this order while the keys would wrap. */
+const SHORT_KEY_LABELS: [string, string][] = [["Pin next free slot", "Pin"], ["All actions", "Actions"], ["Open in Pi", "Open"]];
+
 function cardKeyRows(workspace: RenderWorkspace, width: number, styles: LayoutStyles, wrap = true): KeyRow[] {
   const commands = [...new Map([...workspace.actions, workspace.evidenceCommand, workspace.moreCommand].map(command => [command.id, command])).values()];
-  const rows = layoutKeyRows(commands.map((command) => ({
+  const items = commands.map((command) => ({
     key: formatKey(command.displayKey ?? ""),
     label: command.id === workspace.moreCommand.id ? "All actions" : command.label,
     commandId: command.id,
-  })), width, styles, wrap);
+  }));
+  let rows = layoutKeyRows(items, width, styles, wrap);
+  let shortened = items;
+  for (const [full, short] of SHORT_KEY_LABELS) {
+    if (rows.length <= 1) break;
+    shortened = shortened.map((item) => item.label === full ? { ...item, label: short } : item);
+    const fitted = layoutKeyRows(shortened, width, styles, wrap);
+    if (fitted.length < rows.length) rows = fitted;
+  }
+  // Still too wide: drop keys from the right, keeping the primary key and `: Actions`; dropped keys still work and stay in the palette.
+  const more = shortened.find((item) => item.commandId === workspace.moreCommand.id);
+  while (rows.length > 1 && shortened.length > (more ? 2 : 1)) {
+    const drop = [...shortened].reverse().find((item) => item !== more && item !== shortened[0]);
+    if (!drop) break;
+    shortened = shortened.filter((item) => item !== drop);
+    rows = layoutKeyRows(shortened, width, styles, wrap);
+  }
   return rows.length ? rows : [{ line: "", plain: "", hits: [] }];
 }
 

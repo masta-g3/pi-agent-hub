@@ -346,7 +346,8 @@ export function conversationDashboardFooter(): string {
     .map(([id, label]) => `${commands.find(command => command.id === id)!.displayKey} ${label}`).join(` ${glyphs.pendingStep} `);
 }
 
-export function dashboardFooter(width: number, options: { coaching?: boolean; requestCount?: number; filter?: string } = {}): string {
+/** `cardKeys` are keys the visible selected card already shows; the footer omits them so no key appears twice. */
+export function dashboardFooter(width: number, options: { coaching?: boolean; requestCount?: number; filter?: string; cardKeys?: readonly string[] } = {}): string {
   const global = viewCommands({ sessions: [], filter: options.filter, capabilities: { theme: true } });
   const item = (key: string, label: string) => `${key} ${label}`;
   const fromView = (id: string, label: string) => {
@@ -355,10 +356,13 @@ export function dashboardFooter(width: number, options: { coaching?: boolean; re
   };
   const reply = actionSpecs.find(spec => spec.name === "send")!;
   const replyItem = item(reply.keys[0]!, reply.label);
-  const items = width < 40
+  const shown = new Set(options.cardKeys ?? []);
+  const items = (width < 40
     ? [fromView("view:next-request", "Next"), replyItem, fromView("view:palette", "Actions")]
-    : [fromView("view:next-request", "Next request"), replyItem, fromView("view:palette", "All actions"), fromView("view:help", "Help")];
-  if (width >= 100) items.push(fromView("action:new", "New"), item("/", "Filter"), fromView("view:backlog", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"));
+    : [fromView("view:next-request", "Next request"), replyItem, fromView("view:palette", "All actions"), fromView("view:help", "Help")])
+    .filter((footerItem) => !shown.has(footerItem.split(" ")[0]!));
+  // Half-screen windows keep the short footer; the global extras need a wide window to read as one band.
+  if (width >= 140) items.push(fromView("action:new", "New"), item("/", "Filter"), fromView("view:backlog", "Backlog"), fromView("view:fleet-grouping", "Group"), fromView("view:grouping", "Board"));
   while (items.length > 1 && visibleWidth(items.join(` ${glyphs.pendingStep} `)) > width - (width > 60 ? 2 : 0)) items.pop();
   return items.join(` ${glyphs.pendingStep} `);
 }
