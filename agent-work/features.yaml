@@ -1611,12 +1611,11 @@
   plan_file: agent-work/history/20261111_web-002_phone_chat_view.md
   completed_at: '2026-11-11'
 - id: web-003
-  status: pending
-  title: Transcript merge parity
-  subtitle: Keep phone and dashboard transcripts aligned
-  description: One test feeds the same conversation pages to the dashboard transcript
-    panel and the phone web/chat.js merge and checks both keep the same messages and
-    history cursor.
+  status: done
+  title: Shared transcript merge
+  subtitle: One merge for dashboard and phone
+  description: The dashboard conversation view and the phone chat merge conversation
+    pages through one shared module, so their transcripts cannot drift apart.
   priority: 3
   created_at: '2026-11-11'
   depends_on:
@@ -1624,6 +1623,8 @@
   discovered_from: web-002
   references:
   - agent-work/plans/web-002.md
+  plan_file: agent-work/history/20261111_web-003_shared_transcript_merge.md
+  completed_at: '2026-11-11'
 - id: card-lens-001
   status: pending
   title: Step Lens Contract

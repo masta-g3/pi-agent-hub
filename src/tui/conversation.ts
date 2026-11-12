@@ -2,6 +2,7 @@ import { glyphs, unicode } from "./glyphs.js";
 import { conversationDashboardFooter } from "./dashboard-commands.js";
 import { Markdown, truncateToWidth, visibleWidth, type MarkdownTheme } from "@earendil-works/pi-tui";
 import { conversationText as cleanMarkdown, type ConversationItem, type ConversationPage } from "../core/conversation.js";
+import { acceptPage, clearTranscript, type Transcript } from "../core/transcript.js";
 import { sameInteractionTarget, type InteractionTarget, type SessionInteractionState } from "../core/session-interaction.js";
 import { styleToken, type SessionsTheme, type ThemeToken } from "./theme.js";
 import { SPINNER_FRAMES, SPINNER_FRAME_MS } from "./render-model.js";
@@ -62,7 +63,7 @@ export class SelectedInteractionObserver {
 }
 
 interface TranscriptLine { id: string; offset: number; text: string }
-export class ConversationReader {
+export class ConversationReader implements Transcript {
   items: ConversationItem[] = [];
   branchId?: string;
   before?: string;
@@ -74,28 +75,16 @@ export class ConversationReader {
   private height = 1;
   private revealId?: string;
   clear(): void {
-    this.items = []; this.branchId = undefined; this.before = undefined; this.anchor = undefined;
-    this.following = true; this.newMessages = false; this.lines = []; this.top = 0; this.revealId = undefined;
+    clearTranscript(this);
+    this.anchor = undefined; this.lines = []; this.top = 0; this.revealId = undefined;
   }
   accept(page: ConversationPage, older = false): void {
-    if (this.branchId && this.branchId !== page.branchId) this.clear();
-    const existing = new Set(this.items.map(item => item.id));
-    const added = page.items.filter(item => !existing.has(item.id));
-    if (!older && this.items.length && added.length > 0 && page.before !== undefined && added.length === page.items.length) {
-      // A missed page must stay reloadable; never splice a gap into the transcript.
-      if (!this.following) { this.newMessages = true; return; }
-      this.clear();
-      this.revealId = page.items[0]?.id;
-    }
-    if (!older && added.length && this.items.length) {
-      if (this.following) this.revealId = added[0]!.id;
-      else this.newMessages = true;
-    }
-    this.branchId = page.branchId;
-    if (older || !this.items.length) this.before = page.before;
-    const updates = new Map(page.items.map(item => [item.id, item]));
-    this.items = this.items.map(item => updates.get(item.id) ?? item);
-    this.items = older ? [...added, ...this.items] : [...this.items, ...added];
+    // Branches share message IDs, so the anchor and reveal must not carry over to another one.
+    if (!older && this.branchId && this.branchId !== page.branchId) this.clear();
+    const hadItems = this.items.length > 0;
+    const appended = acceptPage(this, page, older);
+    // A new message is revealed from its start; a first page opens at the end.
+    if (hadItems && this.following && appended.length) this.revealId = appended[0]!.id;
     let bytes = this.items.reduce((total, item) => total + Buffer.byteLength(item.text, "utf8"), 0);
     // Evict away from the visible anchor. The first retained stable item is a reloadable cursor.
     while (bytes > 1024 * 1024 && this.items.length > 1) {

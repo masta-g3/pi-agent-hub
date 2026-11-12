@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { interactionTarget } from "../app/session-interaction.js";
 import type { ConversationPage } from "../core/conversation.js";
@@ -68,6 +68,8 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "/chat.js": { file: "chat.js", type: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", type: "text/javascript; charset=utf-8" },
+  // Shared with the dashboard: the compiled module next to this compiled server, not a file in `web/`.
+  "/transcript.js": { file: fileURLToPath(new URL("../core/transcript.js", import.meta.url)), type: "text/javascript; charset=utf-8" },
   "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
   "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json" },
   "/icon-192.png": { file: "icon-192.png", type: "image/png" },
@@ -143,7 +145,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       const asset = STATIC_FILES[path];
       if (asset) {
         res.writeHead(200, { ...baseHeaders, "Content-Type": asset.type, "Cache-Control": "no-cache" });
-        res.end(await readFile(join(deps.staticDir, asset.file)));
+        res.end(await readFile(isAbsolute(asset.file) ? asset.file : join(deps.staticDir, asset.file)));
         return;
       }
       if (path === "/api/events") {

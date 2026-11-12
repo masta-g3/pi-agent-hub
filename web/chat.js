@@ -1,51 +1,5 @@
-// Transcript state for the session screen. Pure data: no DOM and no network, so Node can test it.
-// The merge follows the dashboard's ConversationTranscriptPanel.accept() in src/tui/conversation.ts.
-
-export function newChat() {
-  return { branchId: undefined, before: undefined, items: [], following: true, fresh: false };
-}
-
-export function clearChat(chat) {
-  Object.assign(chat, newChat());
-}
-
-const sameItem = (a, b) => a.text === b.text && a.role === b.role && a.truncated === b.truncated && a.at === b.at && a.toolCallId === b.toolCallId;
-
-/**
- * Merge a page into the transcript. `older` is a page loaded with the transcript's `before` cursor.
- * Returns the items added at the end, which are the only ones that can be a reply the user just sent.
- */
-export function acceptPage(chat, page, older = false) {
-  if (older) {
-    // The session moved to another branch while this page was loading.
-    if (chat.branchId !== page.branchId) return [];
-  } else if (chat.branchId !== undefined && chat.branchId !== page.branchId) clearChat(chat);
-
-  const shown = new Set(chat.items.map((item) => item.id));
-  let added = page.items.filter((item) => !shown.has(item.id));
-  if (!older && chat.items.length && added.length === page.items.length && added.length) {
-    // More than a page arrived since the last poll. A gap is never spliced into the transcript:
-    // a reader keeps their place, and a follower restarts at the newest page.
-    if (!chat.following) { chat.fresh = true; return []; }
-    clearChat(chat);
-    added = page.items;
-  }
-
-  // An empty transcript, new or just replaced, has no history cursor yet, whatever branch it has seen.
-  if (older || !chat.items.length) chat.before = page.before;
-  const updates = new Map(page.items.map((item) => [item.id, item]));
-  const changed = chat.items.some((item) => updates.has(item.id) && !sameItem(item, updates.get(item.id)));
-  // The array keeps its identity when nothing differs, so an unchanged poll rebuilds nothing.
-  if (added.length || changed) {
-    // Unchanged items keep their identity, so the page rebuilds only what differs.
-    const kept = changed ? chat.items.map((item) => updates.has(item.id) && !sameItem(item, updates.get(item.id)) ? updates.get(item.id) : item) : chat.items;
-    chat.items = older ? [...added, ...kept] : [...kept, ...added];
-  }
-  chat.branchId = page.branchId;
-  if (older) return [];
-  if (added.length && !chat.following) chat.fresh = true;
-  return added;
-}
+// Replies the phone shows before Pi records them. Pure data, so Node can test it.
+// The transcript merge itself is shared with the dashboard: see src/core/transcript.ts, served at /transcript.js.
 
 const collapse = (text) => text.trim().replace(/\s+/gu, " ");
 

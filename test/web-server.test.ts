@@ -100,6 +100,11 @@ test("serves the page with a strict content security policy and rejects foreign 
       assert.equal(module.status, 200, name);
       assert.match(module.headers.get("content-type") ?? "", /^text\/javascript/u);
     }
+    // The transcript merge is shared with the dashboard and served compiled, not from the page folder.
+    const shared = await fetch(`${h.base}/transcript.js`);
+    assert.equal(shared.status, 200);
+    assert.match(shared.headers.get("content-type") ?? "", /^text\/javascript/u);
+    assert.match(await shared.text(), /export function acceptPage/u);
     await writeFile(join(h.staticDir, "other.js"), "export {};");
     assert.equal((await fetch(`${h.base}/other.js`)).status, 404);
     // fetch() cannot forge Host; a rebinding browser sends the attacker's name here.

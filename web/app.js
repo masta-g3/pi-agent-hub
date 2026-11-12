@@ -1,5 +1,6 @@
 // Phone inbox for pi-agent-hub. Producer text only ever reaches the page through text nodes.
-import { acceptPage, clearChat, newChat, settleSent } from "/chat.js";
+import { acceptPage, clearTranscript, newTranscript } from "/transcript.js";
+import { settleSent } from "/chat.js";
 import { renderMarkdown } from "/markdown.js";
 
 const STALE_MS = 10_000;
@@ -23,7 +24,7 @@ const state = {
   stale: true,
   collapsed: new Set(["quiet"]),
   detail: undefined,           // { id, data?, missing? }
-  chat: undefined,             // transcript of the open session: { id, piSessionId, ...newChat() }
+  chat: undefined,             // transcript of the open session: { id, piSessionId, ...newTranscript() }
   sent: [],                    // replies shown before Pi records them: { localId, text, delivery, status }
   earlier: false,              // an earlier page is loading
   reveal: undefined,           // id of the first message the last poll added
@@ -173,7 +174,7 @@ function applyDetail(id, data) {
   const piSessionId = data.session.piSessionId;
   // Leaving the screen drops the transcript, so only a restarted session can differ here.
   if (!state.chat || state.chat.piSessionId !== piSessionId) {
-    state.chat = { id, piSessionId, ...newChat() };
+    state.chat = { id, piSessionId, ...newTranscript() };
     state.sent = [];
   }
   if (!data.conversation) return;
@@ -201,7 +202,7 @@ async function loadEarlier() {
   const current = state.chat === chat && chat.branchId === branchId && chat.before === before;
   if (current && refused) {
     // The cursor is no longer on the session's branch: start again from the newest page.
-    clearChat(chat);
+    clearTranscript(chat);
     void loadDetail();
   }
   // Keep the message that was first where it is on screen. Its element may be rebuilt, so it is found by id.
@@ -542,7 +543,7 @@ function goToEnd() {
   const chat = state.chat;
   if (!chat) return;
   chat.following = true;
-  chat.fresh = false;
+  chat.newMessages = false;
   render();
   scrollToEnd();
   // More than a page may have arrived while the reader was away from the end.
@@ -601,7 +602,7 @@ function renderDetail() {
   // The composer is rebuilt when its buttons change; the draft is in state, so only focus needs restoring.
   const typing = document.activeElement?.matches?.(".dock textarea");
   sync(dock, [
-    ["pill", "pill", chat?.fresh && (() => h("button", { class: "pill", type: "button", onclick: goToEnd }, "New messages ↓"))],
+    ["pill", "pill", chat?.newMessages && (() => h("button", { class: "pill", type: "button", onclick: goToEnd }, "New messages ↓"))],
     ["receipt", JSON.stringify(receipt ?? null), receipt && (() => receiptLine(session.id))],
     session.canInteract && !unavailable
       ? ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}:${readKey}`, () => composer(session, interaction)]
@@ -735,7 +736,7 @@ window.addEventListener("scroll", () => {
   if (following === chat.following) return;
   chat.following = following;
   // The reader came back to the end by hand.
-  if (following && chat.fresh) goToEnd();
+  if (following && chat.newMessages) goToEnd();
 }, { passive: true });
 setInterval(() => { if (route() && !document.hidden && !state.stale && !state.pending.size && !detailLoading) void loadDetail(); }, DETAIL_POLL_MS);
 connect();
