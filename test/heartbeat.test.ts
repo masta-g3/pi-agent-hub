@@ -7,6 +7,7 @@ import { parseHeartbeat, parseSessionActivity, parseWorkflowEntry, parseWorkflow
 import { heartbeatPath } from "../src/core/paths.js";
 import { applyComputedStatus } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const core = {
   managedSessionId: "api",
@@ -249,44 +250,119 @@ test("heartbeat activity round-trips and a malformed one is isolated", () => {
   assert.equal(malformed?.state, "waiting");
 });
 
-test("plan checklist and phase titles parse without risking the plan's counts", () => {
+test("plan phase titles parse and a producer checklist is ignored", () => {
   const base = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
   const plan = (extra: Record<string, unknown>) => parseWorkflowSnapshot({ ...base, plan: { tasks: { completed: 1, total: 3 }, ...extra } })?.plan;
   assert.deepEqual(plan({
-    current: { tasks: [{ done: true, text: " Write\u001b tests " }, { done: false, text: "Ship" }], before: 4, after: 2 },
+    current: { tasks: [{ done: true, text: "Write tests" }, { done: false, text: "Ship" }], before: 4, after: 2 },
     phases: [{ completed: 1, total: 2, title: "Parsers" }, { completed: 0, total: 1, title: "x".repeat(161) }],
   }), {
     tasks: { completed: 1, total: 3 },
     phases: [{ completed: 1, total: 2, title: "Parsers" }, { completed: 0, total: 1 }],
-    current: { tasks: [{ done: true, text: "Write tests" }, { done: false, text: "Ship" }], before: 4, after: 2 },
   });
-  // Hidden-task counts default to zero when absent or malformed.
-  assert.deepEqual(plan({ current: { tasks: [{ done: false, text: "Ship" }], before: -1 } })?.current, { tasks: [{ done: false, text: "Ship" }], before: 0, after: 0 });
-  for (const current of [
-    { tasks: [{ done: "yes", text: "Ship" }] },
-    { tasks: [{ done: true, text: "" }, { done: false, text: "Ship" }] },
-    { tasks: [] },
-    { tasks: "Ship" },
-    { tasks: Array.from({ length: 25 }, (_, index) => ({ done: false, text: `Task ${index}` })) },
-  ]) assert.deepEqual(plan({ current }), { tasks: { completed: 1, total: 3 } }, JSON.stringify(current).slice(0, 60));
-  assert.equal(plan({ current: { tasks: Array.from({ length: 24 }, (_, index) => ({ done: false, text: `Task ${index}` })) } })?.current?.tasks.length, 24);
 });
 
-test("computed status keeps the live plan checklist and tool activity out of the registry", () => {
+const LENS = {
+  doing: " Add at in\u001b[31m src/core/conversation.ts ",
+  stages: [{ label: "1", state: "done" }, { label: "2", state: "active" }, { label: "3", state: "pending" }],
+  progress: { completed: 11, total: 19, unit: "tasks" },
+  pass: 2,
+  list: {
+    label: "PLAN", head: "Conversation transport",
+    items: [{ state: "done", text: "conversation test" }, { state: "active", text: "Add at" }, { state: "pending", text: "web-server test" }, { state: "attention", text: "Fix" }, { state: "skipped", text: "Drop" }],
+    before: 1, after: 2,
+  },
+};
+
+test("workflow lens parses every bounded field from any step", () => {
+  const base = { steps: [{ id: "build", short: "BLD" }], activeIndex: 0, updatedAt: 1_000 };
+  assert.deepEqual(parseWorkflowSnapshot({ ...base, lens: LENS })?.lens, {
+    ...LENS,
+    doing: "Add at in src/core/conversation.ts",
+  });
+  assert.deepEqual(parseWorkflowEntry({ steps: [{ id: "build", short: "BLD" }], activeStep: "build", updatedAt: 1_000, lens: { doing: "Build" } })?.lens, { doing: "Build" });
+  assert.equal(parseWorkflowSnapshot({ ...base, lens: {} })?.lens, undefined);
+  assert.equal(parseWorkflowSnapshot({ ...base, lens: "doing" })?.lens, undefined);
+});
+
+test("one malformed lens field is dropped without hiding the rest or the rail", () => {
+  const base = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
+  const lens = (field: string, value: unknown) => parseWorkflowSnapshot({ ...base, lens: { ...LENS, [field]: value } });
+  const item = (text: string, state = "active") => ({ ...LENS.list, items: [{ state, text }] });
+  const malformed: Array<[string, unknown]> = [
+    ["doing", "d".repeat(161)], ["doing", " "], ["doing", 3],
+    ["stages", [{ label: "x".repeat(25), state: "done" }]], ["stages", [{ label: "1", state: "attention" }]],
+    ["stages", Array.from({ length: 13 }, () => ({ label: "1", state: "done" }))], ["stages", []],
+    ["progress", { completed: 3, total: 2 }], ["progress", { completed: 1, total: 2, unit: "u".repeat(17) }],
+    ["pass", 1], ["pass", 2.5], ["pass", "2"],
+    ["list", { ...LENS.list, label: "PLANNED" }], ["list", { ...LENS.list, label: "計画計画" }],
+    ["list", { ...LENS.list, head: "h".repeat(121) }], ["list", { ...LENS.list, items: [] }],
+    ["list", { ...LENS.list, items: Array.from({ length: 13 }, () => ({ state: "done", text: "x" })) }],
+    ["list", item("t".repeat(121))], ["list", item("ok", "open")], ["list", { ...LENS.list, before: -1 }],
+  ];
+  for (const [field, value] of malformed) {
+    const parsed = lens(field, value);
+    assert.equal(parsed?.activeIndex, 0, field);
+    assert.equal(field in (parsed?.lens ?? {}), false, `${field}: ${JSON.stringify(value).slice(0, 40)}`);
+    assert.ok(Object.keys(parsed?.lens ?? {}).length >= 4, field);
+  }
+  assert.equal(lens("list", { ...LENS.list, label: "計画" })?.lens?.list?.label, "計画");
+  assert.deepEqual(lens("progress", { completed: 1, total: 2 })?.lens?.progress, { completed: 1, total: 2 });
+});
+
+test("computed status retains the lens and keeps tool activity out of the registry", () => {
   const now = 10_000;
   const session: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "running", createdAt: 1, updatedAt: 1 };
   const heartbeat = parseHeartbeat({
     ...core, state: "running", stateSince: now - 100, updatedAt: now,
     activity: { current: { tool: "bash", at: now } },
     workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: now,
-      plan: { tasks: { completed: 1, total: 2 }, current: { tasks: [{ done: true, text: "One" }, { done: false, text: "Two" }] } } },
+      plan: { tasks: { completed: 1, total: 2 } }, lens: { doing: "Two", progress: { completed: 1, total: 2 } } },
   }, "api")!;
-  assert.ok(heartbeat.workflow?.plan?.current && heartbeat.activity);
   const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
-  // The registry type has no plan field; the stored copy keeps only the plan's counts.
-  assert.deepEqual((updated.workflow as { plan?: unknown } | undefined)?.plan, { tasks: { completed: 1, total: 2 } });
+  assert.deepEqual(updated.workflow?.lens, { doing: "Two", progress: { completed: 1, total: 2 } });
   assert.equal("activity" in updated, false);
-  assert.ok(!JSON.stringify(updated).includes("\"current\""));
-  // The heartbeat itself still carries the checklist for the live projection.
-  assert.equal(heartbeat.workflow?.plan?.current?.tasks.length, 2);
+  const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0, workflow: undefined });
+  assert.deepEqual(stale.workflow?.lens, { doing: "Two", progress: { completed: 1, total: 2 } });
+});
+
+test("lens summary is a bounded optional field", () => {
+  const base = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
+  assert.equal(parseWorkflowSnapshot({ ...base, lens: { ...LENS, summary: " 2 running · 1 parked " } })?.lens?.summary, "2 running · 1 parked");
+  for (const summary of ["s".repeat(81), " ", 3]) {
+    const parsed = parseWorkflowSnapshot({ ...base, lens: { ...LENS, summary } });
+    assert.equal(parsed?.lens?.summary, undefined);
+    assert.equal(parsed?.lens?.pass, 2);
+  }
+});
+
+test("a Rules entry without a step parses as a lens alone, with no position", () => {
+  const epic = parseWorkflowEntry(ORCHESTRATION_EPIC_ENTRY);
+  assert.deepEqual(Object.keys(epic ?? {}), ["lens"]);
+  assert.equal(epic?.lens?.list?.items.length, 12);
+  assert.deepEqual(epic?.lens?.progress, { completed: 2, total: 24, unit: "committed" });
+  assert.equal(epic?.lens?.summary, "2 running · 1 parked · 19 queued");
+  const ticket = parseWorkflowEntry(ORCHESTRATION_TICKET_ENTRY);
+  assert.deepEqual(Object.keys(ticket ?? {}), ["lens"]);
+  assert.equal(ticket?.lens?.stages?.length, 5);
+  assert.equal(ticket?.lens?.summary, "2 gates ✓");
+  assert.equal(parseWorkflowEntry({ ...ORCHESTRATION_EPIC_ENTRY, lens: undefined }), undefined);
+  assert.equal(parseWorkflowEntry({ ...ORCHESTRATION_EPIC_ENTRY, activeStep: " " }), undefined);
+});
+
+test("a lens-only heartbeat round-trips through computed status and retention", () => {
+  const now = 10_000;
+  const lens = parseWorkflowEntry(ORCHESTRATION_EPIC_ENTRY)!.lens;
+  const session: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "running", createdAt: 1, updatedAt: 1,
+    workflow: { steps: [{ id: "plan-md", short: "PL" }], activeIndex: 0, updatedAt: 1 } };
+  const heartbeat = parseHeartbeat({ ...core, state: "running", stateSince: now - 100, updatedAt: now, lens }, "api")!;
+  assert.deepEqual(heartbeat.lens, lens);
+  const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
+  assert.equal(updated.workflow, undefined);
+  assert.deepEqual(updated.lens, lens);
+  const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0 });
+  assert.deepEqual(stale.lens, lens);
+  // A positioned workflow wins over a stray lens.
+  const both = parseHeartbeat({ ...core, state: "running", stateSince: now, updatedAt: now, lens, workflow: { steps: [{ id: "x", short: "X" }], activeIndex: 0, updatedAt: now } }, "api")!;
+  assert.equal(both.lens, undefined);
 });

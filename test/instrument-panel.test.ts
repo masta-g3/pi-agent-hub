@@ -8,6 +8,8 @@ import { mergeUsageSnapshots, parseUsageSnapshot } from "../src/core/usage.js";
 import { darkTheme, stripAnsi, styleToken, type SessionsTheme } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { usageFixture, USAGE_NOW } from "./usage-fixture.js";
+import { parseWorkflowEntry } from "../src/core/heartbeat.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const NOW = USAGE_NOW;
 const mocha: SessionsTheme = {
@@ -154,15 +156,21 @@ test("a collapsed HEALTH tier folds to its heading like every other tier", () =>
 
 const steps = [["plan", "PL"], ["execute", "EX"], ["review", "RV"], ["reflect", "RF"], ["commit", "CM"]].map(([id, short]) => ({ id: id!, short: short!, label: id! }));
 const panelWorkflow = (activeIndex: number, extra: Record<string, unknown> = {}) => ({ version: 1 as const, source: "test", activeIndex, updatedAt: NOW, steps, ...extra });
+type Stage = { label: string; state: "done" | "active" | "pending" };
+const stagesAt = (labels: string[], active: number): Stage[] => labels.map((label, index) => ({ label, state: index < active ? "done" : index === active ? "active" : "pending" }));
+const phases = (count: number, active: number) => stagesAt(Array.from({ length: count }, (_, index) => String(index + 1)), active);
 const asking = session("asking", {
   title: "Tile Review", status: "waiting", lastActivityAt: NOW - 600_000,
   context: { version: 1, updatedAt: NOW, attention: { kind: "question", requestId: "q1", text: "Which neighborhood tiles should come first? There are several candidate areas with different data quality and coverage.", recommendation: "North Beach, then Chinatown" } },
-  workflow: panelWorkflow(1, { plan: { phase: { title: "Tests", index: 2, count: 5 }, tasks: { completed: 3, total: 8 } } }),
+  workflow: panelWorkflow(1, { plan: { phase: { title: "Tests", index: 2, count: 5 }, tasks: { completed: 3, total: 8 } },
+    lens: { doing: "Write the tile tests", stages: phases(5, 1), progress: { completed: 3, total: 8, unit: "tasks" } } }),
 });
-const working = session("working", { title: "Tile export", lastActivityAt: NOW - 600_000, workflow: panelWorkflow(2, { activity: { id: "r", label: "rendering tiles" } }) });
+const working = session("working", { title: "Tile export", lastActivityAt: NOW - 600_000,
+  workflow: panelWorkflow(2, { activity: { id: "r", label: "rendering tiles" }, lens: { doing: "rendering tiles", stages: stagesAt(["review", "fix", "done"], 0) } }) });
 const failing = session("failing", { title: "Catalog Sync", status: "error", error: "pi exited 1: ENOSPC", workflow: panelWorkflow(1, { activity: { id: "x", label: "stale activity" } }) });
 const resting = session("resting", { title: "Job Status", status: "idle", acknowledgedAt: NOW, workflow: panelWorkflow(4) });
-const picked = session("picked", { title: "Picked agent", workflow: panelWorkflow(1, { activity: { id: "w", label: "writing tests" }, plan: { phase: { title: "T", index: 5, count: 5 }, tasks: { completed: 19, total: 19 } } }) });
+const picked = session("picked", { title: "Picked agent", workflow: panelWorkflow(1, { plan: { phase: { title: "T", index: 5, count: 5 }, tasks: { completed: 19, total: 19 } },
+  lens: { stages: phases(5, 5), progress: { completed: 19, total: 19, unit: "tasks" } } }) });
 const panelFleet = [picked, asking, working, failing, resting];
 
 /** The docked card's rows below the dock rule. */
@@ -197,7 +205,7 @@ test("an unselected request wraps to a second line and leaves its recommendation
   const layout = render(panelFleet, { width: 80 });
   const lines = moduleLines(layout, "asking");
   assert.equal(lines.length, 3, lines.join("\n"));
-  assert.match(lines[1]!, /^ +ASK {3}Which neighborhood/);
+  assert.match(lines[1]!, /^ +ASK {4}Which neighborhood/);
   assert.ok(!lines.some((line) => line.includes("North Beach")), lines.join("\n"));
   const valueColumn = lines[1]!.indexOf("Which");
   assert.equal(lines[2]!.search(/\S/), valueColumn);
@@ -205,31 +213,39 @@ test("an unselected request wraps to a second line and leaves its recommendation
   assert.ok(card.some((line) => /→ North Beach, then Chinatown/.test(line)), card.join("\n"));
 });
 
-test("ERR replaces NOW, and the card's readout drops PHASE, the meter, then TASK as width shrinks", () => {
+test("ERR replaces NOW, and WHERE drops the mode, pass, meter, stages, then count as width shrinks", () => {
   const failed = moduleLines(render(panelFleet), "failing");
-  assert.ok(failed.some((line) => /ERR {3}pi exited 1: ENOSPC/.test(line)));
+  assert.ok(failed.some((line) => /ERR {4}pi exited 1: ENOSPC/.test(line)));
   assert.ok(!failed.some((line) => /NOW|stale activity/.test(line)), failed.join("\n"));
   const failedCard = cardText(render(panelFleet, { selectedId: "failing" }));
-  assert.ok(failedCard.some((line) => /ERR {3}pi exited 1: ENOSPC/.test(line)), failedCard.join("\n"));
+  assert.ok(failedCard.some((line) => /ERR {4}pi exited 1: ENOSPC/.test(line)), failedCard.join("\n"));
   assert.ok(!failedCard.some((line) => /stale activity/.test(line)), failedCard.join("\n"));
-  // At 100+ the side pane draws the readout as an LCD strip: labels above values.
-  const wide = cardText(render(panelFleet, { width: 120, selectedId: "asking" }));
-  const labels = wide.findIndex((line) => /STEP +TASK +PHASE/.test(line));
-  assert.ok(labels > 0, wide.join("\n"));
-  assert.match(wide[labels + 1]!, /PL✓ EX◉ RV· RF· CM· +▰▰▰▱▱▱▱▱ 3\/8 +2\/5/);
-  const medium = cardText(render(panelFleet, { width: 80, selectedId: "asking" })).find((line) => line.includes("STEP"))!;
-  assert.match(medium, /STEP {2}PL✓ EX◉ RV· RF· CM· {3}TASK ▰▰▰▱▱▱▱▱ 3\/8 {3}PHASE 2\/5/);
-  const narrow = cardText(render(panelFleet, { width: 46, selectedId: "asking" })).find((line) => line.includes("STEP"))!;
-  assert.match(narrow, /STEP {2}execute {3}TASK ▰▰▰▱▱▱▱▱ 3\/8$/);
-  // At 30 columns the request fills the fixed dock; Details grow it to show the readout.
-  const tiny = cardText(render(panelFleet, { width: 30, selectedId: "asking", workspaceEvidenceVisible: true })).find((line) => line.includes("STEP"))!;
-  assert.doesNotMatch(tiny, /PHASE|▰/);
-  // The roster never carries the readout.
+  const where = (width: number, extra: Record<string, unknown> = {}) => {
+    const subject = session("where", { title: "Where agent", workflow: panelWorkflow(2, {
+      activeMode: { id: "focus", short: "FOC" },
+      lens: { doing: "Fixing findings", stages: stagesAt(["review", "fix", "done"], 1), progress: { completed: 3, total: 8 }, pass: 2 }, ...extra }) });
+    return cardText(render([subject], { width, selectedId: "where", workspaceEvidenceVisible: true })).find((line) => /^\W*WHERE /.test(line))?.replace(/^▌/u, " ").trim() ?? "";
+  };
+  // The side pane narrows with the window, so each width shows one more piece dropped.
+  assert.equal(where(130), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2  FOC");
+  assert.equal(where(120), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2");
+  assert.equal(where(100), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  3/8");
+  // Below 80 the rail is the plain step, which names the mode.
+  assert.equal(where(60), "WHERE  FOC │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2");
+  assert.equal(where(46), "WHERE  FOC │ review✓ fix◉ done·  3/8");
+  assert.equal(where(30), "WHERE  FOC  3/8");
+  // Without a lens WHERE shows the rail only, and DONE/NEXT keep the DOING line's place.
+  const bare = session("bare", { title: "Bare", context: { version: 1, updatedAt: NOW, progress }, workflow: panelWorkflow(1, { plan: { tasks: { completed: 3, total: 8 } }, activity: { id: "a", label: "Reviewing" } }) });
+  const card = cardText(render([bare], { width: 130, selectedId: "bare" }));
+  assert.ok(card.some((line) => /^ *WHERE {2}PL✓ EX◉ RV· RF· CM·$/.test(line)), card.join("\n"));
+  assert.ok(card.some((line) => /^ *DONE {3}Roster rows work/.test(line)) && card.some((line) => /^ *NEXT {3}Build the detail pane/.test(line)), card.join("\n"));
+  assert.ok(!card.some((line) => /DOING|PLAN|Reviewing|3\/8/.test(line)), card.join("\n"));
+  // The roster never carries WHERE.
   for (const width of [120, 80, 46]) {
     const layout = render(panelFleet, { width });
     const dock = dockStart(layout);
     const roster = rosterPlain(layout).slice(0, dock < 0 ? layout.footerRow : dock - 1);
-    assert.ok(!roster.some((line) => /STEP|PHASE/.test(line)), `${width}\n${roster.join("\n")}`);
+    assert.ok(!roster.some((line) => /WHERE|STEP/.test(line)), `${width}\n${roster.join("\n")}`);
   }
 });
 
@@ -254,35 +270,108 @@ test("quiet agents are modules, archived rows stay one line, and SUB names runni
   const child = (id: string, agentName: string, taskPreview: string) => session(id, { kind: "subagent", parentId: "parent", agentName, taskPreview });
   const sessions = [picked, parent, child("c1", "code-critic", "Review the pixel map diff"), child("c2", "scout", "Find tile loaders"), resting];
   const lines = moduleLines(render(sessions), "parent");
-  assert.ok(lines.some((line) => /SUB {3}code-critic Review the pixel map/.test(line)), lines.join("\n"));
+  assert.ok(lines.some((line) => /SUB {4}code-critic Review the pixel map/.test(line)), lines.join("\n"));
   const parentCard = cardText(render(sessions, { selectedId: "parent" }));
-  assert.ok(parentCard.some((line) => /SUB {3}code-critic · Review the pixel map diff · \+1 more/.test(line)), parentCard.join("\n"));
+  assert.ok(parentCard.some((line) => /SUB {4}code-critic · Review the pixel map diff · \+1 more/.test(line)), parentCard.join("\n"));
   const expanded = moduleLines(render(sessions, { expandedProjectParentIds: new Set(["parent"]) }), "parent");
   assert.ok(!expanded.some((line) => /SUB/.test(line)), expanded.join("\n"));
   // A quiet module is its title row with the step short; its card shows where the workflow stands.
   const restingRows = moduleLines(render(sessions), "resting");
   assert.equal(restingRows.length, 1, restingRows.join("\n"));
   assert.match(restingRows[0]!, /Job Status .* CM +now$/);
-  assert.ok(cardText(render(sessions, { selectedId: "resting" })).some((line) => /PL✓ EX✓ RV✓ RF✓ CM◉/.test(line)));
+  assert.ok(cardText(render(sessions, { selectedId: "resting" })).some((line) => /WHERE {2}PL✓ EX✓ RV✓ RF✓ CM◉/.test(line)));
   const archived = session("old", { title: "Old work", status: "stopped", bucket: "archived", bucketChangedAt: NOW - 1_000, workflow: panelWorkflow(1) });
   assert.equal(moduleLines(render([picked, archived]), "old").length, 1);
 });
 
-test("the selected card shows the LCD strip at 100+ and a one-line readout below", () => {
-  const layout = render(panelFleet, { width: 120 });
+test("the selected card shows DOING and one WHERE line with the producer's stages and count", () => {
+  const layout = render(panelFleet, { width: 120, selectedId: "asking" });
   const lines = cardText(layout);
-  const labels = lines.findIndex((line) => /STEP +TASK +PHASE/.test(line));
-  assert.ok(labels > 0, lines.join("\n"));
-  assert.equal(lines[labels]!.indexOf("TASK"), lines[labels + 1]!.indexOf("▰"));
-  assert.match(lines[labels + 1]!, /PL✓ EX◉ RV· RF· CM· +▰{8} 19\/19 +5\/5/);
-  const lcd = `\u001b[48;2;29;30;41m`;
-  const raw = layout.lines.filter((line) => /STEP +TASK/.test(stripAnsi(line)) || /19\/19/.test(stripAnsi(line)));
-  // The roster's status line carries the count without a surface; the pane draws the LCD strip.
-  assert.equal(raw.filter((line) => line.includes(lcd)).length, 2);
-  assert.ok(!rosterRaw(layout).some((line) => line.includes(lcd)));
-  const narrow = dockLines(render(panelFleet, { width: 80 }));
-  assert.ok(narrow.some((line) => /STEP {2}PL✓ EX◉ RV· RF· CM· {3}TASK ▰{8} 19\/19 {3}PHASE 5\/5/.test(line)), narrow.join("\n"));
-  assert.ok(!narrow.some((line) => /STEP +TASK +PHASE$/.test(line.trim())));
+  const ask = lines.findIndex((line) => /^ *ASK /.test(line));
+  const doing = lines.findIndex((line) => /^ *DOING {2}Write the tile tests$/.test(line));
+  const where = lines.findIndex((line) => /^ *WHERE {2}PL✓ EX◉ RV· RF· CM· │ 1✓ 2◉ 3· 4· 5· {2}▰{3}▱{5} 3\/8$/.test(line));
+  assert.ok(ask >= 0 && doing > ask && where > doing, lines.join("\n"));
+  assert.ok(!lines.some((line) => /STEP|TASK|PHASE/.test(line)), lines.join("\n"));
+  const raw = layout.lines.find((line) => stripAnsi(line).includes("DOING  Write the tile tests"))!;
+  assert.ok(raw.includes("\u001b[1m"), "DOING is bold");
+  const narrow = dockLines(render(panelFleet, { width: 80, selectedId: "picked" }));
+  assert.ok(narrow.some((line) => /WHERE {2}PL✓ EX◉ RV· RF· CM· │ 1✓ 2✓ 3✓ 4✓ 5✓ {2}▰{8} 19\/19/.test(line)), narrow.join("\n"));
+});
+
+test("a stopped session with a stale heartbeat keeps its DOING, WHERE and list", () => {
+  const stopped = { ...mission, status: "stopped" as const, activity: undefined };
+  const card = cardText(render([stopped, ...panelFleet], { width: 130, height: 60, selectedId: "mission" }));
+  assert.ok(card.some((line) => /^ *DOING {2}Render the detail pane beside the roster$/.test(line)), card.join("\n"));
+  assert.ok(card.some((line) => /^ *WHERE {2}PL✓ EX◉ .* 8\/17$/.test(line)), card.join("\n"));
+  assert.ok(card.some((line) => /^ *PLAN {3}Roster and detail pane$/.test(line)), card.join("\n"));
+  assert.match(moduleLines(render([picked, stopped], { width: 80 }), "mission")[1]!, /^ +DOING {2}Render the detail pane.* 8\/17$/);
+});
+
+test("a lens under any step id renders fully: the card checks no step name", () => {
+  const custom = session("custom", { title: "Custom pipeline", workflow: { activeIndex: 0, updatedAt: NOW,
+    steps: [{ id: "build", short: "BLD" }, { id: "ship", short: "SHP" }],
+    lens: { doing: "Compiling assets", stages: stagesAt(["fetch", "compile"], 1), progress: { completed: 2, total: 4 },
+      list: { label: "TARGET", head: "Web bundle", items: [{ state: "done", text: "css" }, { state: "active", text: "js" }, { state: "attention", text: "wasm" }, { state: "skipped", text: "legacy" }], before: 0, after: 0 } } } });
+  const card = cardText(render([custom], { width: 130, selectedId: "custom" }));
+  assert.ok(card.some((line) => /^ *DOING {2}Compiling assets$/.test(line)), card.join("\n"));
+  assert.ok(card.some((line) => /^ *WHERE {2}BLD◉ SHP· │ fetch✓ compile◉ {2}▰{4}▱{4} 2\/4$/.test(line)), card.join("\n"));
+  assert.deepEqual(field(card, "TARGET").map((line) => line.trim()), ["TARGET Web bundle", "✓ css", "◉ js", "! wasm", "– legacy"]);
+  assert.match(moduleLines(render([picked, custom], { width: 80 }), "custom")[1]!, /^ +DOING {2}Compiling assets.* 2\/4$/);
+});
+
+// Lenses as Rules publishes them for Plan during critic review and for a completed two-repo Commit.
+const planLens = { doing: "Reviewing plan", stages: stagesAt(["inspect", "scope", "write", "critic", "ready"], 3),
+  list: { label: "PLAN", head: "3 phases · 10 tasks · 5 criteria", items: [{ state: "done" as const, text: "4 answered" },
+    { state: "attention" as const, text: "1 waiting: Keep the \"Use as reply\" button?" }, { state: "active" as const, text: "critic pass 1" }], before: 0, after: 0 } };
+const commitLens = { doing: "Commit complete", stages: stagesAt(["archive", "commit"], 2),
+  list: { label: "CLOSE", head: "2 commits", items: [{ state: "done" as const, text: "Plan archived" }, { state: "done" as const, text: "Ticket card-lens-002 done" },
+    { state: "done" as const, text: "pi-agent-hub 3f9c2e1 Add step lens contract" }, { state: "done" as const, text: "rules a1b2c3d Publish the workflow lens" }], before: 0, after: 0 } };
+
+test("Plan and completed Commit lenses render their lists at 100 and 160 columns", () => {
+  const planning = session("planning", { title: "Plan lenses", status: "waiting", workflow: panelWorkflow(0, { activity: { id: "reviewing-plan", label: "Reviewing plan" }, lens: planLens }) });
+  const closed = session("closed", { title: "Commit lenses", status: "idle", workflow: panelWorkflow(4, { currentStepComplete: true, activity: { id: "commit-complete", label: "Commit complete" }, lens: commitLens }) });
+  for (const width of [100, 160]) {
+    const plan = cardText(render([planning, closed], { width, selectedId: "planning" }));
+    assert.ok(plan.some((line) => /^ *DOING {2}Reviewing plan$/.test(line)), plan.join("\n"));
+    // The 100-column side pane is too narrow for the stages, so WHERE keeps the rail.
+    const planWhere = width === 160 ? / │ inspect✓ scope✓ write✓ critic◉ ready·$/ : /CM·$/;
+    assert.ok(plan.some((line) => /^ *WHERE {2}PL◉ EX· RV· RF· CM·/.test(line) && planWhere.test(line)), plan.join("\n"));
+    assert.deepEqual(field(plan, "PLAN").map((line) => line.trim()), ["PLAN   3 phases · 10 tasks · 5 criteria", "✓ 4 answered", "! 1 waiting: Keep the \"Use as reply\" button?", "◉ critic pass 1"]);
+
+    const commit = cardText(render([planning, closed], { width, selectedId: "closed" }));
+    assert.ok(commit.some((line) => /^ *DOING {2}Commit complete$/.test(line)), commit.join("\n"));
+    assert.ok(commit.some((line) => /^ *WHERE {2}PL✓ EX✓ RV✓ RF✓ CM✓ │ archive✓ commit✓$/.test(line)), commit.join("\n"));
+    assert.deepEqual(field(commit, "CLOSE").map((line) => line.trim()), ["CLOSE  2 commits", "✓ Plan archived", "✓ Ticket card-lens-002 done",
+      "✓ pi-agent-hub 3f9c2e1 Add step lens contract", "✓ rules a1b2c3d Publish the workflow lens"]);
+  }
+});
+
+// Lenses as Rules publishes them from set_workflow_activity items while fixing findings and while applying candidates.
+const reviewLens = { doing: "Parser stall on long backtick runs", stages: stagesAt(["review", "fix", "done"], 1), pass: 2,
+  list: { label: "FOUND", head: "2 fixed · 2 open · 1 deferred", items: [{ state: "done" as const, text: "Retry after unknown delivery showed twice" },
+    { state: "done" as const, text: "Lost history cursor on empty session" }, { state: "active" as const, text: "Parser stall on long backtick runs" },
+    { state: "pending" as const, text: "Failed read dropped loaded history" }, { state: "skipped" as const, text: "Login in a link: deferred" }], before: 0, after: 0 } };
+const reflectLens = { doing: "STRUCTURE.md: Markdown safety rule", stages: stagesAt(["review", "update", "done"], 1),
+  list: { label: "CANDS", head: "1 applied · 1 now · 1 needs you · 1 no action", items: [{ state: "done" as const, text: "STRUCTURE.md: transcript source" },
+    { state: "active" as const, text: "STRUCTURE.md: Markdown safety rule" }, { state: "attention" as const, text: "New ticket: keyboard dock check" },
+    { state: "skipped" as const, text: "Retry wording: no change" }], before: 0, after: 0 } };
+
+test("Review and Reflect lenses render their item lists at 100 and 160 columns", () => {
+  const reviewing = session("reviewing", { title: "Review lenses", workflow: panelWorkflow(2, { activity: { id: "fixing-review-findings", label: "Fixing findings", pass: 2 }, lens: reviewLens }) });
+  const reflecting = session("reflecting", { title: "Reflect lenses", workflow: panelWorkflow(3, { activity: { id: "updating-guidance", label: "Updating guidance" }, lens: reflectLens }) });
+  for (const width of [100, 160]) {
+    const review = cardText(render([reviewing, reflecting], { width, selectedId: "reviewing" }));
+    assert.ok(review.some((line) => /^ *DOING {2}Parser stall on long backtick runs$/.test(line)), review.join("\n"));
+    assert.ok(review.some((line) => /^ *WHERE {2}PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done· {2}pass 2$/.test(line)), review.join("\n"));
+    assert.deepEqual(field(review, "FOUND").map((line) => line.trim()), ["FOUND  2 fixed · 2 open · 1 deferred", "✓ Retry after unknown delivery showed twice",
+      "✓ Lost history cursor on empty session", "◉ Parser stall on long backtick runs", "· Failed read dropped loaded history", "– Login in a link: deferred"]);
+
+    const reflect = cardText(render([reviewing, reflecting], { width, selectedId: "reflecting" }));
+    assert.ok(reflect.some((line) => /^ *DOING {2}STRUCTURE\.md: Markdown safety rule$/.test(line)), reflect.join("\n"));
+    assert.ok(reflect.some((line) => /^ *WHERE {2}PL✓ EX✓ RV✓ RF◉ CM· │ review✓ update◉ done·$/.test(line)), reflect.join("\n"));
+    assert.deepEqual(field(reflect, "CANDS").map((line) => line.trim()), ["CANDS  1 applied · 1 now · 1 needs you · 1 no action", "✓ STRUCTURE.md: transcript source",
+      "◉ STRUCTURE.md: Markdown safety rule", "! New ticket: keyboard dock check", "– Retry wording: no change"]);
+  }
 });
 
 test("without color the LCD keeps labels above values and selection keeps its stripe and keys", () => {
@@ -290,7 +379,7 @@ test("without color the LCD keeps labels above values and selection keeps its st
   try {
     const layout = render(panelFleet, { width: 120 });
     const card = cardText(layout);
-    assert.ok(card.some((line) => /STEP +TASK +PHASE/.test(line)), card.join("\n"));
+    assert.ok(card.some((line) => /WHERE {2}PL✓ EX◉ RV· RF· CM· │ 1✓ 2✓ 3✓ 4✓ 5✓/.test(line)), card.join("\n"));
     assert.ok(card.some((line) => line.includes("Open in Pi")));
     // The roster row carries the stripe; the side pane has none.
     assert.ok(moduleLines(layout, "picked").every((line) => line.startsWith("▌")), moduleLines(layout, "picked").join("\n"));
@@ -356,12 +445,17 @@ const act = (tool: string, detail: string, ago: number) => ({ tool, detail, at: 
 const checklist = ["Sketch roster rows", "Pick status precedence", "Add the heartbeat activity", "Roster rows show one status line",
   "Publish live tool calls in the heartbeat", "Render the detail pane beside the roster", "Show the plan checklist",
   "Keep Answer and Reply inside the pane", "Cap the agent message", "Check every width"].map((text, index) => ({ done: index < 5, text }));
-const missionPlan = { phase: { title: "Roster and detail pane", index: 2, count: 4 }, tasks: { completed: 8, total: 17 }, current: { before: 3, after: 4, tasks: checklist } };
+const missionPlan = { phase: { title: "Roster and detail pane", index: 2, count: 4 }, tasks: { completed: 8, total: 17 } };
+const missionLens = {
+  doing: "Render the detail pane beside the roster", stages: phases(4, 1), progress: { completed: 8, total: 17, unit: "tasks" },
+  list: { label: "PLAN", head: "Roster and detail pane", before: 3, after: 4,
+    items: checklist.map((task, index) => ({ state: task.done ? "done" as const : index === 5 ? "active" as const : "pending" as const, text: task.text })) },
+};
 const progress = { done: "Roster rows work end to end.", next: "Build the detail pane.", updatedAt: NOW };
 /** A running agent executing its plan: workflow activity, a live tool call, four finished calls and a progress note. */
 const mission = session("mission", {
   title: "Mission control",
-  workflow: panelWorkflow(1, { activity: { id: "build", label: "building the pane" }, plan: missionPlan }),
+  workflow: panelWorkflow(1, { plan: missionPlan, lens: missionLens }),
   context: { version: 1, updatedAt: NOW, ticket: { id: "fleet-design-004", subtitle: "Two-pane mission control" }, progress },
   activity: {
     current: act("bash", "npm run typecheck", 3),
@@ -425,20 +519,22 @@ function dockStart(layout: ReturnType<typeof render>): number {
   return rule < 0 ? -1 : rule + 1;
 }
 
-test("roster status lines take the first of ASK/RDY/BLK, ERR, NOW tool, NOW activity, SUB, DONE, then a muted NOW", () => {
+test("roster status lines take the first of ASK/RDY/BLK, ERR, DOING, NOW tool, SUB, then DONE", () => {
+  const lens = { doing: "Render the detail pane", progress: { completed: 8, total: 17 } };
   const busy = { workflow: panelWorkflow(1, { activity: { id: "build", label: "building the pane" } }), activity: { current: act("bash", "npm run typecheck", 3) } };
+  const lensed = { ...busy, workflow: panelWorkflow(1, { lens }) };
   const withProgress = { context: { version: 1 as const, updatedAt: NOW, progress } };
   const child = (parentId: string) => session(`${parentId}-child`, { kind: "subagent", parentId, agentName: "scout", taskPreview: "Find tile loaders" });
   const cases: { row: RuntimeSession; children?: RuntimeSession[]; label: string; text: RegExp; tone: string }[] = [
-    { row: session("ask", { ...busy, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "question", requestId: "q", text: "Ship it today?" } } }), children: [child("ask")], label: "ASK", text: /Ship it today\?/, tone: "warning" },
-    { row: session("rdy", { ...busy, status: "idle", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "ready", requestId: "r", text: "Ready for review" } } }), label: "RDY", text: /Ready for review/, tone: "warning" },
-    { row: session("blk", { ...busy, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "blocked", requestId: "b", text: "Needs a token" } } }), label: "BLK", text: /Needs a token/, tone: "warning" },
-    { row: session("err", { ...busy, ...withProgress, status: "error", error: "pi exited 1" }), children: [child("err")], label: "ERR", text: /pi exited 1/, tone: "error" },
+    { row: session("ask", { ...lensed, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "question", requestId: "q", text: "Ship it today?" } } }), children: [child("ask")], label: "ASK", text: /Ship it today\?/, tone: "warning" },
+    { row: session("rdy", { ...lensed, status: "idle", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "ready", requestId: "r", text: "Ready for review" } } }), label: "RDY", text: /Ready for review/, tone: "warning" },
+    { row: session("blk", { ...lensed, status: "waiting", context: { version: 1, updatedAt: NOW, progress, attention: { kind: "blocked", requestId: "b", text: "Needs a token" } } }), label: "BLK", text: /Needs a token/, tone: "warning" },
+    { row: session("err", { ...lensed, ...withProgress, status: "error", error: "pi exited 1" }), children: [child("err")], label: "ERR", text: /pi exited 1/, tone: "error" },
+    { row: session("doing", { ...lensed, ...withProgress }), children: [child("doing")], label: "DOING", text: /Render the detail pane .* ▰{4}▱{4} 8\/17$/, tone: "success" },
+    { row: session("paused", { ...lensed, ...withProgress, status: "idle" }), children: [child("paused")], label: "DOING", text: /Render the detail pane/, tone: "muted" },
     { row: session("tool", { ...busy, ...withProgress }), children: [child("tool")], label: "NOW", text: /bash {4}npm run typecheck/, tone: "success" },
-    { row: session("doing", { ...busy, ...withProgress, activity: undefined }), children: [child("doing")], label: "NOW", text: /building the pane/, tone: "success" },
     { row: session("sub", { ...busy, ...withProgress, status: "idle" }), children: [child("sub")], label: "SUB", text: /scout Find tile loaders/, tone: "success" },
     { row: session("done", { ...busy, ...withProgress, status: "idle" }), label: "DONE", text: /Roster rows work end to end\./, tone: "muted" },
-    { row: session("paused", { ...busy, status: "idle" }), label: "NOW", text: /building the pane/, tone: "muted" },
   ];
   for (const item of cases) {
     const layout = render([session("selected", { status: "idle" }), item.row, ...(item.children ?? [])], { width: 80 });
@@ -450,22 +546,23 @@ test("roster status lines take the first of ASK/RDY/BLK, ERR, NOW tool, NOW acti
     const label = item.tone === "success" ? styleToken(mocha, "success", item.label) : styleToken(mocha, item.tone as "warning" | "error" | "muted", item.label);
     assert.ok(raw.includes(label), `${item.row.id}: ${item.label} is not ${item.tone}: ${JSON.stringify(raw)}`);
   }
-  // Without any of them the module is its title row alone.
-  assert.equal(moduleLines(render([session("selected"), session("plain", { status: "idle", workflow: panelWorkflow(1) })], { width: 80 }), "plain").length, 1);
+  // The workflow activity label never fills the line: without a lens or a note the module is its title row alone.
+  const quiet = moduleLines(render([session("selected"), session("plain", { status: "idle", workflow: panelWorkflow(1, { activity: { id: "a", label: "building the pane" } }) })], { width: 80 }), "plain");
+  assert.equal(quiet.length, 1, quiet.join("\n"));
 });
 
-test("an executing agent's status line carries the task meter at its right edge, the count alone when narrow", () => {
+test("a lens's status line carries its progress at the right edge, the count alone when narrow", () => {
   for (const width of [130, 80]) {
     const line = moduleLines(render(missionFleet, { width, selectedId: "picked" }), "mission")[1]!;
-    assert.match(line, /^ +NOW {3}bash {4}npm run typ.* {2}▰{4}▱{4} 8\/17$/, `${width}: ${line}`);
+    assert.match(line, /^ +DOING {2}Render the detail pa.* {2}▰{4}▱{4} 8\/17$/, `${width}: ${line}`);
   }
   const narrow = moduleLines(render(missionFleet, { width: 40, selectedId: "picked" }), "mission")[1]!;
-  assert.match(narrow, /NOW .* 8\/17$/);
+  assert.match(narrow, /DOING .* 8\/17$/);
   assert.doesNotMatch(narrow, /▰/);
-  // A stopped agent or a completed step carries no meter.
-  const stopped = moduleLines(render([picked, { ...mission, status: "stopped" }], { width: 80 }), "mission");
-  assert.ok(!stopped.some((line) => /8\/17/.test(line)), stopped.join("\n"));
-  const complete = { ...mission, workflow: { ...mission.workflow!, currentStepComplete: true } };
+  // A fault takes the line and its meter; a finished step publishes no lens.
+  const failed = moduleLines(render([picked, { ...mission, status: "error", error: "boom" }], { width: 80 }), "mission");
+  assert.ok(!failed.some((line) => /8\/17/.test(line)), failed.join("\n"));
+  const complete = { ...mission, workflow: { ...mission.workflow!, currentStepComplete: true, lens: undefined } };
   assert.ok(!moduleLines(render([picked, complete], { width: 80 }), "mission").some((line) => /8\/17/.test(line)));
 });
 
@@ -476,20 +573,21 @@ test("the side pane orders the card's fields and windows the PLAN checklist arou
   assert.match(card[0]!, /▸ .* Mission control ↳1 +panel/);
   assert.match(card[1]!, /^ +hub-repo$/);
   assert.match(card[2]!, /^ +Two-pane mission control$/);
-  // The agent's own summary leads; the instruments follow; its message closes the card under a rule.
-  const order = ["DONE", "NEXT", "STEP", "PLAN", "NOW", "LOG", "SUB", "── SAID ─", "Enter Open in Pi"]
+  // The producer's DOING leads in place of the progress note; the instruments follow; the message closes the card.
+  const order = ["DOING", "WHERE", "PLAN", "NOW", "LOG", "SUB", "── SAID ─", "Enter Open in Pi"]
     .map((label) => card.findIndex((line) => new RegExp(`^ *${label}`).test(line)));
   assert.ok(order.every((index) => index > 2), `${order.join(",")}\n${card.join("\n")}`);
   assert.deepEqual([...order].sort((left, right) => left - right), order, card.join("\n"));
-  assert.match(card[order[2]! + 1]!, /PL✓ EX◉ RV· RF· CM· +▰{4}▱{4} 8\/17/);
-  // Blank rows separate position/plan, activity, progress and message.
-  for (const label of ["STEP", "NOW", "── SAID"]) {
+  assert.ok(!card.some((line) => /^ *(DONE|NEXT)\b/.test(line)), card.join("\n"));
+  assert.match(card[order[1]!]!, /WHERE {2}PL✓ EX◉ RV· RF· CM· │ 1✓ 2◉ 3· 4· {2}▰{4}▱{4} 8\/17$/);
+  // Blank rows separate position, the list, activity and message.
+  for (const label of ["PLAN", "NOW", "── SAID"]) {
     const index = pane.findIndex((line) => new RegExp(`^ *${label}\\b`).test(line));
     assert.equal(pane[index - 1]!.trim(), "", `${label} follows a blank row`);
   }
   // Two tasks before the current one, then pending tasks up to seven; the producer's and the window's skips are counted.
   assert.deepEqual(field(card, "PLAN").map((line) => line.trim()), [
-    "PLAN  2/4 Roster and detail pane",
+    "PLAN   Roster and detail pane",
     "✓ 6 earlier",
     "✓ Roster rows show one status line",
     "✓ Publish live tool calls in the heartbeat",
@@ -508,16 +606,17 @@ test("the side pane orders the card's fields and windows the PLAN checklist arou
   // The docked card keeps the phase and the current task only.
   const docked = dockLines(render(missionFleet, { width: 80, height: 40, selectedId: "mission" }));
   const plan = field(docked.map((line) => line.replace(/^▌/u, " ")), "PLAN").map((line) => line.trim());
-  assert.deepEqual(plan, ["PLAN  2/4 Roster and detail pane", "◉ Render the detail pane beside the roster"]);
+  assert.deepEqual(plan, ["PLAN   Roster and detail pane", "◉ Render the detail pane beside the roster"]);
   assert.ok(!docked.some((line) => /earlier|more$/.test(line.trim())), docked.join("\n"));
 });
 
-test("the card's NOW shows the live tool call and LOG at most three finished calls, each with its age", () => {
-  const card = cardText(render(missionFleet, { width: 130, height: 60, selectedId: "mission" }));
+test("the card's NOW shows only the live tool call and LOG at most three finished calls, each with its age", () => {
+  const activityMission = { ...mission, workflow: { ...mission.workflow!, activity: { id: "build", label: "building the pane" } } };
+  const card = cardText(render([activityMission, critic, ...panelFleet], { width: 130, height: 60, selectedId: "mission" }));
   assert.deepEqual(field(card, "NOW").map((line) => line.trim().replace(/ {2,}/gu, "  ")), [
-    "NOW  building the pane",
-    "3s  bash  npm run typecheck",
+    "NOW  3s  bash  npm run typecheck",
   ]);
+  assert.ok(!card.some((line) => line.includes("building the pane")), card.join("\n"));
   assert.deepEqual(field(card, "LOG").map((line) => line.trim().replace(/ {2,}/gu, "  ")), [
     "LOG  21s edit  src/tui/layout.ts",
     "48s read  src/tui/render-model.ts",
@@ -525,7 +624,7 @@ test("the card's NOW shows the live tool call and LOG at most three finished cal
   ]);
   assert.ok(!card.some((line) => line.includes("heartbeat.ts")), "a fourth finished call is not shown");
   // Ages share one column, so tool names line up under each other.
-  const tools = [...field(card, "NOW").slice(1), ...field(card, "LOG")].map((line) => line.search(/bash|edit|read/));
+  const tools = [...field(card, "NOW"), ...field(card, "LOG")].map((line) => line.search(/bash|edit|read/));
   assert.equal(new Set(tools).size, 1, card.join("\n"));
   // A session that is not running shows no live call.
   const idle = cardText(render([{ ...mission, status: "idle" }, ...panelFleet], { width: 130, height: 60 }));
@@ -554,18 +653,20 @@ test("SAID renders the selected session's latest message as markdown and caps it
   assert.ok(!long.some((line) => line.includes("Line 15")));
 });
 
-test("with a reply panel open the pane keeps request, DONE and SAID, drops position and activity, and keeps the panel whole", () => {
+test("with a reply panel open the pane keeps request, DOING and SAID, drops position, the list and activity, and keeps the panel whole", () => {
   const asking = { ...mission, status: "waiting" as const, context: { ...mission.context!, attention: { kind: "question" as const, requestId: "q", text: "Should the checklist window be seven rows?", recommendation: "Keep seven" } } };
-  const running = { ...mission, context: { ...mission.context! } };
+  const running = { ...mission, workflow: panelWorkflow(1, { plan: missionPlan }), context: { ...mission.context! } };
   for (const subject of [asking, running]) {
     const sessions = [subject, critic, ...panelFleet];
     const tall = cardText(render(sessions, { width: 130, height: 60, selectedId: "mission", selectedMessage: said, cardPanel: replyPanel }));
-    for (const label of ["STEP", "PLAN", "NOW", "LOG", "SUB"]) assert.ok(!tall.some((line) => new RegExp(`^ *${label}\\b`).test(line)), `${label}\n${tall.join("\n")}`);
-    assert.ok(tall.some((line) => /^ *DONE {2}Roster rows work/.test(line)), tall.join("\n"));
+    for (const label of ["WHERE", "PLAN", "NOW", "LOG", "SUB"]) assert.ok(!tall.some((line) => new RegExp(`^ *${label}\\b`).test(line)), `${label}\n${tall.join("\n")}`);
+    // A lens's DOING stays; without one the progress note does.
+    if (subject === asking) assert.ok(tall.some((line) => /^ *DOING {2}Render the detail pane/.test(line)), tall.join("\n"));
+    else assert.ok(tall.some((line) => /^ *DONE {3}Roster rows work/.test(line)), tall.join("\n"));
     // NEXT steps aside while a request says what comes next.
     assert.equal(tall.some((line) => /^ *NEXT\b/.test(line)), subject === running, tall.join("\n"));
     assert.ok(tall.some((line) => /^ *── SAID ─/.test(line)) && tall.some((line) => /^ *Roster rows are in/.test(line)), tall.join("\n"));
-    if (subject === asking) assert.ok(tall.some((line) => /^ *ASK {3}Should the checklist/.test(line)), tall.join("\n"));
+    if (subject === asking) assert.ok(tall.some((line) => /^ *ASK {4}Should the checklist/.test(line)), tall.join("\n"));
     // At 24 rows context is cut from its end; the panel's input and keys stay.
     const short = render(sessions, { width: 130, height: 24, selectedId: "mission", selectedMessage: longSaid, cardPanel: replyPanel });
     assert.equal(short.lines.length, 24);
@@ -574,7 +675,7 @@ test("with a reply panel open the pane keeps request, DONE and SAID, drops posit
     const keys = pane.findIndex((line) => /Enter Send +Tab Steer +Esc Close/.test(line));
     assert.ok(input > 0 && keys > input, pane.join("\n"));
     assert.match(pane[0]!, /Mission control/);
-    if (subject === asking) assert.ok(pane.some((line) => /ASK {3}Should the checklist/.test(line)), pane.join("\n"));
+    if (subject === asking) assert.ok(pane.some((line) => /ASK {4}Should the checklist/.test(line)), pane.join("\n"));
   }
 });
 
@@ -636,9 +737,9 @@ test("quiet roster rows say what the agent last reported, else its task, else no
   const progress = quiet("progress", { title: "Progressed", context: { version: 1, updatedAt: 3, progress: { done: "Merged the queue cleanup.", updatedAt: 3 } } });
   const bare = quiet("bare", { title: "Bare" });
   const layout = render([picked, handoff, ticketed, progress, bare], { width: 130, height: 40 });
-  assert.match(moduleLines(layout, "handoff")[1]!, /SAID {2}Shipped the export job/);
-  assert.match(moduleLines(layout, "ticketed")[1]!, /TASK {2}Tidy the export queue/);
-  assert.match(moduleLines(layout, "progress")[1]!, /DONE {2}Merged the queue cleanup\./);
+  assert.match(moduleLines(layout, "handoff")[1]!, /SAID {3}Shipped the export job/);
+  assert.match(moduleLines(layout, "ticketed")[1]!, /TASK {3}Tidy the export queue/);
+  assert.match(moduleLines(layout, "progress")[1]!, /DONE {3}Merged the queue cleanup\./);
   assert.equal(moduleLines(layout, "bare").length, 1);
   // At 160+ the title row names the task, so the fallback does not repeat it.
   assert.equal(moduleLines(render([picked, ticketed], { width: 200, height: 40 }), "ticketed").length, 1);
@@ -648,15 +749,42 @@ test("short windows keep requests and faults before quiet notes", () => {
   const quiet = Array.from({ length: 10 }, (_, index) => session(`q${index}`, { status: "idle", acknowledgedAt: 2, title: `Quiet ${index}`, context: { version: 1, updatedAt: 1, attention: { kind: "ready", text: `Old note ${index}` } } }));
   const failing = session("failing", { status: "error", error: "provider returned 529", title: "Failing" });
   const layout = render([picked, ...quiet, failing], { width: 130, height: 24 });
-  assert.match(moduleLines(layout, "failing")[1] ?? "", /ERR {3}provider returned 529/);
+  assert.match(moduleLines(layout, "failing")[1] ?? "", /ERR {4}provider returned 529/);
 });
 
 test("a running agent between tool calls says Thinking and does not repeat a handoff it has moved past", () => {
   const thinking = session("thinking", { title: "Thinker", status: "running", acknowledgedAt: 2, context: { version: 1, updatedAt: 1, attention: { kind: "ready", text: "Old handoff text." } } });
   const card = cardText(render([thinking, ...panelFleet], { width: 130, height: 40, selectedId: "thinking" }));
-  assert.ok(card.some((line) => /^ *NOW {3}Thinking…$/.test(line.trimEnd())), card.join("\n"));
+  assert.ok(card.some((line) => /^ *NOW {4}Thinking…$/.test(line.trimEnd())), card.join("\n"));
   assert.ok(!card.some((line) => /SAID|Old handoff/.test(line)), card.join("\n"));
   // Its text since your message shows as soon as there is some.
   const speaking = cardText(render([thinking, ...panelFleet], { width: 130, height: 40, selectedId: "thinking", selectedMessage: "Checking the parser first." }));
   assert.ok(speaking.some((line) => line.includes("Checking the parser first.")));
+});
+
+test("orchestrator lenses render DOING, a rail-free WHERE with summary, and the ticket list", () => {
+  const lensOf = (entry: unknown) => (parseWorkflowEntry(entry) as { lens: NonNullable<RuntimeSession["lens"]> }).lens;
+  const epic = session("epic", { title: "Pixel Map Review", lens: lensOf(ORCHESTRATION_EPIC_ENTRY), ...request("blocked", "sfcity-014 parked · Which tile CDN?") });
+  const single = session("single", { title: "Run web-002", lens: lensOf(ORCHESTRATION_TICKET_ENTRY) });
+  const where = (subject: RuntimeSession, width: number) =>
+    cardText(render([subject], { width, selectedId: subject.id })).find((line) => /^\W*WHERE /.test(line))?.replace(/^▌/u, " ").trim() ?? "";
+  for (const width of [100, 160]) {
+    const card = cardText(render([epic], { width, selectedId: "epic" }));
+    assert.ok(card.some((line) => /BLK +sfcity-014 parked · Which tile CDN\?/.test(line)), card.join("\n"));
+    assert.ok(card.some((line) => /DOING +Running 2 tickets; next gate sfcity-013 review/.test(line)), card.join("\n"));
+    // No rail and no fabricated step position.
+    assert.ok(!card.some((line) => /PL[✓◉·]|step \d of/.test(line)), card.join("\n"));
+    const list = field(card, "TIX").map((line) => line.trim());
+    assert.equal(list[0], "TIX    ✓ 2 earlier");
+    assert.ok(list.includes("◉ sfcity-012 EX") && list.includes("! sfcity-014 parked"), list.join("\n"));
+  }
+  assert.equal(where(epic, 160), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed · 2 running · 1 parked · 19 queued");
+  // The summary drops first, then the meter.
+  assert.equal(where(epic, 100), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed");
+  assert.equal(where(epic, 30), "WHERE  2/24 committed");
+  assert.equal(where(single, 120), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ 2 gates ✓");
+  const card = cardText(render([single], { width: 120, selectedId: "single" }));
+  assert.ok(card.some((line) => /DOING +Waiting for the runner to finish review/.test(line)), card.join("\n"));
+  // The roster line names what the orchestrator is doing.
+  assert.ok(rosterPlain(render([epic, single], { width: 160, selectedId: "epic" })).some((line) => /Waiting for the runner/.test(line)));
 });

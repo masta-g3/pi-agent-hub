@@ -218,6 +218,18 @@ Hub's extension can also display workflow state from a compatible producer, such
       "tasks": { "completed": 8, "total": 11 },
       "nextStep": "Validate the dashboard"
     },
+    "lens": {
+      "doing": "Validate the dashboard",
+      "stages": [{ "label": "1", "state": "done" }, { "label": "2", "state": "active" }],
+      "progress": { "completed": 8, "total": 11, "unit": "tasks" },
+      "list": {
+        "label": "PLAN",
+        "head": "Bridge context",
+        "items": [{ "state": "done", "text": "Parse the lens" }, { "state": "active", "text": "Validate the dashboard" }],
+        "before": 0,
+        "after": 2
+      }
+    },
     "steps": [
       { "id": "plan-md", "short": "PL", "label": "Plan" },
       { "id": "execute", "short": "EX", "label": "Execute" },
@@ -231,7 +243,40 @@ Hub's extension can also display workflow state from a compatible producer, such
 
 The producer owns step order, ids, short codes, and optional labels. `activeStep`, finite `updatedAt`, and a nonempty `steps` array are required; each step needs a unique nonblank `id` and nonblank `short`, while `label` and `ticketId` are optional. `updatedAt` is the producer's state-change timestamp, so it can advance during one workflow step—for example, when a focus turn completes—independently of heartbeat cadence. Missing or malformed base workflow metadata silently removes the rail and canonical lane placement without affecting process state; an Active session still appears in `OTHER ACTIVE`. A producer must publish `steps` and `updatedAt` for workflow lanes. Hub has no built-in step list.
 
-`activity` and `plan` are independent optional producer projections. A valid activity (`id`, `label`, optional positive `pass`) shares the board card recap with the task bar; a reported phase appears above it. The board does not inspect step ids to choose that display. The fleet's compact task count and workspace plan details appear during a producer step with id `execute`; the workspace labels `nextStep` as the first unchecked task, not the task currently underway. A plan can also publish `current`, the current phase's checklist: up to 24 `tasks` (`done`, `text` up to 240 characters) with `before`/`after` counts of tasks outside that window. The selected card shows it under `PLAN`; a malformed checklist is dropped without losing the counts. Each phase count can carry a `title`. The checklist is runtime-only, like the mode: it comes from a fresh heartbeat and never enters `registry.json`. Task counts are nonnegative integers up to 10,000. A plan can publish at most 100 phase counts, and their aggregate total must also stay at or below 10,000; Hub omits an invalid phase projection while retaining other valid plan fields. Malformed optional projections are omitted without hiding a valid base rail.
+`activity`, `plan` and `lens` are independent optional producer projections. A valid activity (`id`, `label`, optional positive `pass`) shares the board card recap with the task bar; a reported phase appears above it. The board does not inspect step ids to choose that display. Pin metadata and workspace plan details appear during a producer step with id `execute`; the workspace labels `nextStep` as the first unchecked task, not the task currently underway. Each phase count can carry a `title`. Hub ignores a plan `current` field. Task counts are nonnegative integers up to 10,000. A plan can publish at most 100 phase counts, and their aggregate total must also stay at or below 10,000; Hub omits an invalid phase projection while retaining other valid plan fields. Malformed optional projections are omitted without hiding a valid base rail.
+
+`lens` fills the selected fleet card and the roster status line; Hub draws it under any step id. Every field is optional and validates on its own, so one malformed field is dropped without hiding the rest or the rail:
+
+- `doing`: one line, up to 160 characters. The card shows it as `DOING` in place of DONE/NEXT; the roster line shows it after requests and faults, ahead of the live tool call.
+- `stages`: 1–12 `{ label, state }`, label up to 24 characters, state `done`, `active` or `pending`. They follow the rail on the card's `WHERE` line.
+- `progress`: `{ completed, total, unit? }`, counts as for plan tasks, unit up to 16 characters. `WHERE` and the roster line's right edge show its meter and count.
+- `pass`: an integer of 2 or more, shown as `pass N` on `WHERE`.
+- `summary`: one line, up to 80 characters, shown after the count on `WHERE`, such as `2 running · 1 parked`. It is the first part dropped on narrow widths.
+- `list`: `{ label, head?, items, before, after }`. The label is at most 6 display cells; `head` and each item `text` are up to 120 characters; 1–12 items, each with state `done`, `active`, `pending`, `attention` or `skipped`; `before`/`after` count items left out. The card shows it under its label with `✓ ◉ · ! –` marks.
+
+The producer chooses the list wording; Hub draws any label the same way. Rules, for example, publishes Plan's questions and critic pass, Review's findings as `FOUND` and Reflect's candidates as `CANDS` (both reported by the agent), and a completed Commit keeps its closeout list:
+
+```json
+"lens": {
+  "doing": "Commit complete",
+  "stages": [{ "label": "archive", "state": "done" }, { "label": "commit", "state": "done" }],
+  "list": {
+    "label": "CLOSE",
+    "head": "2 commits",
+    "items": [
+      { "state": "done", "text": "Plan archived" },
+      { "state": "done", "text": "pi-agent-hub 3f9c2e1 Add step lens contract" },
+      { "state": "done", "text": "rules a1b2c3d Publish the workflow lens" }
+    ],
+    "before": 0,
+    "after": 0
+  }
+}
+```
+
+Unlike the mode, the lens is work state: `registry.json` keeps it with the base workflow, so a stale or stopped session keeps its card. Without a lens the card shows DONE/NEXT and `WHERE` with the rail only.
+
+An entry without `activeStep` but with a valid `lens` is a lens-only snapshot, such as an orchestrator's run: Hub carries it as the heartbeat's and the session's top-level `lens`, beside an absent workflow, and keeps it in `registry.json` the same way. The card shows its DOING, a `WHERE` line without a rail (the count names its `unit`, such as `2/6 committed`, then the summary), and its list. Hub invents no step position: the session has no rail, no workflow lane, and stays in `OTHER ACTIVE` on the board. Rules publishes this shape from `set_orchestration`.
 
 Optional `currentStepComplete: true` marks the current workflow position complete. Earlier positions also show checks; later ones stay pending. These markers show position, not proof that each step ran. Completion does not change runtime status or move the session to another lane.
 

@@ -112,6 +112,7 @@ export function applyComputedStatus(session: ManagedSession, computed: ComputedS
     resultPath: heartbeat?.resultPath ?? session.resultPath,
     activeTheme: isFreshHeartbeat(heartbeat, now) ? heartbeat.activeTheme : undefined,
     workflow: isFreshHeartbeat(heartbeat, now) ? retainedWorkflow(heartbeat.workflow) : session.workflow,
+    lens: isFreshHeartbeat(heartbeat, now) ? heartbeat.lens : session.lens,
   }, now);
 }
 
@@ -152,8 +153,5 @@ export function isFreshHeartbeat(heartbeat: Heartbeat | undefined, now: number):
 function retainedWorkflow(workflow: Heartbeat["workflow"]): ManagedSession["workflow"] {
   if (!workflow) return undefined;
   const { activeMode: _activeMode, ...snapshot } = workflow;
-  // The checklist is live detail like the mode: it stays out of the registry.
-  if (!snapshot.plan?.current) return snapshot;
-  const { current: _current, ...plan } = snapshot.plan;
-  return { ...snapshot, plan } as ManagedSession["workflow"];
+  return snapshot;
 }

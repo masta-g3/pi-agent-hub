@@ -12,6 +12,7 @@ import { publishThemeCommand } from "../src/core/theme-command.js";
 import { nameCommandPath, publishNameCommand } from "../src/core/name-command.js";
 import { writeJsonAtomic } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const EXTENSION_KEY = Symbol.for("pi-agent-hub.extension.loaded");
 const FORK_ATTEMPT = "571b5a3d-55fa-4c90-b5cc-fc2f907785d1";
@@ -1005,7 +1006,7 @@ test("piAgentHubExtension bridges native name, generic context, activity, and pl
   const heartbeat = await heartbeatWithSessionManager({
     getBranch: () => [
       { type: "custom", customType: "pi-agent-hub-context", data: { version: 1, updatedAt: 4, ticket: { id: "metadata-redesign-001", subtitle: "Simplify session context", description: "Use one generic contract." }, attention: { requestId: "review-4", kind: "ready", text: "Review the result" } } },
-      { ...WORKFLOW_ENTRY, data: { ...WORKFLOW_ENTRY.data, activity: { id: "critic", label: "Reviewing implementation", pass: 2 }, plan: { phase: { title: "Hub bridge", index: 2, count: 4 }, tasks: { completed: 8, total: 11 }, phases: [{ completed: 3, total: 3 }, { completed: 5, total: 8 }], nextStep: "Wire settled heartbeat" } } },
+      { ...WORKFLOW_ENTRY, data: { ...WORKFLOW_ENTRY.data, activity: { id: "critic", label: "Reviewing implementation", pass: 2 }, plan: { phase: { title: "Hub bridge", index: 2, count: 4 }, tasks: { completed: 8, total: 11 }, phases: [{ completed: 3, total: 3 }, { completed: 5, total: 8 }], nextStep: "Wire settled heartbeat" }, lens: { doing: "Fixing findings", stages: [{ label: "review", state: "done" }, { label: "fix", state: "active" }], pass: 2 } } },
     ],
   });
   assert.equal(heartbeat.piSessionName, "Canonical Name");
@@ -1014,6 +1015,7 @@ test("piAgentHubExtension bridges native name, generic context, activity, and pl
   assert.deepEqual(heartbeat.workflow?.activity, { id: "critic", label: "Reviewing implementation", pass: 2 });
   assert.deepEqual(heartbeat.workflow?.plan?.tasks, { completed: 8, total: 11 });
   assert.equal(heartbeat.workflow?.plan?.nextStep, "Wire settled heartbeat");
+  assert.deepEqual(heartbeat.workflow?.lens, { doing: "Fixing findings", stages: [{ label: "review", state: "done" }, { label: "fix", state: "active" }], pass: 2 });
 });
 
 test("piAgentHubExtension bridges optional producer mode display into heartbeat", async () => {
@@ -1215,4 +1217,13 @@ test("tool details drop a leading cd and stay one bounded line; conversation too
   assert.equal(actionDetail("bash", { command: "ls -la" }, "/repo"), "ls -la");
   assert.equal(actionDetail("read", { path: "/repo/src/a.ts" }, "/repo"), "src/a.ts");
   assert.equal([...actionDetail("bash", { command: "x".repeat(300) }, "/repo")!].length, 100);
+});
+
+test("piAgentHubExtension bridges a lens-only orchestration entry without a workflow position", async () => {
+  for (const data of [ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY]) {
+    const heartbeat = await heartbeatWithSessionManager({ getBranch: () => [WORKFLOW_ENTRY, { type: "custom", customType: "workflow-runtime", data }] });
+    assert.equal(heartbeat.workflow, undefined);
+    assert.equal(heartbeat.lens?.doing, data.lens.doing);
+    assert.equal(heartbeat.lens?.summary, data.lens.summary);
+  }
 });

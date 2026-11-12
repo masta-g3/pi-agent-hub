@@ -28,7 +28,22 @@ export interface WorkflowSnapshot {
   activeIndex: number;
   currentStepComplete?: boolean;
   ticketId?: string;
+  /** Producer-owned card lens; retained with the base workflow so stopped sessions keep their card. */
+  lens?: WorkflowLens;
   updatedAt: number;
+}
+
+export type WorkflowLensState = "done" | "active" | "pending" | "attention" | "skipped";
+
+/** What the active step is doing, where it stands, and one list; every field is optional and step-agnostic. */
+export interface WorkflowLens {
+  doing?: string;
+  stages?: { label: string; state: "done" | "active" | "pending" }[];
+  progress?: { completed: number; total: number; unit?: string };
+  pass?: number;
+  /** Extra counts shown after the progress count on WHERE, such as `2 running · 1 parked`. */
+  summary?: string;
+  list?: { label: string; head?: string; items: { state: WorkflowLensState; text: string }[]; before: number; after: number };
 }
 
 export interface WorkflowActivityDisplay {
@@ -55,8 +70,6 @@ export interface SessionPlanSummary {
   };
   phases?: { completed: number; total: number; title?: string }[];
   nextStep?: string;
-  /** The current phase's checklist, windowed by the producer; `before`/`after` count tasks it left out. */
-  current?: { tasks: { done: boolean; text: string }[]; before: number; after: number };
 }
 
 /** One tool call an agent made: the tool's name and a short argument, never its output. */
@@ -169,6 +182,8 @@ export interface ManagedSession {
   resultSummary?: string;
   activeTheme?: ActiveThemeSnapshot;
   workflow?: WorkflowSnapshot;
+  /** A producer lens published without a workflow position, such as an orchestrator's run; retained like the workflow. */
+  lens?: WorkflowLens;
   worktreePath?: string;
   worktreeRepoRoot?: string;
   worktreeBranch?: string;
@@ -254,6 +269,8 @@ export interface Heartbeat {
   piSessionName?: string;
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
+  /** Lens-only producer snapshot; present only without a workflow. */
+  lens?: WorkflowLens;
   activity?: SessionActivity;
 }
 

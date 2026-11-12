@@ -537,8 +537,8 @@ test("hidden child requests lead right-aligned parent signals and tier totals", 
   // The module's title row ends with the hidden request, then the step short, then the age.
   assert.match(collapsedModule[0] ?? "", /Parent ↳1\s+app\s+\?1  EX\s+8m$/, collapsedModule.join("\n"));
   assert.match(collapsedModule[1] ?? "", /SUB\s+subagent/);
-  // The card pane repeats the hidden request on its metadata line and carries the STEP readout.
-  assert.match(cardRowsOf(collapsedLayout).join("\n"), /Parent ↳1  app\s+8m\n[^\n]*\?1\s*\n[\s\S]*STEP\s*\n\s*PL✓ EX◉ RV· RF· CM·/);
+  // The card pane repeats the hidden request on its metadata line and carries the WHERE rail.
+  assert.match(cardRowsOf(collapsedLayout).join("\n"), /Parent ↳1  app\s+8m\n[^\n]*\?1\s*\n[\s\S]*WHERE {2}PL✓ EX◉ RV· RF· CM·/);
 
   const expanded = renderSessions(buildRenderModel({
     sessions: [parent, request, worker], selectedId: "parent", width: 160, now: 8 * 60_000 + 1, expandedProjectParentIds: new Set(["parent"]),
@@ -577,8 +577,8 @@ test("active workflow mode replaces the Execute short in rows and workspace work
   }).join("\n");
   // The roster's title row carries the mode short in place of the step short.
   assert.match(parentRow, /focus\s+agents\s+FOC$/);
-  // The card names its steps, then the mode, in its STEP readout.
-  assert.match(cardRowsOf(rendered).join("\n"), /STEP\s*\n.*PL✓ EX◉ RV· RF· CM· FOC/);
+  // The card names its steps, then the mode, on its WHERE line.
+  assert.match(cardRowsOf(rendered).join("\n"), /WHERE {2}PL✓ EX◉ RV· RF· CM· {2}FOC/);
 
   const workspace = renderSessions(workspaceModel({ sessions: [focused], selectedId: "focus", width: 160, now: 1_000 })).lines.map(stripAnsi).join("\n");
   assert.match(workspace, /Focus · step 2 of 5/);
@@ -653,9 +653,9 @@ test("focused workflow markers use accent on the board and roster, text in the c
     const rowIndex = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "focus");
     const row = layout.lines[rowIndex] ?? "";
     assert.match(row, /\u001b\[38;2;1;2;3mFOC/, `${width}: ${row}`);
-    // The card's STEP readout names the mode last, after the steps when they fit, in plain text.
+    // The card's WHERE line names the mode last, after the steps when they fit, in plain text.
     const readout = layout.lines.find((line, index) => index !== rowIndex && stripAnsi(line).includes("FOC")) ?? "";
-    assert.match(stripAnsi(readout), width >= 100 ? /PL✓ EX◉ RV· RF· CM· FOC/ : /STEP\s+(?:PL✓ EX◉ RV· RF· CM· )?FOC/, `${width}`);
+    assert.match(stripAnsi(readout), width >= 100 ? /WHERE {2}PL✓ EX◉ RV· RF· CM· {2}FOC/ : /WHERE {2}FOC/, `${width}`);
     assert.doesNotMatch(readout, /\u001b\[38;2;(1;2;3|4;5;6)mFOC/);
     const board = renderSessions(buildRenderModel({ sessions: [focused], selectedId: "focus", width, now: 14 * 60_000, grouping: "stage" }), theme).lines.join("\n");
     assert.match(board, /\u001b\[38;2;1;2;3m[^\u001b]*FOC/);
@@ -715,9 +715,9 @@ test("sidebar workflow stages read as text, not accent or muted", () => {
   const theme = { ...darkTheme, accent: "#010203", muted: "#040506" };
   const model = buildRenderModel({ sessions: [{ ...session("a", "default", "running"), workflow: WORKFLOW }], selectedId: "a", width: 70 });
   const rows = renderSessions(model, theme).lines;
-  const stepRow = rows.find((line) => /STEP {2}Execute/.test(stripAnsi(line))) ?? "";
+  const stepRow = rows.find((line) => /WHERE {2}Execute/.test(stripAnsi(line))) ?? "";
 
-  assert.match(stripAnsi(stepRow), /STEP {2}Execute/);
+  assert.match(stripAnsi(stepRow), /WHERE {2}Execute/);
   assert.doesNotMatch(stepRow, /\u001b\[38;2;(1;2;3|4;5;6)mExecute/);
 });
 
@@ -740,9 +740,9 @@ test("project rows show group lifecycle workflow and age metadata by priority", 
   assert.match(row("focused"), /\bFOC  14m$/);
   assert.match(row("idle"), /14m$/);
   assert.doesNotMatch(row("idle"), /\bEX\b|FOC/);
-  // Only the selected session's card names its steps in its STEP readout.
-  assert.match(cardRowsOf(layout).join("\n"), /STEP[\s\S]*PL✓ EX◉ RV· RF· CM·/);
-  assert.doesNotMatch(roster.join("\n"), /STEP|◉/);
+  // Only the selected session's card names its steps on its WHERE line.
+  assert.match(cardRowsOf(layout).join("\n"), /WHERE {2}PL✓ EX◉ RV· RF· CM·/);
+  assert.doesNotMatch(roster.join("\n"), /WHERE|◉/);
   assert.match(row("backlog"), /backlog$/);
   assert.match(rendered, /default/);
 });
@@ -1729,7 +1729,7 @@ test("error reason appears in selected metadata", () => {
   const card = cardRowsOf(renderSessions(workspaceModel({ sessions: [broken], selectedId: "a", width: 120 })));
   // The card states the error once, in its ERR field, then what to do about it.
   assert.equal(card.filter((line) => /MCP failed/.test(line)).length, 1, card.join("\n"));
-  assert.ok(card.findIndex((line) => /ERR {3}MCP failed/.test(line)) < card.findIndex((line) => /Check Details before restarting\./.test(line)), card.join("\n"));
+  assert.ok(card.findIndex((line) => /ERR {4}MCP failed/.test(line)) < card.findIndex((line) => /Check Details before restarting\./.test(line)), card.join("\n"));
 });
 
 test("selected and stopped rows have distinct treatments with inactive stopped rows last", () => {
@@ -2121,7 +2121,7 @@ test("adaptive richness stays Active-main-only and ANSI width safe", () => {
 test("adaptive list preserves selected height-neighbor windowing", () => {
   const sessions = Array.from({ length: 6 }, (_, index) => ({
     ...session(`s${index}`, "agents", "running", `Stored session ${index}`),
-    workflow: { ...WORKFLOW, ticketId: `scan-${index}`, activity: { id: `scan-${index}`, label: `Activity ${index}` } },
+    workflow: { ...WORKFLOW, ticketId: `scan-${index}`, lens: { doing: `Activity ${index}` } },
   }));
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", width: 120, height: 11 }));
   const text = layout.lines.map(stripAnsi).join("\n");
@@ -2132,7 +2132,7 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session" && target.id === "s3").length, 1);
   // Selection does not reserve a status line in the crowded roster; its card carries the activity.
   assert.equal(layout.rowTargets.filter((target) => target?.kind === "session-continuation" && target.id === "s3").length, 0);
-  assert.match(cardRowsOf(layout).join("\n"), /Stored session 3[\s\S]*STEP[\s\S]*NOW {3}Activity 3/);
+  assert.match(cardRowsOf(layout).join("\n"), /Stored session 3[\s\S]*DOING {2}Activity 3[\s\S]*WHERE/);
   assert.equal(layout.lines.length, 11);
 
   const clipped = renderSessions(buildRenderModel({ sessions: [sessions[0]!], selectedId: "s0", width: 60, height: 8 }));
@@ -2290,7 +2290,7 @@ test("attention-only context shows the request without provenance narration", ()
     context: { version: 1 as const, updatedAt: 20_000, attention: { kind: "question" as const, text: "Choose the rollout" } },
   };
   const text = renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })).lines.map(stripAnsi).join("\n");
-  assert.match(text, /▌ +ASK {3}Choose the rollout/);
+  assert.match(text, /▌ +ASK {4}Choose the rollout/);
   assert.doesNotMatch(text, /producer|CONTEXT|no explicit request|RECOMMENDED/);
 });
 
@@ -2302,7 +2302,7 @@ test("handoff workspace shows recommendation and evidence rows only when present
     context: { version: 1 as const, updatedAt: 20_000, attention: { requestId: "r1", kind: "ready" as const, text: "Send form supports Steer", recommendation: "Commit, then reload idle sessions", artifact } },
   };
   const lines = cardRowsOf(renderSessions(workspaceModel({ sessions: [selected], selectedId: "api", width: 160, now })));
-  const request = lines.findIndex((line) => /^ +RDY {3}Send form supports Steer/.test(line));
+  const request = lines.findIndex((line) => /^ +RDY {4}Send form supports Steer/.test(line));
   assert.ok(request >= 0, lines.join("\n"));
   assert.match(lines[request + 1] ?? "", /→ Commit, then reload idle sessions/);
   assert.match(lines[request + 2] ?? "", /▤ \/Users\/someone\/Code\/agents\/pi-agent-hub\/agent-work\/tickets\/cockpit-014\/validation\.md/);
@@ -2381,7 +2381,7 @@ test("generic context and producer attention define canonical parent hierarchy",
   assert.doesNotMatch(output, /Reviewing implementation/);
   assert.doesNotMatch(output, /ticket:/);
   assert.doesNotMatch(output, /Use one generic[\s\S]*contract/);
-  assert.match(output, /▌ +ASK {3}Choose the rollout order/);
+  assert.match(output, /▌ +ASK {4}Choose the rollout order/);
   assert.doesNotMatch(output, /CONTEXT|bounded producer|producer context/);
 });
 
@@ -2435,8 +2435,8 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
 
   assert.match(roster, /▌ +▾ \? Release decision ↳1/);
   // The roster's request status line may wrap to a second line; the card keeps it whole.
-  assert.match(roster, /▌ +ASK {3}Use the approved card\s*\n▌ +hierarchy\?/);
-  assert.match(card, /ASK {3}Use the approved card hierarchy\?/);
+  assert.match(roster, /▌ +ASK {4}Use the approved card\s*\n▌ +hierarchy\?/);
+  assert.match(card, /ASK {4}Use the approved card hierarchy\?/);
   assert.doesNotMatch(text, /#cockpit-008/);
   // The roster module and the side pane card each name the group once.
   assert.equal(roster.match(/agents/g)?.length, 1);
@@ -2481,21 +2481,18 @@ test("tier navigation stays composed for filtered no-match and standalone subage
   assert.match(text, /No sessions match\./);
 });
 
-test("Execute plan counts ride the STEP readout as TASK", () => {
-  const row = { ...session("plan", "hub", "running", "Plan progress"), workflow: { ...WORKFLOW, plan: { tasks: { completed: 7, total: 12 } } } };
+test("lens progress rides the WHERE line, and plan counts alone add no meter", () => {
+  const lensed = { ...session("plan", "hub", "running", "Plan progress"), workflow: { ...WORKFLOW, lens: { progress: { completed: 7, total: 12 } } } };
+  const planOnly = { ...lensed, workflow: { ...WORKFLOW, plan: { tasks: { completed: 7, total: 12 } } } };
   for (const width of [60, 100, 120, 160]) {
-    const layout = renderSessions(buildRenderModel({ sessions: [row], selectedId: row.id, width }));
-    const baseline = renderSessions(buildRenderModel({ sessions: [{ ...row, workflow: WORKFLOW }], selectedId: row.id, width }));
+    const layout = renderSessions(buildRenderModel({ sessions: [lensed], selectedId: lensed.id, width }));
+    const baseline = renderSessions(buildRenderModel({ sessions: [{ ...lensed, workflow: WORKFLOW }], selectedId: lensed.id, width }));
     const text = stripAnsi(layout.lines.join("\n"));
-    assert.match(text, /▰{5}▱{3} 7\/12/, `${width}`);
-    assert.ok(text.includes("TASK"));
-    // The task meter shares the STEP line or the LCD strip, so the module keeps its height.
+    assert.match(text, /WHERE {2}.*▰{5}▱{3} 7\/12/, `${width}`);
+    // The meter shares the WHERE line, so the module keeps its height.
     assert.equal(layout.lines.length, baseline.lines.length);
     assert.doesNotMatch(text, /■|□/);
-  }
-  for (const activeIndex of [0, 2, 3, 4]) {
-    const output = renderSessions(buildRenderModel({ sessions: [{ ...row, workflow: { ...row.workflow, activeIndex } }], width: 160 })).lines.join("\n");
-    assert.doesNotMatch(stripAnsi(output), /7\/12/);
+    assert.doesNotMatch(stripAnsi(renderSessions(buildRenderModel({ sessions: [planOnly], selectedId: lensed.id, width })).lines.join("\n")), /7\/12/);
   }
 });
 

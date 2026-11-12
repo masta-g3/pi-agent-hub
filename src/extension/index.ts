@@ -14,7 +14,7 @@ import { ACTION_DETAIL_MAX, ACTIVITY_RECENT_MAX, parseWorkflowEntry } from "../c
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, SessionAction, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, SessionAction, WorkflowLens, WorkflowRuntimeSnapshot } from "../core/types.js";
 
 type PiTheme = {
   name?: string;
@@ -187,7 +187,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
         activeTheme: activeTheme(ctx),
         piSessionName: normalizedName(pi.getSessionName?.()),
         context: sessionContextSnapshot(ctx),
-        workflow: workflowSnapshot(ctx),
+        ...workflowFields(ctx),
         ...(state !== "shutdown" && (running.size || recentActions.length) ? { activity: {
           ...(running.size ? { current: [...running.values()].at(-1)! } : {}),
           ...(recentActions.length ? { recent: recentActions } : {}),
@@ -460,7 +460,13 @@ export function actionDetail(toolName: string, args: unknown, cwd: string): stri
   return chars.length <= ACTION_DETAIL_MAX ? clean : `${chars.slice(0, ACTION_DETAIL_MAX - 1).join("")}…`;
 }
 
-function workflowSnapshot(ctx: PiContext): WorkflowRuntimeSnapshot | undefined {
+/** The positioned workflow, or a lens the producer published without a step. */
+function workflowFields(ctx: PiContext): { workflow?: WorkflowRuntimeSnapshot; lens?: WorkflowLens } {
+  const entry = workflowEntry(ctx);
+  return !entry ? {} : "steps" in entry ? { workflow: entry } : { lens: entry.lens };
+}
+
+function workflowEntry(ctx: PiContext): ReturnType<typeof parseWorkflowEntry> {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
