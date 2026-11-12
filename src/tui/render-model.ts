@@ -6,7 +6,7 @@ import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import { effectiveWorktreeLifecycle, worktreeMarker } from "../core/worktree-lifecycle.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionActivity, SessionAttention, SessionProgress, SessionClosure, SessionStatus, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
+import type { PiAgentHubContextV1, RuntimeSession, SessionActivity, SessionAttention, SessionProgress, SessionClosure, SessionStatus, WorkflowLens, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -82,6 +82,8 @@ export interface RenderSession {
   hiddenChildRequestCount?: number;
   plan?: RenderPlanSummary;
   workflow?: WorkflowRuntimeSnapshot;
+  /** A producer lens without a workflow position, such as an orchestrator's run. */
+  lens?: WorkflowLens;
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeBaseBranch?: string;
@@ -1148,6 +1150,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
       ? { plan: planSummary(session.workflow.plan) }
       : {}),
     workflow: session.workflow,
+    ...(!session.workflow && session.lens ? { lens: session.lens } : {}),
     worktreePath: worktree?.path ?? session.worktreePath,
     worktreeBranch: worktree?.branch ?? session.worktreeBranch,
     worktreeBaseBranch: worktree?.baseBranch ?? session.worktreeBaseBranch,

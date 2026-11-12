@@ -7,6 +7,7 @@ import { parseHeartbeat, parseSessionActivity, parseWorkflowEntry, parseWorkflow
 import { heartbeatPath } from "../src/core/paths.js";
 import { applyComputedStatus } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const core = {
   managedSessionId: "api",
@@ -323,4 +324,45 @@ test("computed status retains the lens and keeps tool activity out of the regist
   assert.equal("activity" in updated, false);
   const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0, workflow: undefined });
   assert.deepEqual(stale.workflow?.lens, { doing: "Two", progress: { completed: 1, total: 2 } });
+});
+
+test("lens summary is a bounded optional field", () => {
+  const base = { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: 1_000 };
+  assert.equal(parseWorkflowSnapshot({ ...base, lens: { ...LENS, summary: " 2 running · 1 parked " } })?.lens?.summary, "2 running · 1 parked");
+  for (const summary of ["s".repeat(81), " ", 3]) {
+    const parsed = parseWorkflowSnapshot({ ...base, lens: { ...LENS, summary } });
+    assert.equal(parsed?.lens?.summary, undefined);
+    assert.equal(parsed?.lens?.pass, 2);
+  }
+});
+
+test("a Rules entry without a step parses as a lens alone, with no position", () => {
+  const epic = parseWorkflowEntry(ORCHESTRATION_EPIC_ENTRY);
+  assert.deepEqual(Object.keys(epic ?? {}), ["lens"]);
+  assert.equal(epic?.lens?.list?.items.length, 12);
+  assert.deepEqual(epic?.lens?.progress, { completed: 2, total: 24, unit: "committed" });
+  assert.equal(epic?.lens?.summary, "2 running · 1 parked · 19 queued");
+  const ticket = parseWorkflowEntry(ORCHESTRATION_TICKET_ENTRY);
+  assert.deepEqual(Object.keys(ticket ?? {}), ["lens"]);
+  assert.equal(ticket?.lens?.stages?.length, 5);
+  assert.equal(ticket?.lens?.summary, "2 gates ✓");
+  assert.equal(parseWorkflowEntry({ ...ORCHESTRATION_EPIC_ENTRY, lens: undefined }), undefined);
+  assert.equal(parseWorkflowEntry({ ...ORCHESTRATION_EPIC_ENTRY, activeStep: " " }), undefined);
+});
+
+test("a lens-only heartbeat round-trips through computed status and retention", () => {
+  const now = 10_000;
+  const lens = parseWorkflowEntry(ORCHESTRATION_EPIC_ENTRY)!.lens;
+  const session: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "running", createdAt: 1, updatedAt: 1,
+    workflow: { steps: [{ id: "plan-md", short: "PL" }], activeIndex: 0, updatedAt: 1 } };
+  const heartbeat = parseHeartbeat({ ...core, state: "running", stateSince: now - 100, updatedAt: now, lens }, "api")!;
+  assert.deepEqual(heartbeat.lens, lens);
+  const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
+  assert.equal(updated.workflow, undefined);
+  assert.deepEqual(updated.lens, lens);
+  const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0 });
+  assert.deepEqual(stale.lens, lens);
+  // A positioned workflow wins over a stray lens.
+  const both = parseHeartbeat({ ...core, state: "running", stateSince: now, updatedAt: now, lens, workflow: { steps: [{ id: "x", short: "X" }], activeIndex: 0, updatedAt: now } }, "api")!;
+  assert.equal(both.lens, undefined);
 });

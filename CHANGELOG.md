@@ -31,6 +31,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Draw a producer-owned step lens on the agent card and roster: `DOING` says what the workflow step is doing, one `WHERE` line shows the rail with the step's stages, progress and review pass, and the step's list replaces the plan checklist. Hub draws it under any step name and keeps it for stopped sessions. `NOW` shows only live tool calls. The STEP/TASK/PHASE readout is gone.
 - Show Plan's question counts, plan facts and critic pass, and Commit's closeout list with one line per commit, on the agent card; a completed Commit keeps its list.
 - Show Review's findings as `FOUND` and Reflect's candidates as `CANDS` on the agent card, with `DOING` naming the item in progress; both keep their final list after the step completes.
+- Show an orchestrator's run on its agent card: for an epic, committed progress, running/parked/queued counts and a `TIX` ticket list without a step rail; for one ticket, its step rail and accepted gates. A parked ticket raises a `BLK` request on the orchestrator until it is no longer parked. Hub accepts a producer lens without a workflow position and a lens `summary` on `WHERE`.
 - Reserve `u` for Usage. Move any configured `u` shortcut to a free key before starting the dashboard.
 - Reserve `o` for follow view. Move any configured `o` dashboard shortcut to a free key, such as `O` or `L`, before starting the dashboard.
 - Keep pin assignment non-destructive and preserve existing pins when the terminal shrinks.

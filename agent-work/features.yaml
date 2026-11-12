@@ -1668,7 +1668,7 @@
   plan_file: agent-work/history/20261112_card-lens-003_review_reflect_lenses.md
   completed_at: '2026-11-12'
 - id: card-lens-004
-  status: pending
+  status: done
   title: Orchestrator Lens
   subtitle: Orchestrator shows tickets, gates, parked
   description: The orchestrator publishes ticket states, gates, parked questions and
@@ -1681,3 +1681,5 @@
   references:
   - agent-work/plans/card-lens-000.md
   - agent-work/decks/dashboard-card-lenses.html
+  plan_file: agent-work/history/20261112_card-lens-004_orchestrator_lens.md
+  completed_at: '2026-11-12'
