@@ -1625,7 +1625,7 @@
   references:
   - agent-work/plans/web-002.md
 - id: card-lens-001
-  status: pending
+  status: done
   title: Step Lens Contract
   subtitle: Generic step lens with Execute view
   description: Rules publishes a generic step lens (Doing, Where, one list), Execute
@@ -1635,6 +1635,8 @@
   references:
   - agent-work/plans/card-lens-000.md
   - agent-work/decks/dashboard-card-lenses.html
+  plan_file: agent-work/history/20261111_card-lens-001_step_lens_contract.md
+  completed_at: '2026-11-11'
 - id: card-lens-002
   status: pending
   title: Plan Commit Lenses

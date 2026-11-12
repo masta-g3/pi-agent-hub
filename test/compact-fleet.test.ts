@@ -82,7 +82,7 @@ test("five-step pinned grids leave titles readable and fit beside group metadata
   }
 });
 
-test("completed steps stay checked on the module's title row and in the card's STEP field", () => {
+test("completed steps stay checked on the module's title row and in the card's WHERE field", () => {
   for (const activeIndex of [0, 1, 2]) {
     const complete = { ...sessions[0], status: "stopped" as const, workflow: { ...workflow, activeIndex, currentStepComplete: true } };
     const unselected = renderSessions(buildRenderModel({ sessions: [complete], selectedSection: "quiet", width: 100 }));
@@ -115,7 +115,7 @@ test("focus decoration does not move the producer grid columns", () => {
   assert.equal(visibleWidth(focusedRow), visibleWidth(plainRow));
   // In the card the mode follows the markers, so the step columns stay put.
   const first = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedId: "s0" }));
-  assert.match(paneText(first), /PL✓ EX◉ RV· FOC/);
+  assert.match(paneText(first), /WHERE  PL✓ EX◉ RV·  FOC/);
   const second = renderSessions(buildRenderModel({ sessions: [focused, sessions[1]], width: 100, selectedId: "s1" }));
   assert.match(paneText(second), /PL✓ EX✓ RV◉ *$/m);
 });

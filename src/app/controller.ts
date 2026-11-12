@@ -36,8 +36,8 @@ export class SessionsController {
   private sessionContexts = new Map<string, PiAgentHubContextV1>();
   private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
-  /** Live-only detail from fresh heartbeats: the plan checklist and recent tool calls. */
-  private liveDetails = new Map<string, { checklist?: NonNullable<RuntimeSession["workflow"]>["plan"]; activity?: RuntimeSession["activity"] }>();
+  /** Live-only detail from fresh heartbeats: recent tool calls. */
+  private liveDetails = new Map<string, { activity?: RuntimeSession["activity"] }>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
   private explicitSelection = false;
@@ -123,8 +123,7 @@ export class SessionsController {
         if (activeMode) this.workflowModes.set(id, activeMode);
         else this.workflowModes.delete(id);
         const fresh = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat : undefined;
-        const checklist = fresh?.workflow?.plan?.current ? fresh.workflow.plan : undefined;
-        if (checklist || fresh?.activity) this.liveDetails.set(id, { ...(checklist ? { checklist } : {}), ...(fresh?.activity ? { activity: fresh.activity } : {}) });
+        if (fresh?.activity) this.liveDetails.set(id, { activity: fresh.activity });
         else this.liveDetails.delete(id);
       } else if (!latest || latest.tmuxSession !== observation.tmuxSession) {
         this.sessionContexts.delete(id);
@@ -373,9 +372,7 @@ export class SessionsController {
       const activeMode = this.workflowModes.get(session.id);
       const interaction = this.interactions.get(session.id);
       const live = this.liveDetails.get(session.id);
-      const workflow = session.workflow && (activeMode || live?.checklist)
-        ? { ...session.workflow, ...(activeMode ? { activeMode } : {}), ...(live?.checklist ? { plan: live.checklist } : {}) }
-        : session.workflow;
+      const workflow = session.workflow && activeMode ? { ...session.workflow, activeMode } : session.workflow;
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
       return interaction || context || workflow !== session.workflow || statusEvidence || live?.activity

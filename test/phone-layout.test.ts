@@ -54,7 +54,7 @@ test("phone metadata shows the plain step instead of a grid", () => {
     // The docked card names the selected session's step in words.
     const rule = lines.findIndex((line, row) => row > 0 && /^─{20,}$/u.test(line.trim()));
     assert.ok(rule > titleIndex(layout, "s0"));
-    assert.ok(lines.slice(rule + 1).some(line => /^▌ +STEP {2}Plan *$/.test(line)), `${width}:\n${lines.slice(rule).join("\n")}`);
+    assert.ok(lines.slice(rule + 1).some(line => /^▌ +WHERE {2}Plan *$/.test(line)), `${width}:\n${lines.slice(rule).join("\n")}`);
   }
 });
 
