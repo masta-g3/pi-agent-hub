@@ -253,7 +253,7 @@ The producer owns step order, ids, short codes, and optional labels. `activeStep
 - `pass`: an integer of 2 or more, shown as `pass N` on `WHERE`.
 - `list`: `{ label, head?, items, before, after }`. The label is at most 6 display cells; `head` and each item `text` are up to 120 characters; 1–12 items, each with state `done`, `active`, `pending`, `attention` or `skipped`; `before`/`after` count items left out. The card shows it under its label with `✓ ◉ · ! –` marks.
 
-The producer chooses the list wording; Hub draws any label the same way. Rules, for example, publishes Plan's questions and critic pass, and a completed Commit keeps its closeout list:
+The producer chooses the list wording; Hub draws any label the same way. Rules, for example, publishes Plan's questions and critic pass, Review's findings as `FOUND` and Reflect's candidates as `CANDS` (both reported by the agent), and a completed Commit keeps its closeout list:
 
 ```json
 "lens": {

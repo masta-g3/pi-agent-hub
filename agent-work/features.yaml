@@ -1653,7 +1653,7 @@
   plan_file: agent-work/history/20261112_card-lens-002_plan_commit_lenses.md
   completed_at: '2026-11-12'
 - id: card-lens-003
-  status: pending
+  status: done
   title: Review Reflect Lenses
   subtitle: Review findings and reflection outcomes visible
   description: set_workflow_activity carries an optional findings list, and the Review
@@ -1665,6 +1665,8 @@
   references:
   - agent-work/plans/card-lens-000.md
   - agent-work/decks/dashboard-card-lenses.html
+  plan_file: agent-work/history/20261112_card-lens-003_review_reflect_lenses.md
+  completed_at: '2026-11-12'
 - id: card-lens-004
   status: pending
   title: Orchestrator Lens
