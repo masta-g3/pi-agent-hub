@@ -1624,3 +1624,54 @@
   discovered_from: web-002
   references:
   - agent-work/plans/web-002.md
+- id: card-lens-001
+  status: pending
+  title: Step Lens Contract
+  subtitle: Generic step lens with Execute view
+  description: Rules publishes a generic step lens (Doing, Where, one list), Execute
+    fills it from the plan, and Hub draws it for any step.
+  priority: 1
+  created_at: '2026-11-11'
+  references:
+  - agent-work/plans/card-lens-000.md
+  - agent-work/decks/dashboard-card-lenses.html
+- id: card-lens-002
+  status: pending
+  title: Plan Commit Lenses
+  subtitle: Plan and Commit cards show progress
+  description: Plan shows stages, question counts and plan facts; Commit shows archive,
+    commit and push stages with a hash per repo, kept after completion.
+  priority: 2
+  created_at: '2026-11-11'
+  depends_on:
+  - card-lens-001
+  references:
+  - agent-work/plans/card-lens-000.md
+  - agent-work/decks/dashboard-card-lenses.html
+- id: card-lens-003
+  status: pending
+  title: Review Reflect Lenses
+  subtitle: Review findings and reflection outcomes visible
+  description: set_workflow_activity carries an optional findings list, and the Review
+    and Reflect cards show fixed, open and deferred items.
+  priority: 2
+  created_at: '2026-11-11'
+  depends_on:
+  - card-lens-001
+  references:
+  - agent-work/plans/card-lens-000.md
+  - agent-work/decks/dashboard-card-lenses.html
+- id: card-lens-004
+  status: pending
+  title: Orchestrator Lens
+  subtitle: Orchestrator shows tickets, gates, parked
+  description: The orchestrator publishes ticket states, gates, parked questions and
+    the PR, so its card shows epic or ticket progress and parked tickets reach NEEDS
+    YOU.
+  priority: 2
+  created_at: '2026-11-11'
+  depends_on:
+  - card-lens-001
+  references:
+  - agent-work/plans/card-lens-000.md
+  - agent-work/decks/dashboard-card-lenses.html

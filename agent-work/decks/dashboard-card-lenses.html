@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session card mocks</title>
+<style>
+:root {
+  --page: #eceae4; --ink: #1b1d21; --soft: #5f636b; --line: #d2d0c8; --raise: #f8f7f3;
+  --t-bg: #1e1e2e; --t-sel: #2a2b3d; --t-lcd: #181825; --t-band: #313244; --t-key: #45475a;
+  --t-text: #cdd6f4; --t-muted: #8f93ab; --t-dim: #5c5f77; --t-accent: #89b4fa; --t-warn: #f9e2af; --t-ok: #a6e3a1; --t-err: #f38ba8;
+  --new: #2f9e5c; --swap: #c7811b; --gone: #c4364b; --lens: #3d6fd6; --base: #9a9890;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --page: #101114; --ink: #e6e6e2; --soft: #a0a4ab; --line: #2b2d33; --raise: #18191d;
+    --new: #4cc27f; --swap: #e5a03a; --gone: #ef6b7e; --lens: #7aa2f2; --base: #6b6e76; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--sans); }
+:focus-visible { outline: 2px solid var(--lens); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- top bar ---------- */
+header { display: flex; align-items: center; gap: 18px; padding: 14px 28px; flex-wrap: wrap; }
+header h1 { font: 600 16px var(--sans); margin: 0 10px 0 0; }
+.pages { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.grp { display: flex; gap: 2px; align-items: center; padding: 3px; border-radius: 9px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+.grp > span { font-size: 11.5px; color: var(--soft); padding: 0 8px 0 6px; }
+.grp button, .seg button { font: 500 13px var(--sans); color: var(--soft); background: none; border: 0; padding: 5px 11px; border-radius: 6px; cursor: pointer; }
+.grp button[aria-selected="true"] { background: var(--ink); color: var(--raise); }
+.seg { margin-left: auto; display: flex; padding: 3px; border-radius: 9px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--raise); }
+
+/* ---------- stage ---------- */
+.stage { padding: 6px 28px 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.wrap { margin-right: 190px; max-width: 1180px; }
+.screen { background: var(--t-bg); color: var(--t-text); font: 13px/20px var(--mono); border-radius: 10px; box-shadow: 0 24px 50px -30px rgba(0,0,0,.6); }
+.band { background: var(--t-band); padding: 4px 14px; color: var(--t-muted); white-space: pre; overflow: hidden; border-radius: 10px 10px 0 0; }
+.band.foot { border-radius: 0 0 10px 10px; }
+.band b { color: var(--t-text); }
+.panes { display: grid; grid-template-columns: 400px minmax(0, 1fr); min-height: 520px; }
+.roster { border-right: 1px solid #313244; padding: 8px 0; }
+.card { padding: 10px 0 0; position: relative; }
+.ln { position: relative; min-height: 20px; padding: 0 14px; white-space: pre; transition: background .12s, opacity .12s; }
+.ln > .clip { display: block; overflow: hidden; text-overflow: ellipsis; }
+.ln.title > .clip { display: flex; justify-content: space-between; gap: 2ch; }
+.ln[data-i] { cursor: pointer; }
+.ln[data-i]:hover, .ln.on { background: rgba(137,180,250,.12); }
+.ln.new { background: rgba(76,194,127,.13); }
+.ln.swap { background: rgba(229,160,58,.12); }
+.ln.gone { background: rgba(239,107,126,.10); }
+.ln.gone > .clip { opacity: .5; text-decoration: line-through; text-decoration-color: var(--t-err); }
+.ln.new:hover, .ln.swap:hover, .ln.gone:hover, .ln.new.on, .ln.swap.on, .ln.gone.on { box-shadow: inset 3px 0 0 var(--t-accent); }
+.ln.sel { background: var(--t-sel); }
+.ln.sel::before { content: "▌"; position: absolute; left: 0; color: var(--t-accent); }
+.lab { display: inline-block; width: 8.5ch; color: var(--t-muted); }
+.lcd { display: inline-grid; grid-template-columns: repeat(3, auto); column-gap: 3ch; background: var(--t-lcd); padding: 0 10px; border-radius: 3px; margin: 2px 0; }
+.lcd .h { color: var(--t-muted); }
+.keys { background: var(--t-band); margin-top: 10px; padding: 3px 14px 4px; display: flex; gap: 2.4ch; color: var(--t-muted); }
+.kc { background: var(--t-key); color: var(--t-text); padding: 0 .5ch; border-radius: 2px; margin-right: .6ch; }
+.b { font-weight: 700; } .m { color: var(--t-muted); } .d { color: var(--t-dim); } .a { color: var(--t-accent); }
+.w { color: var(--t-warn); } .ok { color: var(--t-ok); } .e { color: var(--t-err); }
+.hd { color: var(--t-muted); padding: 0 14px; white-space: pre; overflow: hidden; }
+.hd .rule { color: var(--t-dim); }
+
+/* ---------- rail (outside the screen) ---------- */
+.rail { position: absolute; top: 0; bottom: 0; left: calc(100% + 18px); width: 172px; border-left: 3px solid var(--base); padding-left: 9px; font: 12px/20px var(--sans); color: var(--soft); white-space: nowrap; display: flex; gap: 6px; align-items: flex-start; pointer-events: none; }
+.rail.lens { border-left-color: var(--lens); color: var(--lens); }
+.rail.start { top: 2px; }
+.rail .nm { font-weight: 600; }
+.mk { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; font: 700 12px/1 var(--sans); color: #fff; }
+.mk.new { background: var(--new); } .mk.swap { background: var(--swap); } .mk.gone { background: var(--gone); }
+@media (prefers-color-scheme: dark) { .mk { color: #111; } }
+.flexline { display: flex; justify-content: space-between; gap: 2ch; }
+.flexline > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.flexline > span:last-child { flex: none; }
+
+/* ---------- info strip ---------- */
+.info { max-width: 1180px; margin: 14px 190px 0 0; min-height: 74px; display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: start; padding: 12px 16px; border-radius: 10px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+.info .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font: 600 11.5px/20px var(--sans); padding: 0 8px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--line); color: var(--soft); white-space: nowrap; }
+.chip.lens { color: var(--lens); box-shadow: inset 0 0 0 1px var(--lens); }
+.chip.new { background: var(--new); color: #fff; box-shadow: none; } .chip.swap { background: var(--swap); color: #fff; box-shadow: none; } .chip.gone { background: var(--gone); color: #fff; box-shadow: none; }
+.info .t { font-weight: 600; } .info .s { color: var(--soft); }
+.info .was { margin-top: 6px; display: inline-block; background: var(--t-bg); color: var(--t-text); font: 12.5px/20px var(--mono); padding: 2px 10px; border-radius: 5px; white-space: pre; }
+.info .was::before { content: "today  "; color: var(--t-dim); }
+.legend { display: flex; gap: 12px; align-items: center; font-size: 12.5px; color: var(--soft); white-space: nowrap; }
+.legend span { display: inline-flex; gap: 5px; align-items: center; }
+.legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+.foot-hint { max-width: 1180px; margin: 10px 190px 30px 0; font-size: 12.5px; color: var(--soft); display: flex; justify-content: space-between; }
+@media (max-width: 1000px) { .wrap, .info, .foot-hint { margin-right: 0; } .rail { display: none; } .panes { grid-template-columns: 1fr; } .roster { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Session card mocks</h1>
+  <nav class="pages" id="pages" aria-label="Pages"></nav>
+  <div class="seg" role="group" aria-label="Version">
+    <button id="v-today" aria-pressed="false">Today</button>
+    <button id="v-prop" aria-pressed="true">Proposed</button>
+  </div>
+</header>
+
+<div class="stage">
+  <div class="wrap">
+    <div class="screen">
+      <div class="band"><b>pi hub</b>  FLEET   <span class="w">?1</span> <span class="ok">●3</span> ○2          Claude 5h ▰▰▱▱▱  week ▰▰▱▱▱          7 sessions</div>
+      <div class="panes">
+        <div class="roster" id="roster"></div>
+        <div class="card" id="card"></div>
+      </div>
+      <div class="band foot">] Next request   p Reply   : All actions   ? Help   n New   / Filter   v Group   S Board</div>
+    </div>
+  </div>
+  <div class="info" id="info" aria-live="polite"></div>
+  <div class="foot-hint"><span>Hover or click a line for its source. Click again to unpin.</span><span>← → pages · t today/proposed</span></div>
+</div>
+
+<script>
+// ---------- tiny markup helpers ----------
+const sp = (c) => (s) => `<span class="${c}">${s}</span>`;
+const b = sp("b"), m = sp("m"), d = sp("d"), a = sp("a"), w = sp("w"), ok = sp("ok"), e = sp("e");
+const L = (lab, v, tone = "") => `<span class="lab ${tone}">${lab}</span>${v}`;
+const I = (v) => `<span class="lab"></span>${v}`;
+const STEPS = ["PL", "EX", "RV", "RF", "CM"];
+const rail = (i) => STEPS.map((s, k) => k < i ? m(s) + ok("✓") : k === i ? a(s + "◉") : m(s) + d("·")).join(" ");
+const stages = (list, i) => list.map((s, k) => k < i ? s + ok("✓") : k === i ? a(s + "◉") : m(s + "·")).join(" ");
+const meter = (f, n = 8) => "▰".repeat(f) + m("▱".repeat(n - f));
+const bar = d(" │ ");
+const lcd = (cols) => `<span class="lcd">${cols.map(([h]) => `<span class="h">${h}</span>`).join("")}${cols.map(([, v]) => `<span>${v}</span>`).join("")}</span>`;
+const keys = (...k) => k.map(([c, l]) => `<span><span class="kc">${c}</span>${l}</span>`).join("");
+
+// Sources, used in tips.
+const S = { reg: "Hub registry", ctx: "Ticket context", wf: "Workflow runtime", hook: "Hub tool hooks", sock: "Live socket", cat: "Command catalog",
+  plan: "Plan file", agent: "Agent report", git: "git", orch: "Orchestrator", note: "Progress note (model call)" };
+// Template slots: base parts stay fixed, lens parts come from the active skill.
+const SLOT = { id: ["Identity"], req: ["Request"], doing: ["Doing", 1], where: ["Where", 1], lens: ["Lens body", 1], live: ["Live"], msg: ["Message"], keys: ["Keys"] };
+
+// row(slot, html, [name, source, note], change?, was?)
+const r = (s, h, tip, ch, was) => ({ s, h, tip, ch, was });
+const gap = { gap: true };
+const title = (glyph, name, meta, right) => ({ s: "id", cls: "title", h: `<span>${glyph} ${b(name)}  ${m(meta)}</span><span class="m">${right}</span>`, tip: ["Title row", S.reg, "Name, runtime glyph, repo, step code, age."] });
+const ticket = (t) => r("id", m(t), ["Ticket line", S.ctx, "Ticket ID and subtitle from features.yaml."]);
+const said = (lines) => [r("msg", `${d("── ")}${m("SAID")}${d(" " + "─".repeat(46))}`, ["SAID", S.sock, "Latest agent message, read live, never stored."]),
+  ...lines.map((l) => r("msg", l, ["SAID", S.sock, "Up to 14 lines. C shows all."]))];
+const keyrow = (...k) => ({ s: "keys", keys: keys(...k), tip: ["Keys", S.cat, "Actions for this exact session."] });
+const WEB = "web-002 · Live chat transcript for the phone inbox";
+
+// ---------- pages ----------
+const PAGES = [
+  { id: "working", group: "Base", name: "Working",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Fix Login Redirect", right: "2m",
+      line: L("NOW", `edit    ${m("src/auth/callback.ts")}`, "ok") },
+    rows: [
+      title(ok("⠸"), "Fix Login Redirect", "webapp", "2m"), gap,
+      r("doing", L("DONE", "Found the redirect loop in the auth middleware."), ["DONE", S.note, "What the agent achieved."], "gone"),
+      r("doing", L("DOING", b("Patching the OAuth callback in the auth middleware.")), ["Doing", S.note, "Without a lens, Doing falls back to the progress note."], "swap", L("NEXT", "Patch the callback and rerun the auth tests.")),
+      gap,
+      r("live", L("NOW", `${d("3s ")} edit    ${m("src/auth/callback.ts")}`, "ok"), ["NOW", S.hook, "The tool call running right now."]),
+      r("live", L("LOG", m(`${d("20s")} bash    npm test -- auth`)), ["LOG", S.hook, "Last three tool calls. Name and one argument, never output."]),
+      r("live", I(m(`${d("1m ")} read    src/auth/middleware.ts`)), ["LOG", S.hook, "Last three tool calls."]),
+      r("live", L("SUB", `scout ${m("· find other redirect callers")}`), ["SUB", S.reg, "Running subagent and its task."]),
+      gap, ...said(["The loop comes from the callback setting the cookie after redirect.", "I am moving the cookie write before the redirect."]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["c", "Conversation"], ["i", "Details"]),
+    ] },
+
+  { id: "question", group: "Base", name: "Question",
+    sel: { tier: "NEEDS YOU", g: w("?"), name: "Phone chat view", right: "now", line: L("ASK", "Keep the Use as reply button?", "w") },
+    rows: [
+      title(w("?"), "Phone chat view", "pi-agent-hub", "PL  now"), ticket(WEB), gap,
+      r("req", L("ASK", b("Scope · Keep the “Use as reply” button?"), "w"), ["Request", S.ctx, "From ask_user_question. Always first; no lens hides it."]),
+      r("req", I(`${a("1")} Keep it ${m("(Recommended)")}`), ["Options", S.sock, "Tab answers in place."]),
+      r("req", I(`${a("2")} Remove it`), ["Options", S.sock, "Tab answers in place."]),
+      gap,
+      r("doing", L("DONE", "Drafted phases 1–3 of the web-002 plan."), ["DONE", S.note, ""], "gone"),
+      r("doing", L("DOING", b("Paused on one scope question; plan is half written.")), ["Doing", S.wf, "Stays under the request, never above it."], "swap", L("DONE", "Drafted phases 1–3 of the web-002 plan.")),
+      r("where", L("WHERE", `${rail(0)}${bar}${stages(["inspect", "scope", "write", "critic", "ready"], 1)}`), ["Where", S.wf, "Workflow rail, then the step's own stages."], "swap", lcd([["STEP", rail(0)]])),
+      gap, ...said(["Phases 1–3 are drafted. One choice changes phase 4:", "whether the chat screen keeps “Use as reply”."]),
+      keyrow(["Tab", "Answer"], ["p", "Reply"], ["↵", "Open in Pi"], ["m", "Mark read"]),
+    ] },
+
+  { id: "ready", group: "Base", name: "Ready",
+    sel: { tier: "NEEDS YOU", g: w("✓"), name: "Card Explainer", right: "1m", line: L("RDY", "Explainer ready for review", "w") },
+    rows: [
+      title(w("✓"), "Card Explainer", "pi-agent-hub", "1m"), gap,
+      r("req", L("RDY", b("Explainer ready: card sources, template, 7 mocks."), "w"), ["Request", S.ctx, "From hand_off kind ready."]),
+      r("req", I(m("→ Answer the 4 decisions in section 6.")), ["Recommendation", S.ctx, "Prefills the reply draft."]),
+      r("req", I(m("▤ …/agent-work/decks/dashboard-card-lenses.html")), ["Artifact", S.ctx, "Path is checked to exist."]),
+      gap, ...said(["The page maps every card field to its source.", "Section 6 lists four decisions before planning."]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["m", "Mark read"], ["y", "Copy path"]),
+    ] },
+
+  { id: "error", group: "Base", name: "Error",
+    sel: { tier: "HEALTH", g: e("✕"), name: "Markdown Parser", right: "4m", line: L("ERR", "529 overloaded", "e") },
+    rows: [
+      title(e("✕"), "Markdown Parser", "pi-agent-hub", "EX  4m"), gap,
+      r("req", L("ERR", "Provider error 529: overloaded. Retried 3 times.", "e"), ["Error", "Hub heartbeat", "Fault shown first, in error color."]),
+      gap,
+      r("doing", L("DONE", "Wrote phase 2 tests for the Markdown parser."), ["DONE", S.note, ""], "gone"),
+      r("doing", L("DOING", b("Stopped while adding Markdown parser tests.")), ["Doing", S.plan, "Last open plan task, kept after a fault."], "swap", L("DONE", "Wrote phase 2 tests for the Markdown parser.")),
+      r("where", L("WHERE", `${rail(1)}${bar}phase 2 of 5  ${meter(3)} 7/19`), ["Where", S.wf, "Kept from the last known workflow."], "swap", lcd([["STEP", rail(1)], ["TASK", `${meter(3)} 7/19`], ["PHASE", "2/5"]])),
+      gap,
+      r("live", L("LOG", m(`${d("4m ")} bash    npm test -- markdown`)), ["LOG", S.hook, ""]),
+      keyrow(["r", "Restart"], ["↵", "Open in Pi"], ["i", "Details"]),
+    ] },
+
+  { id: "plan", group: "Steps", name: "Plan",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Phone chat view", right: "PL 4m",
+      line: L("NOW", `agent   ${m("plan-critic")}`, "ok"), next: [L("DOING", "Reviewing plan with critic", "ok"), m("4/5")] },
+    rows: [
+      title(ok("⠸"), "Phone chat view", "pi-agent-hub", "PL  4m"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Reviewing the drafted plan with plan-critic.")), ["Doing", S.wf, "Activity label, worded as the step's work."], "swap", L("DONE", "Read the web inbox server and conversation code.")),
+      r("doing", L("NEXT", "Write the plan for the chat transcript."), ["NEXT", S.note, "Repeats Doing once a lens exists."], "gone"),
+      r("where", L("WHERE", `${rail(0)}${bar}${stages(["inspect", "scope", "write", "critic", "ready"], 3)}`), ["Where", S.wf, "Activities shown as stages."], "swap", lcd([["STEP", rail(0)]])),
+      gap,
+      r("lens", L("PLAN", "5 phases · 19 tasks · 9 criteria"), ["Plan facts", S.plan, "Parsed from the plan file. No agent call."], "new"),
+      r("lens", I(`${ok("✓")} ${m("4 answered")}   ${w("?")} 1 waiting: keep “Use as reply”?`), ["Questions", S.wf, "Counted from ask_user_question calls and their answers. Counts what was asked, not what is still to come."], "new"),
+      r("lens", I(`${a("◉")} critic pass 1`), ["Critic pass", S.wf, "Pass count already exists."], "new"),
+      gap,
+      r("live", L("NOW", "Reviewing plan (pass 1)", "ok"), ["Activity in NOW", S.wf, "Moves into Where."], "gone"),
+      r("live", L("NOW", `${d("8s ")} agent   ${m("plan-critic")}`, "ok"), ["NOW", S.hook, ""]),
+      r("live", L("SUB", `plan-critic ${m("· agent-work/plans/web-002.md")}`), ["SUB", S.reg, ""]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["i", "Details"]),
+    ] },
+
+  { id: "execute", group: "Steps", name: "Execute",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Phone chat view", right: "EX 2m",
+      line: L("NOW", `edit    ${m("conversation.ts")}`, "ok"), meter: `${meter(4)} 11/19`, next: [L("DOING", "Add at to conversation items", "ok"), `${meter(4)} 11/19`] },
+    rows: [
+      title(ok("⠸"), "Phone chat view", "pi-agent-hub", "EX  2m"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Adding at timestamps to conversation items.")), ["Doing", S.plan, "First open task. Execute has no activity today."], "swap", L("DONE", "Added at timestamps to conversation items.")),
+      r("doing", L("NEXT", "Wire the earlier-page route into server tests."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${rail(1)}${bar}${stages(["1", "2", "3", "4", "5"], 2)}  ${meter(4)} 11/19`), ["Where", S.plan, "Rail, phases, task meter on one line."], "swap", lcd([["STEP", rail(1)], ["TASK", `${meter(4)} 11/19`], ["PHASE", "3/5"]])),
+      gap,
+      r("lens", L("PLAN", "Conversation transport and merge"), ["Phase", S.plan, "Phase number moved into Where."], "swap", L("PLAN", "3/5 Conversation transport and merge")),
+      r("lens", I(m("✓ conversation test: item carries at")), ["Task", S.plan, ""]),
+      r("lens", I(`${a("◉")} ${b("Add at in src/core/conversation.ts")}`), ["Current task", S.plan, ""]),
+      r("lens", I(`${d("·")} web-server test: detail returns page`), ["Task", S.plan, ""]),
+      r("lens", I(m("· 2 more")), ["Task", S.plan, ""]),
+      gap,
+      r("live", L("NOW", `${d("12s")} edit    ${m("src/core/conversation.ts")}`, "ok"), ["NOW", S.hook, ""]),
+      r("live", L("LOG", m(`${d("40s")} bash    npm test -- conversation`)), ["LOG", S.hook, ""]),
+      gap, ...said(["The read check now accepts a page with and without at."]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["c", "Conversation"], ["i", "Details"]),
+    ] },
+
+  { id: "review", group: "Steps", name: "Review",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Phone chat view", right: "RV 1m",
+      line: L("NOW", `edit    ${m("web/markdown.js")}`, "ok"), next: [L("DOING", "Fixing parser stall", "ok"), `${w("2 open")} ${m("pass 2")}`] },
+    rows: [
+      title(ok("⠸"), "Phone chat view", "pi-agent-hub", "RV  1m"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Fixing finding 3 of 5: parser stall on backtick runs.")), ["Doing", S.agent, "Current finding."], "swap", L("DONE", "Fixed the retry shown twice after unknown delivery.")),
+      r("doing", L("NEXT", "Fix the parser stall on long backtick runs."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${rail(2)}${bar}${stages(["review", "fix", "done"], 1)}  pass 2`), ["Where", S.wf, "Stages and critic pass."], "swap", lcd([["STEP", rail(2)]])),
+      gap,
+      r("lens", L("FOUND", `${ok("2 fixed")} · ${w("2 open")} · ${m("1 deferred")}`), ["Findings", S.agent, "Sent with set_workflow_activity."], "new"),
+      r("lens", I(m("✓ Retry after unknown delivery showed twice")), ["Finding", S.agent, "Fixed."], "new"),
+      r("lens", I(m("✓ Lost history cursor on empty session")), ["Finding", S.agent, "Fixed."], "new"),
+      r("lens", I(`${a("◉")} ${b("Parser stall on long backtick runs")}`), ["Finding", S.agent, "Being fixed."], "new"),
+      r("lens", I(`${d("·")} Failed read dropped loaded history`), ["Finding", S.agent, "Open."], "new"),
+      r("lens", I(m("→ Login in a link: to Reflection Candidates")), ["Finding", S.agent, "Deferred, out of scope."], "new"),
+      gap,
+      r("live", L("NOW", "Fixing findings (pass 2)", "ok"), ["Activity in NOW", S.wf, "Moves into Where."], "gone"),
+      r("live", L("NOW", `${d("3s ")} edit    ${m("web/markdown.js")}`, "ok"), ["NOW", S.hook, ""]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["i", "Details"]),
+    ] },
+
+  { id: "reflect", group: "Steps", name: "Reflect",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Phone chat view", right: "RF 1m",
+      line: L("NOW", `edit    ${m("docs/STRUCTURE.md")}`, "ok"), next: [L("DOING", "Updating STRUCTURE.md", "ok"), m("2/4")] },
+    rows: [
+      title(ok("⠸"), "Phone chat view", "pi-agent-hub", "RF  1m"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Adding the Markdown safety rule to STRUCTURE.md.")), ["Doing", S.agent, "Current candidate."], "swap", L("DONE", "Documented the transcript source in STRUCTURE.md.")),
+      r("doing", L("NEXT", "Propose a ticket for the keyboard dock check."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${rail(3)}${bar}${stages(["review", "update", "done"], 1)}`), ["Where", S.wf, ""], "swap", lcd([["STEP", rail(3)]])),
+      gap,
+      r("lens", L("CANDS", `${ok("1 applied")} · 1 now · ${w("1 needs you")} · ${m("1 no action")}`), ["Candidates", S.plan, "From the plan's Reflection Candidates."], "new"),
+      r("lens", I(m("✓ STRUCTURE.md: transcript source")), ["Candidate", S.agent, "Applied."], "new"),
+      r("lens", I(`${a("◉")} ${b("STRUCTURE.md: Markdown safety rule")}`), ["Candidate", S.agent, "In progress."], "new"),
+      r("lens", I(`${w("!")} New ticket: keyboard dock check`), ["Candidate", S.agent, "Needs approval."], "new"),
+      r("lens", I(m("– Retry wording: no change")), ["Candidate", S.agent, "No action."], "new"),
+      gap,
+      r("live", L("NOW", "Updating guidance", "ok"), ["Activity in NOW", S.wf, "Moves into Where."], "gone"),
+      r("live", L("NOW", `${d("5s ")} edit    ${m("docs/STRUCTURE.md")}`, "ok"), ["NOW", S.hook, ""]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["i", "Details"]),
+    ] },
+
+  { id: "commit", group: "Steps", name: "Commit",
+    sel: { tier: "ACTIVE", g: ok("⠸"), name: "Phone chat view", right: "CM now",
+      line: L("NOW", `bash    ${m("git commit")}`, "ok"), next: [L("DOING", "Committing in rules", "ok"), m("1/2 repos")] },
+    rows: [
+      title(ok("⠸"), "Phone chat view", "pi-agent-hub ⧉2", "CM  now"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Committing web-002 in rules; pi-agent-hub is done.")), ["Doing", S.git, "Repo being committed."], "swap", L("DONE", "Archived the plan and marked web-002 done.")),
+      r("doing", L("NEXT", "Commit both repos and push."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${rail(4)}${bar}${stages(["archive", "commit", "push"], 1)}  1/2 repos`), ["Where", S.wf, "Push is a new stage."], "swap", lcd([["STEP", rail(4)]])),
+      gap,
+      r("lens", L("CLOSE", `${ok("✓")} ${m("Plan archived to history/web-002.md")}`), ["Closeout", S.plan, ""], "new"),
+      r("lens", I(`${ok("✓")} ${m("Ticket web-002 marked done")}`), ["Closeout", "features.yaml", ""], "new"),
+      r("lens", I(`${ok("✓")} pi-agent-hub  ${a("3f9c2e1")} ${m("feat(web): phone chat view")}`), ["Commit", S.git, "Hash per repo. Kept after completion."], "new"),
+      r("lens", I(`${a("◉")} ${b("rules")}  ${m("committing…")}`), ["Commit", S.git, ""], "new"),
+      r("lens", I(`${d("·")} Push and merge worktree`), ["Push", S.git, ""], "new"),
+      gap,
+      r("live", L("NOW", "Committing changes", "ok"), ["Activity in NOW", S.wf, "Moves into Where."], "gone"),
+      r("live", L("NOW", `${d("1s ")} bash    ${m('git commit -m "docs: web chat…"')}`, "ok"), ["NOW", S.hook, ""]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["i", "Details"]),
+    ] },
+
+  { id: "orch-ticket", group: "Orchestrator", name: "Ticket",
+    sel: { tier: "ACTIVE", g: "○", name: "Run web-002", right: "30s", kids: 1,
+      line: L("SUB", `ticket-runner ${m("· review")}`, "ok"), next: [L("DOING", "Waiting on runner review", "ok"), `${m("RV")} ${ok("2 gates")}`] },
+    rows: [
+      title(`○`, `Run web-002 ${ok("↳1")}`, "pi-agent-hub", "30s"), ticket(WEB), gap,
+      r("doing", L("DOING", b("Waiting for the runner to finish Review, then gating it.")), ["Doing", S.orch, ""], "swap", L("DONE", "Gated Execute: diff in scope, tests pass.")),
+      r("doing", L("NEXT", "Check the review result before Reflect."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${rail(2)}${bar}2 gates ${ok("✓")} · 0 parked`), ["Where", "Runner's workflow", "Hub joins the child by parent ID."], "new"),
+      gap,
+      r("lens", L("RUNNER", `runner-web-002 ${m("· Fixing findings (pass 2)")}`), ["Runner", "Subagent row", ""], "new"),
+      r("lens", I(`${ok("✓")} ${m("Plan gate: plan matches scope")}`), ["Gate", S.orch, ""], "new"),
+      r("lens", I(`${ok("✓")} ${m("Execute gate: diff in scope, tests pass")}`), ["Gate", S.orch, ""], "new"),
+      r("lens", I(`${a("◉")} ${b("Review gate: pending")}`), ["Gate", S.orch, ""], "new"),
+      gap,
+      r("live", L("NOW", `${d("1m ")} tmux_subagent ${m("wait runner-web-002")}`, "ok"), ["NOW", S.hook, ""]),
+      r("live", L("SUB", `ticket-runner ${m("· web-002 review phase")}`), ["SUB", S.reg, ""]),
+      keyrow(["p", "Reply"], ["↵", "Open in Pi"], ["→", "Show runner"]),
+    ] },
+
+  { id: "orch-epic", group: "Orchestrator", name: "Epic",
+    sel: { tier: "NEEDS YOU", g: w("?"), name: "Pixel Map Review", right: "11m", kids: 2,
+      line: L("SUB", `ticket-runner ${m("+1 more")}`, "ok"), next: [L("ASK", "sfcity-014 parked: tile CDN", "w"), `${meter(2, 6)} 2/6`] },
+    rows: [
+      title(w("?"), `Pixel Map Review ${ok("↳2")}`, "agent-atlas", "11m"), ticket("sfcity · Pixel city pilot"), gap,
+      r("req", L("ASK", b("sfcity-014 parked · Which tile CDN?"), "w"), ["Parked ticket", S.orch, "Raised as a request, so it reaches NEEDS YOU."], "new"),
+      gap,
+      r("doing", L("DOING", b("Running 2 tickets; next gate is sfcity-013 Review.")), ["Doing", S.orch, ""], "swap", L("DONE", "Committed sfcity-011 to the integration branch.")),
+      r("doing", L("NEXT", "Gate sfcity-013 review."), ["NEXT", S.note, ""], "gone"),
+      r("where", L("WHERE", `${meter(2, 6)} 2/6 committed · ${ok("2 running")} · ${w("1 parked")} · 1 queued`), ["Where", S.orch, "Epic progress replaces the step rail."], "new"),
+      gap,
+      r("lens", L("TICKETS", `${ok("✓")} sfcity-010  ${m("committed  a1b2c3d")}`), ["Ticket", S.orch, ""], "new"),
+      r("lens", I(`${ok("✓")} sfcity-011  ${m("committed  9e8f7a6")}`), ["Ticket", S.orch, ""], "new"),
+      r("lens", I(`${a("◉")} sfcity-012  ${rail(1)}`), ["Ticket", "Runner's workflow", ""], "new"),
+      r("lens", I(`${a("◉")} sfcity-013  ${rail(2)}`), ["Ticket", "Runner's workflow", ""], "new"),
+      r("lens", I(`${w("!")} sfcity-014  ${w("parked")}`), ["Ticket", S.orch, ""], "new"),
+      r("lens", I(`${d("·")} sfcity-015  ${m("queued after 013")}`), ["Ticket", S.orch, ""], "new"),
+      r("lens", L("PR", m("opens after the last commit")), ["PR", S.orch, ""], "new"),
+      gap,
+      r("live", L("SUB", `ticket-runner ${m("· sfcity-013 review  +1 more")}`), ["SUB", S.reg, ""]),
+      keyrow(["Tab", "Answer"], ["p", "Reply"], ["↵", "Open in Pi"], ["→", "Show runners"]),
+    ] },
+];
+
+// Other sessions in the roster, so the selected one sits in a real fleet.
+const FILLER = {
+  "ACTIVE": [{ g: ok("●"), name: "Map Performance", right: "map  3m", line: L("NOW", `bash    ${m("npm run bench")}`, "ok") }],
+  "QUIET": [{ g: "○", name: "Check Rules Provider", right: "1h", line: L("DONE", m("Committed the provider fix.")) },
+            { g: "○", name: "Model Workflow", right: `CM${ok("✓")} 22h` }],
+};
+
+// ---------- render ----------
+const state = { page: 0, view: "prop", pin: null };
+const $ = (id) => document.getElementById(id);
+
+function visibleRows(p) {
+  return p.rows.filter((x) => x.gap || (state.view === "today" ? x.ch !== "new" : true))
+    .map((x) => state.view === "today" && x.ch === "swap" ? { ...x, h: x.was, ch: undefined, today: true } : state.view === "today" && x.ch === "gone" ? { ...x, ch: undefined } : x);
+}
+
+function renderCard(p) {
+  const rows = visibleRows(p).filter((x, i, all) => !(x.gap && (i === 0 || all[i - 1].gap)));
+  let prev = null;
+  return rows.map((x, i) => {
+    if (x.gap) { prev = null; return `<div class="ln"> </div>`; }
+    const slot = SLOT[x.s];
+    const start = x.s !== prev; prev = x.s;
+    const railHtml = `<span class="rail${slot[1] ? " lens" : ""}">${x.ch ? `<span class="mk ${x.ch}">${{ new: "+", swap: "⇄", gone: "−" }[x.ch]}</span>` : ""}${start ? `<span class="nm">${slot[0]}</span>` : ""}</span>`;
+    if (x.keys) return `<div class="ln keys" data-i="${i}" style="padding-right:14px">${x.keys}${railHtml}</div>`;
+    return `<div class="ln ${x.cls || ""} ${x.ch || ""}" data-i="${i}"><span class="clip">${x.h}</span>${railHtml}</div>`;
+  }).join("");
+}
+
+function renderRoster(p) {
+  const tiers = ["NEEDS YOU", "HEALTH", "ACTIVE", "QUIET"];
+  const sel = p.sel;
+  const proposedLine = state.view === "prop" && sel.next;
+  let out = "";
+  for (const tier of tiers) {
+    const items = [...(sel.tier === tier ? [{ ...sel, selected: true }] : []), ...(FILLER[tier] || [])];
+    if (!items.length) continue;
+    const head = ` ${tier} ${items.length} `;
+    out += `<div class="hd"><span class="rule">──</span>${head}<span class="rule">${"─".repeat(Math.max(2, 44 - head.length))}</span></div>`;
+    for (const it of items) {
+      const line = it.selected && proposedLine ? `<span class="flexline"><span>${sel.next[0]}</span><span>${sel.next[1]}</span></span>` :
+        it.meter ? `<span class="flexline"><span>${it.line}</span><span>${it.meter}</span></span>` : it.line;
+      const mk = "";
+      out += `<div class="ln title ${it.selected ? "sel" : ""}"><span class="clip"><span>${it.g} ${b(it.name)}</span><span class="m">${it.right}</span></span></div>`;
+      if (line) out += `<div class="ln ${it.selected ? "sel" : ""} ${it.selected && proposedLine ? "swap" : ""}" ${it.selected ? `data-roster="1"` : ""}><span class="clip">${line}</span>${mk}</div>`;
+      out += `<div class="ln"> </div>`;
+    }
+  }
+  return out;
+}
+
+function counts(p) {
+  const c = { new: 0, swap: 0, gone: 0 };
+  p.rows.forEach((x) => x.ch && c[x.ch]++);
+  return c;
+}
+
+function renderInfo(p, x) {
+  if (!x) {
+    const c = counts(p);
+    const changes = state.view === "today" ? `<span class="s">Today's card. Switch to Proposed to see changes.</span>` :
+      (c.new + c.swap + c.gone ? `<span class="legend"><span><i class="sw" style="background:var(--new)"></i>${c.new} new</span><span><i class="sw" style="background:var(--swap)"></i>${c.swap} swapped</span><span><i class="sw" style="background:var(--gone)"></i>${c.gone} removed</span></span>` : `<span class="s">No change. This case already fits the template.</span>`);
+    $("info").innerHTML = `<div class="chips"><span class="chip">${p.group}</span><span class="chip">${p.name}</span></div><div>${changes}</div>
+      <div class="legend"><span><i class="sw" style="background:var(--base)"></i>base</span><span><i class="sw" style="background:var(--lens)"></i>lens</span></div>`;
+    return;
+  }
+  if (x.roster) {
+    $("info").innerHTML = `<div class="chips"><span class="chip">Roster line</span>${state.view === "prop" && p.sel.next ? `<span class="chip swap">swapped</span>` : ""}</div>
+      <div><div class="t">The selected session's one line on the left</div><div class="s">Proposed: Doing on the left, lens progress on the right.</div>
+      ${state.view === "prop" && p.sel.next ? `<div class="was">${p.sel.line}</div>` : ""}</div><div></div>`;
+    return;
+  }
+  const slot = SLOT[x.s];
+  const [name, src, note] = x.tip || ["", "", ""];
+  const ch = x.ch ? `<span class="chip ${x.ch}">${{ new: "new", swap: "swapped", gone: "removed" }[x.ch]}</span>` : "";
+  $("info").innerHTML = `<div class="chips"><span class="chip ${slot[1] ? "lens" : ""}">${slot[0]}</span>${ch}</div>
+    <div><div class="t">${name}</div><div class="s">${note || ""}</div>${x.ch === "swap" && state.view === "prop" ? `<div class="was">${x.was}</div>` : ""}</div>
+    <div class="chip">${src}</div>`;
+}
+
+function render() {
+  const p = PAGES[state.page];
+  $("card").innerHTML = renderCard(p);
+  $("roster").innerHTML = renderRoster(p);
+  document.querySelectorAll("#pages button").forEach((btn, i) => btn.setAttribute("aria-selected", String(i === state.page)));
+  $("v-today").setAttribute("aria-pressed", String(state.view === "today"));
+  $("v-prop").setAttribute("aria-pressed", String(state.view === "prop"));
+  state.pin = null;
+  renderInfo(p);
+}
+
+function rowAt(el) {
+  const p = PAGES[state.page];
+  if (el.dataset.roster) return { roster: true };
+  const rows = visibleRows(p).filter((x, i, all) => !(x.gap && (i === 0 || all[i - 1].gap)));
+  return rows[Number(el.dataset.i)];
+}
+
+// ---------- wiring ----------
+(function build() {
+  const groups = {};
+  PAGES.forEach((p, i) => (groups[p.group] ||= []).push([p, i]));
+  $("pages").innerHTML = Object.entries(groups).map(([g, list]) => `<div class="grp" role="tablist" aria-label="${g}"><span>${g}</span>${list.map(([p, i]) => `<button role="tab" data-p="${i}">${p.name}</button>`).join("")}</div>`).join("");
+  $("pages").addEventListener("click", (ev) => { const bt = ev.target.closest("button"); if (bt) { state.page = Number(bt.dataset.p); render(); } });
+  $("v-today").onclick = () => { state.view = "today"; render(); };
+  $("v-prop").onclick = () => { state.view = "prop"; render(); };
+  const screen = document.querySelector(".panes");
+  const target = (ev) => ev.target.closest("[data-i], [data-roster]");
+  screen.addEventListener("mouseover", (ev) => { if (state.pin) return; const el = target(ev); renderInfo(PAGES[state.page], el ? rowAt(el) : null); });
+  screen.addEventListener("mouseleave", () => { if (!state.pin) renderInfo(PAGES[state.page]); });
+  screen.addEventListener("click", (ev) => {
+    const el = target(ev);
+    document.querySelectorAll(".ln.on").forEach((n) => n.classList.remove("on"));
+    if (!el || state.pin === el) { state.pin = null; renderInfo(PAGES[state.page], el ? rowAt(el) : null); return; }
+    state.pin = el; el.classList.add("on"); renderInfo(PAGES[state.page], rowAt(el));
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.altKey || ev.metaKey || ev.ctrlKey) return;
+    if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") { state.page = (state.page + (ev.key === "ArrowRight" ? 1 : PAGES.length - 1)) % PAGES.length; render(); ev.preventDefault(); }
+    if (ev.key === "t") { state.view = state.view === "today" ? "prop" : "today"; render(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>
