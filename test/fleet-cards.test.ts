@@ -27,6 +27,11 @@ const rich = session("rich", {
     ...workflow,
     activity: { id: "writing-plan", label: "writing plan", pass: 2 },
     plan: { phase: { title: "Tests", index: 2, count: 4 }, tasks: { completed: 3, total: 8 } },
+    lens: {
+      doing: "writing plan", stages: [{ label: "1", state: "done" }, { label: "2", state: "active" }, { label: "3", state: "pending" }, { label: "4", state: "pending" }],
+      progress: { completed: 3, total: 8 }, pass: 2,
+      list: { label: "PLAN", head: "Tests", items: [{ state: "active", text: "Write the card tests" }], before: 0, after: 0 },
+    },
   },
 });
 
@@ -96,25 +101,27 @@ function cardTitle(rendered: ReturnType<typeof render>): string {
   return dock < 0 ? "" : rendered.lines[dock] ?? "";
 }
 
-test("wide selected cards show repo beside group, then task, the LCD readout, PLAN and NOW", () => {
+test("wide selected cards show repo beside group, then task, DOING, WHERE and the lens list", () => {
   const rendered = render([rich]);
   const card = cardLines(rendered, "rich");
-  assert.equal(card.length, 6, card.join("\n"));
+  assert.equal(card.length, 7, card.join("\n"));
   assert.match(cardTitle(rendered), /Dashboard UI polish ⎇ {2}cards/);
   assert.match(card[0]!, /hub-repo ⎇ feat\/taller-cards/);
   assert.match(card[1]!, /Taller fleet cards/);
-  assert.match(card[2]!, /STEP +TASK +PHASE/);
-  assert.match(card[3]!, /PL✓ EX◉ RV· +▰{3}▱{5} 3\/8 +2\/4/);
-  assert.match(card[4]!, /PLAN {2}2\/4 Tests/);
-  assert.match(card[5]!, /NOW {3}writing plan \(pass 2\)/);
+  assert.match(card[2]!, /DOING {2}writing plan$/);
+  assert.match(card[3]!, /WHERE {2}PL✓ EX◉ RV· │ 1✓ 2◉ 3· 4· {2}▰{3}▱{5} 3\/8 {2}pass 2$/);
+  assert.match(card[4]!, /PLAN {3}Tests/);
+  assert.match(card[5]!, /◉ Write the card tests/);
+  assert.match(card[6]!, /NOW {4}Thinking…/);
   // The roster keeps only the title row and one status line; the readout lives in the card.
   assert.match(titleLine(rendered, "rich"), /Dashboard UI polish ⎇ {3}cards · Taller fleet cards +EX$/);
   assert.ok(!rendered.roster.some((line) => line.includes("STEP")), rendered.roster.join("\n"));
 });
 
-test("stopped cards omit stale activity", () => {
+test("stopped cards keep their lens but no live activity", () => {
   const card = cardLines(render([{ ...rich, status: "stopped" }]), "rich");
-  assert.ok(!card.some((line) => line.includes("writing plan") || line.includes("Phase 2/4")), card.join("\n"));
+  assert.ok(card.some((line) => /DOING {2}writing plan/.test(line)), card.join("\n"));
+  assert.ok(!card.some((line) => /NOW/.test(line)), card.join("\n"));
   assert.ok(card.some((line) => line.includes("hub-repo ⎇ feat/taller-cards")));
 });
 
@@ -140,21 +147,23 @@ test("explicit requests stay the first continuation after metadata", () => {
     context: { version: 1 as const, updatedAt: NOW, attention: { kind: "question" as const, text: "Choose the boundary", requestId: "r1" } },
   };
   const card = cardLines(render([asking]), "rich");
-  assert.match(card[1]!, /ASK {3}Choose the boundary/);
+  assert.match(card[1]!, /ASK {4}Choose the boundary/);
   assert.ok(card.some((line) => line.includes("hub-repo ⎇ feat/taller-cards")));
 });
 
-test("below 100 columns the docked card folds its LCD into one readout line", () => {
+test("below 100 columns the docked card keeps DOING, WHERE and the open list item", () => {
   const rendered = render([rich], { width: 99 });
   assert.equal(rendered.pane, undefined);
   assert.ok(dockStart(rendered) > 0, "the card docks below the roster");
-  const card = cardLines(rendered, "rich");
-  assert.equal(card.length, 5, card.join("\n"));
+  const card = cardLines(rendered, "rich").map((line) => line.trimEnd());
+  assert.equal(card.length, 7, card.join("\n"));
   assert.match(card[0]!, /hub-repo ⎇ feat\/taller-cards/);
-  assert.match(card[2]!, /STEP {2}PL✓ EX◉ RV· {3}TASK ▰{3}▱{5} 3\/8 {3}PHASE 2\/4/);
+  assert.match(card[2]!, /DOING {2}writing plan$/);
+  assert.match(card[3]!, /WHERE {2}PL✓ EX◉ RV· │ 1✓ 2◉ 3· 4· {2}▰{3}▱{5} 3\/8 {2}pass 2/);
   // The compact dock keeps no blank group rows.
-  assert.match(card[3]!, /PLAN {2}2\/4 Tests/);
-  assert.match(card[4]!, /NOW {3}writing plan \(pass 2\)/);
+  assert.match(card[4]!, /PLAN {3}Tests/);
+  assert.match(card[5]!, /◉ Write the card tests/);
+  assert.match(card[6]!, /NOW {4}Thinking…/);
 });
 
 function linesBetween(rendered: ReturnType<typeof render>, firstId: string, secondId: string): string[] {
@@ -227,7 +236,7 @@ test("neighbor modules keep group and task beside the title and one status line 
     // The step moves to the title row; the readout stays in the card.
     assert.match(title, / EX$/, `height ${height}`);
     assert.ok(card.length <= 1, `height ${height}:\n${card.join("\n")}`);
-    if (card.length) assert.match(card[0]!, /NOW {3}writing plan \(pass 2\) +▰{3}▱{5} 3\/8$/);
+    if (card.length) assert.match(card[0]!, /DOING {2}writing plan +▰{3}▱{5} 3\/8$/);
     seen.add(card.length);
   }
   assert.ok(seen.has(1), [...seen].join(","));
@@ -295,7 +304,7 @@ test("narrow and pinned views carry a differing repo name on the metadata line",
     const rendered = render([differing, same], { height: 40, ...input });
     const diffCard = cardLines(rendered, "diff");
     // The metadata line, then, with nothing else to show, the fleet card's one-line quiet note.
-    assert.deepEqual(diffCard.slice(1).map(line => line.replace(/^▌\s*/u, "").trim()), input.pinSlots ? [] : ["NOW   Thinking…"], JSON.stringify(input) + "\n" + diffCard.join("\n"));
+    assert.deepEqual(diffCard.slice(1).map(line => line.replace(/^▌\s*/u, "").trim()), input.pinSlots ? [] : ["NOW    Thinking…"], JSON.stringify(input) + "\n" + diffCard.join("\n"));
     if (input.pinSlots) assert.match(diffCard[0]!, /\[mobile\] hub-repo/, JSON.stringify(input) + "\n" + diffCard[0]);
     else {
       const title = rendered.roster[rendered.layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "diff")]!;
@@ -321,7 +330,7 @@ test("unselected request modules keep the request within two lines and leave the
     const rendered = render([session("selected"), asking], { width, height: 40 });
     const card = cardLines(rendered, "asking");
     assert.equal(card.length, 2, `${width}:\n${card.join("\n")}`);
-    assert.match(card[0]!, /RDY {3}Review complete/);
+    assert.match(card[0]!, /RDY {4}Review complete/);
     assert.ok(!card.some((line) => line.includes("Run reflect next")), `${width}:\n${card.join("\n")}`);
     // Continuation lines hang under the request text, not under the label.
     assert.equal(card[1]!.search(/\S/), card[0]!.indexOf("Review"), `${width}:\n${card.join("\n")}`);
@@ -338,12 +347,12 @@ test("unselected active modules say what they are doing, with the step on the ti
     const rendered = render([session("selected"), { ...rich, id: "busy" }], { width, height: 40 });
     const card = cardLines(rendered, "busy");
     assert.equal(card.length, 1, `${width}:\n${card.join("\n")}`);
-    assert.match(card[0]!, /NOW {3}writing plan \(pass 2\)/);
+    assert.match(card[0]!, /DOING {2}writing plan/);
     assert.match(card[0]!, /3\/8$/);
     assert.match(titleLine(rendered, "busy"), / EX$/);
   }
   const idle = render([session("selected"), session("plain", { workflow })]);
-  assert.deepEqual(cardLines(idle, "plain"), [], "a step without activity has no status line");
+  assert.deepEqual(cardLines(idle, "plain"), [], "a step without a lens has no status line");
   assert.match(titleLine(idle, "plain"), /Session plain +cards +EX$/);
 });
 
@@ -352,7 +361,7 @@ test("unselected health modules show their error reason", () => {
   const rendered = renderSessions(buildRenderModel({ sessions: [session("selected"), broken], selectedId: "selected", width: 120, height: 40, now: NOW, guidanceHidden: true }), darkTheme);
   const index = rendered.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "broken");
   const detail = rendered.lines[index + 1]!;
-  assert.match(stripAnsi(detail), /ERR {3}MCP pool failed to start/);
+  assert.match(stripAnsi(detail), /ERR {4}MCP pool failed to start/);
   assert.ok(detail.includes(styleToken(darkTheme, "error", "ERR")));
 });
 
@@ -360,13 +369,13 @@ test("quiet modules show where a paused agent stopped", () => {
   const quiet = session("quiet", { status: "idle", workflow: rich.workflow });
   const rendered = render([session("selected", { status: "idle" }), quiet], { width: 160 });
   const card = cardLines(rendered, "quiet");
-  // A paused agent keeps its last producer activity and its task meter; the step stays on the title row.
+  // A paused agent keeps its lens DOING and progress meter; the step stays on the title row.
   assert.deepEqual(card.length, 1, card.join("\n"));
-  assert.match(card[0]!, /NOW {3}writing plan \(pass 2\) +▰{3}▱{5} 3\/8$/);
+  assert.match(card[0]!, /DOING {2}writing plan +▰{3}▱{5} 3\/8$/);
   assert.match(titleLine(rendered, "quiet"), / EX +now$/);
-  // Selected, the card carries the full readout.
+  // Selected, the card carries the full WHERE line.
   const selected = cardLines(render([quiet, session("other", { status: "idle" })], { width: 160 }), "quiet");
-  assert.ok(selected.some((line) => /PL✓ EX◉ RV· +▰{3}▱{5} 3\/8 +2\/4/.test(line)), selected.join("\n"));
+  assert.ok(selected.some((line) => /WHERE {2}PL✓ EX◉ RV· │ 1✓ 2◉ 3· 4· {2}▰{3}▱{5} 3\/8/.test(line)), selected.join("\n"));
 });
 
 test("an idle parent with running subagents names what they are doing", () => {
@@ -375,20 +384,20 @@ test("an idle parent with running subagents names what they are doing", () => {
     session(id, { kind: "subagent", parentId: "parent", agentName, taskPreview, status });
   const rendered = render([session("selected"), parent, child("c1", "code-critic", "Review the pixel map diff"), child("c2", "scout", "Find tile loaders"), child("c3", "worker", "Done earlier", "stopped")]);
   assert.match(titleLine(rendered, "parent"), /Tile review ↳2/);
-  assert.deepEqual(cardLines(rendered, "parent").map((line) => line.trim()), ["SUB   code-critic Review the pixel map diff"]);
+  assert.deepEqual(cardLines(rendered, "parent").map((line) => line.trim()), ["SUB    code-critic Review the pixel map diff"]);
   // The card names the count of other running subagents too.
   const selected = cardLines(render([parent, child("c1", "code-critic", "Review the pixel map diff"), child("c2", "scout", "Find tile loaders")]), "parent");
-  assert.ok(selected.some((line) => line.trim() === "SUB   code-critic · Review the pixel map diff · +1 more"), selected.join("\n"));
+  assert.ok(selected.some((line) => line.trim() === "SUB    code-critic · Review the pixel map diff · +1 more"), selected.join("\n"));
   // An expanded tree shows the subagent rows themselves instead.
   const expanded = render([session("selected"), parent, child("c1", "code-critic", "Review the pixel map diff")], { expandedProjectParentIds: new Set(["parent"]) });
   assert.ok(!cardLines(expanded, "parent").some((line) => line.trim().startsWith("SUB")), cardLines(expanded, "parent").join("\n"));
-  // A parent with its own activity shows it on its one status line; its card still names its subagents.
+  // A parent with its own lens shows DOING on its one status line; its card still names its subagents.
   const busy = cardLines(render([session("selected"), { ...rich, id: "parent" }, child("c1", "code-critic", "Review the pixel map diff")]), "parent");
   assert.equal(busy.length, 1, busy.join("\n"));
-  assert.match(busy[0]!, /NOW {3}writing plan/);
+  assert.match(busy[0]!, /DOING {2}writing plan/);
   const busyCard = cardLines(render([{ ...rich, id: "parent" }, child("c1", "code-critic", "Review the pixel map diff")]), "parent");
-  assert.match(busyCard.find((line) => line.includes("NOW")) ?? "", /NOW {3}writing plan/);
-  assert.match(busyCard.at(-1)!, /SUB {3}code-critic/);
+  assert.match(busyCard.find((line) => line.includes("DOING")) ?? "", /DOING {2}writing plan/);
+  assert.match(busyCard.at(-1)!, /SUB {4}code-critic/);
 });
 
 test("unselected modules keep dim for decoration off the plate", () => {

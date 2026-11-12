@@ -173,7 +173,6 @@ export interface RenderPlanSummary {
   tasks?: { completed: number; total: number };
   phases?: { completed: number; total: number; title?: string }[];
   nextStep?: string;
-  current?: { tasks: { done: boolean; text: string }[]; before: number; after: number };
 }
 
 export interface BoardHiddenCounts {
@@ -1208,7 +1207,6 @@ function planSummary(plan: NonNullable<WorkflowRuntimeSnapshot["plan"]>): Render
     tasks: plan.tasks,
     phases: plan.phases,
     nextStep: plan.nextStep,
-    current: plan.current,
   };
   return summary.phase || summary.tasks || summary.phases || summary.nextStep ? summary : undefined;
 }

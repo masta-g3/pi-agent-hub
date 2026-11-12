@@ -1616,7 +1616,7 @@ test("card continuation rows select and double-click open the live session", () 
   const rich = (id: string, title: string) => ({
     ...session(id, title),
     status: "running" as const,
-    workflow: { ...VIEW_WORKFLOW, activeIndex: 1, ticketId: `${id}-001`, activity: { id: "working", label: "Working" } },
+    workflow: { ...VIEW_WORKFLOW, activeIndex: 1, ticketId: `${id}-001`, lens: { doing: "Working" } },
     context: { version: 1 as const, updatedAt: 1, ticket: { id: `${id}-001`, subtitle: `${title} subtitle` } },
   });
   const controller = new SessionsController({ version: 1, sessions: [rich("api", "api"), rich("docs", "docs")] });
