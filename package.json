@@ -65,7 +65,8 @@
     "web",
     "README.md",
     "docs/*.md",
-    "assets/*.png"
+    "assets/*.png",
+    "assets/*.gif"
   ],
   "pi": {
     "extensions": [

@@ -42,6 +42,8 @@ pi-hub
 ```
 
 Press `n` to create a session. Use `]` for the next request, `Tab` Answer or `p` Reply, then `]` to move on.
+
+![The daily loop: ] Next request, Tab Answer, ] Next request](assets/pi-agent-hub-daily-loop.gif)
 Use `Enter` to open Pi, `Ctrl+Q` to return, and `i` for Details. Inside Pi, `Alt+W` opens the next request.
 
 | Key | Action |

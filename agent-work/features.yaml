@@ -1489,7 +1489,7 @@
   plan_file: agent-work/history/20261106_subagents-001_subagent_runtime_fixes.md
   completed_at: '2026-11-06'
 - id: dashboard-polish-003
-  status: pending
+  status: done
   title: README demo refresh
   subtitle: Current screenshot and daily-loop GIF
   description: Replace the README screenshot, which still shows the removed TIERS
@@ -1500,6 +1500,8 @@
   references:
   - assets/pi-agent-hub-dashboard.png
   - README.md:9
+  completed_at: '2026-11-11'
+  plan_file: agent-work/tickets/dashboard-polish-003/notes.md
 - id: dashboard-polish-004
   status: done
   title: Action undo
