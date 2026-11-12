@@ -34,6 +34,10 @@ export function sessionMetadataDir(env: NodeJS.ProcessEnv = process.env): string
   return join(sessionsStateDir(env), "session-metadata");
 }
 
+export function webPushPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sessionsStateDir(env), "web-push.json");
+}
+
 export function repoHistoryPath(env: NodeJS.ProcessEnv = process.env): string {
   return join(sessionsStateDir(env), "repo-history.json");
 }

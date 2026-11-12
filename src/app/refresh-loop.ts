@@ -1,4 +1,3 @@
-import type { TUI } from "@earendil-works/pi-tui";
 import type { SessionsController } from "./controller.js";
 
 export interface RefreshLoopHandle {
@@ -8,7 +7,7 @@ export interface RefreshLoopHandle {
 
 export function startRefreshLoop(
   controller: SessionsController,
-  tui: TUI,
+  tui: { requestRender(): void },
   afterRefresh?: (snapshot: ReturnType<SessionsController["snapshot"]>) => void | Promise<void>,
 ): RefreshLoopHandle {
   let inFlight: Promise<void> | undefined;
@@ -34,5 +33,32 @@ export function startRefreshLoop(
       clearInterval(timer);
       await inFlight?.catch(() => {});
     },
+  };
+}
+
+export interface RegistryMutatorDeps {
+  pause(): Promise<void>;
+  resume(): void;
+  refresh(): Promise<void>;
+  render(): void;
+}
+
+export function createRegistryMutator(deps: RegistryMutatorDeps): <T>(action: () => Promise<T>) => Promise<T> {
+  let queue: Promise<unknown> = Promise.resolve();
+  return <T>(action: () => Promise<T>) => {
+    const run = async () => {
+      try {
+        await deps.pause();
+        const result = await action();
+        await deps.refresh();
+        deps.render();
+        return result;
+      } finally {
+        deps.resume();
+      }
+    };
+    const result = queue.then(run, run);
+    queue = result.catch(() => {});
+    return result;
   };
 }

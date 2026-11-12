@@ -7,7 +7,7 @@ import { readJsonOr, writeJsonAtomic } from "../core/atomic-json.js";
 import { uiStatePath } from "../core/paths.js";
 import { loadRegistry } from "../core/registry.js";
 import { SessionsController } from "./controller.js";
-import { startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
+import { createRegistryMutator, startRefreshLoop, type RefreshLoopHandle } from "./refresh-loop.js";
 import { SessionsView } from "../tui/sessions-view.js";
 import { MOUSE_DISABLE, MOUSE_ENABLE } from "../tui/mouse.js";
 import type { NewFormContext } from "../tui/new-form.js";
@@ -308,33 +308,6 @@ export async function persistDashboardThemeSelection(setting: string, syncPi: bo
     throw error;
   }
   if (syncPi) await deps.publish(setting);
-}
-
-export interface RegistryMutatorDeps {
-  pause(): Promise<void>;
-  resume(): void;
-  refresh(): Promise<void>;
-  render(): void;
-}
-
-export function createRegistryMutator(deps: RegistryMutatorDeps): <T>(action: () => Promise<T>) => Promise<T> {
-  let queue: Promise<unknown> = Promise.resolve();
-  return <T>(action: () => Promise<T>) => {
-    const run = async () => {
-      try {
-        await deps.pause();
-        const result = await action();
-        await deps.refresh();
-        deps.render();
-        return result;
-      } finally {
-        deps.resume();
-      }
-    };
-    const result = queue.then(run, run);
-    queue = result.catch(() => {});
-    return result;
-  };
 }
 
 /** Every Archive choice shares one guarded pin cleanup; it never stops tmux, Pi, or child sessions. */

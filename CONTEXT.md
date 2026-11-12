@@ -63,6 +63,7 @@ Use these terms consistently:
 - **Dashboard**: the `pi-hub` terminal UI for viewing and controlling managed sessions.
 - **Request**: an explicit agent question, ready handoff, or blocker.
 - **Reply**: text sent from the selected card through Pi's bridge, using Send, Steer, or Queue.
+- **Phone inbox**: the `pi-hub web` page for answering requests and replying from a phone over Tailscale; a companion to the dashboard, not a second dashboard.
 - **Registry**: Hub's local record of managed sessions.
 - **Heartbeat**: live state reported from the Pi extension into Hub state.
 - **Group**: a simple session label used for dashboard organization.

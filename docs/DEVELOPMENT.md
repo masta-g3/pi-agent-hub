@@ -94,6 +94,10 @@ git push --follow-tags
 
 Create the matching GitHub Release from the generated `vX.Y.Z` tag and copy the changelog entry into the release notes.
 
+## Phone inbox checks
+
+The `web/` page has no build step: edit it and reload. `npm test` covers the server, projection, and push code, not the page itself. To check the page in a browser against temporary state, create a directory with `tmp=$(mktemp -d)`, run `PI_AGENT_HUB_DIR="$tmp" node dist/cli.js web --port 4791`, and open `http://127.0.0.1:4791` at a phone-size viewport. Remove `$tmp` after stopping the server. When Playwright reports a missing browser revision, pass an installed one with `executablePath` (`~/Library/Caches/ms-playwright/chromium_headless_shell-*/…/chrome-headless-shell`) instead of downloading. iOS behavior, such as Home Screen push and suspended pages, needs a real iPhone over `tailscale serve`.
+
 ## Package smoke before publishing
 
 ```bash

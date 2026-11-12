@@ -17,6 +17,7 @@ Use this section while developing. Move entries into a versioned section before 
 - Add opt-in follow view with `o`: one pane beside the list that shows the selected session; `Enter` types into it. **Follow view by default** in `:` enables startup and reopening after archive, stop, or delete via `dashboard.followDefault`.
 - Add producer-owned workflow progress, completion markers, and optional focus-mode display.
 - Add dashboard theme preview and Pi theme synchronization.
+- Add `pi-hub web`, a phone inbox served on localhost for Tailscale Serve: answer questions, reply with Send/Steer/Queue, mark requests read, and receive a Web Push notification for each new request.
 - Document optional Rules and subagent setup and refresh the dashboard image.
 
 ### Changed

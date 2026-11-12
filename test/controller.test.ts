@@ -559,6 +559,22 @@ test("exact request acknowledgement advances idle read state only for current pr
   });
 });
 
+test("acknowledgement with an expected conversation leaves a replaced conversation unchanged", async () => {
+  await withTempSessionsDir(async () => {
+    const registry = { version: 1 as const, sessions: [session("waiting", { id: "api", piSessionId: "pi-new" })] };
+    await updateRegistry(() => registry);
+    const controller = new SessionsController(registry, async () => "present");
+
+    await controller.acknowledgeSession("api", 200, undefined, false, { piSessionId: "pi-old" });
+    assert.equal(controller.snapshot().registry.sessions[0]?.status, "waiting");
+    assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, undefined);
+
+    await controller.acknowledgeSession("api", 201, undefined, false, { piSessionId: "pi-new" });
+    assert.equal(controller.snapshot().registry.sessions[0]?.status, "idle");
+    assert.equal(controller.snapshot().registry.sessions[0]?.acknowledgedAt, 201);
+  });
+});
+
 test("touchSession records the user's interaction as activity without moving it backwards", async () => {
   await withTempSessionsDir(async () => {
     const registry = { version: 1 as const, sessions: [session("running", { id: "api", updatedAt: 100, lastActivityAt: 500 })] };

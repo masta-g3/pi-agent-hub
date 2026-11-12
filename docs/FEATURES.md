@@ -29,6 +29,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Conversation | `c` shows read-only completed messages and question/answer history below the fleet. |
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
 | Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. |
+| Phone inbox | `pi-hub web` serves a page to answer, reply, and get notifications on a phone. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Usage and quotas | `u` shows Cost, Tokens, and Limits from an optional usage producer. |
@@ -319,6 +320,19 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 - Fleet modules show a plain workflow step below 80 columns. Board/pin rows switch below 40. The dashboard works down to 30 columns, including answering and replying.
 - Below 100 columns and 20 rows, unselected fleet neighbors use one line. The selected card keeps task/request content. Focused Answer/Reply panels reserve identity and local keys while their body scrolls. If no body row fits, use **Open in Pi**. The narrow board alone has a tappable `Esc Back` full-width view.
 - Inside a session, tap `ctrl+q return` (or `⌂ hub` on narrow clients) in the status bar to return. Tapping needs tmux 3.4+ and `set -g mouse on`; Hub does not change mouse handling inside Pi sessions.
+
+### Phone inbox
+
+`pi-hub web` serves a small web page for a phone. It lists requests first, then every other active parent session, in the Status view's tiers and order. It is a companion for answering away from the terminal, not a second dashboard.
+
+- **Answer:** a question with one single choice shows its options on the list card. Tap an option, then tap **Send**; one tap never sends. Open the session for multi-select, several questions, a typed answer, or a note.
+- **Reply:** open any live session to read its latest message and recent history, and reply. **Send** is offered while Pi is idle; **Steer** and **Queue** while it works.
+- **Mark read** clears only the request the card shows.
+- Each send shows **Submitting**, then **Accepted**, **Rejected**, or **Delivery unknown**. Nothing is sent twice on its own. A send to a session that restarted since the page loaded is rejected. An answer goes only to the question shown, and Mark read only clears the request shown.
+- After 10 seconds without data the page shows **Reconnecting** and disables sending.
+- **Notify** subscribes the device to a notification for each new request. Tapping it opens that session.
+
+The page cannot stop, delete, archive, restart, or create sessions, and it shows no subagent rows, pane output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
 
 ## Return shortcuts
 

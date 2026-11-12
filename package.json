@@ -62,6 +62,7 @@
   "files": [
     "dist/src",
     "dist/cli.js",
+    "web",
     "README.md",
     "docs/*.md",
     "assets/*.png"

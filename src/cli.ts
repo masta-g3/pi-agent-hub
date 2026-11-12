@@ -15,6 +15,7 @@ import { deleteManagedSession } from "./app/delete-session.js";
 import { explainSession } from "./app/explain-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, startManagedSession, stopManagedSession } from "./app/session-lifecycle.js";
 import { startMcpPool } from "./mcp/pool-daemon.js";
+import { DEFAULT_WEB_PORT, runWeb } from "./web/run-web.js";
 
 const command = process.argv[2] ?? "dashboard";
 const args = process.argv.slice(3);
@@ -28,6 +29,9 @@ async function main() {
     case "tui":
       await warnIfStaleCli(command);
       await runTui();
+      return;
+    case "web":
+      await web(args);
       return;
     case "help":
     case "--help":
@@ -87,6 +91,7 @@ Usage:
   ${CLI_COMMAND} delete <session-id>
   ${CLI_COMMAND} fork <session-id> [-g group]
   ${CLI_COMMAND} mcp-pool
+  ${CLI_COMMAND} web [--port N]   serve the phone inbox on 127.0.0.1 (default ${DEFAULT_WEB_PORT})
   ${CLI_COMMAND} doctor
   ${CLI_COMMAND} config get
   ${CLI_COMMAND} config set session-prelude <shell snippet>
@@ -104,6 +109,13 @@ async function dashboard() {
     insideTmux: Boolean(process.env.TMUX),
     env: dashboardEnv(),
   });
+}
+
+async function web(argv: string[]) {
+  const value = flag(argv, "--port");
+  const port = value === undefined ? DEFAULT_WEB_PORT : Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Usage: ${CLI_COMMAND} web [--port N]`);
+  await runWeb({ port });
 }
 
 async function list() {

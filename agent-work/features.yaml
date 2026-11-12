@@ -1583,3 +1583,26 @@
   discovered_from: fleet-design-003
   plan_file: agent-work/history/20261109_fleet-design-004_mission_control.md
   completed_at: '2026-11-09'
+- id: web-001
+  status: done
+  title: Phone inbox
+  subtitle: Answer agents from a phone browser
+  description: A small web page served by pi-hub lists agent requests and sessions,
+    lets the user answer, reply and mark read from a phone, and sends a push notification
+    for each new request.
+  priority: 2
+  created_at: '2026-11-11'
+  plan_file: agent-work/history/20261111_web-001_phone_inbox.md
+  completed_at: '2026-11-11'
+- id: web-002
+  status: pending
+  title: Phone chat view
+  subtitle: Live chat transcript with Markdown rendering
+  description: The phone inbox session screen shows the conversation as a live chat
+    that updates in place, renders Markdown, and keeps the reply composer at hand,
+    matching the dashboard ethos.
+  priority: 2
+  created_at: '2026-11-11'
+  depends_on:
+  - web-001
+  discovered_from: web-001

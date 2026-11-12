@@ -57,7 +57,7 @@
 - Delete sessions through `src/app/delete-session.ts`, pause any active refresh loop first, and never delete Pi conversation/session files.
 - Normal delete must not remove hub-owned worktree directories; finish/discard through `src/app/worktree-session.ts`.
 - For worktree finish/discard, preflight Git cleanliness before stopping parent/subagent tmux sessions, process additional repos before the primary repo, and keep workspace `.pi` pointed at the source repo.
-- Archive pruning is dashboard-only and starts after seven days: prune only after every row in the parent/subagent cascade is confirmed missing from tmux; keep rows when tmux presence is unknown.
+- Archive pruning runs only in a dashboard process (the TUI or the headless `pi-hub web`) and starts after seven days: prune only after every row in the parent/subagent cascade is confirmed missing from tmux; keep rows when tmux presence is unknown.
 
 ## Compatibility Metadata
 

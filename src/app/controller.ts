@@ -169,14 +169,16 @@ export class SessionsController {
     await this.acknowledgeSession(selected.id, now);
   }
 
-  async acknowledgeSession(id: string, now = Date.now(), requestId?: string, dismiss = false): Promise<RegistryChange | undefined> {
+  /** `expected.piSessionId` rejects a replaced conversation inside the mutation, for callers that acted on an older view. */
+  async acknowledgeSession(id: string, now = Date.now(), requestId?: string, dismiss = false, expected?: { piSessionId?: string }): Promise<RegistryChange | undefined> {
     if (requestId !== undefined) {
       const runtime = this.sessionsWithMetadata().find((session) => session.id === id);
       if ((runtime?.status !== "waiting" && runtime?.status !== "idle") || runtime.context?.attention?.requestId !== requestId) return undefined;
     }
     return this.mutateRegistry((latest) => ({
       ...latest,
-      sessions: latest.sessions.map((session) => session.id === id ? markAcknowledged(session, now, requestId !== undefined, dismiss ? requestId : undefined) : session),
+      sessions: latest.sessions.map((session) => session.id === id && (!expected || session.piSessionId === expected.piSessionId)
+        ? markAcknowledged(session, now, requestId !== undefined, dismiss ? requestId : undefined) : session),
     }));
   }
 

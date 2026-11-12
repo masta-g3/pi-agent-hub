@@ -141,6 +141,7 @@ Accounts deduplicate by producer + account ID, keeping the newest `fetchedAt`, t
 - Multi-repo workspaces: `workspaces/<session-id>`
 - Hub-owned Git worktrees: `worktrees/<repo-name>/<session-id-prefix>-<branch-slug>`
 - Recent repo history: `repo-history.json`
+- Phone inbox push keys and device subscriptions: `web-push.json`
 - Named new-session directory favorites: `session-favorites.json`
 - Dashboard tmux session: `pi-agent-hub`
 - Managed Pi tmux sessions: `pi-agent-hub-<first-12-session-id-chars>`
@@ -299,6 +300,22 @@ pi-hub config unset worktree-default
 ### Desktop notifications
 
 `dashboard.attentionNotify` raises a desktop notification on each attached tmux client that receives a fresh-request message; requests that arrive together share one notification. It defaults to `false`. Hub writes an OSC 9 escape sequence straight to that client's terminal, so it works while the dashboard pane is hidden and needs no tmux passthrough setting. Ghostty, iTerm2, WezTerm and kitty show it; other terminals ignore it. Some terminals or OS settings hide it while the terminal window is in front. The rules that suppress the text message also suppress the notification, so a client already showing Hub, the requesting session or its pin gets none. Restart the dashboard after changing the setting.
+
+### Phone inbox
+
+`pi-hub web [--port N]` serves the [phone inbox](FEATURES.md#phone-inbox) on `127.0.0.1` only (default port 4747). Hub has no login of its own: publish the page to your own devices with [Tailscale Serve](https://tailscale.com/kb/1312/serve), which adds HTTPS and limits access to your tailnet.
+
+```bash
+pi-hub web                    # keep this running, for example in a tmux window
+tailscale serve --bg 4747     # prints https://<machine>.<tailnet>.ts.net
+tailscale serve reset         # stop sharing
+```
+
+Anyone who can open the page can make your agents act, so do not publish it with Tailscale Funnel or a public tunnel. The server refuses requests whose `Host` is not a loopback name or a `.ts.net` name, and writes that do not come from the page's own origin.
+
+To get notifications on an iPhone, open the `https://…ts.net` address in Safari, choose **Share → Add to Home Screen**, open Hub from the Home Screen, then tap **Notify → Turn on notifications**. iOS offers notifications only to Home Screen web apps. Other browsers can subscribe from a normal tab.
+
+`pi-hub web` runs as a headless dashboard: it refreshes session status and prunes expired archived rows like the terminal dashboard, with or without one open. It sends a notification for each new request that carries a producer request ID; requests that existed when it started send none. Notification text is encrypted for the device, so the browser's push service cannot read it. Signing keys and device subscriptions (at most 16) live in `web-push.json` under the global state directory; delete the file to forget all devices.
 
 ### Dashboard view state
 
