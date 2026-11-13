@@ -32,6 +32,7 @@ Mocks: `agent-work/decks/dashboard-card-lenses.html` (Today/Proposed per page).
 - card-lens-002 Plan Commit Lenses: works when the Plan and Commit cards match their mocks.
 - card-lens-003 Review Reflect Lenses: works when Review findings and Reflect candidates show on the card.
 - card-lens-004 Orchestrator Lens: works when ticket and epic orchestrator cards match their mocks and a parked ticket raises a request.
+- card-lens-005 Subagent Lens: works when a ticket-runner subagent row and its selected card show the child's DOING and WHERE. Touches pi-tmux-subagents and Hub.
 
 ## Out of scope
 

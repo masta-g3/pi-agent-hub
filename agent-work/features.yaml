@@ -1684,3 +1684,16 @@
   - agent-work/decks/dashboard-card-lenses.html
   plan_file: agent-work/history/20261112_card-lens-004_orchestrator_lens.md
   completed_at: '2026-11-12'
+- id: card-lens-005
+  status: pending
+  title: Subagent Lens
+  subtitle: Subagent rows show step lens
+  description: pi-tmux-subagents copies the child session's latest workflow-runtime
+    entry into its Hub heartbeat, and Hub shows that step lens for subagent rows and
+    the selected subagent card.
+  priority: 2
+  created_at: '2026-11-12'
+  discovered_from: card-lens-004
+  references:
+  - agent-work/plans/card-lens-000.md
+  - agent-work/history/20261111_card-lens-001_step_lens_contract.md
