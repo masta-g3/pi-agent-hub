@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { renderSessions, type SessionListTarget } from "../src/tui/layout.js";
+import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 
@@ -100,6 +101,61 @@ function cardTitle(rendered: ReturnType<typeof render>): string {
   const dock = dockStart(rendered);
   return dock < 0 ? "" : rendered.lines[dock] ?? "";
 }
+
+const open = session("open", {
+  context: { version: 1, updatedAt: NOW, progress: { goal: "Debug provider limits", done: "Read the timer", next: "Fix the timer", updatedAt: NOW } },
+  lens: { doing: "Editing src/limits.ts", stages: [{ label: "explore", state: "done" }, { label: "change", state: "active" }, { label: "verify", state: "pending" }] },
+});
+
+test("open cards render GOAL before DOING and lens-only WHERE without old notes", () => {
+  const card = cardLines(render([open]), "open").join("\n");
+  assert.match(card, /GOAL {3}Debug provider limits[\s\S]*DOING {2}Editing src\/limits.ts[\s\S]*WHERE {2}explore✓ change◉ verify·/);
+  assert.doesNotMatch(card, /DONE|NEXT|PL✓|EX◉/);
+  const roster = cardLines(render([session("selected"), open]), "open");
+  assert.equal(roster.length, 1);
+  assert.match(roster[0]!, /DOING {2}Editing src\/limits.ts/);
+});
+
+test("ticket copy hides GOAL and workflow cards retain their existing fields", () => {
+  for (const copy of [{ subtitle: "Fix provider limits" }, { description: "Fix provider limits" }]) {
+    const linked = { ...open, context: { ...open.context!, ticket: { id: "limit-001", ...copy } } };
+    assert.doesNotMatch(cardLines(render([linked]), "open").join("\n"), /GOAL/);
+  }
+  const workflowGoal = { ...rich, context: { ...rich.context!, progress: open.context!.progress } };
+  assert.deepEqual(cardLines(render([workflowGoal]), "rich"), cardLines(render([rich]), "rich"));
+});
+
+test("open Answer and Reply panels drop GOAL with suppressed progress fields", () => {
+  for (const width of [60, 160]) for (const kind of ["answer", "reply"] as const) {
+    const commands = buildDashboardCommands({ sessions: [open], selectedId: open.id, capabilities: { openSession: true, sendMessage: true } });
+    const rendered = render([open], { width, height: 60, workspaceCommands: selectWorkspaceCommands(open, commands, 3), cardPanel: { kind, body: ["Panel input"], keyLine: "Enter Send   Esc Close", offset: 0 } });
+    const card = cardLines(rendered, "open").join("\n");
+    assert.match(card, /Panel input/, card);
+    assert.doesNotMatch(card, /GOAL|DONE|NEXT|WHERE/, card);
+    assert.match(card, /DOING {2}Editing src\/limits.ts/, card);
+  }
+});
+
+test("quiet open roster uses GOAL as its final TASK fallback, with notes taking precedence", () => {
+  const quiet = { ...open, status: "idle" as const, lens: undefined, context: { version: 1 as const, updatedAt: NOW, progress: { goal: "Debug provider limits", updatedAt: NOW } } };
+  for (const width of [60, 100, 160]) {
+    const rendered = render([session("selected", { status: "idle" }), quiet], { width });
+    assert.match(cardLines(rendered, "open").join("\n"), /TASK {3}Debug provider limits/);
+  }
+  const withDone = { ...quiet, context: { ...quiet.context, progress: { ...quiet.context.progress, done: "Read limits" } } };
+  assert.match(cardLines(render([session("selected"), withDone]), "open").join("\n"), /DONE {3}Read limits/);
+});
+
+test("open card labels and stages fit narrow terminals", () => {
+  for (const width of [30, 40, 60, 99]) {
+    const rendered = render([open], { width, height: 60 });
+    assert.ok(rendered.layout.lines.every(line => visibleWidth(line) <= width), String(width));
+    const text = cardLines(rendered, "open").join("\n");
+    assert.match(text, /GOAL {3}/, text);
+    assert.match(text, /DOING {2}/, text);
+    assert.match(text, /WHERE {2}/, text);
+  }
+});
 
 test("wide selected cards show repo beside group, then task, DOING, WHERE and the lens list", () => {
   const rendered = render([rich]);

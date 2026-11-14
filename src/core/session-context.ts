@@ -9,6 +9,7 @@ const ATTENTION_REQUEST_ID_MAX = 64;
 const RECOMMENDATION_MAX = 150;
 const ARTIFACT_MAX = 1024;
 const PROGRESS_MAX = 120;
+const GOAL_MAX = 80;
 const WORKTREE_ID_MAX = 128;
 const WORKTREE_PRODUCER_MAX = 80;
 const WORKTREE_PATH_MAX = 1024;
@@ -102,9 +103,10 @@ function parseAttention(value: unknown): SessionAttention | undefined {
 
 function parseProgress(value: unknown): SessionProgress | undefined {
   if (!isObject(value) || !finiteNumber(value.updatedAt)) return undefined;
+  const goal = boundedText(value.goal, GOAL_MAX);
   const done = boundedText(value.done, PROGRESS_MAX);
   const next = boundedText(value.next, PROGRESS_MAX);
-  return done || next ? { ...(done ? { done } : {}), ...(next ? { next } : {}), updatedAt: value.updatedAt } : undefined;
+  return goal || done || next ? { ...(goal ? { goal } : {}), ...(done ? { done } : {}), ...(next ? { next } : {}), updatedAt: value.updatedAt } : undefined;
 }
 
 // Paths keep internal whitespace; terminal controls are rejected before display or copy.
