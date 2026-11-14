@@ -1718,7 +1718,7 @@
   depends_on:
   - skill-reply-001
 - id: card-signal-001
-  status: pending
+  status: done
   title: Card Signal Study
   subtitle: Measure DOING and NEXT accuracy
   description: A replay tool rebuilds what the session card showed over time from
@@ -1728,6 +1728,8 @@
   created_at: '2026-11-14'
   references:
   - agent-work/plans/card-signal-000.md
+  plan_file: agent-work/history/20261114_card-signal-001_card_signal_study.md
+  completed_at: '2026-11-14'
 - id: card-signal-002
   status: pending
   title: Open Session Card

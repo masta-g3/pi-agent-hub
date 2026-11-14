@@ -1,0 +1,12 @@
+{"type":"agent_start","at":1794689163997}
+{"type":"tool_execution_start","at":1794689167248,"toolCallId":"call_1e07b3e0e78e4ff389cbc806c7273cce|fc_0b9a04fce833db97016af8c88e59b887d1b2684e3d786267dd","toolName":"read","args":{"path":"/private/tmp/card-signal-mocks-x6Xtz6/2-openai-gpt-6.1-sol/project/sum.js","offset":null,"limit":null}}
+{"type":"tool_execution_end","at":1794689167251,"toolCallId":"call_1e07b3e0e78e4ff389cbc806c7273cce|fc_0b9a04fce833db97016af8c88e59b887d1b2684e3d786267dd","toolName":"read","isError":false}
+{"type":"tool_execution_start","at":1794689170381,"toolCallId":"call_23bfaa039f8148e084e979c0b8b3864a|fc_0b9a04fce833db97016af8c89184a887d18bc1b98cf8684ae7","toolName":"read","args":{"path":"/private/tmp/card-signal-mocks-x6Xtz6/2-openai-gpt-6.1-sol/project/sum.test.js","offset":null,"limit":null}}
+{"type":"tool_execution_end","at":1794689170383,"toolCallId":"call_23bfaa039f8148e084e979c0b8b3864a|fc_0b9a04fce833db97016af8c89184a887d18bc1b98cf8684ae7","toolName":"read","isError":false}
+{"type":"tool_execution_start","at":1794689173043,"toolCallId":"call_112328432cb64ede8780033f58a8b0dd|fc_0b9a04fce833db97016af8c894c04087d1ba110fb4a95f9a70","toolName":"bash","args":{"command":"node --test","timeout":null}}
+{"type":"tool_execution_end","at":1794689173147,"toolCallId":"call_112328432cb64ede8780033f58a8b0dd|fc_0b9a04fce833db97016af8c894c04087d1ba110fb4a95f9a70","toolName":"bash","isError":true}
+{"type":"agent_end","at":1794689176358}
+{"type":"agent_settled","at":1794689176358,"aborted":false}
+{"type":"agent_start","at":1794689181928}
+{"type":"agent_end","at":1794689185133}
+{"type":"agent_settled","at":1794689185133,"aborted":false}
