@@ -105,6 +105,8 @@ Hub draws lenses generically, so most work is in Rules. Hub needs: `whereLine()`
 ## Decisions
 
 - Plan gets no meter unless the plan file exposes a real count; no forecasts.
+- Parent, from the 001 report: keep checklist position separate from live activity. Real Execute runs tick tasks in phase batches (18 of 20 updates), so DOING from the first open task lags. Execute DOING shows the observed action from 002's runtime-derived DOING (`open-session.ts` classifier and tool wording) while a tool runs, and otherwise the first open task. The list keeps the open task as plan context. Do not auto-check tasks from edits or timers.
+- 002's classifier lives in `rules/extensions/workflow-runtime/open-session.ts`; reuse it, and move it only if a neutral name makes sharing clearer.
 
 ## Discovered Work
 
