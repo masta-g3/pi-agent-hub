@@ -36,7 +36,8 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Card answers | `Tab` answers supported questions without opening Pi. |
 | Conversation | `c` shows read-only completed messages and question/answer history below the fleet. |
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
-| Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. |
+| Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. `/` completes the agent's skills; workflow steps appear as chips. |
+| Next skill | `>` sends the next workflow step's skill once the current step is complete. |
 | Phone inbox | `pi-hub web` serves a page to answer, reply, and get notifications on a phone. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
@@ -69,6 +70,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `Tab` | Answer a supported pending question on the selected card |
 | `n` / `C` / `O` in answer focus | Edit this question's note / toggle Context / show Original; text editors keep literal keys |
 | `p` | Reply on the selected live parent's card |
+| `>` | Send the next workflow step's skill, such as `/skill:reflect` |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
@@ -155,7 +157,22 @@ Press `p` to edit a reply on the selected live parent's card. `Enter` sends; `Es
 
 Idle Pi offers **Send**. Busy Pi starts with **Steer now**, which delivers before its next model call after current tool calls finish. Press `Tab` to focus delivery and `←` / `→` to choose **Queue for later**, which delivers after the run. Press `Tab` back to the text and `Enter` to submit. If idle Pi becomes busy before submission, Hub rejects the send without losing text and exposes the busy choices.
 
-Replies use Pi's exact-session bridge without changing its editor draft. Idle Send expands commands and prompt templates; busy Steer/Queue send literal text. Card feedback uses **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown**. Accepted means dispatch, not task completion. Unknown delivery never retries automatically; check Pi before retrying. Use `]` to move on.
+### Skills in Reply
+
+Type `/` to list the skills loaded in that Pi session, with their descriptions. Keep typing to filter, use `↑` / `↓` to choose, and `Tab` or `Enter` to complete the name. Type `/review` or `/skill:review`; Hub sends Pi's `/skill:review` with any words after it. A skill that an extension command of the same name hides is not listed.
+
+```text
+REPLY · Subagent lens · Send
+█
+plan-md execute review [reflect] commit
+ Enter Send /reflect   ←/→ Step   Esc Keep draft
+```
+
+When the session reports workflow steps that are all loaded skills, an empty Reply shows them as chips. The next step is picked: the one after a completed step, or the current step. `←` / `→` move the pick, and `Enter` sends it. Typing hides the chips. With chips, a ready handoff's draft starts empty; its recommendation stays above the editor. While **Delivery** has focus, `←` / `→` still choose Steer or Queue.
+
+`>` sends the next step's skill without opening Reply. It works only when the current step is complete, the next step is a loaded skill, and Pi is idle. Otherwise the card says why. The card shows it as `> Next: /reflect`.
+
+Replies use Pi's exact-session bridge without changing its editor draft. Idle Send expands commands and prompt templates; busy Steer/Queue send literal text, except a loaded skill, which still runs as that skill in the chosen queue. Card feedback uses **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown**. Accepted means dispatch, not task completion. Unknown delivery never retries automatically; check Pi before retrying. Use `]` to move on.
 
 After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessions once idle to enable the bridge. New sessions load it automatically.
 

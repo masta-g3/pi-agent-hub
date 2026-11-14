@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { isErrno } from "../core/atomic-json.js";
 import { effectiveDashboardShortcuts } from "../core/config.js";
 import { conversationText, lastAssistantText, questionCallArguments, readConversation } from "../core/conversation.js";
-import { LAST_MESSAGE_CHARS, OPTION_PREVIEW_BYTE_CAP, INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState } from "../core/session-interaction.js";
+import { LAST_MESSAGE_CHARS, SKILL_DESCRIPTION_CHARS, SKILL_LIST_MAX, SKILL_NAME, OPTION_PREVIEW_BYTE_CAP, INTERACTION_BYTE_CAP, INTERACTION_TIMEOUT_MS, DELIVERY_UNCONFIRMED, interactionSocketPath, isObject, parseInteractionRequest, parsePendingQuestions, sameInteractionTarget, type InteractionRequest, type InteractionResponse, type InteractionResult, type InteractionTarget, type PendingQuestion, type SessionInteractionState, type SessionSkill } from "../core/session-interaction.js";
 
 function boundedPreview(source: string, bytes: number): string | undefined {
   if (bytes < 2) return;
@@ -32,6 +32,22 @@ export interface InteractionAdapter {
   getEditorText(): string;
   uiPromptOpen(): boolean;
   sendUserMessage(text: string, options: { expandPromptTemplates: boolean; deliverAs?: "steer" | "followUp" }): void;
+  /** Pi's live slash commands (`pi.getCommands()`); skill commands are named `skill:<name>`. */
+  getCommands(): readonly { name: string; description?: string; source: string }[];
+}
+
+/** Loaded skills that `/skill:<name>` runs. Pi runs an extension command first, so a skill it shadows is left out. */
+function loadedSkills(commands: ReturnType<InteractionAdapter["getCommands"]>): SessionSkill[] {
+  const extensions = new Set(commands.filter((command) => command.source === "extension").map((command) => command.name));
+  const skills: SessionSkill[] = [];
+  for (const command of commands) {
+    if (command.source !== "skill" || extensions.has(command.name) || !command.name.startsWith("skill:")) continue;
+    const name = command.name.slice(6);
+    if (!SKILL_NAME.test(name)) continue;
+    const description = command.description?.replace(/\s+/g, " ").trim();
+    skills.push({ name, ...(description ? { description: [...description].slice(0, SKILL_DESCRIPTION_CHARS).join("") } : {}) });
+  }
+  return skills;
 }
 export async function startSessionInteraction(adapter: InteractionAdapter) {
   const target: InteractionTarget = { managedId: adapter.managedId, piSessionId: adapter.piSessionId, instanceId: randomUUID() };
@@ -115,6 +131,10 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
     if (adapter.uiPromptOpen() || pending.length || unsupported.size) return "Answer the pending Pi question first";
     if (adapter.getEditorText().trim()) return "Clear the Pi editor draft first";
   }
+  function queuedSkill(text: string): boolean {
+    const name = /^\/skill:([^\s]+)(?:\s|$)/.exec(text)?.[1];
+    return Boolean(name) && loadedSkills(adapter.getCommands()).some((skill) => skill.name === name);
+  }
   async function handle(request: InteractionRequest): Promise<InteractionResult> {
     const generation = branchId;
     const checkRequest = () => { check(); if (generation !== branchId) throw new Error("Conversation branch changed"); };
@@ -132,6 +152,16 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       let budget = INTERACTION_BYTE_CAP - Buffer.byteLength(JSON.stringify({ version: 1, id: request.id, ...target, ok: true, result: state })) - 1;
       const branch = adapter.getBranch();
       checkRequest();
+      // Skills follow the questionnaire, whole entries only, so a near-cap questionnaire drops skills rather than failing.
+      const skills: SessionSkill[] = [];
+      let skillBytes = Buffer.byteLength(',"skills":[]');
+      for (const skill of loadedSkills(adapter.getCommands()).slice(0, SKILL_LIST_MAX)) {
+        const bytes = Buffer.byteLength(JSON.stringify(skill)) + (skills.length ? 1 : 0);
+        if (skillBytes + bytes > budget) break;
+        skills.push(skill);
+        skillBytes += bytes;
+      }
+      if (skills.length) { state.skills = skills; budget -= skillBytes; }
       for (const request of pending) {
         const args = questionCallArguments(branch, request.toolCallId);
         const sources = args?.questions;
@@ -179,8 +209,9 @@ export async function startSessionInteraction(adapter: InteractionAdapter) {
       checkRequest();
       adapter.sendUserMessage(request.text, {
         deliverAs: request.delivery === "followUp" ? "followUp" : "steer",
-        // Busy messages are text: slash commands must not bypass the chosen queue.
-        expandPromptTemplates: request.delivery === "send",
+        // Busy messages are text, so slash commands cannot bypass the chosen queue. A loaded skill no extension
+        // command shadows (checked now, not when the draft began) only becomes the skill's text in that queue.
+        expandPromptTemplates: request.delivery === "send" || queuedSkill(request.text),
       });
       return { accepted: true };
     }

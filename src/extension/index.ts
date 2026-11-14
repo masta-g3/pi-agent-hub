@@ -232,6 +232,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
           getEditorText: () => piCtx.ui!.getEditorText!(),
           uiPromptOpen: () => Boolean(promptSnapshot) || Boolean(forkCompactOperation),
           sendUserMessage: (text, options) => pi.sendUserMessage(text, options),
+          getCommands: () => pi.getCommands(),
         });
         if (!active()) await started.close();
         else interaction = started;
