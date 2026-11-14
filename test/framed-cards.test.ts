@@ -179,7 +179,8 @@ test("plain and request selections share one card content width", () => {
 });
 
 test("selected subagent micro rows and synthetic headers stay unstriped cards", () => {
-  const child: RuntimeSession = { ...session, id: "child", title: "Child", kind: "subagent", parentId: session.id, agentName: "worker", taskPreview: "Inspect tests" };
+  // A child without workflow data of its own.
+  const child: RuntimeSession = { ...session, id: "child", title: "Child", kind: "subagent", parentId: session.id, agentName: "worker", taskPreview: "Inspect tests", workflow: undefined };
   for (const width of [120, 80]) {
     const childLayout = render(width, { sessions: [session, child], selectedId: child.id, expandedProjectParentIds: new Set([session.id]) });
     // A selected child shows its micro row and actions, not a parent card.
@@ -193,6 +194,63 @@ test("selected subagent micro rows and synthetic headers stay unstriped cards", 
     assert.ok(moduleRows(synthetic).every((row) => !row.startsWith(STRIPE)));
     assert.ok((paneRows(synthetic) ?? []).every((row) => !row.trim()), "a header selection shows no card");
   }
+});
+
+test("a workflow subagent names its step and DOING on its micro row and shows its own unplated card when selected", () => {
+  const steps = [{ id: "plan-md", short: "PL", label: "Plan" }, { id: "execute", short: "EX", label: "Execute" }, { id: "review", short: "RV", label: "Review" }];
+  const lens = { doing: "Add at to conversation items", stages: [{ label: "1", state: "done" as const }, { label: "2", state: "active" as const }],
+    progress: { completed: 5, total: 12, unit: "tasks" }, list: { label: "PLAN", head: "Conversation transport", items: [{ state: "active" as const, text: "Add at in conversation.ts" }, { state: "pending" as const, text: "Detail returns page" }], before: 0, after: 0 } };
+  const parent: RuntimeSession = { ...session, context: { ...session.context!, attention: undefined }, status: "running" };
+  const runner: RuntimeSession = { ...session, id: "runner", title: "Runner", kind: "subagent", parentId: parent.id, agentName: "runner-001", taskPreview: "Ticket card-lens-001", status: "running", context: undefined,
+    workflow: { updatedAt: 2, activeIndex: 1, steps, lens }, activity: { current: { tool: "edit", detail: "src/core/conversation.ts", at: 1 } } };
+  const plain: RuntimeSession = { ...runner, id: "plain", agentName: "scout", taskPreview: "Inspect tests", workflow: undefined, activity: undefined };
+  for (const width of [160, 100, 80]) {
+    const layout = render(width, { sessions: [parent, runner, plain], selectedId: runner.id, expandedProjectParentIds: new Set([parent.id]), now: 4_000 });
+    const rows = layout.lines.map(stripAnsi);
+    const micro = moduleRows(layout, runner.id)[0]!;
+    assert.match(micro, /runner-001 +EX +Add at to conv/, `${width}: ${micro}`);
+    assert.doesNotMatch(micro, /Ticket card-lens-001/);
+    // A child without workflow data keeps today's micro row.
+    assert.match(moduleRows(layout, plain.id)[0]!, /scout Inspect tests/);
+    const card = paneRows(layout) ?? rows.slice(dockStart(layout));
+    const text = card.join("\n");
+    assert.equal(card.filter((row) => /DOING {2}Add at to conversation items/.test(row)).length, 1, `${width}:\n${text}`);
+    assert.ok(card.some((row) => /WHERE {2}PL✓ EX◉ RV· │ 1✓ 2◉/.test(row)), `${width}:\n${text}`);
+    assert.ok(card.some((row) => /PLAN {3}Conversation transport/.test(row)), text);
+    assert.ok(card.some((row) => /◉ Add at in conversation\.ts/.test(row)), text);
+    assert.ok(card.some((row) => /NOW +\d+s +edit +src\/core\/conversation\.ts/.test(row)), text);
+    // No plate or stripe on the child's card lines; only its micro row keeps the selection marker.
+    const fields = card.filter((row) => /^\s*(DOING|WHERE|PLAN|NOW)\s/.test(row) || /^\s+[◉·✓] /.test(row));
+    assert.ok(fields.length >= 5 && fields.every((row) => !row.startsWith(STRIPE)), `${width}:\n${text}`);
+    if (!paneRows(layout)) {
+      const docked = layout.lines.slice(dockStart(layout)).filter((line) => /DOING|WHERE|PLAN|NOW/.test(stripAnsi(line)));
+      // The dark theme's selection plate is a 24-bit background; a plated dock row opens with it.
+      assert.ok(docked.length && docked.every((line) => !line.startsWith("\u001b[48;2;")), `${width}: plated dock`);
+    }
+  }
+});
+
+test("a workflow subagent's request shows once on its card, above its keys, and the parent's rows are unchanged", () => {
+  const steps = [{ id: "plan-md", short: "PL", label: "Plan" }, { id: "execute", short: "EX", label: "Execute" }];
+  const parent: RuntimeSession = { ...session, context: { ...session.context!, attention: undefined }, status: "running" };
+  const runner: RuntimeSession = { ...session, id: "runner", title: "Runner", kind: "subagent", parentId: parent.id, agentName: "runner-001", taskPreview: "Launch task", status: "waiting",
+    context: { version: 1, updatedAt: 2, attention: { kind: "question", text: "Which tile CDN?", requestId: "q" } }, workflow: { updatedAt: 2, activeIndex: 1, steps, lens: { doing: "Add at" } } };
+  const sessions = [parent, runner];
+  const commands = buildDashboardCommands({ sessions, selectedId: runner.id, capabilities: { openSession: true, sendMessage: true } });
+  const before = render(160, { sessions: [parent, { ...runner, workflow: undefined, context: undefined }], selectedId: parent.id, expandedProjectParentIds: new Set([parent.id]) });
+  for (const width of [160, 80]) {
+    const layout = render(width, { sessions, selectedId: runner.id, expandedProjectParentIds: new Set([parent.id]), workspaceCommands: selectWorkspaceCommands(runner, commands, 3) });
+    const card = paneRows(layout) ?? layout.lines.slice(dockStart(layout)).map(stripAnsi);
+    const text = card.join("\n");
+    assert.equal(card.filter((row) => row.includes("Which tile CDN?")).length, 1, `${width}:\n${text}`);
+    assert.equal(card.filter((row) => row.includes("Launch task")).length, 0, `${width}:\n${text}`);
+    const ask = card.findIndex((row) => /ASK {4}Which tile CDN\?/.test(row));
+    const keys = card.findIndex((row) => /Open in Pi/.test(row));
+    assert.ok(ask >= 0 && keys > ask, `${width}:\n${text}`);
+  }
+  // The parent's title row reads the same whether or not its child carries workflow data.
+  const parentTitle = (layout: ReturnType<typeof render>) => moduleRows(layout, parent.id)[0];
+  assert.equal(parentTitle(render(160, { sessions, selectedId: parent.id, expandedProjectParentIds: new Set([parent.id]) })), parentTitle(before));
 });
 
 test("a crowded title moves the group once and its module still names its steps", () => {

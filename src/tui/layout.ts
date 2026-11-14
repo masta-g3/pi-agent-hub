@@ -244,9 +244,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const cardHeight = side ? 0 : targetRows === undefined ? card?.lines.length ?? 0 : cardRows;
   if (cardHeight) {
     if (rows && dockRule) body.push(styles.border(glyphs.horizontal.repeat(width)));
+    // A subagent's card reads off the base background, like its micro row in the list.
+    const plate = model.selected?.kind === "subagent" ? (text: string) => text : styles.selected;
     for (let i = 0; i < cardHeight; i += 1) {
       const line = card?.lines[i];
-      body.push(line === undefined ? "" : styles.selected(pad(line, width)));
+      body.push(line === undefined ? "" : plate(pad(line, width)));
     }
   }
   body.push(...decision.lines);
@@ -848,6 +850,15 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, rowStyles, metadataCell, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
     }
+    // A selected child that runs a workflow shows its own field card under its micro row, without a plate.
+    const childCard = inline && shape === "micro-child" && Boolean(session.workflow || session.lens);
+    if (childCard) {
+      const replying = model.workspace?.session.id === session.id && Boolean(model.workspace.panel);
+      for (const field of detailFieldLines(session, contentWidth, rowStyles, { terminalWidth: model.width, now: model.now, replying })) {
+        pushLine(`${indent}${field.line}`, { kind: "session-continuation", id: session.id }, session);
+        continuationPriorities.set(lines.length - 1, field.priority);
+      }
+    }
     if (shape === "full-parent" && !model.compactRows && !oneLine && !card) {
       const hideFocusedQuestion = session.selected && model.workspace?.session.id === session.id && model.workspace.panel?.kind === "answer";
       const replying = session.selected && model.workspace?.session.id === session.id && Boolean(model.workspace.panel);
@@ -861,7 +872,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       const append = (line: string) => pushLine(`${indent}${truncate(line, contentWidth)}`, { kind: "session-continuation", id: session.id }, session);
       const blocks = actionWorkspaceBlocks(workspace, contentWidth, model.now, rowStyles);
       for (const block of blocks) {
-        if (["closure", "guidance"].includes(block.key) || (shape !== "full-parent" && ["request", "receipt", "task"].includes(block.key))) {
+        // A child's field card already shows its request and receipt, and DOING replaces its launch task.
+        if (["closure", "guidance"].includes(block.key) || (shape !== "full-parent" && !childCard && ["request", "receipt", "task"].includes(block.key))) {
           // The card's ERR field already states the error; guidance adds only what to do about it.
           const lines = block.key === "guidance" && shape === "full-parent" ? (workspace.guidance ? wrapWords(workspace.guidance, contentWidth, contentWidth) : []) : block.lines;
           for (const line of lines) append(line);
@@ -1578,7 +1590,8 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
   const receipt = block("receipt", session.deliveryResult ? [receiptLine(session, width, styles)] : []);
   const taskText = workspaceTaskText(workspace);
   const task = block("task", taskText ? wrapWords(taskText, width, width).slice(0, width >= 40 ? 3 : 2) : []);
-  const workflowSession = session.kind === "subagent" ? workspace.owner ?? session : session;
+  // A child names its own workflow step when it runs one, else its owner's.
+  const workflowSession = session.kind === "subagent" && !session.workflow ? workspace.owner ?? session : session;
   const workflow = block("workflow", [
     ...workspaceWorkflowLine(workflowSession, styles),
     ...workspacePlanLines(session, width, styles),
@@ -2529,14 +2542,17 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   if (session.kind === "subagent") {
     const branch = session.depth > 1 ? `${glyphs.vertical}${glyphs.treeEnd}` : options.childLast ? `${glyphs.treeEnd}${glyphs.horizontal}` : `${glyphs.treeBranch}${glyphs.horizontal}`;
     const prefix = `${selection}${options.gutterColumn ? "  " : " "}${styles.dim(branch)} ${state} ${sidePaneMarker}`;
-    const available = Math.max(0, width - displayWidth(prefix));
-    const task = session.taskPreview?.trim() ?? "";
+    // A child running a workflow names its step and what it is doing in place of its launch task.
+    const step = rosterStep(session, styles);
+    const doing = lensOf(session)?.doing;
+    const available = Math.max(0, width - displayWidth(prefix) - (step ? displayWidth(step) + 2 : 0));
+    const task = (doing ? plainAttentionText(doing) : session.taskPreview)?.trim() ?? "";
     const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
     const nameWidth = Math.max(0, Math.min(20, available - (task ? minTask + 1 : 0)));
     const name = styles.muted(truncate(session.agentName ?? "subagent", nameWidth));
     const taskWidth = Math.max(0, available - displayWidth(name) - (task ? 1 : 0));
-    const taskText = task ? ` ${styles.muted(truncate(task, taskWidth))}` : "";
-    return truncate(`${prefix}${name}${taskText}`, width);
+    const taskText = task ? ` ${doing ? styles.text(truncate(task, taskWidth)) : styles.muted(truncate(task, taskWidth))}` : "";
+    return truncate(`${prefix}${name}${step ? `  ${step}` : ""}${taskText}`, width);
   }
 
   const disclosure = session.boardDescendantCount

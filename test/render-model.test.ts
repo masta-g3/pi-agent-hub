@@ -2343,6 +2343,11 @@ test("subagent workspace folds task and owner into the shared hierarchy", () => 
   assert.match(text, /subagent of Owner session/);
   assert.match(text, /Execute · step 2 of 5/);
   assert.doesNotMatch(text, /CONTEXT|TREE|Let the owner coordinate|idle · NEEDS YOU/);
+  // A child running its own workflow names its own step, not its owner's.
+  const runner = { ...child, workflow: { ...WORKFLOW, activeIndex: 2 } };
+  const own = renderSessions(workspaceModel({ sessions: [owner, runner], selectedId: "child", width: 160, expandedProjectParentIds: new Set(["owner"]) })).lines.map(stripAnsi).join("\n");
+  assert.match(own, /step 3 of 5/);
+  assert.doesNotMatch(own, /step 2 of 5/);
 });
 
 test("workspace height pruning preserves primary action and requested evidence targets", () => {
@@ -2463,8 +2468,9 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   // The roster module and the side pane card each name the group once.
   assert.equal(roster.match(/agents/g)?.length, 1);
   assert.equal(card.match(/agents/g)?.length, 1);
-  assert.match(roster, /└─ ● frontend-designer Review cock/);
-  assert.doesNotMatch(roster, /frontend-designer.*EX|frontend-designer.*agents/);
+  // A micro row names its own workflow step, but never the group.
+  assert.match(roster, /└─ ● frontend-designer {2}EX Review/);
+  assert.doesNotMatch(roster, /frontend-designer.*agents/);
   // Lifecycle rows stay single-line; beside the pane the Backlog title truncates before its tail.
   assert.equal(text.split("\n").filter((line) => /Theme sp(?:ike|…)/.test(line)).length, 1);
   assert.equal(text.split("\n").filter((line) => line.includes("Old notes")).length, 1);
