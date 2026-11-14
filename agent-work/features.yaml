@@ -1740,6 +1740,7 @@
   - card-signal-001
   references:
   - agent-work/plans/card-signal-000.md
+  plan_file: agent-work/plans/card-signal-002.md
 - id: card-signal-003
   status: pending
   title: Step Lens Parity
