@@ -16,7 +16,7 @@ Order: 001 → 002 → 003 (a chain; one child at a time).
 
 - pi-agent-hub (primary, holds tickets and plans) and rules (producer extension).
 - Integration branch `card-signal-integration` in both repos, from `main`, PR target `main`. One draft PR per repo.
-- Ticket branches `card-signal-00N`, based on and targeting the integration branch. 001 touches Hub only.
+- Ticket branches `card-signal-00N`, based on and targeting the integration branch. 001 puts its tool in Rules (`tools/card-signal/`) and its report in Hub (`agent-work/tickets/card-signal-001/`).
 
 ## Decisions
 
