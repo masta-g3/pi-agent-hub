@@ -89,7 +89,12 @@ State: the latest classified stage is `active`; stages seen since the track star
 
 ## Decisions
 
-(record 001-driven choices here)
+Parent, from the 001 report (`agent-work/tickets/card-signal-001/report.md`):
+- Do not use the note's NEXT as DOING. In real sessions NEXT was stale or wrong in 27 of 36 visible moments, because it predicts from the previous turn.
+- The preferred DOING source is runtime-derived: the stage track's latest classified tool call, worded from the tool and its short argument (for example `Editing src/limits.ts`, `Running tests`). This is reversible and needs no model call. If the child finds this reads worse than no DOING in the replay, publish no DOING (the fallback this plan already allows).
+- GOAL comes from the user's task and changes only on an explicit topic change.
+- Clearing a waiting NEXT when its question resolves is useful but outside this ticket; it is logged as discovered work.
+(the child records further choices here)
 
 ## Discovered Work
 
