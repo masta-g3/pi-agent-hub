@@ -198,8 +198,8 @@ test("selected subagent micro rows and synthetic headers stay unstriped cards", 
 
 test("a workflow subagent names its step and DOING on its micro row and shows its own unplated card when selected", () => {
   const steps = [{ id: "plan-md", short: "PL", label: "Plan" }, { id: "execute", short: "EX", label: "Execute" }, { id: "review", short: "RV", label: "Review" }];
-  const lens = { doing: "Add at to conversation items", stages: [{ label: "1", state: "done" as const }, { label: "2", state: "active" as const }],
-    progress: { completed: 5, total: 12, unit: "tasks" }, list: { label: "PLAN", head: "Conversation transport", items: [{ state: "active" as const, text: "Add at in conversation.ts" }, { state: "pending" as const, text: "Detail returns page" }], before: 0, after: 0 } };
+  const lens = { doing: "Checking npm test", stages: [{ label: "implement", state: "done" as const }, { label: "verify", state: "active" as const }, { label: "done", state: "pending" as const }], summary: "phase 2/3 · Conversation transport",
+    progress: { completed: 5, total: 12, unit: "tasks" }, list: { label: "PLAN", head: "5 done · 7 open", items: [{ state: "active" as const, text: "Add at in conversation.ts" }, { state: "pending" as const, text: "Detail returns page" }], before: 0, after: 0 } };
   const parent: RuntimeSession = { ...session, context: { ...session.context!, attention: undefined }, status: "running" };
   const runner: RuntimeSession = { ...session, id: "runner", title: "Runner", kind: "subagent", parentId: parent.id, agentName: "runner-001", taskPreview: "Ticket card-lens-001", status: "running", context: undefined,
     workflow: { updatedAt: 2, activeIndex: 1, steps, lens }, activity: { current: { tool: "edit", detail: "src/core/conversation.ts", at: 1 } } };
@@ -208,15 +208,17 @@ test("a workflow subagent names its step and DOING on its micro row and shows it
     const layout = render(width, { sessions: [parent, runner, plain], selectedId: runner.id, expandedProjectParentIds: new Set([parent.id]), now: 4_000 });
     const rows = layout.lines.map(stripAnsi);
     const micro = moduleRows(layout, runner.id)[0]!;
-    assert.match(micro, /runner-001 +EX +Add at to conv/, `${width}: ${micro}`);
+    assert.match(micro, /runner-001 +EX +Checking npm/,  `${width}: ${micro}`);
     assert.doesNotMatch(micro, /Ticket card-lens-001/);
     // A child without workflow data keeps today's micro row.
     assert.match(moduleRows(layout, plain.id)[0]!, /scout Inspect tests/);
     const card = paneRows(layout) ?? rows.slice(dockStart(layout));
     const text = card.join("\n");
-    assert.equal(card.filter((row) => /DOING {2}Add at to conversation items/.test(row)).length, 1, `${width}:\n${text}`);
-    assert.ok(card.some((row) => /WHERE {2}PL✓ EX◉ RV· │ 1✓ 2◉/.test(row)), `${width}:\n${text}`);
-    assert.ok(card.some((row) => /PLAN {3}Conversation transport/.test(row)), text);
+    assert.equal(card.filter((row) => /DOING {2}Checking npm test/.test(row)).length, 1, `${width}:\n${text}`);
+    const where = card.find(row => row.includes("WHERE"))!;
+    assert.match(where, /5\/12/, `${width}:\n${text}`);
+    if (width !== 100) assert.match(where, /implement✓ verify◉ done·/, `${width}:\n${text}`);
+    assert.ok(card.some((row) => /PLAN {3}5 done · 7 open/.test(row)), text);
     assert.ok(card.some((row) => /◉ Add at in conversation\.ts/.test(row)), text);
     assert.ok(card.some((row) => /NOW +\d+s +edit +src\/core\/conversation\.ts/.test(row)), text);
     // No plate or stripe on the child's card lines; only its micro row keeps the selection marker.

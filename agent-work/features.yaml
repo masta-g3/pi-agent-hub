@@ -1745,7 +1745,7 @@
   plan_file: agent-work/history/20261114_card-signal-002_open_session_card.md
   completed_at: '2026-11-14'
 - id: card-signal-003
-  status: pending
+  status: done
   title: Step Lens Parity
   subtitle: Every step fills same slots
   description: Every workflow step fills the same stage track, progress meter and
@@ -1757,3 +1757,5 @@
   - card-signal-002
   references:
   - agent-work/plans/card-signal-000.md
+  plan_file: agent-work/history/20261114_card-signal-003_step_lens_parity.md
+  completed_at: '2026-11-14'
