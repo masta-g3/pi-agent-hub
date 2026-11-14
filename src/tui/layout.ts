@@ -1,3 +1,4 @@
+import { modelBadge, modelCardText } from "./model-badge.js";
 import { glyphs } from "./glyphs.js";
 import { quotaSegment } from "./usage-view.js";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
@@ -1811,6 +1812,9 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   if (displayWidth(left) + displayWidth(running) <= width) left += styles.live(running);
   const repos = includeCounts && session.repoCount > 1 ? ` ${glyphs.repos} ${session.repoCount}` : "";
   if (displayWidth(left) + displayWidth(repos) <= width) left += styles.muted(repos);
+  // The model takes only the room left after every other signal.
+  const model = session.model ? ` ${modelCardText(session.model)}` : "";
+  if (model && displayWidth(left) + displayWidth(model) <= width) left += styles.muted(model);
   // Parts join with a leading separator; drop it when no identity precedes them.
   return trimLeadingSeparator(left);
 }
@@ -1933,7 +1937,17 @@ function fleetMetadataLine(session: RenderSession, width: number, styles: Layout
   let left = truncate([group, signals].filter(Boolean).join(" "), leftWidth);
   const age = rowAge(session);
   if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.muted(` ${glyphs.pendingStep} ${age}`);
+  // The model is the last signal: only after the group shows whole and the age fits.
+  const model = rowModel(session, styles);
+  if (model && group && stripAnsi(group).includes(session.group) && (!age || left.includes(age)) && displayWidth(left) + displayWidth(model) + 3 <= leftWidth) {
+    left += styles.muted(` ${glyphs.pendingStep} `) + model;
+  }
   return right ? twoColumn(left, right, width) : left;
+}
+
+/** Lowest-priority row metadata: fitting ladders drop it before any other tail item. */
+function rowModel(session: RenderSession, styles: LayoutStyles): string {
+  return session.model ? styles.muted(modelBadge(session.model)) : "";
 }
 
 /** Running rows show how long they have run; the spinner already says "now". */
@@ -1959,7 +1973,11 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   const workflow = board ? cell?.right ?? ""
     : session.workflow && terminalWidth >= 120 ? railFull(session.workflow, mode, styles) : compact;
   const age = terminalWidth >= 80 && rowAge(session) ? styles.muted(rowAge(session)!) : "";
+  const model = rowModel(session, styles);
+  // The model fills only spare room: the candidate must leave the whole title and its `new` marker.
+  const withModel = (parts: string[]) => model && width - displayWidth(join(parts)) - 1 >= displayWidth(session.title) + (session.unopened ? NEW_BADGE.length : 0) ? [parts] : [];
   const hierarchy = (tail: string[]) => [
+    ...withModel([hidden, running, model, ...tail, age]),
     [hidden, running, ...tail, age],
     [hidden, running, ...tail],
     [hidden, running, compact],
@@ -1974,6 +1992,7 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   if (board) {
     const modeLabel = mode && cell?.compatible ? styles.accent(mode.short) : "";
     return [
+      ...withModel([hidden, running, modeLabel, model, age, workflow]),
       [hidden, running, modeLabel, age, workflow],
       [hidden, running, modeLabel, workflow],
       [hidden, running, compact],
@@ -2014,7 +2033,11 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
     const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
     const age = rowAge(session) ? styles.muted(rowAge(session)!.padStart(3)) : "";
     const step = rosterStep(session, styles);
-    return [[hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
+    const model = rowModel(session, styles);
+    const withModel = [hidden, model, step, age].filter(Boolean).join("  ");
+    // The model fills only spare room: the whole title and group must still fit beside it.
+    const modelFits = Boolean(model) && width - displayWidth(withModel) - 1 >= displayWidth(session.title) + 3 + displayWidth(session.group) + (session.unopened ? NEW_BADGE.length : 0);
+    return [...(modelFits ? [[hidden, model, step, age]] : []), [hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
   }
   // Pin rows: the shared grid, then group and age.
   const workflow = options.workflowCell?.right ?? "";
@@ -2027,7 +2050,10 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
   const metadata = (group: boolean, withAge: boolean) => styles.muted([
     ...(group ? [session.group] : []), ...(withAge && age ? [age] : []),
   ].join(` ${glyphs.pendingStep} `));
+  const model = rowModel(session, styles);
+  const modelTail = [hidden, model, metadata(true, true), grid].filter(Boolean).join("  ");
   return [
+    ...(model && width - displayWidth(modelTail) - 1 >= displayWidth(session.title) ? [[hidden, model, metadata(true, true), grid]] : []),
     [hidden, metadata(true, true), grid],
     [hidden, metadata(false, true), grid],
     [hidden, grid],
@@ -2547,14 +2573,18 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     // A child running a workflow names its step and what it is doing in place of its launch task.
     const step = rosterStep(session, styles);
     const doing = lensOf(session)?.doing;
-    const available = Math.max(0, width - displayWidth(prefix) - (step ? displayWidth(step) + 2 : 0));
+    const room = Math.max(0, width - displayWidth(prefix) - (step ? displayWidth(step) + 2 : 0));
+    const badge = rowModel(session, styles);
+    // The model is spare-room metadata: it shows only beside a readable agent name.
+    const model = badge && room - displayWidth(badge) - 2 >= Math.min(20, displayWidth(session.agentName ?? "subagent")) + 9 ? badge : "";
+    const available = Math.max(0, room - (model ? displayWidth(model) + 2 : 0));
     const task = (doing ? plainAttentionText(doing) : session.taskPreview)?.trim() ?? "";
     const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
     const nameWidth = Math.max(0, Math.min(20, available - (task ? minTask + 1 : 0)));
     const name = styles.muted(truncate(session.agentName ?? "subagent", nameWidth));
     const taskWidth = Math.max(0, available - displayWidth(name) - (task ? 1 : 0));
     const taskText = task ? ` ${doing ? styles.text(truncate(task, taskWidth)) : styles.muted(truncate(task, taskWidth))}` : "";
-    return truncate(`${prefix}${name}${step ? `  ${step}` : ""}${taskText}`, width);
+    return truncate(`${prefix}${name}${step ? `  ${step}` : ""}${model ? `  ${model}` : ""}${taskText}`, width);
   }
 
   const disclosure = session.boardDescendantCount

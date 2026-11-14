@@ -235,6 +235,7 @@ export interface RuntimeSession extends ManagedSession {
   context?: PiAgentHubContextV1;
   workflow?: WorkflowRuntimeSnapshot;
   activity?: SessionActivity;
+  model?: HeartbeatModel;
   statusEvidence?: RuntimeStatusEvidence;
 }
 
@@ -272,6 +273,14 @@ export interface Heartbeat {
   /** Lens-only producer snapshot; present only without a workflow. */
   lens?: WorkflowLens;
   activity?: SessionActivity;
+  model?: HeartbeatModel;
+}
+
+/** The session's live model selection, as Pi reports it; never persisted. */
+export interface HeartbeatModel {
+  provider: string;
+  id: string;
+  thinking?: string;
 }
 
 export interface TmuxState {

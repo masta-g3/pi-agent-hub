@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseHeartbeat, parseSessionActivity, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
+import { parseHeartbeat, parseHeartbeatModel, parseSessionActivity, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
 import { heartbeatPath } from "../src/core/paths.js";
 import { applyComputedStatus } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
@@ -242,6 +242,19 @@ test("live tool activity is bounded, sanitized, and drops malformed entries", ()
   assert.equal(parseSessionActivity(undefined), undefined);
 });
 
+test("heartbeat model is bounded and a malformed one never hides liveness", () => {
+  assert.deepEqual(parseHeartbeat({ ...core, model: { provider: "anthropic", id: "claude-opus-4-5", thinking: "high", extra: 1 } }, "api")?.model,
+    { provider: "anthropic", id: "claude-opus-4-5", thinking: "high" });
+  assert.deepEqual(parseHeartbeatModel({ provider: "openai", id: " gpt-5\u001b[31m " }), { provider: "openai", id: "gpt-5" });
+  assert.deepEqual(parseHeartbeatModel({ provider: "openai", id: "gpt-5", thinking: "x".repeat(81) }), { provider: "openai", id: "gpt-5" });
+  assert.equal(parseHeartbeatModel({ provider: "openai", id: "m".repeat(81) }), undefined);
+  assert.equal(parseHeartbeatModel({ provider: "openai" }), undefined);
+  assert.equal(parseHeartbeatModel("claude"), undefined);
+  const parsed = parseHeartbeat({ ...core, model: { id: 5 } }, "api");
+  assert.equal(parsed?.state, "waiting");
+  assert.equal(parsed?.model, undefined);
+});
+
 test("heartbeat activity round-trips and a malformed one is isolated", () => {
   const activity = { current: { tool: "bash", detail: "npm test", at: 950 }, recent: [{ tool: "read", detail: "src/a.ts", at: 940 }] };
   assert.deepEqual(parseHeartbeat(JSON.parse(JSON.stringify({ ...core, activity })), "api")?.activity, activity);
@@ -316,12 +329,14 @@ test("computed status retains the lens and keeps tool activity out of the regist
   const heartbeat = parseHeartbeat({
     ...core, state: "running", stateSince: now - 100, updatedAt: now,
     activity: { current: { tool: "bash", at: now } },
+    model: { provider: "anthropic", id: "claude-opus-4-5" },
     workflow: { steps: [{ id: "execute", short: "EX" }], activeIndex: 0, updatedAt: now,
       plan: { tasks: { completed: 1, total: 2 } }, lens: { doing: "Two", progress: { completed: 1, total: 2 } } },
   }, "api")!;
   const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
   assert.deepEqual(updated.workflow?.lens, { doing: "Two", progress: { completed: 1, total: 2 } });
   assert.equal("activity" in updated, false);
+  assert.equal("model" in updated, false);
   const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0, workflow: undefined });
   assert.deepEqual(stale.workflow?.lens, { doing: "Two", progress: { completed: 1, total: 2 } });
 });

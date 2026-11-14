@@ -1755,3 +1755,23 @@
   - card-signal-002
   references:
   - agent-work/plans/card-signal-000.md
+- id: card-signal-004
+  status: done
+  title: Model Badge
+  subtitle: Show session model per row
+  description: Fleet rows, sidebar pins and subagent rows show a vendor Nerd Font
+    icon and short model tag from the heartbeat; the selected card adds the thinking
+    level.
+  priority: 2
+  created_at: '2026-11-14'
+  plan_file: agent-work/history/20261114_card-signal-004_model_badge.md
+  completed_at: '2026-11-14'
+- id: card-signal-005
+  status: pending
+  title: Orchestration Marker
+  subtitle: Mark orchestrators and their children
+  description: Fleet and board rows mark a session that publishes an orchestration
+    lens and the child sessions it launched, so orchestrated runs are visible at a
+    glance.
+  priority: 3
+  created_at: '2026-11-14'

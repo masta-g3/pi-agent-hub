@@ -6,7 +6,7 @@ import { orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, sessionDepth, type SessionTreeIndex } from "../core/session-tree.js";
 import { primaryWorktree, sessionWorktrees } from "../core/worktree.js";
 import { effectiveWorktreeLifecycle, worktreeMarker } from "../core/worktree-lifecycle.js";
-import type { PiAgentHubContextV1, RuntimeSession, SessionActivity, SessionAttention, SessionProgress, SessionClosure, SessionStatus, WorkflowLens, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
+import type { PiAgentHubContextV1, RuntimeSession, HeartbeatModel, SessionActivity, SessionAttention, SessionProgress, SessionClosure, SessionStatus, WorkflowLens, WorkflowRuntimeSnapshot, WorkflowSnapshot, WorktreeLifecycleSnapshot } from "../core/types.js";
 import { archiveSectionRows, effectiveSessionLifecycle } from "./archive-section.js";
 import { ageLabel } from "./age.js";
 import type { CollapsibleSection } from "./dialog.js";
@@ -71,6 +71,8 @@ export interface RenderSession {
   messageExpanded?: boolean;
   /** Live tool calls from a fresh heartbeat. */
   activity?: SessionActivity;
+  /** Live model selection from a fresh heartbeat. */
+  model?: HeartbeatModel;
   progress?: SessionProgress;
   deliveryResult?: string;
   deliveryEmphasis?: boolean;
@@ -1140,6 +1142,7 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     resultSummary: session.resultSummary,
     context: session.context,
     ...(session.activity && session.status !== "stopped" ? { activity: session.activity } : {}),
+    ...(session.model && session.status !== "stopped" ? { model: session.model } : {}),
     ...(session.context?.progress ? { progress: session.context.progress } : {}),
     ...ticketDisplay(session),
     ...(session.kind !== "subagent" && subagentStats?.total ? {
