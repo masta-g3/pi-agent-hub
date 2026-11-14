@@ -84,6 +84,13 @@ test("generic context rejects malformed versions, fields, and text bounds", () =
   ]) assert.equal(parseSessionContext(value), undefined);
 });
 
+test("progress goal accepts 80 Unicode characters and invalid goal does not hide other fields", () => {
+  const parse = (progress: unknown) => parseSessionContext({ version: 1, updatedAt: 1, progress })?.progress;
+  assert.deepEqual(parse({ goal: " Debug   limits ", updatedAt: 2 }), { goal: "Debug limits", updatedAt: 2 });
+  assert.equal(parse({ goal: "😀".repeat(80), updatedAt: 2 })?.goal, "😀".repeat(80));
+  for (const goal of ["x".repeat(81), 42, " "]) assert.deepEqual(parse({ goal, done: "Read source", updatedAt: 2 }), { done: "Read source", updatedAt: 2 });
+});
+
 test("progress notes are bounded, optional, and isolated from ticket and attention", () => {
   const ticket = { id: "ticket-1" };
   const attention = { kind: "question", text: "Choose", requestId: "r-1" };
