@@ -31,3 +31,7 @@ Order: 001 → 002 → 003 (a chain; one child at a time).
 
 - Changing the workflow steps themselves, the board, or pin views beyond what the shared card renderer gives them.
 - Persisting signals into `registry.json` or Hub UI state.
+
+## AFK limits (approved 2026-11-14)
+
+The parent may answer from approved plans, make reversible implementation choices that keep acceptance criteria, adapt 002/003 details from 001 findings, and log discovered work as tickets. It may not change acceptance criteria, widen scope, add dependencies, or touch external systems. Model use stays within the study budget. One draft PR per repo to `main`; the parent never merges to `main`.
