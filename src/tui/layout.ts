@@ -928,7 +928,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       panel = { bodyStart, width, indent, frame: { focused: Boolean(workspace?.panel), metadata: frame.metadata, tone: frame.tone, keys: keyRows },
         content: focused ? { ...focused, body: [...prefix, ...focused.body],
           hangingIndents: [...prefix.map(() => 0), ...(focused.hangingIndents ?? focused.body.map(() => 0))],
-          focusRows: focused.focusRows?.map(index => index + prefix.length), proseFrom: prefix.length }
+          focusRows: focused.focusRows?.map(index => index + prefix.length), clipRows: focused.clipRows?.map(index => index + prefix.length), proseFrom: prefix.length }
           : { body: prefix.length ? prefix : [""], keyLine: keyRows?.filter(row => row.plain).map(row => row.plain).join("\n") ?? "Enter Open in Pi", offset: model.cardScrollOffset ?? 0 },
         ...(focused && session.deliveryResult ? { retainedText: plainAttentionText(session.deliveryResult) } : {}) };
       for (let index = rowStart; index < lines.length; index++) lineMeta[index] = { ...lineMeta[index]!, richTree: false };
@@ -1532,6 +1532,7 @@ function renderFocusedPanel(title: string, context: string[], panel: NonNullable
   const contentWidth = Math.max(1, width - indent.length);
   const body = panel.body.flatMap((line, index) => {
     if (typeof line !== "string") return [indent + styles.accent(renderCursorValue(line.value, line.cursor, contentWidth, "start"))];
+    if (panel.clipRows?.includes(index)) return [indent + truncate(line, contentWidth)];
     const hangingIndent = Math.max(0, Math.min(contentWidth - 1, panel.hangingIndents?.[index] ?? 0));
     const prefix = hangingIndent ? sliceByColumn(line, 0, hangingIndent) : "";
     const text = hangingIndent ? sliceByColumn(line, hangingIndent, displayWidth(line)) : line;

@@ -5,6 +5,7 @@ import type { DashboardShortcut } from "../core/dashboard-shortcuts.js";
 import { matchesFilter } from "../core/session-tree.js";
 import { sessionClosure } from "../core/session-bucket.js";
 import { parseDashboardFilter } from "../core/dashboard-filter.js";
+import { nextSkill } from "../core/skill-reply.js";
 import type { RuntimeSession, SessionStatus } from "../core/types.js";
 import { formatKey, matchesDashboardShortcut } from "./dashboard-shortcuts.js";
 import { NARROW_LAYOUT_MAX_WIDTH } from "./layout.js";
@@ -129,6 +130,7 @@ const actionSpecs: ActionSpec[] = [
   { name: "open", label: "Open in Pi", footerLabel: "Open in Pi", hint: "attach to the session; stopped sessions restart", keys: ["Enter", "C-m", "C-j"], available: openAvailability },
   { name: "restart", label: `Restart choices${glyphs.ellipsis}`, hint: "resume, start a new conversation, or restart Active sessions", keys: ["r"], available: mainCapability("restart", "restart unavailable") },
   { name: "send", label: "Reply", hint: "send, steer now, or queue for later from this card", keys: ["p"], available: sendAvailability },
+  { name: "next-skill", label: "Next skill", hint: "send the next workflow step's skill once the current step is complete", keys: [">"], available: nextSkillAvailability },
   { name: "rename", label: `Rename${glyphs.ellipsis}`, hint: "change the Pi session name", keys: ["R", "e"], available: renameAvailability },
   { name: "sync-name", label: "Sync Pi name", hint: "read the latest native Pi name", keys: ["N", "M-n"], available: mainCapability("syncPiName", "Pi name sync unavailable") },
   { name: "fork", label: `Fork${glyphs.ellipsis}`, hint: "fork the saved conversation", keys: ["f"], available: forkAvailability },
@@ -236,7 +238,7 @@ export function selectWorkspaceCommands(
   if (attention) {
     // The request line already says what is needed; guidance only names a concrete obstacle.
     if (attention.kind === "ready") {
-      actionNames = ["open", "send", "copy-path", "mark-read"];
+      actionNames = ["next-skill", "open", "send", "copy-path", "mark-read"];
     } else if (attention.kind === "question") {
       const answer = commands.find((command) => command.targetSessionId === session.id && command.id.startsWith(`action:${session.id}:answer`));
       // Why Hub cannot answer stands on its own; it does not depend on which action leads.
@@ -262,7 +264,7 @@ export function selectWorkspaceCommands(
   } else if (session.bucket === "backlog") {
     actionNames = ["open", "restore", "archive"];
   } else if (session.status === "idle" || session.status === "waiting") {
-    actionNames = ["open", "send", "archive"];
+    actionNames = ["next-skill", "open", "send", "archive"];
   } else {
     // A working agent can be steered from its card; Reply leads the secondary actions.
     actionNames = ["open", "send", "pin", "archive"];
@@ -380,6 +382,8 @@ function actionCommand(spec: ActionSpec, session: RuntimeSession, input: Dashboa
       ? "Open in Pi"
     : spec.name === "restore" && closed
       ? "Reopen"
+    : spec.name === "next-skill" && availability.enabled
+      ? `Next: /${nextSkill(session.workflow, input.interactionState?.skills ?? [])}`
     : spec.name === "pin" && isPinned
       ? `Focus slot ${(currentSlot ?? 0) + 1}`
       : spec.name === "pin" ? spec.label
@@ -605,6 +609,16 @@ function sendAvailability(session: RuntimeSession, input: DashboardCommandInput)
   if (!session.piSessionId || !session.interaction) return disabled("Reload Pi in this session to enable message delivery");
   if (!input.interactionState) return disabled("Checking Pi message delivery; try again shortly");
   if (!input.interactionState.messageDelivery) return disabled("Reload Pi in this session to enable message delivery");
+  return enabled();
+}
+
+function nextSkillAvailability(session: RuntimeSession, input: DashboardCommandInput): Availability {
+  const send = sendAvailability(session, input);
+  if (!send.enabled) return send;
+  if (!session.workflow) return disabled("no workflow step to continue");
+  if (!session.workflow.currentStepComplete) return disabled("current workflow step is not complete");
+  if (!nextSkill(session.workflow, input.interactionState?.skills ?? [])) return disabled("next workflow step is not a skill loaded in this session");
+  if (input.interactionState?.messageDelivery !== "idle") return disabled("Pi is busy; reply with Steer or Queue instead");
   return enabled();
 }
 

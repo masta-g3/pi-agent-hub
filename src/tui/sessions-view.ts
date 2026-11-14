@@ -3,7 +3,8 @@ import { sessionUndo, type RegistryChange, type SessionUndo, type UndoKind } fro
 import { createUsageView, handleUsageInput, renderUsageView } from "./usage-view.js";
 import { mergeUsageSnapshots } from "../core/usage.js";
 import { ConversationReader, renderConversationPane, SelectedInteractionObserver } from "./conversation.js";
-import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery } from "../core/session-interaction.js";
+import { answerUnavailableReason, DELIVERY_UNCONFIRMED, INTERACTION_TIMEOUT_MS, sameInteractionTarget, type InteractionTarget, type MessageDelivery, type SessionSkill } from "../core/session-interaction.js";
+import { nextSkill, skillMatches, toSkillCommand, workflowSkillSteps } from "../core/skill-reply.js";
 import { collapsedQuestion, createQuestionDialog, handleQuestionInput, renderQuestionPanel, type QuestionDialog } from "./question-dialog.js";
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { attachPlan } from "../app/actions.js";
@@ -95,6 +96,9 @@ interface ReplyDraft {
   delivery: MessageDelivery;
   deliveryFocus: boolean;
   submitting?: boolean;
+  /** Highlighted `/` completion row and workflow chip; view state only. */
+  match: number;
+  pick?: number;
 }
 
 export class SessionsView implements Component {
@@ -1358,6 +1362,7 @@ export class SessionsView implements Component {
         case "open": this.attachSelected(); return;
         case "restart": this.restartSelected(); return;
         case "send": this.startReply(); return;
+        case "next-skill": this.sendNextSkill(); return;
         case "rename": this.startRenameSessionDialog(); return;
         case "sync-name": this.syncPiNameSelected(); return;
         case "fork": this.startForkDialog(); return;
@@ -1601,8 +1606,10 @@ export class SessionsView implements Component {
     let draft = this.replyDrafts.get(selected.id);
     if (!draft) {
       const attention = visibleAttention(selected);
-      draft = { target, input: createTextInput(attention?.kind === "ready" && attention.recommendation ? `Go ahead: ${stripAnsi(attention.recommendation)}` : ""),
-        delivery: this.interaction.state.messageDelivery === "busy" ? "steer" : "send", deliveryFocus: false };
+      // With workflow chips the next step is the reply; the recommendation stays visible above the editor.
+      const chips = workflowSkillSteps(selected.workflow, this.interaction.state.skills ?? []);
+      draft = { target, input: createTextInput(!chips && attention?.kind === "ready" && attention.recommendation ? `Go ahead: ${stripAnsi(attention.recommendation)}` : ""),
+        delivery: this.interaction.state.messageDelivery === "busy" ? "steer" : "send", deliveryFocus: false, match: 0 };
       this.replyDrafts.set(selected.id, draft);
     } else {
       draft.delivery = this.interaction.state.messageDelivery === "idle" ? "send" : draft.delivery === "send" ? "steer" : draft.delivery;
@@ -1616,43 +1623,104 @@ export class SessionsView implements Component {
     this.updateReplyPanel();
   }
 
+  /** The reply target's loaded skills, from its live interaction state. */
+  private replySkills(draft: ReplyDraft): SessionSkill[] {
+    return sameInteractionTarget(this.interaction.target, draft.target) ? this.interaction.state?.skills ?? [] : [];
+  }
+
+  /** `/` completion rows while typing a skill name; never while delivery has focus. */
+  private replyMatches(draft: ReplyDraft): SessionSkill[] {
+    return draft.deliveryFocus ? [] : skillMatches(draft.input.value, this.replySkills(draft));
+  }
+
+  /** Workflow-step chips for an empty input, with the step Enter sends picked. */
+  private replyChips(draft: ReplyDraft): { ids: string[]; pick: number } | undefined {
+    if (draft.deliveryFocus || draft.input.value) return undefined;
+    const session = this.controller.snapshot().sessions.find(row => row.id === draft.target.managedId);
+    const chips = workflowSkillSteps(session?.workflow, this.replySkills(draft));
+    return chips && { ids: chips.ids, pick: Math.max(0, Math.min(draft.pick ?? chips.pick, chips.ids.length - 1)) };
+  }
+
   private updateReplyPanel(): void {
     const draft = this.replyEditor;
     if (!draft || !this.cardPanel) return;
     const title = stripAnsi(this.controller.snapshot().sessions.find(row => row.id === draft.target.managedId)!.title);
     const label = draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer now" : "Queue for later";
     const narrow = this.lastWidth < 60;
+    const matches = this.replyMatches(draft);
+    const match = Math.min(draft.match, Math.max(0, matches.length - 1));
+    const chips = this.replyChips(draft);
+    const skillLines = matches.length
+      ? matches.map((skill, index) => replySkillRow(skill, index === match, this.theme))
+      : chips ? [replyChipRow(chips.ids, chips.pick, this.lastWidth, this.theme)] : [];
     this.cardPanel.panel.body = [
       ["REPLY", ...(!narrow ? [title] : []), label].join(` ${glyphs.pendingStep} `),
       draft.input,
+      ...skillLines,
       ...(draft.delivery === "send" || narrow ? [] : [
         `${draft.deliveryFocus ? glyphs.selected : " "} Tab Delivery: ${glyphs.left} ${label} ${glyphs.right}`,
         draft.delivery === "steer" ? "Use before the next model call, after current tools" : "Use after the current run",
       ]),
     ];
-    this.cardPanel.panel.keyLine = narrow && draft.delivery !== "send" ? [
-      `Tab Delivery${draft.deliveryFocus ? ` ${glyphs.selected}` : ""}`,
-      `${glyphs.left}/${glyphs.right} Steer/Queue`,
-      `Enter ${label}`,
-      "Esc Keep draft",
-    ].join("\n") : `Enter ${draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer" : "Queue"} ${glyphs.pendingStep} Esc Keep draft ${glyphs.pendingStep} Ctrl+U Clear${draft.delivery === "send" ? "" : ` ${glyphs.pendingStep} Tab Delivery ${glyphs.pendingStep} ${glyphs.left}/${glyphs.right} Steer/Queue`}`;
+    // Completion and chip rows stay one line each, so the list never reflows as the selection moves.
+    this.cardPanel.panel.clipRows = skillLines.map((_, index) => index + 2);
+    // Hints follow the same precedence as handleReplyInput: completion, then chips, then delivery.
+    const verb = draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer" : "Queue";
+    this.cardPanel.panel.keyLine = matches.length
+      ? [`${glyphs.up}${glyphs.down} Choose`, "Tab Complete", "Esc Keep draft"].join(` ${glyphs.pendingStep} `)
+      : chips
+        ? [`Enter ${verb} /${chips.ids[chips.pick]}`, `${glyphs.left}/${glyphs.right} Step`, "Esc Keep draft", ...(draft.delivery === "send" ? [] : ["Tab Delivery"])].join(narrow ? "\n" : ` ${glyphs.pendingStep} `)
+      : narrow && draft.delivery !== "send" ? [
+        `Tab Delivery${draft.deliveryFocus ? ` ${glyphs.selected}` : ""}`,
+        `${glyphs.left}/${glyphs.right} Steer/Queue`,
+        `Enter ${label}`,
+        "Esc Keep draft",
+      ].join("\n")
+        : `Enter ${draft.delivery === "send" ? "Send" : draft.delivery === "steer" ? "Steer" : "Queue"} ${glyphs.pendingStep} Esc Keep draft ${glyphs.pendingStep} Ctrl+U Clear${draft.delivery === "send" ? "" : ` ${glyphs.pendingStep} Tab Delivery ${glyphs.pendingStep} ${glyphs.left}/${glyphs.right} Steer/Queue`}`;
   }
 
   private handleReplyInput(draft: ReplyDraft, data: string): void {
     if (matchesKey(data, Key.escape)) { this.clearCardPanel(); this.closeWorkspace(); this.message = undefined; return; }
     if (draft.submitting || this.deliveryResults.get(draft.target.managedId)?.state === "submitting") return;
-    if (matchesKey(data, Key.ctrl("u"))) draft.input = createTextInput();
+    const matches = this.replyMatches(draft);
+    const chips = this.replyChips(draft);
+    if (matches.length && (matchesKey(data, Key.up) || matchesKey(data, Key.down))) {
+      draft.match = (Math.min(draft.match, matches.length - 1) + (matchesKey(data, Key.up) ? matches.length - 1 : 1)) % matches.length;
+    } else if (matches.length && (matchesKey(data, Key.tab) || isEnterKey(data))) {
+      draft.input = createTextInput(`/${matches[Math.min(draft.match, matches.length - 1)]!.name} `);
+      draft.match = 0;
+    } else if (chips && (matchesKey(data, Key.left) || matchesKey(data, Key.right))) {
+      draft.pick = Math.max(0, Math.min(chips.ids.length - 1, chips.pick + (matchesKey(data, Key.left) ? -1 : 1)));
+    } else if (chips && isEnterKey(data)) { this.submitReply(draft, `/${chips.ids[chips.pick]}`); return; }
+    else if (matchesKey(data, Key.ctrl("u"))) draft.input = createTextInput();
     else if (isEnterKey(data)) { this.submitReply(draft); return; }
     else if (draft.delivery !== "send" && matchesKey(data, Key.tab)) draft.deliveryFocus = !draft.deliveryFocus;
     else if (draft.deliveryFocus) {
       if (matchesKey(data, Key.left) || matchesKey(data, Key.right)) draft.delivery = draft.delivery === "steer" ? "followUp" : "steer";
-    } else draft.input = editTextInput(data, draft.input) ?? draft.input;
+    } else {
+      const before = draft.input.value;
+      draft.input = editTextInput(data, draft.input) ?? draft.input;
+      if (draft.input.value !== before) draft.match = 0;
+    }
     this.message = undefined;
     this.updateReplyPanel();
   }
 
-  private submitReply(draft: ReplyDraft): void {
-    if (!draft.input.value.trim()) { this.message = "message is required"; return; }
+  /** `>`: send the next workflow step's skill through the same guarded write and receipt as Reply. */
+  private sendNextSkill(): void {
+    const selected = this.controller.selected();
+    const target = selected && this.actions.interactionTarget?.(selected);
+    const command = selected && this.dashboardCommands().find(candidate => candidate.id === `action:${selected.id}:next-skill`);
+    const skill = selected && nextSkill(selected.workflow, this.interaction.state?.skills ?? []);
+    if (!selected || !target || !command?.enabled || !skill) { this.message = command?.disabledReason ?? "next workflow step unavailable"; return; }
+    void this.writeInteraction(target, `Sent /${skill}`, () => this.actions.sendMessage!(target, `/skill:${skill}`, "send"))
+      .catch(() => this.reconcileCardPanel())
+      .finally(() => this.actions.requestRender?.());
+  }
+
+  private submitReply(draft: ReplyDraft, typed = draft.input.value): void {
+    if (!typed.trim()) { this.message = "message is required"; return; }
+    const text = toSkillCommand(typed, this.replySkills(draft));
     const command = this.dashboardCommands().find(command => command.id === `action:${draft.target.managedId}:send`);
     const busyRace = draft.delivery === "send" && this.interaction.state?.messageDelivery === "busy";
     const label = draft.delivery === "send" ? "Sent" : draft.delivery === "steer" ? "Steer requested" : "Queued";
@@ -1660,9 +1728,10 @@ export class SessionsView implements Component {
     void this.writeInteraction(draft.target, label, () => {
       if (!command?.enabled) throw new Error(command?.disabledReason ?? "reply target is no longer available");
       if (busyRace) throw new Error("Pi started working; choose Steer now or Queue for later");
-      return this.actions.sendMessage!(draft.target, draft.input.value, draft.delivery);
+      return this.actions.sendMessage!(draft.target, text, draft.delivery);
     }).then(() => {
       draft.input = createTextInput();
+      draft.pick = undefined;
       draft.delivery = "send";
       draft.deliveryFocus = false;
       if (this.replyEditor === draft) this.clearCardPanel();
@@ -2979,4 +3048,24 @@ function truncateVisible(value: string, width: number): string {
 
 function questionSummary(question?: { header: string; question: string }): { header: string; question: string } | undefined {
   return question ? collapsedQuestion(question) : undefined;
+}
+
+/** One `/` completion row: the skill name in the accent, then its description, cut to the width. */
+function replySkillRow(skill: SessionSkill, selected: boolean, theme: SessionsTheme | undefined): string {
+  const accent = (text: string) => theme ? styleToken(theme, "accent", text) : text;
+  const muted = (text: string) => theme ? styleToken(theme, "muted", text) : text;
+  return `${selected ? glyphs.selected : " "}${accent(`/${skill.name}`)}${skill.description ? `  ${muted(skill.description)}` : ""}`;
+}
+
+/** Workflow chips on one line; the picked step is bracketed, and steps before it drop first when narrow. */
+function replyChipRow(ids: string[], pick: number, width: number, theme: SessionsTheme | undefined): string {
+  const accent = (text: string) => theme ? styleToken(theme, "accent", text) : text;
+  const muted = (text: string) => theme ? styleToken(theme, "muted", text) : text;
+  const chip = (id: string, index: number) => index === pick ? accent(`[${id}]`) : muted(id);
+  const room = Math.max(1, width - 4);
+  for (let start = 0; start <= pick; start++) {
+    const row = ids.map(chip).slice(start).join(" ");
+    if (visibleWidth(row) <= room) return (start ? muted(glyphs.ellipsis) : "") + row;
+  }
+  return truncateToWidth(chip(ids[pick]!, pick), room);
 }
