@@ -1717,3 +1717,39 @@
   created_at: '2026-11-14'
   depends_on:
   - skill-reply-001
+- id: card-signal-001
+  status: pending
+  title: Card Signal Study
+  subtitle: Measure DOING and NEXT accuracy
+  description: A replay tool rebuilds what the session card showed over time from
+    Pi session logs and scores DOING, DONE and NEXT against the agent's actual actions,
+    with a findings report.
+  priority: 1
+  created_at: '2026-11-14'
+  references:
+  - agent-work/plans/card-signal-000.md
+- id: card-signal-002
+  status: pending
+  title: Open Session Card
+  subtitle: GOAL and stage track without workflow
+  description: A session outside a workflow shows a stable GOAL line and an explore,
+    change, verify stage track derived from tool calls, in the workflow card style.
+  priority: 1
+  created_at: '2026-11-14'
+  depends_on:
+  - card-signal-001
+  references:
+  - agent-work/plans/card-signal-000.md
+- id: card-signal-003
+  status: pending
+  title: Step Lens Parity
+  subtitle: Every step fills same slots
+  description: Every workflow step fills the same stage track, progress meter and
+    item list slots, adding signals where a step lacks them, so cards read alike across
+    steps.
+  priority: 1
+  created_at: '2026-11-14'
+  depends_on:
+  - card-signal-002
+  references:
+  - agent-work/plans/card-signal-000.md
