@@ -1,0 +1,266 @@
+[
+  {
+    "scenario": 1,
+    "model": "claude-code/claude-opus-5-5",
+    "session": "d5547c57a4617bcf",
+    "notes": 1,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689629040,
+        "endedAt": 1794689658370,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 1,
+    "model": "openai/gpt-6.1-sol",
+    "session": "c6b44e11769ad0f6",
+    "notes": 1,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689104792,
+        "endedAt": 1794689148072,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 1,
+    "model": "openai/gpt-6.1-terra",
+    "session": "a75e00b8876b27ab",
+    "notes": 1,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689501436,
+        "endedAt": 1794689532619,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 2,
+    "model": "openai/gpt-6.1-sol",
+    "session": "9d2a1790ab016a2f",
+    "notes": 2,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689163970,
+        "endedAt": 1794689176358,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689181927,
+        "endedAt": 1794689185133,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 2,
+    "model": "openai/gpt-6.1-terra",
+    "session": "116e2ff0fc107f93",
+    "notes": 2,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689536705,
+        "endedAt": 1794689543137,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689548074,
+        "endedAt": 1794689550358,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 3,
+    "model": "openai/gpt-6.1-sol",
+    "session": "ff8e1b42db619701",
+    "notes": 2,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689191464,
+        "endedAt": 1794689214149,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689219019,
+        "endedAt": 1794689273395,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 4,
+    "model": "claude-code/claude-opus-5-5",
+    "session": "316a0c85f302dfbd",
+    "notes": 1,
+    "workflowEntries": 10,
+    "turns": [
+      {
+        "startedAt": 1794689663778,
+        "endedAt": 1794689712207,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 4,
+    "model": "openai/gpt-6.1-sol",
+    "session": "8ccb5b690d8b4bf2",
+    "notes": 1,
+    "workflowEntries": 8,
+    "turns": [
+      {
+        "startedAt": 1794689278869,
+        "endedAt": 1794689358205,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 4,
+    "model": "openai/gpt-6.1-terra",
+    "session": "627a7d3206146bc8",
+    "notes": 1,
+    "workflowEntries": 8,
+    "turns": [
+      {
+        "startedAt": 1794689558875,
+        "endedAt": 1794689607412,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 5,
+    "model": "openai/gpt-6.1-sol",
+    "session": "9c6ecfe8085b1539",
+    "notes": 1,
+    "workflowEntries": 8,
+    "turns": [
+      {
+        "startedAt": 1794689366382,
+        "endedAt": 1794689414432,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 6,
+    "model": "openai/gpt-6.1-sol",
+    "session": "12005aafcdd76154",
+    "notes": 3,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689425653,
+        "endedAt": 1794689428725,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689430327,
+        "endedAt": 1794689434026,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689438437,
+        "endedAt": 1794689440782,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 6,
+    "model": "openai/gpt-6.1-terra",
+    "session": "546f7106bcc7a2fe",
+    "notes": 3,
+    "workflowEntries": 1,
+    "turns": [
+      {
+        "startedAt": 1794689612736,
+        "endedAt": 1794689614597,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689616286,
+        "endedAt": 1794689618602,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689622520,
+        "endedAt": 1794689624395,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  },
+  {
+    "scenario": 7,
+    "model": "openai/gpt-6.1-sol",
+    "session": "e8fcf6aaae997ed8",
+    "notes": 1,
+    "workflowEntries": 2,
+    "turns": [
+      {
+        "startedAt": 1794689446170,
+        "endedAt": 1794689450769,
+        "aborted": true,
+        "note": false,
+        "metadataFailure": false
+      },
+      {
+        "startedAt": 1794689450866,
+        "endedAt": 1794689496738,
+        "aborted": false,
+        "note": true,
+        "metadataFailure": false
+      }
+    ]
+  }
+]
