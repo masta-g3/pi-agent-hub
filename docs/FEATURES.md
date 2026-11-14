@@ -44,7 +44,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Multi-repo sessions | `Ctrl+R` adds a repo in the new-session form. |
 | Isolated worktrees | `Ctrl+T` enables a branch session; `w` finishes it. |
 | Project skills and MCP | `s` and `m` choose capabilities for the primary repo. |
-| Optional subagents | `pi-tmux-subagents` reports child agents under their parent. |
+| Optional subagents | `pi-tmux-subagents` reports child agents under their parent. A child that runs a workflow skill shows its step and `DOING`, and its own card when selected. |
 | Optional workflows | Compatible Pi extensions supply tickets, explicit requests, workflow steps, and progress. `S` opens the board. |
 
 Hub works without the optional integrations. See [Configuration](CONFIG.md#optional-integrations) to set up Rules, tmux subagents, or your own metadata producer.

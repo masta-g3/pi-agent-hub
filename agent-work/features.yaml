@@ -1685,7 +1685,7 @@
   plan_file: agent-work/history/20261112_card-lens-004_orchestrator_lens.md
   completed_at: '2026-11-12'
 - id: card-lens-005
-  status: pending
+  status: done
   title: Subagent Lens
   subtitle: Subagent rows show step lens
   description: pi-tmux-subagents copies the child session's latest workflow-runtime
@@ -1697,3 +1697,5 @@
   references:
   - agent-work/plans/card-lens-000.md
   - agent-work/history/20261111_card-lens-001_step_lens_contract.md
+  plan_file: agent-work/history/20261113_card-lens-005_subagent_lens.md
+  completed_at: '2026-11-13'
