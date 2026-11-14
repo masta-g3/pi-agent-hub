@@ -739,10 +739,11 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   // When no repo name shares its line, the branch would sit alone there; it follows the group instead,
   // without repeating the worktree marker the title already carries.
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
-  const branch = branchName ? styles.muted(` ${glyphs.pendingStep} ${branchName}`) : "";
+  const word = worktreeWord(session);
+  const branch = branchName ? styles.muted(` ${glyphs.pendingStep} ${word ? `${word} ${glyphs.pendingStep} ` : ""}${branchName}`) : "";
   const branchOnTop = groupOnTop && branch !== "" && !repoNameSignal(session, styles, repoMode)
     && displayWidth(session.title + group + branch) + 2 <= titleRoom;
-  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${styles.muted(session.worktreeMarker ? ` ${session.worktreeMarker}` : "")}${counts}${styles.muted(session.unopened ? " new" : "")}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
+  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : ""}${counts}${styles.muted(session.unopened ? " new" : "")}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
   const top = `${selectionMarker(tone(glyphs.selected))} ${age ? twoColumn(title, age, contentWidth) : title}`;
   // Metadata sits under the title text (after the stripe and state glyph); STEP carries workflow position.
   const metadata = inboxMetadataLine(session, Math.max(1, width - indent), terminalWidth, styles, repoMode, !groupOnTop, !branchOnTop, !roomy);
@@ -1569,7 +1570,7 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
     session.ticketId ? `#${session.ticketId}` : undefined,
     session.repoLabel,
     session.repoCount > 1 ? `${glyphs.repos}${session.repoCount}` : undefined,
-    session.worktreeBranch ? `${session.worktreeMarker ?? glyphs.worktree} ${session.worktreeBranch}` : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
+    session.worktreeBranch ? stripAnsi(worktreeBranchLabel(session, session.worktreeBranch, styles)) : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
     session.kind === "subagent" && workspace.owner ? `subagent of ${workspace.owner.title}` : undefined,
   ].filter(Boolean).join(` ${glyphs.pendingStep} `);
   const titleLines = pinned ? wrapWords(session.title, width, width) : [];
@@ -1793,7 +1794,7 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
   const group = includeGroup ? styles.muted(truncate(session.group, Math.min(24, budget))) : "";
   const repo = terminalWidth >= 40 ? repoNameSignal(session, styles, repoMode) : "";
-  const branch = includeBranch && terminalWidth >= 40 && branchName ? styles.muted(`${glyphs.worktree} ${branchName}`) : "";
+  const branch = includeBranch && terminalWidth >= 40 && branchName ? worktreeBranchLabel(session, branchName, styles) : "";
   let left = group;
   for (const part of [repo, branch]) {
     if (!part) continue;
@@ -2608,8 +2609,17 @@ function newBadge(session: RenderSession, titleSpace: number, styles: LayoutStyl
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {
-  if (marker === glyphs.worktreePending || marker === glyphs.worktreeWarning) return styles.warning(marker);
-  return styles.muted(marker);
+  return marker === glyphs.worktreeCheck ? styles.warning(marker) : styles.muted(marker);
+}
+
+/** The card names the state a row marker only hints at: merge or check after its glyph, else the plain worktree glyph. */
+function worktreeBranchLabel(session: RenderSession, branch: string, styles: LayoutStyles): string {
+  const word = worktreeWord(session);
+  return `${worktreeMarkerStyle(session.worktreeMarker ?? glyphs.worktree, styles)}${styles.muted(`${word ? ` ${word}` : ""} ${branch}`)}`;
+}
+
+function worktreeWord(session: RenderSession): string {
+  return session.worktreeMarker === glyphs.worktreeMerge ? "merge" : session.worktreeMarker === glyphs.worktreeCheck ? "check" : "";
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {

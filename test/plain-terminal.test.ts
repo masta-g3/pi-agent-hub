@@ -112,7 +112,7 @@ test("ASCII fleet, dense rows, board, workspace and form chrome fit exact widths
       assert.ok(visibleWidth(renderCursorValue('a long path',10,width,'start')) <= width);
     }
     assert.equal(truncate('user 雪 text',20),'user 雪 text');
-    for (const marker of ['⎇','⎇…','⎇!','⎇✓']) assert.match(worktreeGlyph(marker),/^[\\x20-\\x7e]+$/);
+    for (const marker of ['⎇','⇡','⚠']) assert.match(worktreeGlyph(marker),/^[\\x20-\\x7e]+$/);
     for (const glyph of Object.values(ascii)) assert.match(glyph,/^[\\x20-\\x7e]+$/);
     const controller = new SessionsController({version:1,sessions:[{...sessions[0],title:'User 雪 → title',group:'Group ✓'}]});
     const view = new SessionsView(controller,()=>{},{terminalRows:()=>40},darkTheme);

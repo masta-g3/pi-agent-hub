@@ -2909,7 +2909,7 @@ function renderHelp(width: number, theme: SessionsTheme | undefined, shortcuts: 
     "",
     heading("Status legend"),
     `  ${glyphs.running} running (selected row animates)     ${glyphs.waiting} waiting     ${glyphs.idle} idle     ${glyphs.error} error     - stopped`,
-    `  ${glyphs.worktree} active worktree     ${glyphs.worktreePending} awaits merge     ${glyphs.worktreeWarning} cleanup/check needed     ${glyphs.worktreeDone} cleanup verified`,
+    `  ${glyphs.worktree} in a worktree     ${glyphs.worktreeMerge} ready to merge (w Finish)     ${glyphs.worktreeCheck} cleanup needs a check     none once cleanup is verified`,
     "  zero counts are hidden from tier and top summaries",
     "",
     heading("Selected card and Details"),

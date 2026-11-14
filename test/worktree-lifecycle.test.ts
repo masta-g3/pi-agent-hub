@@ -17,17 +17,19 @@ test("worktree aggregation uses check, cleanup, merge, active, cleaned priority"
   assert.equal(aggregateWorktreeState(snapshot(["cleaned", "cleanup-pending"])), "cleanup-pending");
   assert.equal(aggregateWorktreeState(snapshot(["active", "awaiting-merge"])), "awaiting-merge");
   assert.equal(aggregateWorktreeState(snapshot(["cleaned", "cleaned"])), "cleaned");
-  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: snapshot(["cleaned"]) }), "⎇✓");
+  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: snapshot(["cleaned"]) }), undefined);
+  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: snapshot(["awaiting-merge"]) }), "⇡");
+  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: snapshot(["cleanup-pending"]) }), "⚠");
 });
 
-test("cleaned producer state requires verification before showing the checkmark", () => {
+test("cleaned producer state requires verification before the marker clears", () => {
   const unverified = snapshot(["cleaned"]);
   delete unverified.repositories?.[0]?.verifiedAt;
   assert.equal(aggregateWorktreeState(unverified), "check-needed");
-  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: unverified }), "⎇!");
+  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: unverified }), "⚠");
   const verified = snapshot(["cleaned"]);
   assert.equal(aggregateWorktreeState(verified), "cleaned");
-  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: verified }), "⎇✓");
+  assert.equal(worktreeMarker({ ...base, worktreeLifecycle: verified }), undefined);
 });
 
 test("persisted reset tombstones stay hidden from effective lifecycle rendering", () => {

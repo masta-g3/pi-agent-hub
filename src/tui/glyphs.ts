@@ -5,7 +5,7 @@ export const unicode = {
   ready: "✓", question: "?", blocked: "!", expanded: "▾", collapsed: "▸",
   vertical: "│", treeEnd: "└", treeBranch: "├", horizontal: "─",
   selected: "▌", focus: "▎", filter: "▍", primary: "▶", cursor: "█", attentionBar: "┃",
-  worktree: "⎇", worktreePending: "⎇…", worktreeWarning: "⎇!", worktreeDone: "⎇✓",
+  worktree: "⎇", worktreeMerge: "⇡", worktreeCheck: "⚠",
   repos: "⧉", subagents: "↳", activeStep: "◉", pendingStep: "·",
   progressFilled: "■", progressEmpty: "□", pinned: "▣", pin: "▢", abandoned: "⊘",
   topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯",
@@ -22,7 +22,7 @@ export const ascii: GlyphSet = {
   ready: "v", question: "?", blocked: "!", expanded: "v", collapsed: ">",
   vertical: "|", treeEnd: "`", treeBranch: "+", horizontal: "-",
   selected: ">", focus: ">", filter: "|", primary: ">", cursor: "_", attentionBar: "|",
-  worktree: "@", worktreePending: "@...", worktreeWarning: "@!", worktreeDone: "@v",
+  worktree: "@", worktreeMerge: "^", worktreeCheck: "!",
   repos: "#", subagents: "+", activeStep: "O", pendingStep: ".",
   progressFilled: "#", progressEmpty: ".", pinned: "#", pin: "+", abandoned: "x",
   topLeft: "+", topRight: "+", bottomLeft: "+", bottomRight: "+",
@@ -36,7 +36,7 @@ export const glyphs: GlyphSet = process.env.PI_AGENT_HUB_GLYPHS === "ascii" ? as
 
 /** Core lifecycle markers are stable data; only the TUI projection changes glyphs. */
 export function worktreeGlyph(marker: string | undefined): string | undefined {
-  const key = (["worktree", "worktreePending", "worktreeWarning", "worktreeDone"] as const)
+  const key = (["worktree", "worktreeMerge", "worktreeCheck"] as const)
     .find(key => unicode[key] === marker);
   return key ? glyphs[key] : undefined;
 }
