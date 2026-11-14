@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step lens parity</title>
+<style>
+/* Palette, typography and terminal rows from dashboard-card-lenses.html. */
+:root { --page:#eceae4; --ink:#1b1d21; --soft:#5f636b; --line:#d2d0c8; --raise:#f8f7f3; --t-bg:#1e1e2e; --t-sel:#2a2b3d; --t-band:#313244; --t-text:#cdd6f4; --t-muted:#8f93ab; --t-dim:#5c5f77; --t-accent:#89b4fa; --t-ok:#a6e3a1; --t-warn:#f9e2af; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans:"Avenir Next","Segoe UI",system-ui,sans-serif; }
+@media(prefers-color-scheme:dark) { :root { --page:#101114; --ink:#e6e6e2; --soft:#a0a4ab; --line:#2b2d33; --raise:#18191d; } }
+* { box-sizing:border-box; } body { margin:0; background:var(--page); color:var(--ink); font:14px/1.45 var(--sans); }
+:focus-visible { outline:2px solid var(--t-accent); outline-offset:2px; }
+header { display:flex; align-items:center; gap:18px; padding:14px 28px; flex-wrap:wrap; }
+header h1 { font:600 16px var(--sans); margin:0 10px 0 0; }
+.pages { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+.grp,.seg { display:flex; gap:2px; padding:3px; border-radius:9px; background:var(--raise); box-shadow:inset 0 0 0 1px var(--line); }
+.seg { margin-left:auto; }
+button { font:500 13px var(--sans); color:var(--soft); background:none; border:0; padding:5px 11px; border-radius:6px; cursor:pointer; }
+button[aria-selected="true"],button[aria-pressed="true"] { background:var(--ink); color:var(--raise); }
+.stage { padding:6px 28px 28px; max-width:1500px; }
+.screen { background:var(--t-bg); color:var(--t-text); font:13px/20px var(--mono); border-radius:10px; }
+.band { background:var(--t-band); padding:4px 14px; color:var(--t-muted); border-radius:10px 10px 0 0; }
+.panes { display:grid; grid-template-columns:370px minmax(0,1fr); min-height:390px; }
+.roster { border-right:1px solid var(--t-band); padding:8px 0; }
+.card { padding:10px 0; overflow:auto; }
+.ln { min-height:20px; padding:0 14px; white-space:pre; }
+.title { display:flex; justify-content:space-between; gap:2ch; }
+.sel { background:var(--t-sel); border-left:3px solid var(--t-accent); }
+.lab { display:inline-block; width:8.5ch; color:var(--t-muted); }
+.m { color:var(--t-muted); } .d { color:var(--t-dim); } .a { color:var(--t-accent); } .ok { color:var(--t-ok); } .w { color:var(--t-warn); } .b { font-weight:700; }
+.flexline { display:flex; justify-content:space-between; gap:2ch; }
+.flexline>span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.flexline>span:last-child { flex:none; }
+.info { margin-top:14px; padding:12px 16px; background:var(--raise); border-radius:10px; max-width:1000px; }
+.info p { margin:0 0 8px; } .hint { color:var(--soft); font-size:12.5px; }
+@media(max-width:1000px) { .panes { grid-template-columns:1fr; } .roster { display:none; } .stage { padding:6px 12px 20px; } header { padding:14px 12px; } }
+</style>
+</head>
+<body>
+<header><h1>Step lens parity</h1><nav class="pages" id="pages" aria-label="Steps"></nav><div class="seg" role="group" aria-label="Version"><button id="v-today" aria-pressed="false">Today</button><button id="v-prop" aria-pressed="true">Proposed</button></div></header>
+<div class="stage"><div class="screen"><div class="band">pi hub · FLEET</div><div class="panes"><div class="roster" id="roster"></div><div class="card" id="card"></div></div></div><div class="info" id="info" aria-live="polite"></div><p class="hint">← → steps · t Today/Proposed. Mocks show a wide card; narrow cards drop summary before stages and meters. ✓ done · ◉ active · · pending · ! attention · – skipped.</p></div>
+<script>
+// Page controls, markup helpers and roster split reuse dashboard-card-lenses.html.
+const sp = (c) => (s) => `<span class="${c}">${s}</span>`;
+const b=sp('b'),m=sp('m'),d=sp('d'),a=sp('a'),ok=sp('ok'),w=sp('w');
+const L=(lab,v)=>`<span class="lab">${lab}</span>${v}`;
+const I=(v)=>`<span class="lab"></span>${v}`;
+const STEPS=['PL','EX','RV','RF','CM'];
+const rail=(i)=>STEPS.map((s,k)=>k<i?m(s)+ok('✓'):k===i?a(s+'◉'):m(s)+d('·')).join(' ');
+const stages=(list,i)=>list.map((s,k)=>k<i?s+ok('✓'):k===i?a(s+'◉'):m(s+'·')).join(' ');
+const meter=(f,n=8)=>'▰'.repeat(f)+m('▱'.repeat(n-f));
+const bar=d(' │ ');
+const PAGES=[
+ {name:'Plan',doing:'critic pass 2',todayDoing:'Reviewing plan',track:['inspect','scope','write','critic','ready'],at:3,count:'2/5',fill:3,label:'PLAN',head:'3 phases · 10 tasks · 5 criteria',todayHead:'3 phases · 10 tasks · 5 criteria',items:[ok('✓')+' plan written',d('·')+' criteria 2/5',ok('✓')+' 4 answered',a('◉')+' critic pass 2'],todayItems:[ok('✓')+' 4 answered',a('◉')+' critic pass 2'],note:'Plan file existence and checked criteria are real progress. The active critic item supplies DOING. No criteria means no meter; there is no forecast.'},
+ {name:'Execute',doing:'Checking npm test',todayDoing:'Add goal parsing to session-context',track:['implement','verify','done'],at:1,count:'5/10',fill:4,label:'PLAN',head:'5 done · 5 open',todayHead:'Hub card',items:[ok('✓')+' Parse progress.goal',a('◉')+' Add goal parsing to session-context',d('·')+' Verify narrow cards'],todayItems:[ok('✓')+' Parse progress.goal',a('◉')+' Add goal parsing to session-context',d('·')+' Verify narrow cards'],summary:'phase 2/3 · Hub card',note:'While a tool runs, DOING describes that action. Otherwise it returns to the first open task. The task list does not move until the plan is checked. Stages follow the latest classified completed tool; every task checked marks done.'},
+ {name:'Review',doing:'Fix the stale cursor in roster windowing',track:['review','fix','done'],at:1,count:'3/8',fill:3,label:'FOUND',head:'2 fixed · 5 open · 1 deferred',items:[ok('✓')+' Missing NO_COLOR guard',a('◉')+' Fix the stale cursor in roster windowing',d('·')+' Badge overlaps age at 80 cols','– Deferred pointer wording'],note:'The meter counts settled findings: 2 fixed + 1 deferred = 3 of 8. Active item first; otherwise activity label. Terminal Review complete wins over stale active items. The final list stays.'},
+ {name:'Reflect',doing:'Document the runtime facts contract',track:['review','update','done'],at:1,count:'2/4',fill:4,label:'CANDS',head:'1 applied · 1 now · 1 needs you · 1 no action',items:[ok('✓')+' Explain meter counts',a('◉')+' Document the runtime facts contract',w('!')+' Shared wording needs approval','– No skill change'],note:'The meter counts settled candidates: 1 applied + 1 no action = 2 of 4. Attention is not settled. Completion keeps the list, but the terminal label wins.'},
+ {name:'Commit',doing:'Committing changes',track:['archive','commit'],at:1,label:'CLOSE',head:'2 commits',items:[ok('✓')+' Plan archived',ok('✓')+' Ticket card-signal-003 done',ok('✓')+' pi-agent-hub a1b2c3d Render parity meters',ok('✓')+' rules e4f5a6b Publish step parity'],note:'Unchanged. Facts only, no invented pending work or meter. Archive, ticket closeout and push are conditional. Push joins the track only when reached. Commit complete retains this list.'}
+];
+const state={page:0,view:'prop'};
+const $=(id)=>document.getElementById(id);
+function render(){
+ const p=PAGES[state.page],proposed=state.view==='prop',i=state.page;
+ const doing=proposed?p.doing:(p.todayDoing||p.doing);
+ const hasMeter=p.count&&(proposed||i===1);
+ const track=!proposed&&i===1?stages(['1','2','3'],1):stages(p.track,p.at);
+ const where=rail(i)+bar+track+(hasMeter?'  '+meter(p.fill)+' '+p.count:'')+(proposed&&p.summary?d(' · ')+m(p.summary):'')+([0,2,3].includes(i)?'  '+m('pass 2'):'');
+ const items=proposed?p.items:(p.todayItems||p.items);
+ $('card').innerHTML=[`<div class="ln title"><span>${ok('⠸')} ${b(p.name+' lens')}</span><span class="m">${STEPS[i]} now</span></div>`,'<div class="ln"></div>',...[
+ L('DOING',b(doing)),L('WHERE',where),'',L(p.label,proposed?p.head:(p.todayHead||p.head)),...items.map(I)
+ ].map(x=>`<div class="ln">${x}</div>`)].join('');
+ $('roster').innerHTML=`<div class="ln m">── ACTIVE 1 ───────────────────</div><div class="ln title sel"><span>${ok('⠸')} ${b(p.name+' lens')}</span><span class="m">${STEPS[i]}</span></div><div class="ln sel flexline"><span>${L('DOING',doing)}</span><span>${hasMeter?meter(p.fill)+' '+p.count:''}</span></div>`;
+ $('info').innerHTML=`<p><b>${p.name}: ${proposed?'Proposed':'Today'}</b></p><p>${p.note}</p><span class="hint">Same state in both views. Orchestrator lenses are unchanged and outside this deck.</span>`;
+ document.querySelectorAll('#pages button').forEach((btn,j)=>btn.setAttribute('aria-selected',String(j===state.page)));
+ $('v-today').setAttribute('aria-pressed',String(!proposed));$('v-prop').setAttribute('aria-pressed',String(proposed));
+}
+(function build(){
+ $('pages').innerHTML=`<div class="grp" role="tablist" aria-label="Steps">${PAGES.map((p,i)=>`<button role="tab" data-p="${i}">${p.name}</button>`).join('')}</div>`;
+ $('pages').addEventListener('click',ev=>{const bt=ev.target.closest('button');if(bt){state.page=Number(bt.dataset.p);render();}});
+ $('v-today').onclick=()=>{state.view='today';render();};$('v-prop').onclick=()=>{state.view='prop';render();};
+ document.addEventListener('keydown',ev=>{if(ev.altKey||ev.metaKey||ev.ctrlKey)return;if(ev.key==='ArrowRight'||ev.key==='ArrowLeft'){state.page=(state.page+(ev.key==='ArrowRight'?1:PAGES.length-1))%PAGES.length;render();ev.preventDefault();}if(ev.key==='t'){state.view=state.view==='today'?'prop':'today';render();}});
+ render();
+})();
+</script>
+</body>
+</html>

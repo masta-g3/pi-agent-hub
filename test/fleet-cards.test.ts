@@ -157,6 +157,54 @@ test("open card labels and stages fit narrow terminals", () => {
   }
 });
 
+const paritySteps = [
+  { id: "plan-md", short: "PL", labels: ["inspect", "scope", "write", "critic", "ready"], active: 3, doing: "critic pass 2", label: "PLAN", head: "3 phases · 10 tasks · 5 criteria", progress: { completed: 2, total: 5 }, pass: 2 },
+  { id: "execute", short: "EX", labels: ["implement", "verify", "done"], active: 1, doing: "Checking npm test", label: "PLAN", head: "5 done · 5 open", progress: { completed: 5, total: 10 }, summary: "phase 2/3 · Hub card" },
+  { id: "review", short: "RV", labels: ["review", "fix", "done"], active: 1, doing: "Fix the stale cursor", label: "FOUND", head: "2 fixed · 5 open · 1 deferred", progress: { completed: 3, total: 8 }, pass: 2 },
+  { id: "reflect", short: "RF", labels: ["review", "update", "done"], active: 1, doing: "Document runtime facts", label: "CANDS", head: "1 applied · 1 now · 1 needs you · 1 no action", progress: { completed: 2, total: 4 }, pass: 2 },
+  { id: "commit", short: "CM", labels: ["archive", "commit"], active: 1, doing: "Committing changes", label: "CLOSE", head: "2 commits" },
+];
+
+for (const [activeIndex, step] of paritySteps.entries()) {
+  const lens = {
+    doing: step.doing,
+    stages: step.labels.map((label, index) => ({ label, state: index < step.active ? "done" as const : index === step.active ? "active" as const : "pending" as const })),
+    ...(step.progress ? { progress: step.progress } : {}),
+    ...(step.pass ? { pass: step.pass } : {}),
+    ...(step.summary ? { summary: step.summary } : {}),
+    list: { label: step.label, head: step.head, items: [{ state: "done" as const, text: "Completed fact" }, { state: "active" as const, text: "Current context" }, { state: "pending" as const, text: "Pending context" }, { state: "attention" as const, text: "Needs a decision" }, { state: "skipped" as const, text: "No action" }], before: 0, after: 0 },
+  };
+  const subject = session(`parity-${step.short}`, { workflow: { ...workflow, activeIndex, steps: paritySteps.map(({ id, short }) => ({ id, short })), lens } });
+  for (const width of [160, 100, 80]) test(`${step.id} parity renders count heads and width-safe WHERE at ${width} columns`, () => {
+    const rendered = render([subject], { width, height: 60 });
+    assert.ok(rendered.layout.lines.every(line => visibleWidth(line) <= width), rendered.lines.join("\n"));
+    const lines = cardLines(rendered, subject.id);
+    const where = lines.find(line => line.includes("WHERE"))!;
+    assert.ok(where, lines.join("\n"));
+    assert.match(lines.join("\n"), new RegExp(`DOING +${step.doing}`));
+    if (step.progress) assert.ok(where.includes(`${step.progress.completed}/${step.progress.total}`), where);
+    else assert.doesNotMatch(where, /▰|▱|\d+\/\d+/);
+    if (width !== 100) assert.ok(where.includes(step.labels[step.active]! + "◉"), where);
+    if (width === 160) {
+      assert.ok(lines.some(line => line.includes(step.head)), lines.join("\n"));
+      for (const mark of ["✓", "◉", "·", "!", "–"]) assert.ok(lines.some(line => line.includes(mark)), mark + lines.join("\n"));
+      if (step.progress) assert.match(where, /▰+▱+/);
+    }
+    if (["review", "reflect"].includes(step.id)) {
+      const roster = cardLines(render([session("selected"), subject], { width }), subject.id);
+      assert.match(roster.join("\n"), new RegExp(`${step.progress!.completed}/${step.progress!.total}`));
+      if (width !== 100) assert.match(roster.join("\n"), /▰+▱+/);
+    }
+  });
+  test(`${step.id} drops a long summary before its stages and exact count`, () => {
+    const expanded = { ...subject, workflow: { ...subject.workflow!, lens: { ...lens, summary: "Long phase context ".repeat(6) } } };
+    const where = cardLines(render([expanded], { width: 160 }), subject.id).find(line => line.includes("WHERE"))!;
+    assert.doesNotMatch(where, /Long phase context/);
+    assert.ok(where.includes(step.labels[step.active]! + "◉"), where);
+    if (step.progress) assert.ok(where.includes(`${step.progress.completed}/${step.progress.total}`), where);
+  });
+}
+
 test("wide selected cards show repo beside group, then task, DOING, WHERE and the lens list", () => {
   const rendered = render([rich]);
   const card = cardLines(rendered, "rich");
