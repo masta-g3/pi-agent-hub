@@ -36,14 +36,14 @@ test("piAgentHubExtension registers handlers once per active process", async () 
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
-  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
+  assert.deepEqual(events, ["before_agent_start", "session_start", "session_tree", "model_select", "thinking_level_select", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown"]);
 
   await handlers.get("session_shutdown")?.({}, { cwd: "/repo" });
   piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
 
   assert.deepEqual(events, [
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
-    "before_agent_start", "session_start", "session_tree", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "model_select", "thinking_level_select", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
+    "before_agent_start", "session_start", "session_tree", "model_select", "thinking_level_select", "session_info_changed", "agent_start", "tool_execution_start", "tool_execution_end", "agent_end", "agent_settled", "session_before_compact", "session_compact", "ui_prompt_start", "ui_prompt_end", "session_shutdown",
   ]);
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
 });
@@ -526,6 +526,42 @@ test("tool calls publish a debounced live activity heartbeat that agent_end clea
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);
     t.mock.timers.reset();
+    if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
+    else process.env[SESSION_ID_ENV] = previousSessionId;
+    if (previousStateDir === undefined) delete process.env[STATE_ENV];
+    else process.env[STATE_ENV] = previousStateDir;
+    delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  }
+});
+
+test("heartbeats carry the live model and republish on model and thinking changes", async () => {
+  delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-model-"));
+  const previousSessionId = process.env[SESSION_ID_ENV];
+  const previousStateDir = process.env[STATE_ENV];
+  process.env[SESSION_ID_ENV] = "model-session";
+  process.env[STATE_ENV] = root;
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+  const pi = {
+    on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) { handlers.set(name, handler); },
+    registerTool() {},
+  };
+  const ctx: Record<string, unknown> = { cwd: root, hasUI: false, model: { provider: "anthropic", id: "claude-opus-4-5" }, thinkingLevel: "medium" };
+  const read = async () => JSON.parse(await readFile(heartbeatPath("model-session", { PI_AGENT_HUB_DIR: root }), "utf8")) as Heartbeat;
+  try {
+    piAgentHubExtension(pi as unknown as Parameters<typeof piAgentHubExtension>[0]);
+    await handlers.get("session_start")?.({}, ctx);
+    await handlers.get("agent_start")?.({}, ctx);
+    assert.deepEqual((await read()).model, { provider: "anthropic", id: "claude-opus-4-5", thinking: "medium" });
+    ctx.model = { provider: "openai", id: "gpt-5" };
+    await handlers.get("model_select")?.({}, ctx);
+    assert.deepEqual((await read()).model, { provider: "openai", id: "gpt-5", thinking: "medium" });
+    ctx.thinkingLevel = "high";
+    await handlers.get("thinking_level_select")?.({}, ctx);
+    assert.deepEqual((await read()).model, { provider: "openai", id: "gpt-5", thinking: "high" });
+    await handlers.get("session_shutdown")?.({}, ctx);
+    assert.equal((await read()).model, undefined);
+  } finally {
     if (previousSessionId === undefined) delete process.env[SESSION_ID_ENV];
     else process.env[SESSION_ID_ENV] = previousSessionId;
     if (previousStateDir === undefined) delete process.env[STATE_ENV];

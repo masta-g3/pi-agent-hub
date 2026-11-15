@@ -34,6 +34,8 @@ type PiContext = {
     getTheme?: (name: string) => Theme | undefined;
     setTheme?: (theme: string | Theme) => unknown;
   };
+  model?: { provider?: string; id?: string };
+  thinkingLevel?: string;
   sessionManager?: {
     getSessionFile?: () => string | undefined;
     getSessionId?: () => string | undefined;
@@ -195,6 +197,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
           ...(runCalls ? { calls: runCalls } : {}),
         } } : {}),
         ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
+        ...(state !== "shutdown" && ctx.model?.provider && ctx.model.id
+          ? { model: { provider: ctx.model.provider, id: ctx.model.id, ...(ctx.thinkingLevel ? { thinking: ctx.thinkingLevel } : {}) } } : {}),
       } satisfies Heartbeat);
     });
     heartbeatWrite = write.catch(() => undefined);
@@ -306,6 +310,9 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   });
 
   pi.on("session_tree", () => { interaction?.branchChanged(); });
+
+  pi.on("model_select", async (_event, ctx) => heartbeat(currentState, ctx as PiContext));
+  pi.on("thinking_level_select", async (_event, ctx) => heartbeat(currentState, ctx as PiContext));
 
   pi.on("session_info_changed", async (_event, ctx) => applyThemeAndHeartbeat(currentState, ctx as PiContext));
   const clearCompaction = () => {

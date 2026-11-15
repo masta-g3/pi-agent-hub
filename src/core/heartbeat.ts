@@ -7,6 +7,7 @@ import type {
   ActiveThemeSnapshot,
   ActiveThemeToken,
   Heartbeat,
+  HeartbeatModel,
   SessionAction,
   SessionActivity,
   SessionPlanSummary,
@@ -47,6 +48,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   const activeTheme = parseActiveTheme(value.activeTheme);
   const operation = parseHeartbeatOperation(value.operation);
   const activity = parseSessionActivity(value.activity);
+  const model = parseHeartbeatModel(value.model);
   return {
     managedSessionId,
     ...(isObject(value.interaction) && value.interaction.version === 1 && typeof value.interaction.instanceId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value.interaction.instanceId)
@@ -70,7 +72,19 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...(workflow ? { workflow } : {}),
     ...(lens ? { lens } : {}),
     ...(activity ? { activity } : {}),
+    ...(model ? { model } : {}),
   };
+}
+
+const MODEL_TEXT_MAX = 80;
+
+export function parseHeartbeatModel(value: unknown): HeartbeatModel | undefined {
+  if (!isObject(value)) return undefined;
+  const provider = actionText(value.provider, MODEL_TEXT_MAX);
+  const id = actionText(value.id, MODEL_TEXT_MAX);
+  if (!provider || !id) return undefined;
+  const thinking = actionText(value.thinking, MODEL_TEXT_MAX);
+  return { provider, id, ...(thinking ? { thinking } : {}) };
 }
 
 export const ACTIVITY_RECENT_MAX = 6;

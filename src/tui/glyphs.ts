@@ -34,6 +34,11 @@ export const ascii: GlyphSet = {
 
 export const glyphs: GlyphSet = process.env.PI_AGENT_HUB_GLYPHS === "ascii" ? ascii : unicode;
 
+/** Nerd Font vendor icons for the model badge, enabled by `PI_AGENT_HUB_GLYPHS=nerd`; other sets show text only. */
+export const nerdModelIcons = { anthropic: "\u{EC82}", openai: "\u{EC81}", google: "\u{F02AD}", other: "\u{EC20}" } as const;
+export type ModelIcons = typeof nerdModelIcons;
+export const modelIcons: ModelIcons | undefined = process.env.PI_AGENT_HUB_GLYPHS === "nerd" ? nerdModelIcons : undefined;
+
 /** Core lifecycle markers are stable data; only the TUI projection changes glyphs. */
 export function worktreeGlyph(marker: string | undefined): string | undefined {
   const key = (["worktree", "worktreeMerge", "worktreeCheck"] as const)

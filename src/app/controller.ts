@@ -37,7 +37,7 @@ export class SessionsController {
   private interactions = new Map<string, RuntimeSession["interaction"]>();
   private workflowModes = new Map<string, WorkflowModeDisplay>();
   /** Live-only detail from fresh heartbeats: recent tool calls. */
-  private liveDetails = new Map<string, { activity?: RuntimeSession["activity"] }>();
+  private liveDetails = new Map<string, Pick<RuntimeSession, "activity" | "model">>();
   private statusEvidence = new Map<string, { fingerprint: string; evidence: RuntimeStatusEvidence }>();
   private selectedId: string | undefined;
   private explicitSelection = false;
@@ -123,7 +123,7 @@ export class SessionsController {
         if (activeMode) this.workflowModes.set(id, activeMode);
         else this.workflowModes.delete(id);
         const fresh = observation.presence === "present" && isFreshHeartbeat(observation.heartbeat, now) ? observation.heartbeat : undefined;
-        if (fresh?.activity) this.liveDetails.set(id, { activity: fresh.activity });
+        if (fresh?.activity || fresh?.model) this.liveDetails.set(id, { ...(fresh.activity ? { activity: fresh.activity } : {}), ...(fresh.model ? { model: fresh.model } : {}) });
         else this.liveDetails.delete(id);
       } else if (!latest || latest.tmuxSession !== observation.tmuxSession) {
         this.sessionContexts.delete(id);
@@ -375,8 +375,8 @@ export class SessionsController {
       const workflow = session.workflow && activeMode ? { ...session.workflow, activeMode } : session.workflow;
       const evidence = this.statusEvidence.get(session.id);
       const statusEvidence = evidence?.fingerprint === statusEvidenceFingerprint(session) ? evidence.evidence : undefined;
-      return interaction || context || workflow !== session.workflow || statusEvidence || live?.activity
-        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), workflow, ...(live?.activity ? { activity: live.activity } : {}), ...(statusEvidence ? { statusEvidence } : {}) }
+      return interaction || context || workflow !== session.workflow || statusEvidence || live
+        ? { ...session, ...(interaction ? { interaction } : {}), ...(context ? { context } : {}), workflow, ...live, ...(statusEvidence ? { statusEvidence } : {}) }
         : session;
     });
   }
