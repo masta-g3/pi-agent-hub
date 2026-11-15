@@ -186,6 +186,8 @@ export interface RenderCardPanel {
   body: (string | { value: string; cursor: number })[];
   /** Body-row continuation indentation, applied by the shared panel wrapper. */
   hangingIndents?: number[];
+  /** Body rows cut to the panel width instead of wrapping, such as one-line skill completions. */
+  clipRows?: number[];
   /** Logical option rows whose complete wrapped extent holds the cursor. */
   focusRows?: number[];
   /** First body row of the question or reply itself; rows from here wrap at the reading measure. */

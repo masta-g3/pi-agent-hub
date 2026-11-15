@@ -8,6 +8,7 @@ Use this section while developing. Move entries into a versioned section before 
 
 ### Added
 
+- Reply with skills: `/` in Reply completes the agent's loaded skills and sends Pi's `/skill:<name>`, including Steer and Queue while busy. Workflow steps appear as chips with the next step picked, and `>` sends the next step's skill from the card.
 - Add optional header quota bars and `u` Usage with Cost, Tokens, and Limits, provider charts, model/provider/project breakdowns, and pace markers. Producers publish a versioned JSON snapshot; Hub reads no conversations, credentials, or quota endpoints for usage analytics. API-equivalent cost estimates are labeled separately from recorded cost.
 - Add an attention-first Status view, repository grouping with `v`, and a read-only workflow board with `S`.
 - Add selected-session task context and actions, live status evidence with `i`, and `pi-hub explain`.

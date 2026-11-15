@@ -1881,7 +1881,7 @@ test("repo and session titles keep primary text styling with and without workflo
 
 test("worktree lifecycle markers keep one fixed-width title token and show producer once", () => {
   const states = [
-    ["active", "⎇"], ["awaiting-merge", "⎇…"], ["cleanup-pending", "⎇!"], ["check-needed", "⎇!"], ["cleaned", "⎇✓"],
+    ["active", "⎇"], ["awaiting-merge", "⇡"], ["cleanup-pending", "⚠"], ["check-needed", "⚠"], ["cleaned", ""],
   ] as const;
   const titleColumns: number[] = [];
   for (const [state, marker] of states) {
@@ -1890,25 +1890,24 @@ test("worktree lifecycle markers keep one fixed-width title token and show produ
       worktreeLifecycle: { version: 1 as const, recordId: "r", producer: "other", revision: 1, updatedAt: 1, repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary" as const, state, ...(state === "cleaned" ? { verifiedAt: 1 } : {}) }] },
     };
     const rendered = stripAnsi(renderSessions(workspaceModel({ sessions: [item], selectedId: item.id, width: 120 })).lines.join("\n"));
-    assert.ok(rendered.includes(marker), `${state} should render ${marker}`);
-    const titleLine = rendered.split("\n").find((line) => line.includes(marker) && line.includes(state));
+    const titleLine = rendered.split("\n").find((line) => line.includes(state));
     assert.ok(titleLine);
+    if (marker) assert.ok(titleLine.includes(`${state} ${marker}`), `${state} should render ${marker}`);
+    else assert.ok(!/[⎇⇡⚠]/u.test(titleLine), `${state} should render no marker`);
     titleColumns.push(titleLine.indexOf(state));
     assert.equal(rendered.split("Worktree owner: other").length - 1, 1);
   }
   assert.equal(new Set(titleColumns).size, 1);
 });
 
-test("verified cleaned worktree markers are muted", () => {
-  const theme = { ...darkTheme, muted: "#010203", success: "#040506" };
-  const item = {
-    ...session("cleaned", "default", "idle", "archived-worktree"),
-    worktreeLifecycle: { version: 1 as const, recordId: "r", producer: "rules", revision: 1, updatedAt: 1, repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary" as const, state: "cleaned" as const, outcome: "merged" as const, verifiedAt: 1 }] },
-  };
-  const rendered = renderSessions(buildRenderModel({ sessions: [item], selectedSection: "quiet", width: 120 }), theme).lines.join("\n");
-
-  assert.ok(rendered.includes(styleToken(theme, "muted", "⎇✓")));
-  assert.ok(!rendered.includes(styleToken(theme, "success", "⎇✓")));
+test("only the cleanup-check marker takes the warning tone", () => {
+  const theme = { ...darkTheme, muted: "#010203", warning: "#040506" };
+  const lifecycle = (state: "awaiting-merge" | "check-needed") => ({ version: 1 as const, recordId: "r", producer: "rules", revision: 1, updatedAt: 1, repositories: [{ sourcePath: "/src", worktreePath: "/work", branch: "b", role: "primary" as const, state }] });
+  const merge = renderSessions(buildRenderModel({ sessions: [{ ...session("m", "default", "idle", "merge"), worktreeLifecycle: lifecycle("awaiting-merge") }], selectedSection: "quiet", width: 120 }), theme).lines.join("\n");
+  const check = renderSessions(buildRenderModel({ sessions: [{ ...session("c", "default", "idle", "check"), worktreeLifecycle: lifecycle("check-needed") }], selectedSection: "quiet", width: 120 }), theme).lines.join("\n");
+  assert.ok(merge.includes(styleToken(theme, "muted", "⇡")));
+  assert.ok(!merge.includes(styleToken(theme, "warning", "⇡")));
+  assert.ok(check.includes(styleToken(theme, "warning", "⚠")));
 });
 
 test("multi-repo pinned sessions keep repo and worktree row identity", () => {

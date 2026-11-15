@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { EventEmitter, once } from "node:events";
 import { startSessionInteraction, type InteractionAdapter } from "../src/extension/session-interaction.js";
-import { requestSessionInteraction, interactionSocketPath, parseInteractionRequest, parsePendingQuestions, INTERACTION_BYTE_CAP, type InteractionRequest, type SessionInteractionState } from "../src/core/session-interaction.js";
+import { requestSessionInteraction, interactionSocketPath, parseInteractionRequest, parsePendingQuestions, INTERACTION_BYTE_CAP, SKILL_LIST_MAX, SKILL_DESCRIPTION_CHARS, type InteractionRequest, type SessionInteractionState } from "../src/core/session-interaction.js";
 
 test("bridge binds identities, pages branches, and guards/replays configured dispatch", async () => {
   const dir = await mkdtemp("/tmp/hc13.");
@@ -14,7 +14,7 @@ test("bridge binds identities, pages branches, and guards/replays configured dis
   const adapter: InteractionAdapter = { managedId: "managed", piSessionId: "pi", env,
     events: { on: (name, fn) => { events.on(name, fn); return () => { events.off(name, fn); }; }, emit: (name, value) => { events.emit(name, value); } },
     getPiSessionId: () => "pi", getBranch: () => [], isIdle: () => true, hasPendingMessages: () => false,
-    getEditorText: () => draft, uiPromptOpen: () => false,
+    getEditorText: () => draft, uiPromptOpen: () => false, getCommands: () => [],
     sendUserMessage: (text, options) => { assert.equal(text, "/skill:review"); assert.equal(options.expandPromptTemplates, true); sends++; },
   };
   const server = await startSessionInteraction(adapter);
@@ -48,7 +48,7 @@ async function fixture(overrides: Partial<import("../src/extension/session-inter
     managedId: "managed", piSessionId: "pi", env,
     events: { on(name, fn) { bus.on(name, fn); return () => { bus.off(name, fn); }; }, emit(name, data) { bus.emit(name, data); } },
     getPiSessionId: () => "pi", getBranch: () => [], isIdle: () => true, hasPendingMessages: () => false,
-    getEditorText: () => "", uiPromptOpen: () => false, sendUserMessage() { throw new Error("unexpected send"); }, ...overrides,
+    getEditorText: () => "", uiPromptOpen: () => false, getCommands: () => [], sendUserMessage() { throw new Error("unexpected send"); }, ...overrides,
   };
   const server = await startSessionInteraction(adapter);
   return { dir, env, bus, server, adapter,
@@ -361,5 +361,54 @@ test("lost producer receipt reports uncertainty and never retries a write", asyn
     await assert.rejects(f.request({ kind: "submit-answer", toolCallId: "call", answers: [{ questionIndex: 0, kind: "option", optionIndex: 0 }] }), /Delivery not confirmed; check Pi before retrying/);
     assert.equal(submits, 1);
     assert.equal((await f.request({ kind: "state" }) as SessionInteractionState).pending.length, 1);
+  } finally { await f.close(); }
+});
+
+const skill = (name: string, description?: string) => ({ name: `skill:${name}`, source: "skill", ...(description ? { description } : {}) });
+
+test("state lists the session's loaded skills, minus ones an extension command shadows, within the caps", async () => {
+  const many = Array.from({ length: 60 }, (_, i) => skill(`s${String(i).padStart(2, "0")}`, "d".repeat(400)));
+  const f = await fixture({ getCommands: () => [
+    { name: "reload-runtime", source: "extension" }, { name: "skill:shadow", source: "extension" }, skill("shadow", "hidden"),
+    { name: "template", source: "prompt" }, skill("review", "Review finished work."), ...many,
+  ] });
+  try {
+    const state = await f.request({ kind: "state" }) as SessionInteractionState;
+    assert.deepEqual(state.skills?.slice(0, 2), [{ name: "review", description: "Review finished work." }, { name: "s00", description: "d".repeat(SKILL_DESCRIPTION_CHARS) }]);
+    assert.equal(state.skills?.length, SKILL_LIST_MAX);
+    assert.ok(!state.skills?.some((entry) => entry.name === "shadow"));
+  } finally { await f.close(); }
+});
+
+test("a near-cap questionnaire drops skills instead of failing the state reply", async () => {
+  const questions = Array.from({ length: 4 }, (_, i) => ({ question: `Question ${i} ` + "q".repeat(63_000), header: `Tab ${i}`, options: [{ label: "A", description: "first" }, { label: "B", description: "second" }] }));
+  const f = await fixture({ getCommands: () => Array.from({ length: 48 }, (_, i) => skill(`skill-${i}`, "x".repeat(160))) });
+  try {
+    f.bus.emit("rpiv:ask-user:prompt", { toolCallId: "call", questions });
+    const state = await f.request({ kind: "state" }, "x".repeat(128)) as SessionInteractionState;
+    assert.equal(state.pending[0]?.params.questions.length, 4);
+    assert.ok((state.skills?.length ?? 0) < 48);
+    assert.ok(Buffer.byteLength(JSON.stringify({ version: 1, id: "x".repeat(128), ...f.server.target, ok: true, result: state })) + 1 <= INTERACTION_BYTE_CAP);
+  } finally { await f.close(); }
+});
+
+test("busy messages expand only a loaded, unshadowed /skill: command", async () => {
+  const sent: unknown[] = [];
+  let commands = [skill("review"), skill("shadow"), { name: "skill:shadow", source: "extension" }];
+  const f = await fixture({ isIdle: () => false, getCommands: () => commands, sendUserMessage: (text, options) => { sent.push({ text, options }); } });
+  try {
+    for (const text of ["/skill:review focus on tests", "/skill:unknown x", "/skill:shadow x", "/template", "/skill:review"]) {
+      await f.request({ kind: "send-message", text, delivery: text === "/skill:review" ? "followUp" : "steer" });
+    }
+    commands = [];
+    await f.request({ kind: "send-message", text: "/skill:review later", delivery: "steer" });
+    assert.deepEqual(sent, [
+      { text: "/skill:review focus on tests", options: { deliverAs: "steer", expandPromptTemplates: true } },
+      { text: "/skill:unknown x", options: { deliverAs: "steer", expandPromptTemplates: false } },
+      { text: "/skill:shadow x", options: { deliverAs: "steer", expandPromptTemplates: false } },
+      { text: "/template", options: { deliverAs: "steer", expandPromptTemplates: false } },
+      { text: "/skill:review", options: { deliverAs: "followUp", expandPromptTemplates: true } },
+      { text: "/skill:review later", options: { deliverAs: "steer", expandPromptTemplates: false } },
+    ]);
   } finally { await f.close(); }
 });

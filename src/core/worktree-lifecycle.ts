@@ -1,7 +1,8 @@
 import { sessionWorktrees } from "./worktree.js";
 import type { ManagedSession, WorktreeLifecycleRepository, WorktreeLifecycleSnapshot, WorktreeLifecycleState } from "./types.js";
 
-export type WorktreeLifecycleMarker = "⎇" | "⎇…" | "⎇!" | "⎇✓";
+/** One cell: in a worktree, ready to merge, or cleanup needs a check. Verified cleanup shows nothing. */
+export type WorktreeLifecycleMarker = "⎇" | "⇡" | "⚠";
 
 export function effectiveWorktreeLifecycle(session: ManagedSession): WorktreeLifecycleSnapshot | undefined {
   const owned = session.worktreeOwnedByHub === true ? sessionWorktrees(session) : [];
@@ -46,10 +47,10 @@ export function aggregateWorktreeState(snapshot: WorktreeLifecycleSnapshot | und
 export function worktreeMarker(session: ManagedSession): WorktreeLifecycleMarker | undefined {
   switch (aggregateWorktreeState(effectiveWorktreeLifecycle(session))) {
     case "active": return "⎇";
-    case "awaiting-merge": return "⎇…";
+    case "awaiting-merge": return "⇡";
     case "cleanup-pending":
-    case "check-needed": return "⎇!";
-    case "cleaned": return "⎇✓";
+    case "check-needed": return "⚠";
+    case "cleaned": return undefined;
     default: return session.worktreeBranch || session.worktreePath ? "⎇" : undefined;
   }
 }

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reply with skills</title>
+<style>
+:root {
+  --page: #eceae4; --ink: #1b1d21; --soft: #5f636b; --line: #d2d0c8; --raise: #f8f7f3; --lens: #3d6fd6;
+  --t-bg: #1e1e2e; --t-sel: #2a2b3d; --t-lcd: #181825; --t-band: #313244; --t-key: #45475a;
+  --t-text: #cdd6f4; --t-muted: #9398b0; --t-accent: #89b4fa; --t-warn: #f9e2af; --t-ok: #a6e3a1; --t-mauve: #cba6f7;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root { --page: #101114; --ink: #e6e6e2; --soft: #a0a4ab; --line: #2b2d33; --raise: #18191d; --lens: #7aa2f2; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--sans); }
+:focus-visible { outline: 2px solid var(--lens); outline-offset: 2px; }
+header { display: flex; align-items: center; gap: 18px; padding: 14px 28px; flex-wrap: wrap; }
+header h1 { font: 600 16px var(--sans); margin: 0 10px 0 0; }
+.grp { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+.grp button { font: 500 13px var(--sans); color: var(--soft); background: none; border: 0; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+.grp button[aria-selected="true"] { background: var(--ink); color: var(--raise); }
+main { padding: 4px 28px 40px; display: grid; grid-template-columns: minmax(0, 960px) 300px; gap: 28px; align-items: start; }
+@media (max-width: 1200px) { main { grid-template-columns: minmax(0, 1fr); } }
+.note { font-size: 13.5px; color: var(--soft); }
+.note h2 { font: 600 14px var(--sans); color: var(--ink); margin: 2px 0 6px; }
+.note p { margin: 0 0 12px; }
+.note kbd, .note code { font: 12.5px var(--mono); background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); border-radius: 4px; padding: 0 4px; color: var(--ink); }
+.screen { background: var(--t-bg); color: var(--t-text); font: 13px/20px var(--mono); border-radius: 10px; box-shadow: 0 24px 50px -30px rgba(0,0,0,.6); overflow: hidden; }
+.band { background: var(--t-band); padding: 4px 14px; color: var(--t-muted); white-space: pre; overflow: hidden; }
+.band b { color: var(--t-text); }
+.panes { display: grid; grid-template-columns: 360px minmax(0, 1fr); min-height: 470px; }
+.roster { border-right: 1px solid var(--t-band); padding: 8px 0; }
+.ln { min-height: 20px; padding: 0 14px; white-space: pre; overflow: hidden; text-overflow: ellipsis; position: relative; }
+.ln.sel { background: var(--t-sel); }
+.ln.sel::before { content: "▌"; position: absolute; left: 0; color: var(--t-accent); }
+.m { color: var(--t-muted); } .a { color: var(--t-accent); } .w { color: var(--t-warn); } .ok { color: var(--t-ok); } .sk { color: var(--t-mauve); } .b { font-weight: 700; }
+.lab { display: inline-block; width: 8ch; color: var(--t-muted); }
+.card { padding: 8px 0; }
+.key { background: var(--t-key); color: var(--t-text); border-radius: 3px; padding: 0 5px; margin-right: 3px; }
+.box { margin: 6px 14px; border: 1px solid var(--t-key); border-radius: 4px; padding: 4px 8px; }
+.input { display: flex; gap: 0; align-items: center; }
+.input input { flex: 1; background: none; border: 0; color: var(--t-text); font: inherit; outline: none; padding: 0; caret-color: var(--t-accent); }
+.ghost { color: var(--t-muted); }
+.menu { margin: 0 14px; border: 1px solid var(--t-key); border-top: 0; border-radius: 0 0 4px 4px; }
+.menu .ln { cursor: pointer; padding-left: 10px; }
+.menu .ln.on { background: var(--t-sel); }
+.menu .ln.on::before { content: "▌"; position: absolute; left: 0; color: var(--t-mauve); }
+.chips { display: flex; gap: 8px; margin: 6px 14px; flex-wrap: wrap; }
+.chip { cursor: pointer; border: 1px solid var(--t-key); border-radius: 3px; padding: 0 8px; color: var(--t-text); background: none; font: inherit; }
+.chip.next { border-color: var(--t-mauve); }
+.chip:hover { background: var(--t-sel); }
+.sent { margin: 6px 14px; color: var(--t-ok); min-height: 20px; }
+/* library */
+.lib { padding: 10px 0; }
+.rail { display: flex; gap: 0; margin: 4px 14px 2px; flex-wrap: wrap; }
+.stop { cursor: pointer; padding: 0 10px; border: 1px solid var(--t-key); margin-right: -1px; background: none; color: var(--t-text); font: inherit; }
+.stop.on { background: var(--t-sel); border-color: var(--t-mauve); position: relative; z-index: 1; }
+.stop .n { color: var(--t-ok); }
+.libgrid { display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+.libgrid .roster .ln { cursor: pointer; }
+.hide { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Reply with skills</h1>
+  <div class="grp" role="tablist" aria-label="Screens">
+    <button role="tab" aria-selected="true" data-tab="reply">1 · Type a skill</button>
+    <button role="tab" aria-selected="false" data-tab="next">2 · Send the next step</button>
+    <button role="tab" aria-selected="false" data-tab="lib">3 · Skills library</button>
+  </div>
+</header>
+<main>
+  <div>
+    <!-- 1 reply -->
+    <section class="screen" data-screen="reply">
+      <div class="band"><b>pi-hub</b>  ACTIVE 3 · NEEDS YOU 1                                            </div>
+      <div class="panes">
+        <div class="roster">
+          <div class="ln m"> ── NEEDS YOU 1 ──────────────────────</div>
+          <div class="ln sel">  <span class="w">?</span> <span class="b">Subagent lens</span>  <span class="m">hub · RV 4m</span></div>
+          <div class="ln m"> ── ACTIVE 2 ─────────────────────────</div>
+          <div class="ln">  <span class="ok">●</span> <span class="b">Run sfcity</span>  <span class="m">atlas · 2m</span></div>
+          <div class="ln">  <span class="ok">●</span> <span class="b">Tile CDN</span>  <span class="m">atlas · EX 1m</span></div>
+        </div>
+        <div class="card">
+          <div class="ln"><span class="b">Subagent lens</span>  <span class="m">hub</span></div>
+          <div class="ln"><span class="lab">WHERE</span>PL<span class="ok">✓</span> EX<span class="ok">✓</span> RV<span class="ok">✓</span> RF<span class="m">·</span> CM<span class="m">·</span></div>
+          <div class="ln"><span class="lab">SAID</span>Review complete. READY FOR REFLECT</div>
+          <div class="ln"> </div>
+          <div class="ln m">REPLY · Subagent lens · Send</div>
+          <div class="box input"><input id="reply" value="/" aria-label="Reply" autocomplete="off" spellcheck="false"></div>
+          <div class="menu" id="menu"></div>
+          <div class="ln m" id="hint">↑↓ choose · Tab complete · Enter send · Esc keep draft</div>
+          <div class="sent" id="sent1"></div>
+        </div>
+      </div>
+      <div class="band"><span class="key">Enter</span>Send  <span class="key">Tab</span>Complete  <span class="key">Esc</span>Keep draft  <span class="key">^U</span>Clear</div>
+    </section>
+
+    <!-- 2 next -->
+    <section class="screen hide" data-screen="next">
+      <div class="band"><b>pi-hub</b>  ACTIVE 3 · NEEDS YOU 1                                            </div>
+      <div class="panes">
+        <div class="roster">
+          <div class="ln m"> ── NEEDS YOU 1 ──────────────────────</div>
+          <div class="ln sel">  <span class="w">?</span> <span class="b">Subagent lens</span>  <span class="m">hub · RV 4m</span></div>
+          <div class="ln m"> ── ACTIVE 2 ─────────────────────────</div>
+          <div class="ln">  <span class="ok">●</span> <span class="b">Run sfcity</span>  <span class="m">atlas · 2m</span></div>
+          <div class="ln">  <span class="ok">●</span> <span class="b">Tile CDN</span>  <span class="m">atlas · EX 1m</span></div>
+        </div>
+        <div class="card">
+          <div class="ln"><span class="b">Subagent lens</span>  <span class="m">hub</span></div>
+          <div class="ln"><span class="lab">WHERE</span>PL<span class="ok">✓</span> EX<span class="ok">✓</span> RV<span class="ok">✓</span> RF<span class="m">·</span> CM<span class="m">·</span></div>
+          <div class="ln"><span class="lab">SAID</span>Review complete. READY FOR REFLECT</div>
+          <div class="ln"> </div>
+          <div class="ln m">REPLY · Subagent lens · Send</div>
+          <div class="box input"><input id="reply2" placeholder="message, or / for a skill" aria-label="Reply" autocomplete="off" spellcheck="false"></div>
+          <div class="chips" id="chips"></div>
+          <div class="sent" id="sent2"></div>
+          <div class="ln"> </div>
+          <div class="ln m">Card actions (no Reply needed):</div>
+          <div class="ln"><span class="key">n</span><span class="sk">Next: /reflect</span>  <span class="key">p</span>Reply  <span class="key">:</span>All actions</div>
+        </div>
+      </div>
+      <div class="band"><span class="key">n</span>Next step  <span class="key">p</span>Reply  <span class="key">L</span>Skills  <span class="key">?</span>Help</div>
+    </section>
+
+    <!-- 3 library -->
+    <section class="screen hide" data-screen="lib">
+      <div class="band"><b>pi-hub</b>  SKILLS · hub · 19 loaded                                           </div>
+      <div class="lib">
+        <div class="ln m">WORKFLOW  click a step · numbers = sessions there now</div>
+        <div class="rail" id="rail"></div>
+        <div class="ln"> </div>
+        <div class="libgrid">
+          <div class="roster" id="libList"></div>
+          <div class="card" id="libCard"></div>
+        </div>
+      </div>
+      <div class="band"><span class="key">↑↓</span>Choose  <span class="key">/</span>Filter  <span class="key">Enter</span>Reply with skill  <span class="key">o</span>Open SKILL.md  <span class="key">Esc</span>Back</div>
+    </section>
+  </div>
+
+  <aside class="note">
+    <div data-note="reply">
+      <h2>Type <code>/</code> in Reply</h2>
+      <p>The list holds only the skills that this agent has loaded, so every name works. Type to filter, then Tab to complete.</p>
+      <p>Hub sends <code>/skill:review focus on tests</code>. Pi loads the skill and adds your words to it.</p>
+      <p>You type the short name <code>/review</code>. Pi's own form is <code>/skill:review</code>, so Hub adds the <code>skill:</code> part.</p>
+      <p>While the agent works, Steer and Queue send the skill too, but only skills. Other <code>/commands</code> stay plain text, as now.</p>
+    </div>
+    <div data-note="next" class="hide">
+      <h2>Send the next step</h2>
+      <p>Rules names each workflow step after its skill. When a step is complete, the card offers the next one.</p>
+      <p><kbd>n</kbd> sends <code>/skill:reflect</code> straight away. The chips in Reply let you add words first.</p>
+      <p>Your most used skills in this repo appear as chips too. Hub counts them from its own sends only, and never reads conversations.</p>
+    </div>
+    <div data-note="lib" class="hide">
+      <h2>Skills library</h2>
+      <p>One place where the whole team sees what each skill is for, what it asks for, and where it comes from.</p>
+      <p>The rail is the workflow from the agent's own steps, with how many sessions sit at each step now. The other skills are listed below by source.</p>
+      <p>Enter opens Reply with that skill for the selected session.</p>
+    </div>
+  </aside>
+</main>
+<script>
+const skills = [
+  ["plan-md", "Create and maintain a Markdown implementation plan for a feature or task.", "[request]", "workflow", "user"],
+  ["execute", "Execute on a plan.", "", "workflow", "user"],
+  ["review", "Review finished work before reflection and commit.", "", "workflow", "user"],
+  ["reflect", "Reflect on reviewed work and update durable docs or agent guidance before commit.", "", "workflow", "user"],
+  ["commit", "Commit files from session and archive/clean-up associated files.", "", "workflow", "user"],
+  ["next-feature", "Select the next feature to implement from agent-work/features.yaml.", "", "user", "user"],
+  ["ticket-init", "Add one or more tickets to agent-work/features.yaml.", "[ticket description(s)]", "user", "user"],
+  ["epic-init", "Decompose a complex feature into trackable sub-features.", "[epic description]", "user", "user"],
+  ["workflow-orchestrator", "Ticket workflow automation using persistent subagents, in dependency order.", "", "user", "user · explicit only"],
+  ["docs-health", "Audit durable docs for cleanup and corrections.", "", "user", "user"],
+  ["test-coverage", "Assess project test coverage, propose critical tests.", "", "user", "user"],
+  ["write-pr", "Use when writing or editing a pull request title or body.", "", "user", "user"],
+  ["unslop", "Apply after drafting long-form documents or PR descriptions.", "", "user", "user"],
+  ["explain-html", "Create a self-contained HTML visual explainer.", "", "user", "user"],
+  ["system-atlas", "Build an explorable isometric atlas of a system's architecture.", "", "project", "project · .pi/skills"],
+  ["playwright-browser", "Browser automation with Playwright CLI.", "", "package", "package · pi-playwright"],
+];
+const counts = { "plan-md": 1, execute: 2, review: 1, reflect: 0, commit: 0 };
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+// tabs
+document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("click", () => {
+  document.querySelectorAll("[data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  document.querySelectorAll("[data-screen]").forEach((s) => s.classList.toggle("hide", s.dataset.screen !== tab.dataset.tab));
+  document.querySelectorAll("[data-note]").forEach((s) => s.classList.toggle("hide", s.dataset.note !== tab.dataset.tab));
+}));
+
+// 1 autocomplete
+const reply = document.getElementById("reply"), menu = document.getElementById("menu"), sent1 = document.getElementById("sent1");
+let pick = 0;
+function matches() {
+  const v = reply.value;
+  if (!v.startsWith("/") || v.includes(" ")) return [];
+  const q = v.slice(1).replace(/^skill:/, "").toLowerCase();
+  return skills.filter(([n]) => n.includes(q)).sort((a, b) => a[0].indexOf(q) - b[0].indexOf(q)).slice(0, 6);
+}
+function draw() {
+  const list = matches(); pick = Math.min(pick, Math.max(0, list.length - 1));
+  menu.classList.toggle("hide", !list.length);
+  menu.innerHTML = list.map(([n, d, h, , src], i) => `<div class="ln${i === pick ? " on" : ""}" data-i="${i}"><span class="sk">/${n}</span>${h ? ` <span class="m">${esc(h)}</span>` : ""}  <span class="m">${esc(d.slice(0, 54))}${d.length > 54 ? "…" : ""}</span></div>`).join("");
+  menu.querySelectorAll("[data-i]").forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); pick = +el.dataset.i; complete(); }));
+}
+function complete() { const s = matches()[pick]; if (!s) return; reply.value = `/${s[0]} `; draw(); }
+function send(input, out) {
+  const v = input.value.trim(); if (!v) return;
+  const m = /^\/(?:skill:)?([\w-]+)(.*)$/.exec(v);
+  const known = m && skills.find(([n]) => n === m[1]);
+  out.innerHTML = known ? `Sent  <span class="sk">/skill:${m[1]}</span>${esc(m[2])}` : `Sent  ${esc(v)}`;
+  input.value = ""; if (input === reply) draw(); else drawChips();
+}
+reply.addEventListener("input", () => { pick = 0; sent1.textContent = ""; draw(); });
+reply.addEventListener("keydown", (e) => {
+  const n = matches().length;
+  if (e.key === "ArrowDown" && n) { pick = (pick + 1) % n; draw(); e.preventDefault(); }
+  else if (e.key === "ArrowUp" && n) { pick = (pick - 1 + n) % n; draw(); e.preventDefault(); }
+  else if (e.key === "Tab" && n) { complete(); e.preventDefault(); }
+  else if (e.key === "Enter") { if (n && !reply.value.includes(" ")) complete(); else send(reply, sent1); e.preventDefault(); }
+});
+draw();
+
+// 2 chips
+const reply2 = document.getElementById("reply2"), chips = document.getElementById("chips"), sent2 = document.getElementById("sent2");
+function drawChips() {
+  const items = [["reflect", true], ["review"], ["write-pr"], ["unslop"]];
+  chips.innerHTML = items.map(([n, next]) => `<button class="chip${next ? " next" : ""}" data-s="${n}">${next ? '<span class="sk">next</span> ' : ""}/${n}</button>`).join("");
+  chips.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => { reply2.value = `/${b.dataset.s} `; reply2.focus(); }));
+}
+reply2.addEventListener("keydown", (e) => { if (e.key === "Enter") { send(reply2, sent2); e.preventDefault(); } });
+drawChips();
+
+// 3 library
+const rail = document.getElementById("rail"), libList = document.getElementById("libList"), libCard = document.getElementById("libCard");
+let current = "review";
+function drawLib() {
+  rail.innerHTML = skills.filter((s) => s[3] === "workflow").map(([n], i, all) => `<button class="stop${n === current ? " on" : ""}" data-s="${n}">${n}${counts[n] ? ` <span class="n">${counts[n]}</span>` : ""}</button>${i < all.length - 1 ? '<span class="m" style="padding:0 2px">→</span>' : ""}`).join("");
+  const groups = [["user", "YOURS"], ["project", "THIS REPO"], ["package", "PACKAGES"]];
+  libList.innerHTML = groups.map(([g, label]) => `<div class="ln m"> ── ${label} ──</div>` + skills.filter((s) => s[3] === g).map(([n]) => `<div class="ln${n === current ? " sel" : ""}" data-s="${n}">  <span class="sk">/${n}</span></div>`).join("")).join("");
+  const [n, d, h, , src] = skills.find((s) => s[0] === current);
+  const at = counts[n] ? `${counts[n]} session${counts[n] > 1 ? "s" : ""} here now` : "";
+  libCard.innerHTML = `<div class="ln"><span class="sk b">/${n}</span>  <span class="m">${esc(src)}</span></div>
+    <div class="ln"><span class="lab">FOR</span>${esc(d)}</div>
+    ${h ? `<div class="ln"><span class="lab">ASKS</span>${esc(h)}</div>` : ""}
+    ${at ? `<div class="ln"><span class="lab">NOW</span><span class="ok">${at}</span></div>` : ""}
+    <div class="ln"><span class="lab">SENDS</span><span class="sk">/skill:${n}</span> <span class="m">&lt;your words&gt;</span></div>
+    <div class="ln"> </div>
+    <div class="ln"><span class="key">Enter</span>Reply to <span class="b">Subagent lens</span> with /${n}</div>`;
+  document.querySelectorAll("#rail [data-s], #libList [data-s]").forEach((el) => el.addEventListener("click", () => { current = el.dataset.s; drawLib(); }));
+}
+drawLib();
+</script>
+</body>
+</html>

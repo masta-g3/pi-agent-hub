@@ -36,7 +36,8 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Card answers | `Tab` answers supported questions without opening Pi. |
 | Conversation | `c` shows read-only completed messages and question/answer history below the fleet. |
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
-| Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. |
+| Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. `/` completes the agent's skills; workflow steps appear as chips. |
+| Next skill | `>` sends the next workflow step's skill once the current step is complete. |
 | Phone inbox | `pi-hub web` serves a page to answer, reply, and get notifications on a phone. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
@@ -69,6 +70,7 @@ Hub works without the optional integrations. See [Configuration](CONFIG.md#optio
 | `Tab` | Answer a supported pending question on the selected card |
 | `n` / `C` / `O` in answer focus | Edit this question's note / toggle Context / show Original; text editors keep literal keys |
 | `p` | Reply on the selected live parent's card |
+| `>` | Send the next workflow step's skill, such as `/skill:reflect` |
 | `c` | Show or hide Conversation below the fleet |
 | `?` | Show help and status legend |
 | `q` | Quit the dashboard |
@@ -155,7 +157,22 @@ Press `p` to edit a reply on the selected live parent's card. `Enter` sends; `Es
 
 Idle Pi offers **Send**. Busy Pi starts with **Steer now**, which delivers before its next model call after current tool calls finish. Press `Tab` to focus delivery and `←` / `→` to choose **Queue for later**, which delivers after the run. Press `Tab` back to the text and `Enter` to submit. If idle Pi becomes busy before submission, Hub rejects the send without losing text and exposes the busy choices.
 
-Replies use Pi's exact-session bridge without changing its editor draft. Idle Send expands commands and prompt templates; busy Steer/Queue send literal text. Card feedback uses **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown**. Accepted means dispatch, not task completion. Unknown delivery never retries automatically; check Pi before retrying. Use `]` to move on.
+### Skills in Reply
+
+Type `/` to list the skills loaded in that Pi session, with their descriptions. Keep typing to filter, use `↑` / `↓` to choose, and `Tab` or `Enter` to complete the name. Type `/review` or `/skill:review`; Hub sends Pi's `/skill:review` with any words after it. A skill that an extension command of the same name hides is not listed.
+
+```text
+REPLY · Subagent lens · Send
+█
+plan-md execute review [reflect] commit
+ Enter Send /reflect   ←/→ Step   Esc Keep draft
+```
+
+When the session reports workflow steps that are all loaded skills, an empty Reply shows them as chips. The next step is picked: the one after a completed step, or the current step. `←` / `→` move the pick, and `Enter` sends it. Typing hides the chips. With chips, a ready handoff's draft starts empty; its recommendation stays above the editor. While **Delivery** has focus, `←` / `→` still choose Steer or Queue.
+
+`>` sends the next step's skill without opening Reply. It works only when the current step is complete, the next step is a loaded skill, and Pi is idle. Otherwise the card says why. The card shows it as `> Next: /reflect`.
+
+Replies use Pi's exact-session bridge without changing its editor draft. Idle Send expands commands and prompt templates; busy Steer/Queue send literal text, except a loaded skill, which still runs as that skill in the chosen queue. Card feedback uses **Submitting**, **Accepted**, **Rejected**, or **Delivery unknown**. Accepted means dispatch, not task completion. Unknown delivery never retries automatically; check Pi before retrying. Use `]` to move on.
 
 After updating Hub, reopen the dashboard and run `/reload` in existing Pi sessions once idle to enable the bridge. New sessions load it automatically.
 
@@ -218,7 +235,7 @@ Click a group of dots in the Status header's fleet meter to select that tier's f
 
 A waiting session alone does not enter `NEEDS YOU`. A running child can put its tree in `ACTIVE`, but a child's request or error does not become the parent's state. Hidden child requests show as `?N` on the parent and a child-request count on the section. Expand the tree to inspect them.
 
-`NEEDS YOU` and `NEW` stay expanded. Other Status sections can fold, and Hub saves those preferences. A folded `ACTIVE` or `QUIET` header shows `◐ N unread` when it hides parents with an unread finished reply (the yellow `◐`). Filters reveal matching rows without changing their classification. The fleet is a roster: each agent takes a title line and at most one status line. The title line holds the title, its markers, `↳N`, `⧉N` for multiple repos and the muted group, then at the right the workflow step (`EX`, `RV✓` when the step is complete, or a mode such as `FOC`) and the age. The status line says the one thing that matters most right now, in this order: a request (`ASK`, `RDY` or `BLK`), `ERR` with the error, `DOING` with what the workflow step is doing, `NOW` with the tool call in progress such as `NOW    bash   npm test`, `SUB` for a collapsed tree's running subagent, `DONE` with the agent's last progress note, `SAID` with a handoff you already read, or `TASK` with its ticket. Short windows drop quiet notes before live work, and live work before requests and errors. When the workflow reports progress, such as tasks done during Execute, the line ends with a meter such as `▰▰▰▱▱▱▱▱ 6/15`. Selecting an agent never changes its rows. In the pinned sidebar, parents keep a title line and a `[group]` metadata line. A parent you have not opened yet shows a `new` badge after its title until your first open, pin focus, answer, or send; Status omits it under the `NEW` heading, and Repo, board, and pinned views keep it. The worktree marker follows the title, before any `new` badge: `⎇` is active, `⎇…` awaits merge, `⎇!` needs cleanup or verification, and `⎇✓` means directory cleanup was verified. When worktree lifecycle evidence is present, selected-session controls show owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleaned marker does not by itself mean changes were merged. `↳N` counts running/starting descendants. Backlog and Archived rows stay single-line.
+`NEEDS YOU` and `NEW` stay expanded. Other Status sections can fold, and Hub saves those preferences. A folded `ACTIVE` or `QUIET` header shows `◐ N unread` when it hides parents with an unread finished reply (the yellow `◐`). Filters reveal matching rows without changing their classification. The fleet is a roster: each agent takes a title line and at most one status line. The title line holds the title, its markers, `↳N`, `⧉N` for multiple repos and the muted group, then at the right the workflow step (`EX`, `RV✓` when the step is complete, or a mode such as `FOC`) and the age. The status line says the one thing that matters most right now, in this order: a request (`ASK`, `RDY` or `BLK`), `ERR` with the error, `DOING` with what the workflow step is doing, `NOW` with the tool call in progress such as `NOW    bash   npm test`, `SUB` for a collapsed tree's running subagent, `DONE` with the agent's last progress note, `SAID` with a handoff you already read, or `TASK` with its ticket. Short windows drop quiet notes before live work, and live work before requests and errors. When the workflow reports progress, such as tasks done during Execute, the line ends with a meter such as `▰▰▰▱▱▱▱▱ 6/15`. Selecting an agent never changes its rows. In the pinned sidebar, parents keep a title line and a `[group]` metadata line. A parent you have not opened yet shows a `new` badge after its title until your first open, pin focus, answer, or send; Status omits it under the `NEW` heading, and Repo, board, and pinned views keep it. The worktree marker is one cell after the title, before any `new` badge: `⎇` means the session works in a worktree, `⇡` means its branch is ready to merge (`w` finishes it), and a warning-colored `⚠` means cleanup is pending or unverified. Verified cleanup shows no marker. The selected card repeats the marker with a word, such as `⇡ merge feat/x`. When worktree lifecycle evidence is present, selected-session controls show owner, branch, source and worktree paths, per-repository state, outcome, and verification. A cleared marker does not by itself mean changes were merged. `↳N` counts running/starting descendants. Backlog and Archived rows stay single-line.
 
 ### Details
 
