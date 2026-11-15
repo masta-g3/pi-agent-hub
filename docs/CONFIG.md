@@ -182,7 +182,9 @@ The optional producer-neutral `worktree` field is independently validated. It co
 
 Hub retains only this normalized lifecycle snapshot, not the full generic context. It accepts newer revisions only from the matching Pi conversation and rejects the outgoing identity during restart-new. Hub-owned worktree mappings remain authoritative: producer metadata cannot claim ownership or enable Finish/Discard.
 
-The optional `progress` field is a producer's plain-words note: `done` (what the agent achieved) and `next` (what follows), each up to 120 characters, plus a finite `updatedAt`. Hub shows `done` on a quiet roster row and both on the selected card. An over-long field is dropped on its own, and a malformed note never hides the ticket or request.
+The optional `progress` field is a producer's plain-words note: `goal` (the session's task, up to 80 characters), `done` (what the agent achieved) and `next` (what follows), each up to 120 characters, plus a finite `updatedAt`. An over-long field is dropped on its own, and a malformed note never hides the ticket or request.
+
+The selected card shows GOAL before DOING when no ticket subtitle or description is present; an open Answer/Reply panel hides GOAL. A nonempty lens `doing` replaces DONE/NEXT. Without it, the card can show those progress notes. A quiet roster row prefers DONE and uses GOAL as its final TASK fallback when no ticket copy is present.
 
 Attention can include an optional nonblank `requestId` of at most 64 characters. The producer owns this identity: attention remains visible without it, but only an unseen session/request ID pair is eligible for transient delivery. Unknown fields are ignored. Hub copies the latest valid snapshot into its heartbeat. It does not read producer files or persist context in `registry.json`.
 
@@ -276,7 +278,7 @@ The producer chooses the list wording; Hub draws any label the same way. Rules, 
 
 Unlike the mode, the lens is work state: `registry.json` keeps it with the base workflow, so a stale or stopped session keeps its card. Without a lens the card shows DONE/NEXT and `WHERE` with the rail only.
 
-An entry without `activeStep` but with a valid `lens` is a lens-only snapshot, such as an orchestrator's run: Hub carries it as the heartbeat's and the session's top-level `lens`, beside an absent workflow, and keeps it in `registry.json` the same way. The card shows its DOING, a `WHERE` line without a rail (the count names its `unit`, such as `2/6 committed`, then the summary), and its list. Hub invents no step position: the session has no rail, no workflow lane, and stays in `OTHER ACTIVE` on the board. Rules publishes this shape from `set_orchestration`.
+An entry without `activeStep` but with a valid `lens` is a lens-only snapshot, such as an orchestrator's run or an open session's tool stages: Hub carries it as the heartbeat's and the session's top-level `lens`, beside an absent workflow, and keeps it in `registry.json` the same way. The card shows its DOING, a `WHERE` line without a rail (stages, a count naming its `unit`, such as `2/6 committed`, then the summary), and its list, when supplied. Hub invents no step position: the session has no rail, no workflow lane, and stays in `OTHER ACTIVE` on the board. Rules publishes this shape from `set_orchestration` and open-session tool observations.
 
 Optional `currentStepComplete: true` marks the current workflow position complete. Earlier positions also show checks; later ones stay pending. These markers show position, not proof that each step ran. Completion does not change runtime status or move the session to another lane.
 

@@ -1,0 +1,21 @@
+{
+  "scenario": 6,
+  "model": "openai/gpt-6.1-sol",
+  "status": "complete",
+  "startedAt": "2026-11-14T22:52:14.597Z",
+  "turns": [
+    {
+      "startedAt": 1794696735010,
+      "endedAt": 1794696776707,
+      "aborted": false,
+      "note": true,
+      "metadataFailure": false
+    }
+  ],
+  "sessionFile": "session.jsonl",
+  "session": "5bf9f91855cec39e",
+  "progressEntries": 1,
+  "workflowEntries": 10,
+  "finishedAt": "2026-11-14T22:53:02.916Z",
+  "step": "commit"
+}

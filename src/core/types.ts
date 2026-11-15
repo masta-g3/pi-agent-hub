@@ -87,6 +87,7 @@ export interface SessionActivity {
 
 /** A producer's plain-words note on what the agent achieved and what comes next. */
 export interface SessionProgress {
+  goal?: string;
   done?: string;
   next?: string;
   updatedAt: number;

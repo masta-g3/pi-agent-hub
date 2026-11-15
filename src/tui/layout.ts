@@ -2298,8 +2298,9 @@ function whereLine(session: RenderSession, width: number, styles: LayoutStyles, 
   if (!(workflow && step) && !lens) return "";
   const mode = activeWorkflowMode(session);
   const progress = lensProgress(lens);
-  const stages = lens?.stages?.map(({ label, state }) =>
-    `${styles.muted(label)}${styles[state === "done" ? "success" : state === "active" ? "accent" : "dim"](state === "done" ? glyphs.ready : state === "active" ? glyphs.activeStep : glyphs.pendingStep)}`).join(" ") ?? "";
+  const stageParts = lens?.stages?.map(({ label, state }) =>
+    `${styles.muted(label)}${styles[state === "done" ? "success" : state === "active" ? "accent" : "dim"](state === "done" ? glyphs.ready : state === "active" ? glyphs.activeStep : glyphs.pendingStep)}`) ?? [];
+  const stages = stageParts.join(" ");
   // Without a rail the count names its unit, such as `2/6 committed`.
   const unit = !workflow && progress && lens?.progress?.unit ? ` ${lens.progress.unit}` : "";
   const count = progress ? styles.text(`${progress.completed}/${progress.total}${unit}`) : "";
@@ -2342,7 +2343,8 @@ function whereLine(session: RenderSession, width: number, styles: LayoutStyles, 
       if (value && displayWidth(value) <= room) return `${fieldLabel("WHERE", styles.muted)}${value}`;
     }
   }
-  return compact ? truncate(`${fieldLabel("WHERE", styles.muted)}${compact}`, width) : "";
+  const fallback = compact || (!workflow ? stageParts[lens?.stages?.findIndex(stage => stage.state === "active") ?? -1] : "");
+  return fallback ? truncate(`${fieldLabel("WHERE", styles.muted)}${fallback}`, width) : "";
 }
 
 const LENS_MARKS: Record<NonNullable<WorkflowLens["list"]>["items"][number]["state"], { glyph: string; tone: keyof Pick<LayoutStyles, "muted" | "accent" | "dim" | "warning"> }> = {
@@ -2436,7 +2438,8 @@ function rosterLines(session: RenderSession, width: number, styles: LayoutStyles
   const doing = lensOf(session)?.doing;
   const child = session.boardExpanded ? undefined : session.runningSubagent;
   // The title row names the task at 160+; below that the quiet fallback can.
-  const task = terminalWidth < 160 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
+  const ticketTask = session.ticketSubtitle ?? session.ticketDescription;
+  const task = ticketTask ? (terminalWidth < 160 ? ticketTask : undefined) : session.progress?.goal;
   if (error) lines.push(first("ERR", styles.error, styles.text(truncate(error, valueWidth))));
   else if (doing) lines.push(first("DOING", live ? styles.live : styles.muted, styles.text(truncate(plainAttentionText(doing), valueWidth)), 1));
   else if (action) lines.push(first("NOW", styles.live, actionText(action, valueWidth, styles, styles.text), 1));
@@ -2462,8 +2465,8 @@ const LOG_ACTIONS = 3;
 const SAID_LINES = 14;
 
 /**
- * The selected session's fields in fixed order: the request (ASK/RDY/BLK) or ERR, the lens DOING (else the
- * DONE and NEXT progress note), WHERE, the lens list, NOW and LOG tool calls, SUB, then SAID, the agent's
+ * The selected session's fields in fixed order: the request (ASK/RDY/BLK) or ERR, GOAL without ticket copy,
+ * the lens DOING (else the DONE and NEXT progress note), WHERE, the lens list, NOW and LOG tool calls, SUB, then SAID, the agent's
  * latest message. A label appears only with a value.
  */
 function detailFieldLines(session: RenderSession, width: number, styles: LayoutStyles, options: DetailFieldOptions): FieldLine[] {
@@ -2493,6 +2496,7 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
   const note = (label: string, value: string | undefined) => {
     if (value) lines.push(...fieldLines(label, styles.muted, wrapWords(plainAttentionText(value), proseWidth, proseWidth).map(styles.text), [2]));
   };
+  if (!options.replying && !session.ticketSubtitle && !session.ticketDescription) note("GOAL", session.progress?.goal);
   const notes = () => {
     // A ready handoff already says what was done.
     if (request?.kind !== "ready") note("DONE", session.progress?.done);

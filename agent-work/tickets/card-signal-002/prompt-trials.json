@@ -1,0 +1,74 @@
+{
+  "candidateGoalBlock": "goal: a short action-and-object task title, at most 80 characters. Name only the topic, not the instructions for this turn.\nFor \"Debug the failing addition test. Do not fix it yet\", goal is \"Debug addition\", never \"Debug addition without fixing it\".\nExclude permissions, restrictions, output format, procedure and completion status from goal.\nIf Previous goal is nonempty, copy it exactly unless the user explicitly changes the topic. A fix, more tests or changed permission within the same task keeps the same goal.\nOn an explicit topic switch, write a title for the new topic, e.g. \"Explain blue sky\".",
+  "prompt": "Summarize an agent's progress from the ticket, if any, and the recent conversation.\nReturn only a JSON object: {\"goal\":\"…\",\"done\":\"…\",\"next\":\"…\"}.\ngoal: a short action-and-object task title, at most 80 characters. Name only the topic, not the instructions for this turn.\nFor \"Debug the failing addition test. Do not fix it yet\", goal is \"Debug addition\", never \"Debug addition without fixing it\".\nExclude permissions, restrictions, output format, procedure and completion status from goal.\nIf Previous goal is nonempty, copy it exactly unless the user explicitly changes the topic. A fix, more tests or changed permission within the same task keeps the same goal.\nOn an explicit topic switch, write a title for the new topic, e.g. \"Explain blue sky\".\ndone: what the agent has concretely achieved so far in this task.\nnext: what the agent will do or is waiting for next.\nEach value is one plain sentence of at most 120 characters, stating present or past facts.\nStart with the verb and name no subject: \"Fixed the login redirect.\", not \"The assistant fixed…\".\nName the concrete thing changed, found, or awaited, so the sentence is useful on its own.\nDo not include ticket IDs, markdown, or speculation.\nUse an empty string when unknown.",
+  "trials": [
+    {
+      "name": "initial-debug",
+      "input": "Previous goal: \"\"\n\nUser: Investigate this tiny project's failing addition tests. Read the source and tests, run node --test, and explain what fails. Do not change files yet. Do not start a workflow, ask questions, commit, or launch subagents.\n\nAssistant: `sum.js` subtracts its arguments, while the test expects addition. I’ll run `node --test` to confirm the failure.\n\nAssistant: `node --test` exits with code **1**: **1 test failed, 0 passed**. - **`sum.test.js:5`** tests that `sum(2, 3)` equals `5`. - **`sum.js:2`** implements `return a - b;`, producing `-1`. - The assertion therefore fails with **`-1 !== 5`**. The cause is subtraction where addition is expected. No files were changed.",
+      "result": {
+        "outcome": "success",
+        "text": "{\"goal\":\"Debug addition tests\",\"done\":\"Found that sum.js subtracts its arguments, causing the addition test to fail with -1 instead of 5.\",\"next\":\"Await further direction before changing files.\"}",
+        "model": "gpt-6-luna",
+        "latencyMs": 4799,
+        "attempts": [
+          {
+            "model": "gpt-6-luna",
+            "latencyMs": 4792,
+            "outcome": "success"
+          }
+        ],
+        "skippedModels": []
+      },
+      "parsed": {
+        "goal": "Debug addition tests",
+        "done": "Found that sum.js subtracts its arguments, causing the addition test to fail with -1 instead of 5.",
+        "next": "Await further direction before changing files."
+      }
+    },
+    {
+      "name": "same-topic-fix",
+      "input": "Previous goal: \"Debug addition tests\"\n\nUser: Investigate this tiny project's failing addition tests. Read the source and tests, run node --test, and explain what fails. Do not change files yet. Do not start a workflow, ask questions, commit, or launch subagents.\n\nAssistant: `sum.js` subtracts its arguments, while the test expects addition. I’ll run `node --test` to confirm the failure.\n\nAssistant: `node --test` exits with code **1**: **1 test failed, 0 passed**. - **`sum.test.js:5`** tests that `sum(2, 3)` equals `5`. - **`sum.js:2`** implements `return a - b;`, producing `-1`. - The assertion therefore fails with **`-1 !== 5`**. The cause is subtraction where addition is expected. No files were changed.\n\nUser: Continue the same addition-debugging task. Fix the diagnosed bug in sum.js and run node --test. Give a short final answer. Do not start a workflow or commit.\n\nAssistant: Fixed `sum.js` to return `a + b` instead of `a - b`. `node --test` passes: **1 passed, 0 failed**. No workflow started or commit made.",
+      "result": {
+        "outcome": "success",
+        "text": "{\"goal\":\"Debug addition tests\",\"done\":\"Fixed sum.js to add its arguments and confirmed node --test passes.\",\"next\":\"\"}",
+        "model": "gpt-6-luna",
+        "latencyMs": 4804,
+        "attempts": [
+          {
+            "model": "gpt-6-luna",
+            "latencyMs": 4804,
+            "outcome": "success"
+          }
+        ],
+        "skippedModels": []
+      },
+      "parsed": {
+        "goal": "Debug addition tests",
+        "done": "Fixed sum.js to add its arguments and confirmed node --test passes."
+      }
+    },
+    {
+      "name": "topic-switch",
+      "input": "Previous goal: \"Debug addition tests\"\n\nUser: Debug the failing test. Read sum.js and sum.test.js, run node --test, and explain the bug. Do not fix it yet. Give a short final answer. Do not start a workflow, ask questions, or commit.\n\nAssistant: `node --test` fails the single test: `sum(2, 3)` returns `-1`, but `sum.test.js:5` expects `5`. The bug is in `sum.js:2`: it subtracts (`a - b`) instead of adding. No files were changed.\n\nUser: Continue the same addition-debugging task. Fix the diagnosed bug in sum.js and run node --test. Give a short final answer. Do not start a workflow or commit.\n\nAssistant: Fixed `sum.js` to return `a + b` instead of `a - b`. `node --test` passes: 1 test, 0 failures. No workflow started or commit made.\n\nUser: Ignore the code now. Explain why the sky is blue in two short sentences. Do not use any tools.\n\nAssistant: The sky is blue because air molecules scatter sunlight’s blue wavelengths more strongly than its red wavelengths. This scattered blue light reaches our eyes from all directions.",
+      "result": {
+        "outcome": "success",
+        "text": "{\"goal\":\"Explain blue sky\",\"done\":\"Explained that air molecules scatter blue sunlight more strongly, making the sky appear blue.\",\"next\":\"\"}",
+        "model": "gpt-6-luna",
+        "latencyMs": 6469,
+        "attempts": [
+          {
+            "model": "gpt-6-luna",
+            "latencyMs": 6469,
+            "outcome": "success"
+          }
+        ],
+        "skippedModels": []
+      },
+      "parsed": {
+        "goal": "Explain blue sky",
+        "done": "Explained that air molecules scatter blue sunlight more strongly, making the sky appear blue."
+      }
+    }
+  ],
+  "passed": true
+}

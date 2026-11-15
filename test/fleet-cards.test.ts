@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { buildRenderModel, type BuildRenderModelInput } from "../src/tui/render-model.js";
 import { renderSessions, type SessionListTarget } from "../src/tui/layout.js";
+import { buildDashboardCommands, selectWorkspaceCommands } from "../src/tui/dashboard-commands.js";
 import { darkTheme, stripAnsi, styleToken } from "../src/tui/theme.js";
 import type { RuntimeSession } from "../src/core/types.js";
 
@@ -99,6 +100,109 @@ function cardTitle(rendered: ReturnType<typeof render>): string {
   if (rendered.pane) return rendered.pane.find((line) => line.trim()) ?? "";
   const dock = dockStart(rendered);
   return dock < 0 ? "" : rendered.lines[dock] ?? "";
+}
+
+const open = session("open", {
+  context: { version: 1, updatedAt: NOW, progress: { goal: "Debug provider limits", done: "Read the timer", next: "Fix the timer", updatedAt: NOW } },
+  lens: { doing: "Editing src/limits.ts", stages: [{ label: "explore", state: "done" }, { label: "change", state: "active" }, { label: "verify", state: "pending" }] },
+});
+
+test("open cards render GOAL before DOING and lens-only WHERE without old notes", () => {
+  const card = cardLines(render([open]), "open").join("\n");
+  assert.match(card, /GOAL {3}Debug provider limits[\s\S]*DOING {2}Editing src\/limits.ts[\s\S]*WHERE {2}explore✓ change◉ verify·/);
+  assert.doesNotMatch(card, /DONE|NEXT|PL✓|EX◉/);
+  const roster = cardLines(render([session("selected"), open]), "open");
+  assert.equal(roster.length, 1);
+  assert.match(roster[0]!, /DOING {2}Editing src\/limits.ts/);
+});
+
+test("ticket copy hides GOAL and workflow cards retain their existing fields", () => {
+  for (const copy of [{ subtitle: "Fix provider limits" }, { description: "Fix provider limits" }]) {
+    const linked = { ...open, context: { ...open.context!, ticket: { id: "limit-001", ...copy } } };
+    assert.doesNotMatch(cardLines(render([linked]), "open").join("\n"), /GOAL/);
+  }
+  const workflowGoal = { ...rich, context: { ...rich.context!, progress: open.context!.progress } };
+  assert.deepEqual(cardLines(render([workflowGoal]), "rich"), cardLines(render([rich]), "rich"));
+});
+
+test("open Answer and Reply panels drop GOAL with suppressed progress fields", () => {
+  for (const width of [60, 160]) for (const kind of ["answer", "reply"] as const) {
+    const commands = buildDashboardCommands({ sessions: [open], selectedId: open.id, capabilities: { openSession: true, sendMessage: true } });
+    const rendered = render([open], { width, height: 60, workspaceCommands: selectWorkspaceCommands(open, commands, 3), cardPanel: { kind, body: ["Panel input"], keyLine: "Enter Send   Esc Close", offset: 0 } });
+    const card = cardLines(rendered, "open").join("\n");
+    assert.match(card, /Panel input/, card);
+    assert.doesNotMatch(card, /GOAL|DONE|NEXT|WHERE/, card);
+    assert.match(card, /DOING {2}Editing src\/limits.ts/, card);
+  }
+});
+
+test("quiet open roster uses GOAL as its final TASK fallback, with notes taking precedence", () => {
+  const quiet = { ...open, status: "idle" as const, lens: undefined, context: { version: 1 as const, updatedAt: NOW, progress: { goal: "Debug provider limits", updatedAt: NOW } } };
+  for (const width of [60, 100, 160]) {
+    const rendered = render([session("selected", { status: "idle" }), quiet], { width });
+    assert.match(cardLines(rendered, "open").join("\n"), /TASK {3}Debug provider limits/);
+  }
+  const withDone = { ...quiet, context: { ...quiet.context, progress: { ...quiet.context.progress, done: "Read limits" } } };
+  assert.match(cardLines(render([session("selected"), withDone]), "open").join("\n"), /DONE {3}Read limits/);
+});
+
+test("open card labels and stages fit narrow terminals", () => {
+  for (const width of [30, 40, 60, 99]) {
+    const rendered = render([open], { width, height: 60 });
+    assert.ok(rendered.layout.lines.every(line => visibleWidth(line) <= width), String(width));
+    const text = cardLines(rendered, "open").join("\n");
+    assert.match(text, /GOAL {3}/, text);
+    assert.match(text, /DOING {2}/, text);
+    assert.match(text, /WHERE {2}/, text);
+  }
+});
+
+const paritySteps = [
+  { id: "plan-md", short: "PL", labels: ["inspect", "scope", "write", "critic", "ready"], active: 3, doing: "critic pass 2", label: "PLAN", head: "3 phases · 10 tasks · 5 criteria", progress: { completed: 2, total: 5 }, pass: 2 },
+  { id: "execute", short: "EX", labels: ["implement", "verify", "done"], active: 1, doing: "Checking npm test", label: "PLAN", head: "5 done · 5 open", progress: { completed: 5, total: 10 }, summary: "phase 2/3 · Hub card" },
+  { id: "review", short: "RV", labels: ["review", "fix", "done"], active: 1, doing: "Fix the stale cursor", label: "FOUND", head: "2 fixed · 5 open · 1 deferred", progress: { completed: 3, total: 8 }, pass: 2 },
+  { id: "reflect", short: "RF", labels: ["review", "update", "done"], active: 1, doing: "Document runtime facts", label: "CANDS", head: "1 applied · 1 now · 1 needs you · 1 no action", progress: { completed: 2, total: 4 }, pass: 2 },
+  { id: "commit", short: "CM", labels: ["archive", "commit"], active: 1, doing: "Committing changes", label: "CLOSE", head: "2 commits" },
+];
+
+for (const [activeIndex, step] of paritySteps.entries()) {
+  const lens = {
+    doing: step.doing,
+    stages: step.labels.map((label, index) => ({ label, state: index < step.active ? "done" as const : index === step.active ? "active" as const : "pending" as const })),
+    ...(step.progress ? { progress: step.progress } : {}),
+    ...(step.pass ? { pass: step.pass } : {}),
+    ...(step.summary ? { summary: step.summary } : {}),
+    list: { label: step.label, head: step.head, items: [{ state: "done" as const, text: "Completed fact" }, { state: "active" as const, text: "Current context" }, { state: "pending" as const, text: "Pending context" }, { state: "attention" as const, text: "Needs a decision" }, { state: "skipped" as const, text: "No action" }], before: 0, after: 0 },
+  };
+  const subject = session(`parity-${step.short}`, { workflow: { ...workflow, activeIndex, steps: paritySteps.map(({ id, short }) => ({ id, short })), lens } });
+  for (const width of [160, 100, 80]) test(`${step.id} parity renders count heads and width-safe WHERE at ${width} columns`, () => {
+    const rendered = render([subject], { width, height: 60 });
+    assert.ok(rendered.layout.lines.every(line => visibleWidth(line) <= width), rendered.lines.join("\n"));
+    const lines = cardLines(rendered, subject.id);
+    const where = lines.find(line => line.includes("WHERE"))!;
+    assert.ok(where, lines.join("\n"));
+    assert.match(lines.join("\n"), new RegExp(`DOING +${step.doing}`));
+    if (step.progress) assert.ok(where.includes(`${step.progress.completed}/${step.progress.total}`), where);
+    else assert.doesNotMatch(where, /▰|▱|\d+\/\d+/);
+    if (width !== 100) assert.ok(where.includes(step.labels[step.active]! + "◉"), where);
+    if (width === 160) {
+      assert.ok(lines.some(line => line.includes(step.head)), lines.join("\n"));
+      for (const mark of ["✓", "◉", "·", "!", "–"]) assert.ok(lines.some(line => line.includes(mark)), mark + lines.join("\n"));
+      if (step.progress) assert.match(where, /▰+▱+/);
+    }
+    if (["review", "reflect"].includes(step.id)) {
+      const roster = cardLines(render([session("selected"), subject], { width }), subject.id);
+      assert.match(roster.join("\n"), new RegExp(`${step.progress!.completed}/${step.progress!.total}`));
+      if (width !== 100) assert.match(roster.join("\n"), /▰+▱+/);
+    }
+  });
+  test(`${step.id} drops a long summary before its stages and exact count`, () => {
+    const expanded = { ...subject, workflow: { ...subject.workflow!, lens: { ...lens, summary: "Long phase context ".repeat(6) } } };
+    const where = cardLines(render([expanded], { width: 160 }), subject.id).find(line => line.includes("WHERE"))!;
+    assert.doesNotMatch(where, /Long phase context/);
+    assert.ok(where.includes(step.labels[step.active]! + "◉"), where);
+    if (step.progress) assert.ok(where.includes(`${step.progress.completed}/${step.progress.total}`), where);
+  });
 }
 
 test("wide selected cards show repo beside group, then task, DOING, WHERE and the lens list", () => {
