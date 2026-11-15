@@ -23,7 +23,7 @@ export function clearTranscript(transcript: Transcript): void {
 }
 
 const sameItem = (a: ConversationItem, b: ConversationItem) =>
-  a.text === b.text && a.role === b.role && a.truncated === b.truncated && a.at === b.at && a.toolCallId === b.toolCallId;
+  a.text === b.text && a.role === b.role && a.truncated === b.truncated && a.at === b.at && a.toolCallId === b.toolCallId && a.interim === b.interim;
 
 /**
  * Merge a page into the transcript. `older` is a page loaded with the transcript's `before` cursor.

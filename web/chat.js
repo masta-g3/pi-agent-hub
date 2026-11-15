@@ -20,3 +20,50 @@ export function settleSent(sent, appended) {
   }
   return remaining;
 }
+
+const SKILL_HEAD = /^<skill name="([^"]+)" location="[^"]+">\n/u;
+const FILE_HEAD = /^<file name="([^"]+)">/u;
+const baseName = (path) => path.split("/").filter(Boolean).at(-1) ?? path;
+
+/** Pi's skill block, matched as Pi's own parser does: the first `\n</skill>` followed by the end or a blank line. */
+function skillPart(text) {
+  const head = SKILL_HEAD.exec(text);
+  if (!head) return undefined;
+  for (let end = text.indexOf("\n</skill>", head[0].length - 1); end !== -1; end = text.indexOf("\n</skill>", end + 1)) {
+    const rest = text.slice(end + 9);
+    if (rest === "" || (rest.startsWith("\n\n") && rest.length > 2)) {
+      return { part: { kind: "skill", name: head[1], body: text.slice(head[0].length, end) }, rest: rest.slice(2) };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * One leading `@file` block. Pi closes each with `</file>` on its own line, then a newline. A body or typed text can
+ * mention that tag too, so a close must be followed by another block or by text with no further close; otherwise
+ * the message is ambiguous and stays as typed.
+ */
+function filePart(text) {
+  const head = FILE_HEAD.exec(text);
+  if (!head) return undefined;
+  const ends = [];
+  for (let end = text.indexOf("</file>\n", head[0].length); end !== -1; end = text.indexOf("</file>\n", end + 1)) ends.push(end);
+  // A close followed by the next block is certain; otherwise the only close must be the last mention of the tag.
+  const end = ends.find((at) => text.startsWith("<file name=\"", at + 8))
+    ?? (ends.length === 1 && !text.slice(ends[0] + 8).includes("</file>") ? ends[0] : undefined);
+  if (end === undefined) return undefined;
+  return { part: { kind: "file", name: baseName(head[1]), body: text.slice(head[0].length, end).replace(/^\n|\n$/gu, "") }, rest: text.slice(end + 8) };
+}
+
+/**
+ * What a person typed, apart from what Pi expanded into the message: a `/skill` invocation and `@file` attachments.
+ * Text that does not match Pi's exact block shapes stays as typed.
+ */
+export function splitPrompt(text) {
+  const attachments = [];
+  let rest = text;
+  for (let found = filePart(rest); found; found = filePart(rest)) { attachments.push(found.part); rest = found.rest; }
+  const skill = skillPart(rest);
+  if (skill) { attachments.push(skill.part); rest = skill.rest; }
+  return { attachments, text: attachments.length ? rest.trim() : text };
+}

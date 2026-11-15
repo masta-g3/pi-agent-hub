@@ -503,7 +503,7 @@ test("tool calls publish a debounced live activity heartbeat that agent_end clea
     assert.equal(heartbeat.activity, undefined, "activity publishes only after the 750 ms debounce");
     t.mock.timers.tick(1);
     heartbeat = await readHeartbeat((item) => item.activity !== undefined);
-    assert.deepEqual(heartbeat.activity, { current: { tool: "read", detail: "src/a.ts", at: 203_000 } });
+    assert.deepEqual(heartbeat.activity, { current: { tool: "read", detail: "src/a.ts", at: 203_000 }, calls: 1 });
 
     t.mock.timers.tick(250);
     await handlers.get("tool_execution_start")?.({ toolCallId: "bash-1", toolName: "bash", args: { command: "npm test\nrm -rf dist" } }, ctx);
@@ -513,10 +513,15 @@ test("tool calls publish a debounced live activity heartbeat that agent_end clea
     assert.deepEqual(heartbeat.activity, {
       current: { tool: "bash", detail: "npm test", at: 204_000 },
       recent: [{ tool: "read", detail: "src/a.ts", at: 203_000 }],
+      calls: 2,
     });
 
     await handlers.get("agent_end")?.({}, ctx);
     heartbeat = await readHeartbeat((item) => item.state === "waiting");
+    assert.deepEqual(heartbeat.activity, { recent: [{ tool: "read", detail: "src/a.ts", at: 203_000 }], calls: 2 });
+    // A new run counts from zero.
+    await handlers.get("agent_start")?.({}, ctx);
+    heartbeat = await readHeartbeat((item) => item.state === "running");
     assert.deepEqual(heartbeat.activity, { recent: [{ tool: "read", detail: "src/a.ts", at: 203_000 }] });
   } finally {
     await handlers.get("session_shutdown")?.({}, ctx);

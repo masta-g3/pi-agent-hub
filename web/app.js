@@ -1,6 +1,6 @@
 // Phone inbox for pi-agent-hub. Producer text only ever reaches the page through text nodes.
 import { acceptPage, clearTranscript, newTranscript } from "/transcript.js";
-import { settleSent } from "/chat.js";
+import { settleSent, splitPrompt } from "/chat.js";
 import { renderMarkdown } from "/markdown.js";
 
 const STALE_MS = 10_000;
@@ -13,8 +13,10 @@ const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", ac
 const STATUS_GLYPHS = { starting: "●", running: "●", waiting: "◐", idle: "○", error: "×", stopped: "-" };
 const KIND_GLYPHS = { question: "?", ready: "✓", blocked: "!" };
 const KIND_LABELS = { question: "Question", ready: "Ready", blocked: "Blocked" };
-const STEP_GLYPHS = { done: "✓", active: "◉", pending: "·" };
-const ROLE_LABELS = { user: "YOU", assistant: "AGENT", question: "? QUESTION", answer: "ANSWER" };
+const STATUS_WORDS = { starting: "Starting", running: "Working", waiting: "Waiting", idle: "Idle", error: "Error", stopped: "Stopped" };
+// You and the agent are told apart by layout; other kinds keep a visible name.
+const ROLE_LABELS = { user: "You", assistant: "Agent", question: "Question", answer: "Your answer" };
+const QUIET_ROLES = new Set(["user", "assistant"]);
 const SENT_LABELS = { sending: "Sending…", unknown: "Delivery unknown" };
 
 const state = {
@@ -33,6 +35,7 @@ const state = {
   drafts: new Map(),           // "id:piSessionId" -> reply text
   receipts: new Map(),         // session id -> { kind, text }
   pending: new Set(),          // session ids with a write in flight
+  listY: 0,                    // list scroll position, restored on return
 };
 
 const app = document.getElementById("app");
@@ -80,6 +83,14 @@ const route = () => /^#\/s\/([a-zA-Z0-9_-]+)$/.exec(location.hash)?.[1];
 const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const draftKey = (session) => `${session.id}:${session.piSessionId ?? ""}`;
 
+/** How long the agent has been working: 45s, 2m, 1h 5m. */
+function runTime(since) {
+  const seconds = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 function ageSince(at) {
   const minutes = Math.floor((Date.now() - at) / 60_000);
   return minutes < 1 ? "under 1m ago" : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`;
@@ -120,7 +131,7 @@ async function getJson(path) {
   return response.json();
 }
 
-/** One-question, single-choice requests can be answered on the list card. */
+/** A question request can be answered on its list card, one question at a time. */
 function loadInlineQuestions() {
   const cards = rows().filter((row) => row.attention?.kind === "question" && row.attention.requestId && row.canInteract).slice(0, INLINE_CARD_LIMIT);
   for (const [id, entry] of state.inline) {
@@ -132,10 +143,10 @@ function loadInlineQuestions() {
     state.inline.set(row.id, entry);
     getJson(`/api/sessions/${row.id}?conversation=0`).then((data) => {
       const pending = data.interaction?.pending ?? [];
-      const question = pending.length === 1 && pending[0].questions.length === 1 ? pending[0].questions[0] : undefined;
-      if (!data.interaction?.canAnswer || !question || question.multiSelect || question.options.some((option) => option.preview || option.hasPreview)) return;
-      entry.question = question;
-      entry.toolCallId = pending[0].toolCallId;
+      // Send also dismisses the card's request, so the card answers only when that request is the one questionnaire.
+      if (!data.interaction?.canAnswer || pending.length !== 1) return;
+      entry.request = pending[0];
+      entry.step = 0;
       render();
     }).catch(() => { state.inline.delete(row.id); });
   }
@@ -207,7 +218,8 @@ async function loadEarlier() {
   }
   // Keep the message that was first where it is on screen. Its element may be rebuilt, so it is found by id.
   const anchor = chat.items[0] && `t:${chat.items[0].id}`;
-  const top = () => app.hubParts?.get("body")?.el.hubParts?.get(anchor)?.el.getBoundingClientRect().top;
+  // Its body, not the turn: the time stamp above it can come or go as earlier messages arrive.
+  const top = () => app.hubParts?.get("body")?.el.hubParts?.get(anchor)?.el.querySelector(".turn-body")?.getBoundingClientRect().top;
   const was = top();
   if (current && page) acceptPage(chat, page, true);
   render();
@@ -247,8 +259,10 @@ const markRead = (session) => write(session, "read", { piSessionId: session.piSe
 
 // ---- shared pieces ----
 
-function connection() {
-  return h("span", { class: "conn" }, state.stale ? "◌ Offline" : "● Live");
+function connection(compact) {
+  const label = state.stale ? "Offline" : "Live";
+  return h("span", { class: `conn ${state.stale ? "off" : "on"}`, title: label, role: "status", "aria-label": label },
+    h("span", { class: "conn-dot", "aria-hidden": "true" }, "●"), !compact && label);
 }
 
 function staleBanner() {
@@ -279,33 +293,83 @@ function listRow(session) {
   const live = session.status === "running" || session.status === "starting";
   const glyph = attention ? h("span", { class: "glyph request", title: KIND_LABELS[attention.kind] }, KIND_GLYPHS[attention.kind])
     : h("span", { class: `glyph${fault ? " fault" : live ? " live" : ""}`, title: session.status }, STATUS_GLYPHS[session.status]);
-  const main = h("a", { class: "row-main", href: `#/s/${session.id}` },
+  const main = h("a", { class: "row-main", href: `#/s/${session.id}`, onclick: openFromList },
     h("div", { class: "head" }, glyph, h("span", { class: "title" }, session.title), meta(session)),
-    attention && h("p", { class: "request-text clamp" }, attention.text),
+    // The stepper asks the question itself, so the card does not repeat it.
+    attention && !(state.inline.get(session.id)?.request && state.inline.get(session.id).requestId === attention.requestId) && h("p", { class: "request-text clamp" }, attention.text),
     attention?.recommendation && h("p", { class: "sub" }, `Recommends: ${attention.recommendation}`),
-    !attention && session.statusLine && h("p", { class: `sub${fault ? " fault" : ""}` }, session.statusLine));
+    // A working agent shows what it does now; an older note would read as current.
+    !attention && session.work ? h("p", { class: `sub one-line${session.work.tool ? "" : " thinking"}` }, session.work.tool ?? "Thinking")
+      : !attention && session.statusLine && h("p", { class: `sub one-line${fault ? " fault" : ""}` }, session.statusLine));
   if (!attention && !fault) return h("li", { class: "row" }, main);
   return h("li", { class: `row plate${fault && !attention ? " fault" : ""}` }, main, inlineActions(session), receiptLine(session.id));
 }
 
+const answered = (question, entry) => Boolean(entry.text.trim()) || (question.multiSelect ? entry.selected.size > 0 : entry.option !== undefined);
+
+/**
+ * The list card's answer stepper: one question at a time, dots for progress. A single choice moves on by itself;
+ * nothing is sent until Send, after the last question. Answers live in the same form as the chat's.
+ */
 function inlineActions(session) {
-  const entry = state.inline.get(session.id);
-  if (!entry?.question || entry.requestId !== session.attention?.requestId) return undefined;
+  const inline = state.inline.get(session.id);
+  const request = inline?.request;
+  if (!request || inline.requestId !== session.attention?.requestId) return undefined;
+  const form = formFor(session, request);
+  const count = request.questions.length;
+  const step = Math.min(inline.step, count - 1);
+  const question = request.questions[step];
+  const entry = form[step];
   const busy = state.pending.has(session.id) || state.stale;
-  const options = entry.question.options.map((option, index) => h("button", {
-    class: "btn", type: "button", "aria-pressed": String(entry.selected === index), disabled: busy,
-    onclick: () => { entry.selected = entry.selected === index ? undefined : index; render(); },
-  }, option.label));
-  if (entry.selected === undefined) return h("div", { class: "actions" }, options);
-  const chosen = entry.question.options[entry.selected];
-  // A tap only selects: answers cannot be undone, so sending is a second, explicit tap.
-  return h("div", { class: "actions" }, options,
-    h("button", { class: "btn primary", type: "button", disabled: busy, onclick: async () => {
-      const optionIndex = entry.selected;
-      const sent = await write(session, "answer", { ...target(session), toolCallId: entry.toolCallId, requestId: entry.requestId, answers: [{ questionIndex: 0, kind: "option", optionIndex }] });
-      if (sent === "accepted") state.inline.delete(session.id); else { entry.selected = undefined; render(); }
-    } }, `Send “${chosen.label}”`),
-    h("button", { class: "btn quiet", type: "button", disabled: busy, onclick: () => { entry.selected = undefined; render(); } }, "Cancel"));
+  const last = step === count - 1;
+  const go = (to) => { inline.step = to; render(); };
+  const next = () => go(last ? step : step + 1);
+
+  const dots = count > 1 && h("span", { class: "dots-nav" }, request.questions.map((item, index) => h("button", {
+    type: "button", class: "dot-btn", "aria-label": `Question ${index + 1}${answered(item, form[index]) ? ", answered" : ""}`,
+    "aria-current": index === step ? "step" : undefined, onclick: () => go(index),
+  }, index === step ? "●" : answered(item, form[index]) ? "✓" : "○")));
+  const options = question.options.map((option, index) => {
+    const on = question.multiSelect ? entry.selected.has(index) : entry.option === index;
+    return h("button", { class: "opt", type: "button", "aria-pressed": String(on), disabled: busy, onclick: () => {
+      entry.text = "";
+      if (question.multiSelect) { if (on) entry.selected.delete(index); else entry.selected.add(index); render(); return; }
+      entry.option = index;
+      if (last) render(); else next();
+    } }, h("span", { class: "opt-label" }, option.label), option.description && h("span", { class: "opt-desc" }, option.description));
+  });
+  const typed = h("input", { class: "field", type: "text", autocomplete: "off", value: entry.text, placeholder: "Type an answer", "aria-label": "Type an answer",
+    "data-focus": `typed:${session.id}:${step}`, enterKeyHint: last ? "done" : "next", disabled: busy,
+    oninput: (event) => {
+      entry.text = event.target.value;
+      if (entry.text.trim()) { entry.option = undefined; entry.selected.clear(); }
+      render();
+    },
+    onkeydown: (event) => { if (event.key === "Enter" && entry.text.trim()) { event.preventDefault(); if (!last) next(); } } });
+  const answers = answersFor(request, form);
+  const sendLabel = count === 1 ? "Send answer" : `Send ${count} answers`;
+  return h("div", { class: "stepper" },
+    h("div", { class: "step-head" },
+      h("span", { class: "label" }, count > 1 ? `${question.header} · ${step + 1} of ${count}` : question.header), dots),
+    h("p", { class: "ask pre" }, question.ask),
+    question.conditions.length ? h("ul", { class: "conditions" }, question.conditions.map((condition) => h("li", {}, condition))) : undefined,
+    question.context && h("p", { class: "notice pre" }, question.context),
+    question.multiSelect && h("div", { class: "opt-hint" }, "Choose any"),
+    h("div", { class: "opts" }, options),
+    question.options.some((option) => option.preview || option.hasPreview) && h("a", { class: "opt-more", href: `#/s/${session.id}`, onclick: openFromList }, "See previews in chat ›"),
+    typed,
+    h("div", { class: "step-foot" },
+      step > 0 ? h("button", { class: "link-btn", type: "button", onclick: () => go(step - 1) }, "‹ Back") : undefined,
+      h("span", { class: "grow" }),
+      last
+        // Answers cannot be undone, so sending is always its own tap.
+        ? h("button", { class: "send", type: "button", disabled: busy || !answers, onclick: async () => {
+            const current = answersFor(request, formFor(session, request));
+            if (!current) return;
+            const sent = await write(session, "answer", { ...target(session), toolCallId: request.toolCallId, requestId: inline.requestId, answers: current });
+            if (sent === "accepted") { state.inline.delete(session.id); state.forms.delete(`${session.id}:${request.toolCallId}`); }
+          } }, answers ? sendLabel : "Answer each question")
+        : h("button", { class: "send ghost", type: "button", disabled: busy || !answered(question, entry), onclick: next }, "Next")));
 }
 
 function listView() {
@@ -316,7 +380,7 @@ function listView() {
       h("h1", { class: "band-title" }, "Hub"),
       count ? h("span", { class: "band-count" }, `${count} ${count === 1 ? "request" : "requests"}`) : undefined,
       h("span", { class: "band-fill" }),
-      connection(),
+      connection(false),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Notify")),
     staleBanner());
   const list = h("main", { class: "list" });
@@ -367,7 +431,7 @@ function questionForm(session, request) {
     const entry = form[questionIndex];
     const name = `q-${request.toolCallId}-${questionIndex}`;
     const inputs = [];
-    const typed = h("input", { class: "field", type: "text", value: entry.text, placeholder: "Or type an answer", "aria-label": "Type an answer", enterKeyHint: "done",
+    const typed = h("input", { class: "field", type: "text", autocomplete: "off", value: entry.text, placeholder: "Or type an answer", "aria-label": "Type an answer", enterKeyHint: "done",
       oninput: (event) => {
         entry.text = event.target.value;
         // A typed answer replaces the options, so the form never shows two answers at once.
@@ -397,7 +461,7 @@ function questionForm(session, request) {
       question.multiSelect && h("div", { class: "label" }, "Choose any"),
       options, typed,
       h("details", { open: Boolean(entry.notes) }, h("summary", {}, "Add a note"),
-        h("input", { class: "field", type: "text", value: entry.notes, maxLength: 8192, placeholder: "Note for the agent", "aria-label": "Note",
+        h("input", { class: "field", type: "text", autocomplete: "off", value: entry.notes, maxLength: 8192, placeholder: "Note for the agent", "aria-label": "Note",
           oninput: (event) => { entry.notes = event.target.value; } })));
   }));
 }
@@ -412,7 +476,7 @@ function requestBlock(session, interaction) {
     if (!pending.length || !interaction?.canAnswer) parts.push(["text", attention.text, () => h("p", { class: "pre" }, attention.text)]);
     if (attention.recommendation) parts.push(["recommendation", attention.recommendation, () => h("div", {},
       h("div", { class: "label" }, "Recommends"), h("p", { class: "pre" }, attention.recommendation),
-      session.canInteract && h("button", { class: "btn quiet", type: "button", onclick: () => {
+      session.canInteract && h("button", { class: "chip", type: "button", onclick: () => {
         // Prefill only: nothing is sent until Send.
         state.drafts.set(draftKey(session), attention.recommendation);
         const box = document.querySelector(".dock textarea");
@@ -456,7 +520,8 @@ function composer(session, interaction) {
   const busy = interaction?.messageDelivery === "busy";
   const blocked = state.pending.has(session.id) || state.stale;
   const key = draftKey(session);
-  const box = h("textarea", { class: "field grow", rows: 1, "data-draft": key, placeholder: busy ? "Message a working agent" : "Reply", "aria-label": "Reply", value: state.drafts.get(key) ?? "",
+  // Messages, not a form: without this, iOS offers saved contact details such as a phone number.
+  const box = h("textarea", { class: "field grow", rows: 1, autocomplete: "off", "data-draft": key, placeholder: busy ? "Message" : "Reply", "aria-label": "Reply", value: state.drafts.get(key) ?? "",
     oninput: (event) => { state.drafts.set(key, event.target.value); fitComposer(event.target); } });
   const send = (delivery) => async () => {
     const text = box.value.trim();
@@ -482,16 +547,17 @@ function composer(session, interaction) {
     const shown = document.querySelector(`.dock textarea[data-draft="${CSS.escape(key)}"]`);
     if (shown) { shown.value = ""; fitComposer(shown); }
   };
-  const canRead = Boolean(session.attention) || session.status === "waiting";
+  // One row, as in a messenger: the box grows upward, the buttons stay at its foot.
   return h("div", { class: "composer" },
     box,
-    h("div", { class: "dock-row" },
-      canRead && h("button", { class: "btn quiet", type: "button", disabled: blocked, onclick: () => markRead(session) }, "Mark read"),
-      h("span", { class: "grow" }),
-      busy
-        ? [h("button", { class: "btn", type: "button", disabled: blocked, onclick: send("followUp") }, "Queue"),
-           h("button", { class: "btn primary", type: "button", disabled: blocked, onclick: send("steer") }, "Steer")]
-        : h("button", { class: "btn primary", type: "button", disabled: blocked, onclick: send("send") }, "Send")));
+    busy
+      ? [h("button", { class: "send ghost", type: "button", disabled: blocked, title: "Deliver after the agent finishes", onclick: send("followUp") }, "Queue"),
+         h("button", { class: "send", type: "button", disabled: blocked, title: "Deliver now, while it works", onclick: send("steer") }, "Steer")]
+      : h("button", { class: "send", type: "button", disabled: blocked, onclick: send("send") }, "Send"));
+}
+
+function readChip(session, blocked) {
+  return h("button", { class: "chip", type: "button", disabled: blocked, onclick: () => markRead(session) }, "Mark read");
 }
 
 // ---- transcript ----
@@ -502,21 +568,40 @@ function timeLabel(at) {
   return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }
 
-/** One message. Only the agent writes Markdown; what a person typed is shown as typed. */
+/** What Pi expanded into a message, folded to its name: open it to read the skill or file. */
+function attachment(part) {
+  return h("details", { class: "attach" },
+    h("summary", {}, h("span", { class: "attach-kind" }, part.kind === "skill" ? "/" : "@"), part.name),
+    part.body && h("pre", { class: "attach-body" }, part.body));
+}
+
+/** One message. Only the agent writes Markdown; what a person typed is shown as typed, minus Pi's expansions. */
 function turn(item, time) {
   // A kind this page does not know yet is still shown, as plain text under its own name.
   const role = String(item.role);
-  return h("article", { class: `turn is-${role.replace(/[^a-z0-9]/giu, "")}` },
-    h("div", { class: "turn-role" }, h("span", {}, ROLE_LABELS[role] ?? role.toUpperCase()), time && h("time", {}, time)),
-    role === "assistant" ? h("div", { class: "turn-body md" }, renderMarkdown(item.text, h)) : h("div", { class: "turn-body pre" }, item.text));
+  const label = ROLE_LABELS[role] ?? role.toUpperCase();
+  let body;
+  // A question in history is the agent's own words and option list, so it reads as Markdown too.
+  if (role === "assistant" || role === "question") body = h("div", { class: "turn-body md" }, renderMarkdown(item.text, h));
+  else if (role === "user") {
+    const { attachments, text } = splitPrompt(item.text);
+    // Only an invocation, no typed words: the chip stands alone, without a bubble around it.
+    body = h("div", { class: text ? "turn-body" : "turn-body bare" }, attachments.map(attachment), text && h("div", { class: "pre" }, text));
+  } else body = h("div", { class: "turn-body pre" }, item.text);
+  // Said on the way to a tool call: quieter than the reply that ends the turn.
+  return h("article", { class: `turn is-${role.replace(/[^a-z0-9]/giu, "")}${item.interim ? " interim" : ""}` },
+    time && h("time", { class: "stamp" }, time),
+    h("div", { class: QUIET_ROLES.has(role) ? "turn-role sr" : "turn-role" }, label),
+    body);
 }
 
 /** A reply the user sent that Pi has not recorded yet. */
 function localTurn(reply) {
   const status = SENT_LABELS[reply.status] ?? (reply.delivery === "followUp" ? "Queued" : "Sent");
   return h("article", { class: `turn is-user local ${reply.status}` },
-    h("div", { class: "turn-role" }, h("span", {}, ROLE_LABELS.user), h("span", { class: "turn-state" }, status)),
-    h("div", { class: "turn-body pre" }, reply.text));
+    h("div", { class: "turn-role sr" }, ROLE_LABELS.user),
+    h("div", { class: "turn-body pre" }, reply.text),
+    h("div", { class: "turn-state" }, status));
 }
 
 const fromEnd = () => document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
@@ -550,14 +635,34 @@ function goToEnd() {
   void loadDetail();
 }
 
+/** The header's second line: what the agent is doing and where its workflow is. */
+function statusLine(session) {
+  const parts = [h("span", { class: `state is-${session.attention ? "request" : session.status}` },
+    session.attention ? KIND_LABELS[session.attention.kind] : STATUS_WORDS[session.status] ?? session.status)];
+  const at = session.steps?.findIndex((step) => step.state === "active") ?? -1;
+  if (session.step) parts.push(at >= 0 ? `${session.step} ${at + 1}/${session.steps.length}` : session.step);
+  if (session.runningSubagents) parts.push(`↳${session.runningSubagents}`);
+  return h("div", { class: "band-sub" }, parts.flatMap((part, index) => index ? [" · ", part] : [part]));
+}
+
+function backLink() {
+  return h("a", { class: "back", href: "#/", "aria-label": "Back to inbox", onclick: (event) => {
+    // Opened from the list: step back, so the list returns where it was and Back does not loop.
+    if (!history.state?.fromList) return;
+    event.preventDefault();
+    history.back();
+  } }, "‹");
+}
+
 function renderDetail() {
   const detail = state.detail;
   // The list snapshot is fresher than the last detail fetch for everything it carries.
   const session = detail?.data && (rows().find((row) => row.id === detail.id) ?? detail.data.session);
-  const band = ["band", JSON.stringify([state.stale, state.stale ? ageSince(state.snapshotAt) : "", session?.title, session?.steps]), () => h("header", { class: "band" },
-    h("div", { class: "band-row" }, h("a", { class: "back", href: "#/" }, "‹ Inbox"),
-      session ? h("span", { class: "band-name" }, session.title) : h("span", { class: "band-fill" }), connection()),
-    session?.steps && h("div", { class: "lcd" }, session.steps.map((step) => `${step.short} ${STEP_GLYPHS[step.state]}`).join("  ")),
+  const head = session && [session.title, session.status, session.attention?.kind, session.step, session.steps, session.runningSubagents];
+  const band = ["band", JSON.stringify([state.stale, state.stale ? ageSince(state.snapshotAt) : "", head]), () => h("header", { class: "band chat-band" },
+    h("div", { class: "band-row" }, backLink(),
+      session ? h("div", { class: "band-id" }, h("span", { class: "band-name", title: session.title }, session.title), statusLine(session)) : h("span", { class: "band-fill" }),
+      connection(true)),
     staleBanner())];
   if (!session) {
     sync(app, [band, ["empty", String(detail?.missing), () => h("main", { class: "detail" },
@@ -580,17 +685,24 @@ function renderDetail() {
     return [`t:${item.id}`, [item, time], () => turn(item, time)];
   });
   const working = session.status === "running" || session.status === "starting";
+  const work = session.work ?? {};
+  const context = [session.ticketId, session.subtitle, session.group].filter(Boolean).join(" · ");
   sync(body, [
-    ["intro", JSON.stringify([session.title, session.ticketId, session.subtitle, session.group]), () => h("div", { class: "intro" },
-      h("h1", { class: "detail-title" }, session.title),
-      h("p", { class: "detail-sub" }, [session.ticketId, session.subtitle, session.group].filter(Boolean).join(" · ")))],
+    // The band names the session; this line adds the ticket, like a chat's info line.
+    ["intro", context, context && (() => h("p", { class: "intro" }, context))],
     chat?.before && !unavailable
       ? ["earlier", String(state.earlier), () => h("button", { class: "earlier", type: "button", disabled: state.earlier, onclick: loadEarlier }, "Earlier messages")]
       : ["start", `${Boolean(chat?.before)}:${turns.length}`, !chat?.before && turns.length && (() => h("p", { class: "start" }, "Start of conversation"))],
     ...turns,
     ...(chat ? state.sent : []).map((reply) => [`l:${reply.localId}`, reply.status, () => localTurn(reply)]),
-    ["activity", working && (session.statusLine ?? ""), working && (() => h("p", { class: "activity", role: "status" },
-      h("span", { class: "activity-dot" }, "●"), session.statusLine ?? "Working"))],
+    // Rebuilt for each new tool call, so the line flashes once as the agent moves on; the run time ticks in place.
+    ["activity", working && JSON.stringify([work.tool, work.calls, work.since]), working && (() => h("p", { class: "activity", role: "status" },
+      h("span", { class: "dots", "aria-hidden": "true" }, h("i"), h("i"), h("i")),
+      h("span", { class: `activity-text${work.tool ? "" : " thinking"}` }, work.tool ?? "Thinking"),
+      (work.calls || work.since) && h("span", { class: "activity-count" },
+        work.calls ? `${work.calls} ${work.calls === 1 ? "tool" : "tools"}` : undefined,
+        work.calls && work.since ? " · " : undefined,
+        work.since ? h("span", { class: "activity-time", "data-since": String(work.since) }, runTime(work.since)) : undefined)))],
     ["request", request ? request.tone : "", request && (() => h("section", { class: `block ${request.tone}` }))],
   ]);
   if (request) sync(body.hubParts.get("request").el, request.parts);
@@ -599,16 +711,15 @@ function renderDetail() {
   const readKey = canRead ? `${session.piSessionId}:${session.attention?.requestId ?? ""}` : "";
   const blocked = state.pending.has(session.id) || state.stale;
   const receipt = state.receipts.get(session.id);
+  const open = session.canInteract && !unavailable;
   // The composer is rebuilt when its buttons change; the draft is in state, so only focus needs restoring.
   const typing = document.activeElement?.matches?.(".dock textarea");
   sync(dock, [
     ["pill", "pill", chat?.newMessages && (() => h("button", { class: "pill", type: "button", onclick: goToEnd }, "New messages ↓"))],
     ["receipt", JSON.stringify(receipt ?? null), receipt && (() => receiptLine(session.id))],
-    session.canInteract && !unavailable
-      ? ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}:${readKey}`, () => composer(session, interaction)]
-      : ["closed", `${unavailable}:${blocked}:${readKey}`, () => h("div", {},
-          h("p", { class: "notice" }, `${unavailable ?? "Session is not running"}. Open it in the terminal dashboard.`),
-          canRead && h("div", { class: "dock-row" }, h("button", { class: "btn quiet", type: "button", disabled: blocked, onclick: () => markRead(session) }, "Mark read")))],
+    ["closed", `${open}:${unavailable}`, !open && (() => h("p", { class: "notice" }, `${unavailable ?? "Session is not running"}. Open it in the terminal dashboard.`))],
+    ["read", `${readKey}:${blocked}`, canRead && (() => h("div", { class: "chips" }, readChip(session, blocked)))],
+    ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}`, open && (() => composer(session, interaction))],
   ]);
   const box = dock.querySelector("textarea");
   if (box && !box.style.height) fitComposer(box);
@@ -621,7 +732,11 @@ function renderDetail() {
 let shownRoute;
 function render() {
   const id = route();
+  let restore;
   if (id !== shownRoute) {
+    // The list keeps its place across a visit to a session.
+    if (!shownRoute) state.listY = window.scrollY;
+    else if (!id) restore = state.listY;
     shownRoute = id;
     app.hubParts = undefined;
     app.replaceChildren();
@@ -633,10 +748,23 @@ function render() {
   if (id) renderDetail();
   else {
     const [band, list] = listView();
-    // The list has no text inputs, so it is rebuilt whole.
+    // The list is rebuilt whole; a typed answer keeps its focus and caret through the rebuild.
+    const focused = document.activeElement?.dataset?.focus;
+    const caret = focused && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
     app.hubParts = undefined;
     app.replaceChildren(band, list);
+    const field = focused && app.querySelector(`[data-focus="${CSS.escape(focused)}"]`);
+    if (field) { field.focus({ preventScroll: true }); field.setSelectionRange(...caret); }
+    if (restore !== undefined) window.scrollTo(0, restore);
   }
+}
+
+/** A session opened from the list marks its history entry, so its Back button can step back to that list. */
+function openFromList(event) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  history.pushState({ fromList: true }, "", event.currentTarget.getAttribute("href"));
+  onRoute();
 }
 
 function onRoute() {
@@ -721,6 +849,8 @@ navigator.serviceWorker?.addEventListener("message", (event) => {
   if (typeof event.data?.url === "string" && event.data.url.startsWith("/#/")) location.hash = event.data.url.slice(2);
 });
 
+// The page restores the list's place itself; the browser's restore would race the rebuild.
+history.scrollRestoration = "manual";
 window.addEventListener("hashchange", onRoute);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
@@ -728,7 +858,10 @@ document.addEventListener("visibilitychange", () => {
   if (Date.now() - state.lastEventAt > STALE_MS / 2) connect();
   if (route()) void loadDetail();
 });
-setInterval(watchConnection, 1_000);
+setInterval(() => {
+  watchConnection();
+  for (const el of document.querySelectorAll(".activity-time")) el.textContent = runTime(Number(el.dataset.since));
+}, 1_000);
 window.addEventListener("scroll", () => {
   const chat = state.chat;
   if (!chat || !route()) return;

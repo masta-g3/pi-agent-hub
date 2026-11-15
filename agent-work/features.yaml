@@ -1753,3 +1753,17 @@
   - card-signal-002
   references:
   - agent-work/plans/card-signal-000.md
+- id: web-004
+  status: done
+  title: Phone chat polish
+  subtitle: Fix phone bugs and make the session screen feel like a chat
+  description: 'The phone session screen reads as a chat: your messages as bubbles,
+    agent replies plain, skill and file prompts collapsed, a compact header with live
+    status and a one-row composer. Fixes duplicate titles, a grey Live dot, noisy
+    list rows and a lost list position.'
+  priority: 2
+  created_at: '2026-11-14'
+  depends_on:
+  - web-002
+  plan_file: agent-work/history/20261114_web-004_phone_chat_polish.md
+  completed_at: '2026-11-14'

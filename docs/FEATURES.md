@@ -336,14 +336,19 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 
 `pi-hub web` serves a small web page for a phone. It lists requests first, then every other active parent session, in the Status view's tiers and order. It is a companion for answering away from the terminal, not a second dashboard.
 
-- **Answer:** a question with one single choice shows its options on the list card. Tap an option, then tap **Send**; one tap never sends. Open the session for multi-select, several questions, a typed answer, or a note.
+- **Answer:** a question card on the list steps through its questions one at a time, with dots for progress. Tapping a single choice moves to the next question; multi-select uses **Next**; any question accepts a typed answer. **Send** comes only after the last question, so one tap never sends. Open the session for option previews or a note.
 - **Chat:** open any live session to read its conversation and reply. **Send** is offered while Pi is idle; **Steer** and **Queue** while it works.
-  - Finished messages appear on the open screen within a few seconds. One line shows what the agent is doing while it works; its text is not streamed word by word.
+  - It reads like a messenger: your messages are bubbles on the right, the agent writes full width on the left. The header holds the session name and its state, such as **Working · Execute 2/5**; a green dot means live data.
+  - A `/skill` command or an `@file` attachment shows as a folded chip with its name, followed by the words you typed. Tap the chip to read the full text.
+  - Finished messages appear on the open screen within a few seconds. A typing indicator shows the live tool call, or **Thinking** between calls, then how many tools the run has called and how long it has worked, such as **14 tools · 2m**. The line flashes once at each new call. Message text is not streamed word by word.
+  - A message the agent wrote on the way to a tool call is smaller and muted; the reply that ends its turn is full size.
+  - The tool count and the muted messages need a session started or reloaded with this version of Hub.
   - Agent messages render Markdown: headings, emphasis, lists, code blocks, tables, links, and quotes. Wide code and tables scroll inside their own block. Only `http`, `https`, and `mailto` links can be tapped, and images show as links.
   - The view follows new messages while you are at the end. When you have scrolled up it stays put and shows **New messages ↓**. **Earlier messages** loads history a page at a time.
   - A reply shows at once, marked **Sending…**, then **Sent** or **Queued**, until Pi records it. A slash command such as `/compact` shows only its receipt.
   - Message times need a session started or reloaded with this version of Hub.
 - **Mark read** clears only the request the card shows.
+- Back returns to the list where you left it.
 - Each send shows **Submitting**, then **Accepted**, **Rejected**, or **Delivery unknown**. Nothing is sent twice on its own. A send to a session that restarted since the page loaded is rejected. An answer goes only to the question shown, and Mark read only clears the request shown.
 - After 10 seconds without data the page shows **Reconnecting** and disables sending.
 - **Notify** subscribes the device to a notification for each new request. Tapping it opens that session.

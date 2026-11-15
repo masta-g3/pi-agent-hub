@@ -242,6 +242,12 @@ test("live tool activity is bounded, sanitized, and drops malformed entries", ()
   assert.equal(parseSessionActivity(undefined), undefined);
 });
 
+test("the run's tool-call count is a bounded whole number and can stand alone", () => {
+  assert.deepEqual(parseSessionActivity({ calls: 14 }), { calls: 14 });
+  assert.deepEqual(parseSessionActivity({ current: { tool: "bash", at: 1 }, calls: 3 }), { current: { tool: "bash", at: 1 }, calls: 3 });
+  for (const calls of [0, -1, 1.5, "4", 1e7]) assert.equal(parseSessionActivity({ calls }), undefined, String(calls));
+});
+
 test("heartbeat activity round-trips and a malformed one is isolated", () => {
   const activity = { current: { tool: "bash", detail: "npm test", at: 950 }, recent: [{ tool: "read", detail: "src/a.ts", at: 940 }] };
   assert.deepEqual(parseHeartbeat(JSON.parse(JSON.stringify({ ...core, activity })), "api")?.activity, activity);

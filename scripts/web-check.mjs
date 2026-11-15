@@ -154,13 +154,66 @@ check("a list card answer needs a tap to select and a second tap to send", async
   reset([session("ask", { status: "waiting", ...attention("question", "r1", "Which layout?") })]);
   world.pending.set("ask", [QUESTION]);
   await open(page);
-  await page.getByRole("button", { name: "Transcript" }).click();
-  await page.getByRole("button", { name: "Send “Transcript”" }).waitFor();
+  await page.getByRole("button", { name: /^Transcript/u }).click();
+  await page.getByRole("button", { name: "Send answer" }).waitFor();
   assert.deepEqual(world.calls, []);
-  await page.getByRole("button", { name: "Send “Transcript”" }).click();
+  await page.getByRole("button", { name: "Send answer" }).click();
   await page.getByText(/^Accepted/u).waitFor();
   // An accepted answer also dismisses the request it answered.
   assert.deepEqual(world.calls, ['answer:ask:call-1:[{"questionIndex":0,"kind":"option","optionIndex":0}]', "ack:ask:r1"]);
+});
+
+check("a list card steps through several questions and sends them together", async (page) => {
+  const questions = [
+    { question: "Which layout?", header: "Layout", options: [{ label: "Transcript", description: "Full width" }, { label: "Bubbles", description: "Messenger style" }] },
+    { question: "Which extras?", header: "Extras", multiSelect: true, options: [{ label: "Times", description: "" }, { label: "Avatars", description: "" }] },
+    { question: "Anything else?", header: "Notes", options: [{ label: "No", description: "" }, { label: "Yes", description: "" }] },
+  ];
+  reset([session("ask", { status: "waiting", ...attention("question", "r1", "Three questions") })]);
+  world.pending.set("ask", [{ toolCallId: "call-3", params: { questions } }]);
+  await open(page);
+  await page.getByText("Layout · 1 of 3").waitFor();
+  // The card shows the question whole, not only its first sentence.
+  assert.equal(await page.getByText("delete every backup").count(), 0);
+  // A single choice moves on by itself.
+  await page.getByRole("button", { name: /^Bubbles/u }).click();
+  await page.getByText("Extras · 2 of 3").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Next" }).isDisabled(), true);
+  await page.getByRole("button", { name: /^Times/u }).click();
+  await page.getByRole("button", { name: /^Avatars/u }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByText("Notes · 3 of 3").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Answer each question" }).isDisabled(), true);
+  // A typed answer keeps focus through live list rebuilds.
+  await page.getByLabel("Type an answer").click();
+  await page.keyboard.type("Ship it");
+  change(() => { world.sessions = [{ ...world.sessions[0], title: "Renamed" }]; });
+  await page.getByText("Renamed").waitFor();
+  await page.keyboard.type(" today");
+  assert.equal(await page.getByLabel("Type an answer").inputValue(), "Ship it today");
+  // Back keeps earlier answers.
+  await page.getByRole("button", { name: "‹ Back" }).click();
+  assert.equal(await page.getByRole("button", { name: /^Avatars/u }).getAttribute("aria-pressed"), "true");
+  await page.getByRole("button", { name: "Question 3" }).click();
+  assert.deepEqual(world.calls, []);
+  await page.getByRole("button", { name: "Send 3 answers" }).click();
+  await page.getByText(/^Accepted/u).waitFor();
+  assert.deepEqual(world.calls, ['answer:ask:call-3:[{"questionIndex":0,"kind":"option","optionIndex":1},{"questionIndex":1,"kind":"multi","optionIndices":[0,1]},{"questionIndex":2,"kind":"custom","text":"Ship it today"}]', "ack:ask:r1"]);
+});
+
+check("a list card shows conditions, and leaves several pending questionnaires to the chat", async (page) => {
+  const ask = { question: "Can I proceed: (1) delete every backup (2) restart production?", header: "Proceed", options: [{ label: "Yes", description: "" }, { label: "No", description: "" }] };
+  reset([session("ask", { status: "waiting", ...attention("question", "r1", "Can I proceed?") })]);
+  world.pending.set("ask", [{ toolCallId: "c1", params: { questions: [ask] } }]);
+  await open(page);
+  await page.getByText("Proceed", { exact: true }).waitFor();
+  assert.equal(await page.locator(".stepper").getByText(/delete every backup/u).count(), 1);
+  reset([session("two", { status: "waiting", ...attention("question", "r2", "Two forms") })]);
+  world.pending.set("two", [{ toolCallId: "c1", params: { questions: [ask] } }, { toolCallId: "c2", params: { questions: [ask] } }]);
+  await open(page);
+  await page.getByText("Two forms").waitFor();
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator(".stepper").count(), 0);
 });
 
 check("a reply posts once, shows Accepted and clears the draft", async (page) => {
@@ -170,6 +223,7 @@ check("a reply posts once, shows Accepted and clears the draft", async (page) =>
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByText(/^Accepted/u).waitFor();
   assert.deepEqual(sends(), ["send:a:send:hello agent"]);
+  assert.equal(await reply(page).getAttribute("autocomplete"), "off", "no contact AutoFill in the reply box");
   assert.equal(await reply(page).inputValue(), "");
 });
 
@@ -207,7 +261,7 @@ check("a silent stream shows Reconnecting, blocks Send, then recovers", async (p
     await page.getByText(/^Reconnecting/u).waitFor({ timeout: 20_000 });
     assert.equal(await page.getByRole("button", { name: "Send" }).isDisabled(), true);
   } finally { resume(); }
-  await page.getByText("● Live").waitFor({ timeout: 20_000 });
+  await page.locator(".conn.on").waitFor({ timeout: 20_000 });
   assert.equal(await page.getByRole("button", { name: "Send" }).isDisabled(), false);
 });
 
@@ -430,13 +484,34 @@ check("typed text and focus in the composer survive live updates", async (page) 
 });
 
 check("an activity line shows only while the agent works", async (page) => {
-  reset([session("a", { status: "running", activity: { current: { tool: "bash", detail: "npm test", at: 1 } } })]);
+  const running = (activity) => session("a", { status: "running", activity, statusEvidence: { observedAt: 1, reason: "heartbeat-active", tmux: { state: "present" },
+    heartbeat: { freshness: "fresh", state: "running", stateSince: Date.now() - 125_000 }, acknowledgement: { state: "not-applicable" }, workflow: { source: "absent" } } });
+  reset([running({ current: { tool: "bash", detail: "npm test", at: 1 }, calls: 14 })]);
   fill("a", 2);
   await openChat(page);
   await page.locator(".activity").waitFor();
-  assert.match(await page.locator(".activity").textContent(), /bash npm test/u);
+  assert.match(await page.locator(".activity-text").textContent(), /^bash npm test$/u);
+  assert.match(await page.locator(".activity-count").textContent(), /^14 tools · 2m$/u);
+  // A new call rebuilds the line, which flashes once.
+  await page.evaluate(() => { document.querySelector(".activity").hubKept = true; });
+  change(() => { world.sessions = [running({ current: { tool: "read", detail: "a.ts", at: 2 }, calls: 15 })]; });
+  await page.locator(".activity-count", { hasText: "15 tools" }).waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector(".activity").hubKept), undefined);
+  // A run that starts without a tool gains its timer once the heartbeat reports the run.
   change(() => { world.sessions = [session("a", { status: "running" })]; });
-  await page.locator(".activity", { hasText: "Working" }).waitFor();
+  await page.waitForFunction(() => !document.querySelector(".activity-time"));
+  change(() => { world.sessions = [running({ current: { tool: "read", detail: "a.ts", at: 2 }, calls: 15 })]; });
+  await page.locator(".activity-time").waitFor();
+  // No tool in flight: the agent is thinking.
+  change(() => { world.sessions = [running({ calls: 15 })]; });
+  await page.locator(".activity-text.thinking", { hasText: "Thinking" }).waitFor();
+  // The list shows the same, never an older progress note.
+  change(() => { world.sessions = [{ ...running({ calls: 15 }), context: { version: 1, updatedAt: 1, progress: { next: "Old note", updatedAt: 1 } } }]; });
+  await page.goto(`${base}/`);
+  await page.locator(".sub.thinking", { hasText: "Thinking" }).waitFor();
+  assert.equal(await page.getByText("Old note").count(), 0);
+  await page.goBack();
+  await page.locator(".activity").waitFor();
   change(() => { world.sessions = [session("a", { status: "idle" })]; });
   await page.waitForFunction(() => !document.querySelector(".activity"));
 });
@@ -509,15 +584,15 @@ check("a sent reply shows at once and is replaced by Pi's record", async (page) 
   await reply(page).fill("queue this  one");
   await page.getByRole("button", { name: "Queue" }).click();
   const local = page.locator(".turn.local");
-  await local.locator(".turn-role", { hasText: "Sending…" }).waitFor();
+  await local.locator(".turn-state", { hasText: "Sending…" }).waitFor();
   assert.equal(await local.locator(".turn-body").textContent(), "queue this  one");
   world.hold();
-  await local.locator(".turn-role", { hasText: "Queued" }).waitFor();
+  await local.locator(".turn-state", { hasText: "Queued" }).waitFor();
   assert.equal(await reply(page).inputValue(), "");
 
   await reply(page).fill("steer now");
   await page.getByRole("button", { name: "Steer" }).click();
-  await page.locator(".turn.local .turn-role", { hasText: "Sent" }).waitFor();
+  await page.locator(".turn.local .turn-state", { hasText: "Sent" }).waitFor();
   assert.equal(await local.count(), 2);
 
   // Pi delivers the steered message first, then the queued one.
@@ -561,7 +636,7 @@ check("a rejected reply leaves no local turn; a lost response is marked unknown 
   await reply(page).fill("maybe delivered");
   await page.getByRole("button", { name: "Send" }).click();
   await page.getByText(/^Delivery unknown/u).first().waitFor();
-  await page.locator(".turn.local .turn-role", { hasText: "Delivery unknown" }).waitFor();
+  await page.locator(".turn.local .turn-state", { hasText: "Delivery unknown" }).waitFor();
   await page.waitForTimeout(4_000);
   assert.equal(await page.locator(".turn.local").count(), 1);
   assert.deepEqual(sends(), ["send:a:send:will be rejected", "send:a:send:maybe delivered"]);
@@ -575,13 +650,74 @@ check("turns are labeled, timed only after a pause, and unknown kinds stay reada
   say("a", "user", "Much later", base + 11 * 60_000);
   world.extraItems = [{ id: "x1", role: "tool", text: "exit 0\n**raw**" }];
   await openChat(page);
-  assert.deepEqual(await page.locator(".turn .turn-role").evaluateAll((roles) => roles.map((role) => role.firstChild.textContent)), ["YOU", "AGENT", "YOU", "TOOL"]);
+  // You and the agent are told apart by layout; their names stay for screen readers only.
+  const roles = await page.locator(".turn .turn-role").evaluateAll((all) => all.map((role) => [role.textContent, role.classList.contains("sr")]));
+  assert.deepEqual(roles, [["You", true], ["Agent", true], ["You", true], ["TOOL", false]]);
   assert.deepEqual(await page.locator(".turn").evaluateAll((all) => all.map((turn) => Boolean(turn.querySelector("time")))), [true, false, true, false]);
   assert.equal(await page.locator(".turn.is-tool .turn-body").textContent(), "exit 0\n**raw**");
-  // The band keeps one line; the full title is the first block of the transcript.
+  const place = await page.evaluate(() => {
+    const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+    return { you: box(".turn.is-user .turn-body").right, agent: box(".turn.is-assistant .turn-body").left, width: innerWidth };
+  });
+  assert.ok(place.you > place.width - 30 && place.agent < 30, `your turns sit right, the agent's left: ${JSON.stringify(place)}`);
+  // The band names the session once, on one line, with its state under it; the ticket opens the transcript.
   const band = await page.evaluate(() => ({ height: document.querySelector(".band").offsetHeight, name: document.querySelector(".band-name").scrollWidth > document.querySelector(".band-name").clientWidth }));
-  assert.ok(band.height <= 60 && band.name, JSON.stringify(band));
-  assert.match(await page.locator(".intro").textContent(), /A long session title that needs more than one line on a phone.*web-002/su);
+  assert.ok(band.height <= 76 && band.name, JSON.stringify(band));
+  assert.equal(await page.getByText("A long session title that needs more than one line on a phone").count(), 1);
+  assert.match(await page.locator(".band-sub").textContent(), /Idle/u);
+  assert.match(await page.locator(".intro").textContent(), /web-002 · Live chat/u);
+});
+
+check("a message written before a tool call is quieter than the turn's final reply", async (page) => {
+  reset([session("a")]);
+  say("a", "user", "Fix it");
+  world.branches.get("a").push({ type: "message", id: "w1", timestamp: new Date().toISOString(), message: { role: "assistant",
+    content: [{ type: "text", text: "Running tests first." }, { type: "toolCall", id: "t1", name: "bash", arguments: {} }] } });
+  say("a", "assistant", "Fixed.");
+  await openChat(page);
+  await turnWith(page, "Fixed.").waitFor();
+  assert.deepEqual(await page.locator(".turn.is-assistant").evaluateAll((all) => all.map((turn) => turn.classList.contains("interim"))), [true, false]);
+  const sizes = await page.evaluate(() => [...document.querySelectorAll(".turn.is-assistant .turn-body")].map((body) => getComputedStyle(body).fontSize));
+  assert.ok(parseFloat(sizes[0]) < parseFloat(sizes[1]), JSON.stringify(sizes));
+});
+
+check("a skill or file prompt shows as a folded chip with the words typed after it", async (page) => {
+  reset([session("a")]);
+  say("a", "user", '<skill name="review" location="/s/review/SKILL.md">\nReferences are relative to /s.\n\n# Review skill body\n</skill>\n\nfocus on the dock');
+  say("a", "user", '<file name="/jobs/1/task.md">\nTask body\n</file>\n');
+  await openChat(page);
+  const chips = page.locator(".attach summary");
+  assert.deepEqual(await chips.allTextContents(), ["/review", "@task.md"]);
+  assert.equal(await page.getByText("Review skill body").isVisible(), false);
+  assert.equal(await turnWith(page, "focus on the dock").locator(".pre").textContent(), "focus on the dock");
+  await chips.first().click();
+  assert.equal(await page.getByText("# Review skill body").isVisible(), true);
+});
+
+check("returning from a session restores the list's place, and Back steps through history", async (page) => {
+  reset(Array.from({ length: 30 }, (_, index) => session(`s${index}`, { status: "running" })));
+  await open(page);
+  await page.getByText("Session s29").waitFor();
+  await scrollTo(page, 600);
+  const y = await page.evaluate(() => window.scrollY);
+  await page.getByText("Session s20").click();
+  await page.locator(".band-name", { hasText: "Session s20" }).waitFor();
+  const entries = await page.evaluate(() => history.length);
+  await page.getByLabel("Back to inbox").click();
+  await page.getByText("Session s29").waitFor();
+  await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.scrollY), y);
+  assert.equal(await page.evaluate(() => history.length), entries, "Back adds no history entry");
+  // Opened straight from a link, Back still leads to the inbox, and never out of Hub after browser Back returns here.
+  await open(page, "/#/s/s3");
+  await page.locator(".band-name", { hasText: "Session s3" }).waitFor();
+  await page.getByLabel("Back to inbox").click();
+  await page.getByText("Session s29").waitFor();
+  await page.goBack();
+  await page.locator(".band-name", { hasText: "Session s3" }).waitFor();
+  await page.getByLabel("Back to inbox").click();
+  await page.getByText("Session s29").waitFor();
+  assert.equal(new URL(page.url()).origin, base);
 });
 
 // ---- run ----

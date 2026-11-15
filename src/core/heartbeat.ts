@@ -74,6 +74,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
 }
 
 export const ACTIVITY_RECENT_MAX = 6;
+const ACTIVITY_CALLS_MAX = 1_000_000;
 const ACTION_TOOL_MAX = 40;
 export const ACTION_DETAIL_MAX = 100;
 
@@ -95,7 +96,10 @@ export function parseSessionActivity(value: unknown): SessionActivity | undefine
   if (!isObject(value)) return undefined;
   const current = parseAction(value.current);
   const recent = Array.isArray(value.recent) ? value.recent.slice(0, ACTIVITY_RECENT_MAX).flatMap((item) => parseAction(item) ?? []) : [];
-  return current || recent.length ? { ...(current ? { current } : {}), ...(recent.length ? { recent } : {}) } : undefined;
+  const calls = Number.isInteger(value.calls) && (value.calls as number) > 0 && (value.calls as number) <= ACTIVITY_CALLS_MAX ? value.calls as number : undefined;
+  return current || recent.length || calls
+    ? { ...(current ? { current } : {}), ...(recent.length ? { recent } : {}), ...(calls ? { calls } : {}) }
+    : undefined;
 }
 
 /** A Rules entry with a step gives a positioned workflow; one without a step but with a lens gives that lens alone. */
