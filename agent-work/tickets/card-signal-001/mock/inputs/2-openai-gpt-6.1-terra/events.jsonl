@@ -1,0 +1,12 @@
+{"type":"agent_start","at":1794689536728}
+{"type":"tool_execution_start","at":1794689540217,"toolCallId":"call_5ef65b665d524a7f9e7c83bbdd466dc7|fc_06e4b71a031312cd016af8ca02e89087d28b114bc31dedb4e3","toolName":"read","args":{"path":"sum.js","offset":null,"limit":null}}
+{"type":"tool_execution_start","at":1794689540218,"toolCallId":"call_cccbc841c6b64657bb161daafa073db7|fc_06e4b71a031312cd016af8ca04143087d29390616625580146","toolName":"read","args":{"path":"sum.test.js","offset":null,"limit":null}}
+{"type":"tool_execution_start","at":1794689540218,"toolCallId":"call_9e438ab95ee64acb88186d81d50eb8db|fc_06e4b71a031312cd016af8ca04143087d2b5702c2df20445cd","toolName":"bash","args":{"command":"node --test","timeout":30}}
+{"type":"tool_execution_end","at":1794689540221,"toolCallId":"call_5ef65b665d524a7f9e7c83bbdd466dc7|fc_06e4b71a031312cd016af8ca02e89087d28b114bc31dedb4e3","toolName":"read","isError":false}
+{"type":"tool_execution_end","at":1794689540221,"toolCallId":"call_cccbc841c6b64657bb161daafa073db7|fc_06e4b71a031312cd016af8ca04143087d29390616625580146","toolName":"read","isError":false}
+{"type":"tool_execution_end","at":1794689540298,"toolCallId":"call_9e438ab95ee64acb88186d81d50eb8db|fc_06e4b71a031312cd016af8ca04143087d2b5702c2df20445cd","toolName":"bash","isError":true}
+{"type":"agent_end","at":1794689543136}
+{"type":"agent_settled","at":1794689543137,"aborted":false}
+{"type":"agent_start","at":1794689548075}
+{"type":"agent_end","at":1794689550358}
+{"type":"agent_settled","at":1794689550358,"aborted":false}

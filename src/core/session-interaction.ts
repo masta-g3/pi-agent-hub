@@ -18,9 +18,14 @@ export type AnswerInput = ({ questionIndex: number; kind: "option"; optionIndex:
   | { questionIndex: number; kind: "multi"; optionIndices: number[] }) & { notes?: string };
 export type MessageDelivery = "send" | "steer" | "followUp";
 export const LAST_MESSAGE_CHARS = 2_000;
+export const SKILL_LIST_MAX = 48;
+export const SKILL_DESCRIPTION_CHARS = 160;
+export interface SessionSkill { name: string; description?: string }
 export interface SessionInteractionState { answerChannel?: "rpiv-events"; questionProtocol: boolean; pending: PendingQuestion[]; questionUnavailableReason?: string; shortcutDisabledReason?: string; messageDelivery?: "idle" | "busy";
   /** The agent's latest text to the user on the live branch, bounded; shown on the selected session only. */
-  lastMessage?: string }
+  lastMessage?: string;
+  /** Skills loaded in this Pi session that `/skill:<name>` runs; reply completion and workflow chips use them. */
+  skills?: SessionSkill[] }
 export function answerUnavailableReason(state?: SessionInteractionState): string | undefined {
   if (!state) return "Question availability not confirmed";
   if (!state.answerChannel) return "Reload Pi in this session to answer from Hub";
@@ -104,13 +109,20 @@ export function requestSessionInteraction(request: InteractionRequest, env: Node
   });
 }
 
+export const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+function isSessionSkill(value: unknown): value is SessionSkill {
+  return isObject(value) && typeof value.name === "string" && SKILL_NAME.test(value.name)
+    && (value.description === undefined || typeof value.description === "string" && [...value.description].length <= SKILL_DESCRIPTION_CHARS);
+}
+
 function validResult(kind: InteractionRequest["kind"], value: unknown): value is InteractionResult {
   if (!isObject(value)) return false;
   if (kind === "state") return (value.answerChannel === undefined || value.answerChannel === "rpiv-events") && typeof value.questionProtocol === "boolean" && parsePendingQuestions(value.pending) !== undefined
     && (value.questionUnavailableReason === undefined || typeof value.questionUnavailableReason === "string")
     && (value.shortcutDisabledReason === undefined || typeof value.shortcutDisabledReason === "string")
     && (value.messageDelivery === undefined || value.messageDelivery === "idle" || value.messageDelivery === "busy")
-    && (value.lastMessage === undefined || typeof value.lastMessage === "string" && [...value.lastMessage].length <= LAST_MESSAGE_CHARS + 1);
+    && (value.lastMessage === undefined || typeof value.lastMessage === "string" && [...value.lastMessage].length <= LAST_MESSAGE_CHARS + 1)
+    && (value.skills === undefined || Array.isArray(value.skills) && value.skills.length <= SKILL_LIST_MAX && value.skills.every(isSessionSkill));
   if (kind === "read") return typeof value.branchId === "string" && typeof value.revision === "string"
     && (value.before === undefined || typeof value.before === "string") && Array.isArray(value.items) && value.items.length <= 20
     && value.items.every((item) => isObject(item) && typeof item.id === "string" && typeof item.text === "string"

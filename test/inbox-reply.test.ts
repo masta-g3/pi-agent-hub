@@ -9,15 +9,18 @@ import { interactionTarget } from "../src/app/session-interaction.js";
 import { DELIVERY_UNCONFIRMED, requestSessionInteraction, type MessageDelivery, type SessionInteractionState } from "../src/core/session-interaction.js";
 import type { RuntimeSession } from "../src/core/types.js";
 import { SessionsView } from "../src/tui/sessions-view.js";
-import { dashboardFooter } from "../src/tui/dashboard-commands.js";
+import { dashboardFooter, dashboardHelpSections } from "../src/tui/dashboard-commands.js";
 import { stripAnsi } from "../src/tui/theme.js";
 
 const session: RuntimeSession = { id: "s", title: "Dashboard UI polish", cwd: "/tmp/repo", group: "cards", tmuxSession: "s", status: "waiting", piSessionId: "pi-s", interaction: { version: 1, instanceId: "instance" }, createdAt: 1, updatedAt: 1 };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const type = (view: SessionsView, value: string) => { for (const char of value) view.handleInput(char); };
 const text = (view: SessionsView, width = 80) => stripAnsi(view.render(width).join("\n"));
-async function setup(options: { busy?: boolean; error?: string; ready?: boolean; host?: string; height?: number } = {}) {
+const SKILLS = ["plan-md", "execute", "review", "reflect", "commit", "write-pr"].map(name => ({ name, description: name === "reflect" ? `${name} skill ${"and more words ".repeat(9).trim()}` : `${name} skill` }));
+const WORKFLOW = { steps: [["plan-md", "PL"], ["execute", "EX"], ["review", "RV"], ["reflect", "RF"], ["commit", "CM"]].map(([id, short]) => ({ id: id!, short: short! })), activeIndex: 2, currentStepComplete: true, updatedAt: 1 };
+async function setup(options: { busy?: boolean; error?: string; ready?: boolean; host?: string; height?: number; skills?: boolean; workflow?: boolean } = {}) {
   const selected = structuredClone(session);
+  if (options.workflow) selected.workflow = structuredClone(WORKFLOW);
   if (options.ready) selected.context = { version: 1, updatedAt: 1, attention: { kind: "ready", text: "Review the change", recommendation: "Run the checks", requestId: "r" } };
   const controller = new SessionsController({ version: 1, sessions: [selected] });
   const sent: { target: unknown; message: string; delivery: MessageDelivery }[] = [];
@@ -25,7 +28,7 @@ async function setup(options: { busy?: boolean; error?: string; ready?: boolean;
   let now = 1;
   const view = new SessionsView(controller, () => { throw new Error("global quit fired"); }, {
     terminalRows: () => options.height ?? 24, interactionTarget, now: () => now,
-    loadInteractionState: async () => ({ questionProtocol: true, pending: [], messageDelivery: delivery }),
+    loadInteractionState: async () => ({ questionProtocol: true, pending: [], messageDelivery: delivery, ...(options.skills || options.workflow ? { skills: SKILLS } : {}) }),
     sendMessage: async (target, message, mode) => { sent.push({ target, message, delivery: mode }); if (options.error) throw new Error(options.error); },
     ...(options.host?.startsWith("board") ? { initialViewState: { grouping: "stage" as const } } : {}),
     ...(options.host === "pin" || options.host === "follow" ? { sidePaneState: () => ({ slots: [session.id], capacity: 2, constrained: false, splitPercent: 50, following: options.host === "follow" }) } : {}),
@@ -185,7 +188,7 @@ test("card replies reach the real guarded socket: idle expands, busy stays liter
   const server = await startSessionInteraction({ managedId: session.id, piSessionId: session.piSessionId!, env,
     events: { on: (name, fn) => { events.on(name, fn); return () => { events.off(name, fn); }; }, emit: (name, value) => { events.emit(name, value); } },
     getPiSessionId: () => session.piSessionId!, getBranch: () => [], isIdle: () => idle, hasPendingMessages: () => false,
-    getEditorText: () => nativeDraft, uiPromptOpen: () => false,
+    getEditorText: () => nativeDraft, uiPromptOpen: () => false, getCommands: () => [],
     sendUserMessage: (message, options) => { received.push({ message, options }); },
   });
   try {
@@ -213,4 +216,131 @@ test("card replies reach the real guarded socket: idle expands, busy stays liter
       { message: "/template steer", options: { deliverAs: "steer", expandPromptTemplates: false } },
     ]);
   } finally { await server.close(); await rm(dir, { recursive: true, force: true }); }
+});
+
+test("/ in Reply lists the session's loaded skills; arrows choose, Tab completes, and Enter sends Pi's skill command", async () => {
+  const { view, sent } = await setup({ skills: true });
+  view.handleInput("p"); type(view, "/re");
+  const listed = text(view, 120);
+  assert.match(listed, /▌\/review  review skill/);
+  assert.match(listed, /\/reflect  reflect skill and more/);
+  assert.doesNotMatch(listed, /\/commit/);
+  assert.match(listed, /↑↓ Choose +Tab Complete/);
+  view.handleInput("\u001b[B"); view.handleInput("\t");
+  assert.match(text(view), /\/reflect █/);
+  assert.doesNotMatch(text(view), /reflect skill/);
+  type(view, "only docs"); view.handleInput("\r"); await tick();
+  assert.equal(sent[0]?.message, "/skill:reflect only docs");
+  // Enter on an open list completes rather than sending a half-typed name.
+  view.handleInput("p"); type(view, "/com"); view.handleInput("\r");
+  assert.equal(sent.length, 1); assert.match(text(view), /\/commit █/);
+});
+
+test("long skill descriptions stay on one row each, cut to the panel width, below the card's own rows", async () => {
+  // A ready handoff adds card rows above the reply, shifting the panel body.
+  const { view } = await setup({ skills: true, ready: true });
+  view.handleInput("p"); view.handleInput("\u0015"); type(view, "/re");
+  const rows = text(view, 120).split("\n");
+  // A wrapped description would put its later words on rows of their own.
+  assert.equal(rows.filter(row => /more words/.test(row)).length, 1);
+  assert.ok(rows.find(row => /\/reflect/.test(row))?.includes("…"));
+});
+
+test("a typed /name for a loaded skill steers as the skill; other slash text is unchanged", async () => {
+  const { view, sent } = await setup({ skills: true, busy: true });
+  view.handleInput("p"); type(view, "/review now"); view.handleInput("\r"); await tick();
+  view.handleInput("p"); type(view, "/template x"); view.handleInput("\r"); await tick();
+  assert.deepEqual(sent.map(item => [item.message, item.delivery]), [["/skill:review now", "steer"], ["/template x", "steer"]]);
+});
+
+test("workflow steps show as chips with the next step picked; arrows move it and Enter sends it", async () => {
+  const { view, sent } = await setup({ workflow: true });
+  view.handleInput("p");
+  assert.match(text(view, 120), /plan-md execute review \[reflect\] commit/);
+  assert.match(text(view, 120), /Enter Send \/reflect +←\/→ Step +Esc Keep draft/);
+  view.handleInput("\u001b[D"); assert.match(text(view, 120), /execute \[review\] reflect/);
+  view.handleInput("\r"); await tick();
+  assert.equal(sent[0]?.message, "/skill:review");
+  // After a send, the pick returns to the workflow's next step.
+  view.handleInput("p"); assert.match(text(view, 120), /\[reflect\]/);
+  type(view, "x"); assert.doesNotMatch(text(view, 120), /\[reflect\]/);
+  // With text typed, the arrows edit the input again.
+  view.handleInput("\u001b[D"); assert.match(text(view, 120), /█x/);
+});
+
+test("a ready handoff with workflow chips starts empty so Enter sends the next step", async () => {
+  const { view, sent } = await setup({ workflow: true, ready: true });
+  view.handleInput("p");
+  assert.match(text(view, 120), /→ Run the checks/);
+  assert.match(text(view, 120), /\[reflect\]/);
+  assert.doesNotMatch(text(view, 120), /Go ahead:/);
+  view.handleInput("\r"); await tick();
+  assert.equal(sent[0]?.message, "/skill:reflect");
+});
+
+test("narrow busy chips advertise the step keys, not Steer/Queue arrows", async () => {
+  const { view, sent } = await setup({ workflow: true, busy: true });
+  view.handleInput("p");
+  const rendered = text(view, 30);
+  assert.match(rendered, /Enter Steer \/reflect/);
+  assert.match(rendered, /←\/→ Step/);
+  assert.doesNotMatch(rendered, /Steer\/Queue/);
+  view.handleInput("\u001b[C"); view.handleInput("\r"); await tick();
+  assert.deepEqual(sent.map(item => [item.message, item.delivery]), [["/skill:commit", "steer"]]);
+});
+
+test("busy delivery focus keeps the arrows for Steer and Queue, and the pick stays", async () => {
+  const { view, sent } = await setup({ workflow: true, busy: true });
+  view.handleInput("p"); assert.match(text(view, 120), /\[reflect\]/);
+  view.handleInput("\t"); view.handleInput("\u001b[C");
+  assert.match(text(view, 120), /Queue for later/);
+  view.handleInput("\t"); assert.match(text(view, 120), /\[reflect\]/);
+  view.handleInput("\r"); await tick();
+  assert.deepEqual(sent.map(item => [item.message, item.delivery]), [["/skill:reflect", "followUp"]]);
+});
+
+test("without a workflow or loaded skills there are no chips", async () => {
+  for (const options of [{ skills: true }, {}]) {
+    const { view } = await setup(options); view.handleInput("p");
+    assert.doesNotMatch(text(view, 120), /\[|Step/);
+    type(view, "/re"); if (!options.skills) assert.doesNotMatch(text(view, 120), /Choose/);
+  }
+});
+
+for (const width of [160, 80, 60, 30]) for (const busy of [false, true]) test(`skill chips and completions fit ${width} columns (${busy ? "busy" : "idle"})`, async () => {
+  const { view } = await setup({ workflow: true, busy, height: 24 }); view.handleInput("p");
+  for (const rows of [view.render(width), (type(view, "/"), view.render(width))]) {
+    const rendered = stripAnsi(rows.join("\n"));
+    assert.ok(rows.length <= 24); for (const row of rows) assert.ok(visibleWidth(row) <= width, row);
+    assert.match(rendered, /REPLY/);
+    if (busy && width >= 60) assert.match(rendered, /Delivery/);
+  }
+  view.handleInput("\u0015");
+  assert.match(text(view, width), /reflect/);
+});
+
+test("> sends the next step's skill once the step is complete; card, palette and Help name it", async () => {
+  const { view, sent } = await setup({ workflow: true });
+  assert.match(text(view, 120), /> Next: \/reflect/);
+  view.handleInput(">"); await tick();
+  assert.deepEqual(sent.map(item => [item.message, item.delivery]), [["/skill:reflect", "send"]]);
+  assert.match(text(view, 120), /Accepted · Sent \/reflect/);
+  const help = dashboardHelpSections().flatMap(section => section.commands).find(command => command.displayKey === ">");
+  assert.equal(help?.label, "Next skill");
+});
+
+for (const [name, change, reason] of [
+  ["busy", { busy: true }, /Pi is busy; reply with Steer or Queue instead/],
+  ["incomplete", { incomplete: true }, /current workflow step is not complete/],
+  ["no workflow", { skills: true }, /no workflow step to continue/],
+  ["not a loaded skill", { missing: true }, /next workflow step is not a skill loaded in this session/],
+] as const) test(`> explains why it cannot send: ${name}`, async () => {
+  const { view, sent, controller } = await setup({ workflow: !("skills" in change), skills: true, busy: "busy" in change });
+  const row = controller.snapshot().sessions[0]!;
+  if ("incomplete" in change) row.workflow!.currentStepComplete = false;
+  if ("missing" in change) row.workflow!.steps[3] = { id: "polish", short: "PO" };
+  view.handleInput(">"); await tick();
+  assert.equal(sent.length, 0);
+  assert.match(text(view, 160), reason);
+  assert.doesNotMatch(text(view, 160), /Next: \//);
 });

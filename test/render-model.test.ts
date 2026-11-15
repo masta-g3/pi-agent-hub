@@ -2589,6 +2589,27 @@ test("workflow board uses activity plus an eight-cell square progress bar", () =
   assert.doesNotMatch(noTotalText, /■|□|0\/0/);
 });
 
+test("Execute parity keeps workflow-board phase, task counts and derived activity width-safe", () => {
+  for (const width of [160, 100, 80]) for (const activity of [{ id: "implement", label: "Implementing" }, { id: "verify", label: "Verifying" }]) {
+    const row = { ...session("parity", "hub", "running", "Execute parity"), workflow: {
+      ...WORKFLOW, activity,
+      plan: { phase: { index: 2, count: 3, title: "Transport" }, tasks: { completed: 5, total: 12 }, nextStep: "Wire the parser" },
+      lens: { doing: "Checking npm test", stages: [{ label: "implement", state: "done" as const }, { label: "verify", state: "active" as const }, { label: "done", state: "pending" as const }], progress: { completed: 5, total: 12 }, summary: "phase 2/3 · Transport" },
+    } };
+    const model = buildRenderModel({ sessions: [row], grouping: "stage", width, height: 40, now: 10 });
+    assert.equal(model.sections[0]?.key, "execute");
+    const layout = renderSessions(model);
+    const text = layout.lines.map(stripAnsi).join("\n");
+    assert.ok(layout.lines.every(line => visibleWidth(line) <= width), text);
+    assert.match(text, /Execute parity/);
+    if (width >= 100) {
+      assert.match(text, /Phase 2\/3 · Transport/);
+      assert.ok(text.includes(activity.label), text);
+      assert.match(text, /■■■□□□□□ 5\/12/);
+    } else assert.doesNotMatch(text, /Phase 2\/3|■|□/);
+  }
+});
+
 test("needsYouOwners lists explicit owner requests in dashboard order and otherRequestCounts excludes self", () => {
   const request = (requestId: string) => ({ version: 1 as const, updatedAt: 2, attention: { requestId, kind: "question" as const, text: "Choose" } });
   const tmux = (state: "present" | "missing") => ({ statusEvidence: {
