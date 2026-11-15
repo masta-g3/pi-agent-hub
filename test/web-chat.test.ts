@@ -72,3 +72,37 @@ test("a reply to an idle agent is retired by the next recorded user message, wha
   assert.deepEqual(settleSent([sent(1, "a", "send"), sent(2, "a", "steer")], [user("m3", "a")]).map((item) => item.localId), [2]);
   assert.deepEqual(settleSent([sent(1, "a", "steer"), sent(2, "b", "steer")], [user("m4", "b"), user("m5", "a")]), []);
 });
+
+const { splitPrompt } = await import(new URL("../../web/chat.js", import.meta.url).href) as {
+  splitPrompt(text: string): { attachments: { kind: string; name: string; body: string }[]; text: string };
+};
+
+test("a skill invocation shows as its name and the words typed after it", () => {
+  const skill = '<skill name="review" location="/home/u/.agents/skills/review/SKILL.md">\nReferences are relative to /x.\n\n# Review\nbody with </skill> inside\n</skill>';
+  assert.deepEqual(splitPrompt(`${skill}\n\nfocus on the dock`), {
+    attachments: [{ kind: "skill", name: "review", body: "References are relative to /x.\n\n# Review\nbody with </skill> inside" }],
+    text: "focus on the dock",
+  });
+  assert.deepEqual(splitPrompt(skill).text, "");
+  assert.equal(splitPrompt(skill).attachments[0]!.name, "review");
+});
+
+test("attached files show as names, and their bodies may contain a closing tag", () => {
+  const text = '<file name="/jobs/1/task.md">\nTask: read </file> here\n</file>\n<file name="/tmp/b.png"></file>\nPlease review';
+  assert.deepEqual(splitPrompt(text), {
+    attachments: [{ kind: "file", name: "task.md", body: "Task: read </file> here" }, { kind: "file", name: "b.png", body: "" }],
+    text: "Please review",
+  });
+});
+
+test("typed text that mentions a closing file tag is never folded away", () => {
+  for (const text of ['<file name="/a.md">\nbody\n</file>\nExplain why the </file> tag is rejected.', '<file name="/a.md">\nbody\n</file>\nExplain this XML:\n</file>\nWhy?']) {
+    assert.deepEqual(splitPrompt(text), { attachments: [], text });
+  }
+});
+
+test("text that only resembles a block stays as typed", () => {
+  for (const text of ["<skill name=\"x\">no location</skill>", "see <file name=\"a\">x</file>", "<skill name=\"a\" location=\"b\">\nnever closed", "[continue]"]) {
+    assert.deepEqual(splitPrompt(text), { attachments: [], text });
+  }
+});

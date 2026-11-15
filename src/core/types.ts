@@ -83,6 +83,8 @@ export interface SessionAction {
 export interface SessionActivity {
   current?: SessionAction;
   recent?: SessionAction[];
+  /** Tool calls started in the current or last agent run. */
+  calls?: number;
 }
 
 /** A producer's plain-words note on what the agent achieved and what comes next. */

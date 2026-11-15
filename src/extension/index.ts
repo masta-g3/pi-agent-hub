@@ -100,6 +100,7 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
   // Tool names and one short argument only; the dashboard shows what the agent is doing, never tool output.
   const running = new Map<string, SessionAction>();
   let recentActions: SessionAction[] = [];
+  let runCalls = 0;
   let activityTimer: ReturnType<typeof setTimeout> | undefined;
   let activityCtx: PiContext | undefined;
   const publishActivity = (ctx: PiContext) => {
@@ -190,9 +191,10 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
         piSessionName: normalizedName(pi.getSessionName?.()),
         context: sessionContextSnapshot(ctx),
         ...workflowFields(ctx),
-        ...(state !== "shutdown" && (running.size || recentActions.length) ? { activity: {
+        ...(state !== "shutdown" && (running.size || recentActions.length || runCalls) ? { activity: {
           ...(running.size ? { current: [...running.values()].at(-1)! } : {}),
           ...(recentActions.length ? { recent: recentActions } : {}),
+          ...(runCalls ? { calls: runCalls } : {}),
         } } : {}),
         ...(forkCompactOperation ? { operation: forkCompactOperation } : {}),
         ...(state !== "shutdown" && ctx.model?.provider && ctx.model.id
@@ -351,12 +353,14 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
     clearCompaction();
     for (const timer of settledHeartbeatTimers) clearTimeout(timer);
     settledHeartbeatTimers = [];
+    runCalls = 0;
     await publishLifecycle("running", ctx as PiContext);
   });
   pi.on("tool_execution_start", (event, ctx) => {
     // Requests and handoffs already show as the session's request; they are not work to log.
     if (event.parentToolCallId || CONVERSATION_TOOLS.has(event.toolName)) return;
     const detail = actionDetail(event.toolName, event.args, (ctx as PiContext).cwd);
+    runCalls += 1;
     running.set(event.toolCallId, { tool: (TOOL_LABELS[event.toolName] ?? event.toolName.replace(/^mcp__.*__/u, "")).slice(0, 40), ...(detail ? { detail } : {}), at: Date.now() });
     publishActivity(ctx as PiContext);
   });

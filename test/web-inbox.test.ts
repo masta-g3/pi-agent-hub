@@ -45,6 +45,20 @@ function fleet(): RuntimeSession[] {
   ];
 }
 
+test("a working session carries its live tool, its run's call count and when the run started", () => {
+  const evidence = (state: "running" | "waiting") => ({ observedAt: NOW, reason: "heartbeat-active" as const, tmux: { state: "present" as const }, heartbeat: { freshness: "fresh" as const, state, stateSince: NOW - 120_000 },
+    acknowledgement: { state: "not-applicable" as const }, workflow: { source: "absent" as const } });
+  const rows = buildInboxSnapshot([
+    session("tool", { status: "running", activity: { current: { tool: "bash", detail: "npm test", at: NOW }, calls: 14 }, statusEvidence: evidence("running") }),
+    session("think", { status: "running", activity: { recent: [{ tool: "read", at: NOW }] } }),
+    session("idle", { activity: { recent: [{ tool: "read", at: NOW }], calls: 3 }, statusEvidence: evidence("waiting") }),
+  ], NOW).tiers.flatMap((tier) => tier.sessions);
+  const byId = new Map(rows.map((row) => [row.id, row.work]));
+  assert.deepEqual(byId.get("tool"), { tool: "bash npm test", calls: 14, since: NOW - 120_000 });
+  assert.deepEqual(byId.get("think"), {});
+  assert.equal(byId.get("idle"), undefined);
+});
+
 test("tiers and order follow the dashboard projection, with parents only and no archive", () => {
   const sessions = fleet();
   const snapshot = buildInboxSnapshot(sessions, NOW);

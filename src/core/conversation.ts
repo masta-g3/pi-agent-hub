@@ -6,6 +6,8 @@ export interface ConversationItem {
   text: string;
   truncated?: boolean;
   toolCallId?: string;
+  /** An agent message written on the way to a tool call, not the turn's final reply. */
+  interim?: true;
   /** When Pi recorded the message, in epoch milliseconds. Absent from extensions that predate it. */
   at?: number;
 }
@@ -151,7 +153,10 @@ export function readConversation(
       const body = typeof content === "string" ? content : Array.isArray(content)
         ? content.filter((block) => record(block) && block.type === "text" && typeof block.text === "string").map((block) => block.text).join("\n")
         : "";
-      push(item(entry.id, message.role, body, at));
+      const said = item(entry.id, message.role, body, at);
+      const working = message.role === "assistant" && Array.isArray(content)
+        && content.some((block) => record(block) && block.type === "toolCall" && block.name !== "ask_user_question");
+      push(said && working ? { ...said, interim: true } : said);
       if (message.role !== "assistant" || !Array.isArray(content)) continue;
       for (const block of content) {
         if (!record(block) || block.type !== "toolCall" || block.name !== "ask_user_question" || typeof block.id !== "string") continue;

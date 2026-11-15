@@ -30,6 +30,8 @@ export interface InboxSession {
   steps?: { short: string; state: "done" | "active" | "pending" }[];
   attention?: InboxAttention;
   statusLine?: string;
+  /** Only while the agent works: the live tool call (none means it is thinking), the run's call count, and when the run began. */
+  work?: { tool?: string; calls?: number; since?: number };
   runningSubagents: number;
   hiddenChildRequests: number;
   canInteract: boolean;
@@ -106,6 +108,11 @@ function inboxSession(row: RuntimeSession, descendants: readonly RuntimeSession[
       ...optional("artifact", attention.artifact),
     } } : {}),
     ...optional("statusLine", statusLine, 240),
+    ...(row.status === "running" || row.status === "starting" ? { work: {
+      ...optional("tool", action && `${action.tool}${action.detail ? ` ${action.detail}` : ""}`, 240),
+      ...(row.activity?.calls ? { calls: row.activity.calls } : {}),
+      ...(row.statusEvidence?.heartbeat.state === "running" && row.statusEvidence.heartbeat.stateSince !== undefined ? { since: row.statusEvidence.heartbeat.stateSince } : {}),
+    } } : {}),
     runningSubagents: descendants.filter((child) => child.status === "starting" || child.status === "running").length,
     hiddenChildRequests: descendants.filter((child) => visibleAttention(child) !== undefined).length,
     canInteract: target !== undefined,

@@ -24,6 +24,16 @@ test("conversation includes authored text but not thinking, tools, metadata or s
   assert.equal(result.before, undefined);
 });
 
+test("an agent message written before a tool call is interim; the one that ends the turn is not", () => {
+  const result = readConversation([
+    entry("u", { role: "user", content: [text("Fix it.")] }),
+    entry("a1", { role: "assistant", content: [text("Running the tests first."), { type: "toolCall", id: "t1", name: "bash", arguments: {} }] }),
+    entry("r1", { role: "toolResult", toolName: "bash", toolCallId: "t1", content: [text("ok")] }),
+    entry("a2", { role: "assistant", content: [text("Fixed."), { type: "thinking", thinking: "x" }] }),
+  ], { branchId: "branch" });
+  assert.deepEqual(result.items.map((item) => [item.id, item.interim]), [["u", undefined], ["a1", true], ["a2", undefined]]);
+});
+
 test("questions and canonical native answers form readable exchanges without duplicate previews", () => {
   const result = readConversation([
     entry("ask", { role: "assistant", content: [text("Choose a method."), call] }),

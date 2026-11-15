@@ -52,8 +52,8 @@ function conversationPage(page: ConversationPage) {
     branchId: page.branchId,
     revision: page.revision,
     ...(page.before === undefined ? {} : { before: page.before }),
-    items: page.items.map(({ id, role, text, truncated, toolCallId, at }) => ({
-      id, role, text, ...(truncated ? { truncated } : {}), ...(toolCallId === undefined ? {} : { toolCallId }), ...(at === undefined ? {} : { at }),
+    items: page.items.map(({ id, role, text, truncated, toolCallId, at, interim }) => ({
+      id, role, text, ...(truncated ? { truncated } : {}), ...(interim ? { interim } : {}), ...(toolCallId === undefined ? {} : { toolCallId }), ...(at === undefined ? {} : { at }),
     })),
   };
 }
