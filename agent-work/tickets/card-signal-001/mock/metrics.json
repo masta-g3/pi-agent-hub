@@ -1,0 +1,1823 @@
+{
+  "aggregate": {
+    "sessions": 13,
+    "turns": 21,
+    "tool_calls": 123,
+    "turns_without_note": 1,
+    "incomplete_turns": 0,
+    "unknown_tool_intervals": 0,
+    "unknown_wall_s": 0,
+    "bounded_wall_s": 595.022,
+    "note_lag_s": {
+      "n": 20,
+      "median": 4.819,
+      "p90": 7.678,
+      "values": [
+        4.733,
+        6.481,
+        3.586,
+        5.534,
+        5.646,
+        4.917,
+        7.992,
+        4.872,
+        4.887,
+        1.821,
+        7.678,
+        4.819,
+        10.735,
+        1.583,
+        4.335,
+        4.913,
+        1.652,
+        3.859,
+        3.915,
+        4.232
+      ]
+    },
+    "note_age_at_action_s": {
+      "n": 9,
+      "median": 34.447,
+      "p90": 51.481,
+      "values": [
+        3.421,
+        25.793,
+        28.015,
+        31.133,
+        34.447,
+        40.97,
+        43.279,
+        48.905,
+        51.481
+      ]
+    },
+    "note_older_than_turn_share": 1,
+    "stale_turn_share": 0.10207185616666274,
+    "stale_next_visible_share": 0.9976674277641802,
+    "doing_task_lag_s": {
+      "n": 5,
+      "median": 12.784,
+      "p90": 17.483,
+      "values": [
+        17.483,
+        16.957,
+        6.397,
+        12.784,
+        5.871
+      ]
+    },
+    "edits_without_observed_checkbox": 2,
+    "said_narration_age_s": {
+      "n": 77,
+      "median": 4.703,
+      "p90": 19.88,
+      "values": [
+        0,
+        0.001,
+        0,
+        0,
+        4.226,
+        6.921,
+        0.001,
+        2.953,
+        5.175,
+        16.062,
+        21.709,
+        24.071,
+        0.001,
+        0.002,
+        3.227,
+        3.228,
+        3.228,
+        0,
+        1.954,
+        0.001,
+        0.001,
+        1.839,
+        0.001,
+        0.002,
+        0.002,
+        0,
+        3.314,
+        9.837,
+        12.146,
+        17.772,
+        20.348,
+        0,
+        0,
+        0.001,
+        3.856,
+        14.984,
+        0.001,
+        0,
+        3,
+        6.353,
+        6.353,
+        0,
+        2.857,
+        5.504,
+        8.093,
+        10.298,
+        14.117,
+        17.078,
+        19.88,
+        34.036,
+        0.001,
+        2.848,
+        6.398,
+        8.812,
+        13.104,
+        16.897,
+        20.442,
+        0.001,
+        2.007,
+        5.123,
+        7.172,
+        9.191,
+        19.955,
+        0.001,
+        4.703,
+        6.49,
+        10.573,
+        12.856,
+        0.001,
+        4.92,
+        8.999,
+        0,
+        5.571,
+        7.72,
+        11.01,
+        16.74,
+        20.115
+      ]
+    },
+    "said_narration_stale_action_share": 0.6753246753246753,
+    "said_fallback_share": 0,
+    "said_fallback_predates_user_s": 0,
+    "said_fallback_predates_user_episodes": 0,
+    "field_dwell_s": {
+      "doing": {
+        "n": 16,
+        "median": 13.193999999999997,
+        "p90": 21.828,
+        "values": [
+          5.632000000000001,
+          12.899000000000001,
+          17.483000000000004,
+          5.633000000000001,
+          29.274000000000004,
+          19.916999999999998,
+          13.216,
+          6.706,
+          16.299,
+          14.83,
+          13.193999999999997,
+          7.481000000000001,
+          21.828,
+          10.162999999999998,
+          4.079,
+          15.228000000000002
+        ]
+      },
+      "next": {
+        "n": 8,
+        "median": 3.4189999999999996,
+        "p90": 30.94,
+        "values": [
+          0,
+          8.888,
+          0,
+          10.297,
+          0,
+          3.4189999999999996,
+          30.94,
+          7.332999999999999
+        ]
+      },
+      "said": {
+        "n": 38,
+        "median": 5.646,
+        "p90": 23.240000000000002,
+        "values": [
+          12.809999999999999,
+          9.898,
+          4.733,
+          27.203000000000003,
+          6.481,
+          6.017999999999999,
+          17.37,
+          4.48,
+          3.586,
+          5.5729999999999995,
+          5.646,
+          2.9179999999999997,
+          4.941,
+          7.992,
+          4.875,
+          23.240000000000002,
+          4.887,
+          10.633,
+          17.484,
+          2.626,
+          9.779,
+          1.821,
+          40.855000000000004,
+          23.318,
+          7.678,
+          22.576999999999998,
+          14.78,
+          4.819,
+          13.491999999999999,
+          10.735000000000001,
+          1.605,
+          4.413,
+          4.912999999999999,
+          1.6909999999999998,
+          3.92,
+          3.915,
+          23.118000000000006,
+          4.232
+        ]
+      }
+    },
+    "execute_cadence": {
+      "sessions": 4,
+      "runs": 4,
+      "closed_runs": 0,
+      "terminal_response_runs": 4,
+      "zero_update_runs": 1,
+      "checkbox_updates": 10,
+      "updates_without_attributed_plan_edit": 0,
+      "update_interval_s": {
+        "n": 7,
+        "median": 13.216,
+        "p90": 19.917,
+        "values": [
+          17.483,
+          5.633,
+          19.917,
+          13.216,
+          6.706,
+          14.83,
+          13.194
+        ],
+        "max": 19.917
+      },
+      "tasks_ticked_per_update": {
+        "n": 10,
+        "median": 1,
+        "p90": 2,
+        "values": [
+          1,
+          1,
+          2,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          2
+        ]
+      },
+      "single_task_updates": 8,
+      "burst_updates": 2,
+      "reopen_updates": 0,
+      "phase_alignment_known_updates": 10,
+      "phase_checkpoint_updates": 6,
+      "whole_phase_burst_updates": 2,
+      "tasks_ticked": 12,
+      "ticks_in_final_tenth": 2,
+      "ticks_in_final_tenth_share": 0.16666666666666666,
+      "end_plan_completeness": {
+        "complete": 3,
+        "incomplete": 0,
+        "unknown": 1
+      },
+      "finished_tasks_all_ticked": {
+        "confirmed": 3,
+        "unknown": 1
+      },
+      "tool_calls": 58,
+      "plan_edit_calls": 12,
+      "explicit_plan_edit_calls": 11,
+      "shell_plan_update_calls": 1,
+      "plan_edit_tool_call_share": 0.20689655172413793,
+      "plan_edit_duration_s": {
+        "n": 12,
+        "median": 0.002,
+        "p90": 0.005,
+        "values": [
+          0.003,
+          0.001,
+          0.009,
+          0.004,
+          0.002,
+          0.002,
+          0.002,
+          0.005,
+          0.002,
+          0.001,
+          0.001,
+          0.001
+        ]
+      },
+      "last_code_change_to_tick_s": {
+        "n": 5,
+        "median": 6.397,
+        "p90": 16.957,
+        "values": [
+          0,
+          16.957,
+          6.397,
+          12.784,
+          5.871
+        ]
+      }
+    }
+  },
+  "sessions": [
+    {
+      "session": "d5547c57a4617bcf",
+      "tool_calls": 7,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 34.162,
+      "note_lag_s": {
+        "n": 1,
+        "median": 4.733,
+        "p90": 4.733,
+        "values": [
+          4.733
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [],
+        "said": [
+          {
+            "value": "`sum` subtracts instead of adding. Next: change `-` to `+` and rerun.",
+            "seconds": 12.809999999999999
+          },
+          {
+            "value": "The fix passes. Now refactoring and adding tests.",
+            "seconds": 9.898
+          },
+          {
+            "value": "All 3 tests pass now. Nothing is committed.\n\n- **Bug:** `sum` returned `a - b` instead of `a + b`. I changed it, and after the fix the original test passed (1/1). Then I ran `sleep 8` as the slow verification step.\n- **Refactor:** `sum.js` is now `export const sum = (a, b) => a + b;` and behaves the same.\n- **New tests in `sum.test.js`:** one for zero operands (`0+0`, `0+7`, `7+0`) and one for negative operands (`-2+-3`, `-2+5`, `2+-5`).",
+            "seconds": 4.733
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 6,
+        "median": 0,
+        "p90": 6.921,
+        "values": [
+          0,
+          0.001,
+          0,
+          0,
+          4.226,
+          6.921
+        ]
+      },
+      "said_narration_before_previous_tool_end": 2,
+      "said_narration_stale_action_share": 0.3333333333333333,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "c6b44e11769ad0f6",
+      "tool_calls": 11,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 49.836999999999996,
+      "note_lag_s": {
+        "n": 1,
+        "median": 6.481,
+        "p90": 6.481,
+        "values": [
+          6.481
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [
+          {
+            "value": "Await further instructions.",
+            "seconds": 0
+          }
+        ],
+        "said": [
+          {
+            "value": "`sum.js` subtracts instead of adding, causing the test failure. I’ll fix the operator, rerun the test, then wait eight seconds before refactoring and adding zero and negative operand coverage.",
+            "seconds": 27.203000000000003
+          },
+          {
+            "value": "- Fixed `sum.js` to add rather than subtract; confirmed the original test passed.\n- Ran `sleep 8` before refactoring to the named arrow-function export `export const sum`.\n- Added zero and negative operand tests in `sum.test.js`.\n- Final verification: all 3 tests pass; `git diff --check` passes. No commits made.",
+            "seconds": 6.481
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 6,
+        "median": 5.175,
+        "p90": 24.071,
+        "values": [
+          0.001,
+          2.953,
+          5.175,
+          16.062,
+          21.709,
+          24.071
+        ]
+      },
+      "said_narration_before_previous_tool_end": 5,
+      "said_narration_stale_action_share": 0.8333333333333334,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "a75e00b8876b27ab",
+      "tool_calls": 10,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 34.838,
+      "note_lag_s": {
+        "n": 1,
+        "median": 3.586,
+        "p90": 3.586,
+        "values": [
+          3.586
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [],
+        "said": [
+          {
+            "value": "I’ll inspect the source and run the existing tests first.",
+            "seconds": 6.017999999999999
+          },
+          {
+            "value": "The function subtracts instead of adding. I’ll correct the operator and rerun the test before the requested pause and refactor.",
+            "seconds": 17.37
+          },
+          {
+            "value": "The corrected test passes, and the eight-second pause is complete. I’ll refactor the export and add the requested cases.",
+            "seconds": 4.48
+          },
+          {
+            "value": "Fixed addition, refactored `sum.js` to a named arrow-function export, and added zero and negative operand tests. The requested eight-second pause completed.\n\nVerification: `node --test` passes all 3 tests.",
+            "seconds": 3.586
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 10,
+        "median": 0.002,
+        "p90": 3.228,
+        "values": [
+          0.001,
+          0.002,
+          3.227,
+          3.228,
+          3.228,
+          0,
+          1.954,
+          0.001,
+          0.001,
+          1.839
+        ]
+      },
+      "said_narration_before_previous_tool_end": 5,
+      "said_narration_stale_action_share": 0.5,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "9d2a1790ab016a2f",
+      "tool_calls": 3,
+      "turns": 2,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 26.887999999999998,
+      "note_lag_s": {
+        "n": 2,
+        "median": 5.534,
+        "p90": 5.646,
+        "values": [
+          5.534,
+          5.646
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0.32910592085688783,
+      "stale_next_visible_share": 0.9956120612061207,
+      "stale_next_s": 8.849,
+      "next_visible_s": 8.888,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [
+          {
+            "value": "Awaiting instructions before fixing the bug.",
+            "seconds": 8.888
+          },
+          {
+            "value": "Await the next instruction.",
+            "seconds": 0
+          }
+        ],
+        "said": [
+          {
+            "value": "`node --test` failed: `sum(2, 3)` returned `-1`, but `sum.test.js:5` expects `5`.\n\nThe bug is in `sum.js:2`: it subtracts (`a - b`) instead of adding. No files were changed.",
+            "seconds": 5.5729999999999995
+          },
+          {
+            "value": "The sky is blue because air molecules scatter blue sunlight more strongly than red sunlight. That scattered blue light reaches our eyes from all directions.",
+            "seconds": 5.646
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "said_narration_before_previous_tool_end": 0,
+      "said_narration_stale_action_share": null,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "116e2ff0fc107f93",
+      "tool_calls": 3,
+      "turns": 2,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 21.740000000000002,
+      "note_lag_s": {
+        "n": 2,
+        "median": 4.917,
+        "p90": 7.992,
+        "values": [
+          4.917,
+          7.992
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0.4725390984360625,
+      "stale_next_visible_share": 0.9976692240458385,
+      "stale_next_s": 10.273,
+      "next_visible_s": 10.297,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [
+          {
+            "value": "Await instructions before changing sum.js.",
+            "seconds": 10.297
+          },
+          {
+            "value": "Awaiting further instructions.",
+            "seconds": 0
+          }
+        ],
+        "said": [
+          {
+            "value": "I’ll read both files and run the test without changing anything.",
+            "seconds": 2.9179999999999997
+          },
+          {
+            "value": "`node --test` fails because `sum.js` subtracts `b` from `a` instead of adding them. Thus `sum(2, 3)` returns `-1`, while the test expects `5`.\n\nNo changes were made.",
+            "seconds": 4.941
+          },
+          {
+            "value": "The atmosphere scatters shorter wavelengths of sunlight, including blue, more strongly than longer wavelengths. This scattered blue light reaches your eyes from all directions.",
+            "seconds": 7.992
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 3,
+        "median": 0.002,
+        "p90": 0.002,
+        "values": [
+          0.001,
+          0.002,
+          0.002
+        ]
+      },
+      "said_narration_before_previous_tool_end": 0,
+      "said_narration_stale_action_share": 0,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "ff8e1b42db619701",
+      "tool_calls": 16,
+      "turns": 2,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 86.897,
+      "note_lag_s": {
+        "n": 2,
+        "median": 4.872,
+        "p90": 4.887,
+        "values": [
+          4.872,
+          4.887
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 9,
+        "median": 34.447,
+        "p90": 51.481,
+        "values": [
+          3.421,
+          25.793,
+          28.015,
+          31.133,
+          34.447,
+          40.97,
+          43.279,
+          48.905,
+          51.481
+        ]
+      },
+      "note_older_than_turn_share": 1,
+      "note_older_than_turn_count": 9,
+      "stale_turn_share": 0.39538764284152506,
+      "stale_next_visible_share": 0.9999708955441079,
+      "stale_next_s": 34.358000000000004,
+      "next_visible_s": 34.359,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [
+          {
+            "value": "Await your choice about adding negative-input tests before making any changes.",
+            "seconds": 3.4189999999999996
+          },
+          {
+            "value": "Await your choice about adding negative-input tests before making any changes.",
+            "seconds": 30.94
+          }
+        ],
+        "said": [
+          {
+            "value": "`sum.js:2` uses subtraction (`a - b`) instead of addition. Running `npm test` confirms that `sum.test.js:5` fails: `sum(2, 3)` returns `-1`, not `5`.\n\nNo files were changed. I await your choice about adding negative-input tests.",
+            "seconds": 4.875
+          },
+          {
+            "value": "I’ll fix addition, add negative-input and zero coverage, and run `node --test`.",
+            "seconds": 23.240000000000002
+          },
+          {
+            "value": "Fixed `sum.js` to use `a + b`. Following your **Add tests** choice, added negative-input coverage, plus zero and mixed-sign cases in `sum.test.js`.\n\nVerified with `node --test`: **4 tests passed, 0 failed**.",
+            "seconds": 4.887
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 6,
+        "median": 9.837,
+        "p90": 20.348,
+        "values": [
+          0,
+          3.314,
+          9.837,
+          12.146,
+          17.772,
+          20.348
+        ]
+      },
+      "said_narration_before_previous_tool_end": 5,
+      "said_narration_stale_action_share": 0.8333333333333334,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "316a0c85f302dfbd",
+      "tool_calls": 14,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 50.365999999999985,
+      "note_lag_s": {
+        "n": 1,
+        "median": 1.821,
+        "p90": 1.821,
+        "values": [
+          1.821
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 1,
+        "median": 17.483,
+        "p90": 17.483,
+        "values": [
+          17.483
+        ]
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [
+        {
+          "start": 1794689663779,
+          "end": 1794689712198,
+          "duration_s": 48.419,
+          "closed": false,
+          "terminal_response": true,
+          "initial_tasks": {
+            "completed": 0,
+            "total": 4
+          },
+          "final_tasks": {
+            "completed": 4,
+            "total": 4
+          },
+          "task_total_changes": 0,
+          "checkbox_updates": 3,
+          "updates": [
+            {
+              "at": 1794689682312,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 0,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689699795,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689705428,
+              "delta": 2,
+              "tasks_ticked": 2,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 1
+            }
+          ],
+          "updates_without_attributed_plan_edit": 0,
+          "update_interval_s": {
+            "n": 2,
+            "median": 5.633,
+            "p90": 17.483,
+            "values": [
+              17.483,
+              5.633
+            ],
+            "max": 17.483
+          },
+          "tasks_ticked_per_update": {
+            "n": 3,
+            "median": 1,
+            "p90": 2,
+            "values": [
+              1,
+              1,
+              2
+            ]
+          },
+          "tasks_ticked": 4,
+          "ticks_in_final_tenth": 0,
+          "ticks_in_final_tenth_share": 0,
+          "all_plan_tasks_checked_at_end": true,
+          "finished_tasks_all_ticked": true,
+          "tool_calls": 14,
+          "plan_edit_calls": 3,
+          "explicit_plan_edit_calls": 2,
+          "shell_plan_update_calls": 1,
+          "plan_edit_tool_call_share": 0.21428571428571427,
+          "plan_edit_duration_s": {
+            "n": 3,
+            "median": 0.003,
+            "p90": 0.009,
+            "values": [
+              0.003,
+              0.001,
+              0.009
+            ]
+          },
+          "last_code_change_to_tick_s": {
+            "n": 1,
+            "median": 0,
+            "p90": 0,
+            "values": [
+              0
+            ]
+          },
+          "code_changes_after_last_tick": 0
+        }
+      ],
+      "field_dwell_s": {
+        "doing": [
+          {
+            "value": "Run the failing test and inspect sum.js.",
+            "seconds": 5.632000000000001
+          },
+          {
+            "value": "Run the failing test and inspect sum.js.",
+            "seconds": 12.899000000000001
+          },
+          {
+            "value": "Fix sum and verify the positive case.",
+            "seconds": 17.483000000000004
+          },
+          {
+            "value": "Add tests for zero and negative inputs.",
+            "seconds": 5.633000000000001
+          }
+        ],
+        "next": [],
+        "said": [
+          {
+            "value": "Phase 1: run the failing test, inspect sum.js, then fix the operator.",
+            "seconds": 10.633
+          },
+          {
+            "value": "Test fails (subtraction instead of addition). Ticking first task and fixing.",
+            "seconds": 17.484
+          },
+          {
+            "value": "Positive case passes. Ticking it.",
+            "seconds": 2.626
+          },
+          {
+            "value": "Phase 2: add zero and negative tests, then run the full suite.",
+            "seconds": 9.779
+          },
+          {
+            "value": "I fixed `sum.js`, which was subtracting instead of adding (`a - b` is now `a + b`). All 3 tests now pass.\n\n- **Phase 1:** The original test failed (it got -1 instead of 5). After the fix I ran the 8-second sleep, re-ran the tests, and ticked the box once the positive case passed.\n- **Phase 2:** I added two tests to `sum.test.js`: one adding zero and one adding two negatives.\n\nEvery task and acceptance criterion in `agent-work/plans/fixture-001.md` is ticked. I didn't commit anything or start another workflow step. Review is the next step.",
+            "seconds": 1.821
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 10,
+        "median": 0.001,
+        "p90": 6.353,
+        "values": [
+          0,
+          0,
+          0.001,
+          3.856,
+          14.984,
+          0.001,
+          0,
+          3,
+          6.353,
+          6.353
+        ]
+      },
+      "said_narration_before_previous_tool_end": 5,
+      "said_narration_stale_action_share": 0.5,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "8ccb5b690d8b4bf2",
+      "tool_calls": 19,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 87.153,
+      "note_lag_s": {
+        "n": 1,
+        "median": 7.678,
+        "p90": 7.678,
+        "values": [
+          7.678
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 2,
+        "median": 6.397,
+        "p90": 16.957,
+        "values": [
+          16.957,
+          6.397
+        ]
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [
+        {
+          "start": 1794689278870,
+          "end": 1794689358197,
+          "duration_s": 79.327,
+          "closed": false,
+          "terminal_response": true,
+          "initial_tasks": {
+            "completed": 0,
+            "total": 4
+          },
+          "final_tasks": {
+            "completed": 4,
+            "total": 4
+          },
+          "task_total_changes": 0,
+          "checkbox_updates": 4,
+          "updates": [
+            {
+              "at": 1794689308145,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 0,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689328062,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689341278,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 0,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689347984,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 0
+            }
+          ],
+          "updates_without_attributed_plan_edit": 0,
+          "update_interval_s": {
+            "n": 3,
+            "median": 13.216,
+            "p90": 19.917,
+            "values": [
+              19.917,
+              13.216,
+              6.706
+            ],
+            "max": 19.917
+          },
+          "tasks_ticked_per_update": {
+            "n": 4,
+            "median": 1,
+            "p90": 1,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "tasks_ticked": 4,
+          "ticks_in_final_tenth": 0,
+          "ticks_in_final_tenth_share": 0,
+          "all_plan_tasks_checked_at_end": true,
+          "finished_tasks_all_ticked": true,
+          "tool_calls": 19,
+          "plan_edit_calls": 4,
+          "explicit_plan_edit_calls": 4,
+          "shell_plan_update_calls": 0,
+          "plan_edit_tool_call_share": 0.21052631578947367,
+          "plan_edit_duration_s": {
+            "n": 4,
+            "median": 0.002,
+            "p90": 0.004,
+            "values": [
+              0.004,
+              0.002,
+              0.002,
+              0.002
+            ]
+          },
+          "last_code_change_to_tick_s": {
+            "n": 2,
+            "median": 6.397,
+            "p90": 16.957,
+            "values": [
+              16.957,
+              6.397
+            ]
+          },
+          "code_changes_after_last_tick": 0
+        }
+      ],
+      "field_dwell_s": {
+        "doing": [
+          {
+            "value": "Run the failing test and inspect sum.js.",
+            "seconds": 29.274000000000004
+          },
+          {
+            "value": "Fix sum and verify the positive case.",
+            "seconds": 19.916999999999998
+          },
+          {
+            "value": "Add tests for zero and negative inputs.",
+            "seconds": 13.216
+          },
+          {
+            "value": "Run the complete test suite.",
+            "seconds": 6.706
+          }
+        ],
+        "next": [],
+        "said": [
+          {
+            "value": "Phase 1: I’ll run the existing test, inspect `sum.js`, then fix addition and verify the positive case. I’ll wait eight seconds after the fix before marking it verified.",
+            "seconds": 40.855000000000004
+          },
+          {
+            "value": "Phase 1 is verified: the positive test now passes. Phase 2: I’ll add zero and negative-input tests, verify them, then run the complete suite before ticking the remaining tasks and acceptance criteria.",
+            "seconds": 23.318
+          },
+          {
+            "value": "Completed both phases. Fixed `sum.js`, added zero and negative-input tests, and verified all 3 tests pass. Performed the eight-second wait and ticked all tasks and acceptance criteria. No commits or other workflow steps.",
+            "seconds": 7.678
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 16,
+        "median": 8.812,
+        "p90": 20.442,
+        "values": [
+          0,
+          2.857,
+          5.504,
+          8.093,
+          10.298,
+          14.117,
+          17.078,
+          19.88,
+          34.036,
+          0.001,
+          2.848,
+          6.398,
+          8.812,
+          13.104,
+          16.897,
+          20.442
+        ]
+      },
+      "said_narration_before_previous_tool_end": 14,
+      "said_narration_stale_action_share": 0.875,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "627a7d3206146bc8",
+      "tool_calls": 15,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 53.51399999999999,
+      "note_lag_s": {
+        "n": 1,
+        "median": 4.819,
+        "p90": 4.819,
+        "values": [
+          4.819
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 2,
+        "median": 5.871,
+        "p90": 12.784,
+        "values": [
+          12.784,
+          5.871
+        ]
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [
+        {
+          "start": 1794689558876,
+          "end": 1794689607406,
+          "duration_s": 48.53,
+          "closed": false,
+          "terminal_response": true,
+          "initial_tasks": {
+            "completed": 0,
+            "total": 4
+          },
+          "final_tasks": {
+            "completed": 4,
+            "total": 4
+          },
+          "task_total_changes": 0,
+          "checkbox_updates": 3,
+          "updates": [
+            {
+              "at": 1794689575176,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 0,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689590006,
+              "delta": 1,
+              "tasks_ticked": 1,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 0
+            },
+            {
+              "at": 1794689603200,
+              "delta": 2,
+              "tasks_ticked": 2,
+              "attributed_plan_edit": true,
+              "phases_completed": 1,
+              "whole_phases_ticked": 1
+            }
+          ],
+          "updates_without_attributed_plan_edit": 0,
+          "update_interval_s": {
+            "n": 2,
+            "median": 13.194,
+            "p90": 14.83,
+            "values": [
+              14.83,
+              13.194
+            ],
+            "max": 14.83
+          },
+          "tasks_ticked_per_update": {
+            "n": 3,
+            "median": 1,
+            "p90": 2,
+            "values": [
+              1,
+              1,
+              2
+            ]
+          },
+          "tasks_ticked": 4,
+          "ticks_in_final_tenth": 2,
+          "ticks_in_final_tenth_share": 0.5,
+          "all_plan_tasks_checked_at_end": true,
+          "finished_tasks_all_ticked": true,
+          "tool_calls": 15,
+          "plan_edit_calls": 3,
+          "explicit_plan_edit_calls": 3,
+          "shell_plan_update_calls": 0,
+          "plan_edit_tool_call_share": 0.2,
+          "plan_edit_duration_s": {
+            "n": 3,
+            "median": 0.002,
+            "p90": 0.005,
+            "values": [
+              0.005,
+              0.002,
+              0.001
+            ]
+          },
+          "last_code_change_to_tick_s": {
+            "n": 2,
+            "median": 5.871,
+            "p90": 12.784,
+            "values": [
+              12.784,
+              5.871
+            ]
+          },
+          "code_changes_after_last_tick": 0
+        }
+      ],
+      "field_dwell_s": {
+        "doing": [
+          {
+            "value": "Run the failing test and inspect sum.js.",
+            "seconds": 16.299
+          },
+          {
+            "value": "Fix sum and verify the positive case.",
+            "seconds": 14.83
+          },
+          {
+            "value": "Add tests for zero and negative inputs.",
+            "seconds": 13.193999999999997
+          }
+        ],
+        "next": [],
+        "said": [
+          {
+            "value": "Phase 1: I’ll run the existing test, inspect `sum.js`, then fix and verify addition before ticking the tasks.",
+            "seconds": 22.576999999999998
+          },
+          {
+            "value": "Phase 2: I’ll add zero and negative-input tests, then run the complete suite and tick the verified tasks and acceptance criteria.",
+            "seconds": 14.78
+          },
+          {
+            "value": "Fixed addition and added zero and negative-input coverage. All 3 tests pass, and the verified plan tasks and acceptance criteria are checked.",
+            "seconds": 4.819
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 11,
+        "median": 6.49,
+        "p90": 12.856,
+        "values": [
+          0.001,
+          2.007,
+          5.123,
+          7.172,
+          9.191,
+          19.955,
+          0.001,
+          4.703,
+          6.49,
+          10.573,
+          12.856
+        ]
+      },
+      "said_narration_before_previous_tool_end": 9,
+      "said_narration_stale_action_share": 0.8181818181818182,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "9c6ecfe8085b1539",
+      "tool_calls": 11,
+      "turns": 1,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 58.937,
+      "note_lag_s": {
+        "n": 1,
+        "median": 10.735,
+        "p90": 10.735,
+        "values": [
+          10.735
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [
+          {
+            "value": "Reviewing changes",
+            "seconds": 7.481000000000001
+          },
+          {
+            "value": "Check addition",
+            "seconds": 21.828
+          },
+          {
+            "value": "Check edge coverage",
+            "seconds": 10.162999999999998
+          },
+          {
+            "value": "Reviewing changes",
+            "seconds": 4.079
+          },
+          {
+            "value": "Review complete",
+            "seconds": 15.228000000000002
+          }
+        ],
+        "next": [],
+        "said": [
+          {
+            "value": "The addition test fails: `sum(2, 3)` returns `-1`, not `5`. The test file has no edge cases; I’ll probe zero, negative, and decimal inputs without changing files.",
+            "seconds": 13.491999999999999
+          },
+          {
+            "value": "Review complete.\n\n- **High impact — `sum.js:2`:** subtracts instead of adding. `node --test` fails its sole test: expected `5`, received `-1`.\n- **Coverage gap — `sum.test.js:5`:** only positive integers are tested. Manual probes confirmed incorrect results for zero-plus-positive, negative, mixed-sign, and decimal inputs.\n\nFindings remain open. No files changed or commits made.",
+            "seconds": 10.735000000000001
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 3,
+        "median": 4.92,
+        "p90": 8.999,
+        "values": [
+          0.001,
+          4.92,
+          8.999
+        ]
+      },
+      "said_narration_before_previous_tool_end": 2,
+      "said_narration_stale_action_share": 0.6666666666666666,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "12005aafcdd76154",
+      "tool_calls": 0,
+      "turns": 3,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 20.139,
+      "note_lag_s": {
+        "n": 3,
+        "median": 4.335,
+        "p90": 4.913,
+        "values": [
+          1.583,
+          4.335,
+          4.913
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0.3602462882963404,
+      "stale_next_visible_share": 0.989363152870585,
+      "stale_next_s": 7.254999999999999,
+      "next_visible_s": 7.332999999999999,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [
+          {
+            "value": "Await the next request.",
+            "seconds": 7.332999999999999
+          }
+        ],
+        "said": [
+          {
+            "value": "2 + 3 = 5.",
+            "seconds": 1.605
+          },
+          {
+            "value": "7 - 4 = 3.",
+            "seconds": 4.413
+          },
+          {
+            "value": "Addition combines quantities, while subtraction takes one quantity away from another.",
+            "seconds": 4.912999999999999
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "said_narration_before_previous_tool_end": 0,
+      "said_narration_stale_action_share": null,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "546f7106bcc7a2fe",
+      "tool_calls": 0,
+      "turns": 3,
+      "turns_without_note": 0,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 15.681000000000001,
+      "note_lag_s": {
+        "n": 3,
+        "median": 3.859,
+        "p90": 3.915,
+        "values": [
+          1.652,
+          3.859,
+          3.915
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 0,
+      "execute_cadence": [],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [],
+        "said": [
+          {
+            "value": "2 + 3 = 5.",
+            "seconds": 1.6909999999999998
+          },
+          {
+            "value": "7 - 4 = 3.",
+            "seconds": 3.92
+          },
+          {
+            "value": "Addition combines quantities, while subtraction finds their difference.",
+            "seconds": 3.915
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "said_narration_before_previous_tool_end": 0,
+      "said_narration_stale_action_share": null,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    },
+    {
+      "session": "e8fcf6aaae997ed8",
+      "tool_calls": 14,
+      "turns": 2,
+      "turns_without_note": 1,
+      "incomplete_turns": 0,
+      "unknown_tool_intervals": 0,
+      "unknown_wall_s": 0,
+      "bounded_wall_s": 54.870000000000005,
+      "note_lag_s": {
+        "n": 1,
+        "median": 4.232,
+        "p90": 4.232,
+        "values": [
+          4.232
+        ]
+      },
+      "note_age_at_action_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "note_older_than_turn_share": null,
+      "note_older_than_turn_count": 0,
+      "stale_turn_share": 0,
+      "stale_next_visible_share": null,
+      "stale_next_s": 0,
+      "next_visible_s": 0,
+      "doing_task_lag_s": {
+        "n": 0,
+        "median": null,
+        "p90": null,
+        "values": []
+      },
+      "edits_without_observed_checkbox": 2,
+      "execute_cadence": [
+        {
+          "start": 1794689459665,
+          "end": 1794689496736,
+          "duration_s": 37.071,
+          "closed": false,
+          "terminal_response": true,
+          "initial_tasks": null,
+          "final_tasks": null,
+          "task_total_changes": 0,
+          "checkbox_updates": 0,
+          "updates": [],
+          "updates_without_attributed_plan_edit": 0,
+          "update_interval_s": {
+            "n": 0,
+            "median": null,
+            "p90": null,
+            "values": [],
+            "max": null
+          },
+          "tasks_ticked_per_update": {
+            "n": 0,
+            "median": null,
+            "p90": null,
+            "values": []
+          },
+          "tasks_ticked": 0,
+          "ticks_in_final_tenth": 0,
+          "ticks_in_final_tenth_share": null,
+          "all_plan_tasks_checked_at_end": null,
+          "finished_tasks_all_ticked": null,
+          "tool_calls": 10,
+          "plan_edit_calls": 2,
+          "explicit_plan_edit_calls": 2,
+          "shell_plan_update_calls": 0,
+          "plan_edit_tool_call_share": 0.2,
+          "plan_edit_duration_s": {
+            "n": 2,
+            "median": 0.001,
+            "p90": 0.001,
+            "values": [
+              0.001,
+              0.001
+            ]
+          },
+          "last_code_change_to_tick_s": {
+            "n": 0,
+            "median": null,
+            "p90": null,
+            "values": []
+          },
+          "code_changes_after_last_tick": 2
+        }
+      ],
+      "field_dwell_s": {
+        "doing": [],
+        "next": [],
+        "said": [
+          {
+            "value": "The test fails because `sum.js` subtracts instead of adding. I’ll fix the operator and add zero and negative-input tests as specified in the fixture plan.",
+            "seconds": 23.118000000000006
+          },
+          {
+            "value": "Fixed `sum.js` to use `a + b` instead of subtraction.\n\nAdded tests for zero and negative inputs in `sum.test.js` and marked the fixture plan complete.\n\nVerified with `node --test`: **3 tests passed, 0 failed**.",
+            "seconds": 4.232
+          }
+        ]
+      },
+      "said_narration_age_s": {
+        "n": 6,
+        "median": 7.72,
+        "p90": 20.115,
+        "values": [
+          0,
+          5.571,
+          7.72,
+          11.01,
+          16.74,
+          20.115
+        ]
+      },
+      "said_narration_before_previous_tool_end": 5,
+      "said_narration_stale_action_share": 0.8333333333333334,
+      "said_fallback_share": 0,
+      "said_fallback_s": 0,
+      "said_fallback_predates_user_s": 0,
+      "said_fallback_predates_user_episodes": 0
+    }
+  ],
+  "verdicts": {
+    "doing": {
+      "match": 10,
+      "stale": 1,
+      "wrong": 0,
+      "unclear": 1,
+      "n/a": 33
+    },
+    "done": {
+      "match": 1,
+      "stale": 0,
+      "wrong": 1,
+      "unclear": 5,
+      "n/a": 38
+    },
+    "next": {
+      "match": 1,
+      "stale": 1,
+      "wrong": 2,
+      "unclear": 0,
+      "n/a": 41
+    },
+    "said": {
+      "match": 25,
+      "stale": 1,
+      "wrong": 0,
+      "unclear": 0,
+      "n/a": 19
+    },
+    "roster": {
+      "match": 30,
+      "stale": 1,
+      "wrong": 0,
+      "unclear": 5,
+      "n/a": 9
+    }
+  }
+}
