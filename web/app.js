@@ -195,7 +195,7 @@ function applyDetail(id, data) {
   const piSessionId = data.session.piSessionId;
   // Leaving the screen drops the transcript, so only a restarted session can differ here.
   if (!state.chat || state.chat.piSessionId !== piSessionId) {
-    state.chat = { id, piSessionId, ...newTranscript() };
+    state.chat = { id, piSessionId, openNotes: new Set(), ...newTranscript() };
     state.sent = [];
   }
   if (!data.conversation) return;
@@ -227,7 +227,8 @@ async function loadEarlier() {
     void loadDetail();
   }
   // Keep the message that was first where it is on screen. Its element may be rebuilt, so it is found by id.
-  const anchor = chat.items[0] && `t:${chat.items[0].id}`;
+  // The first message on screen: the first loaded one may sit inside a fold.
+  const anchor = [...app.hubParts?.get("body")?.el.hubParts?.keys() ?? []].find((key) => key.startsWith("t:"));
   // Its body, not the turn: the time stamp above it can come or go as earlier messages arrive.
   const top = () => app.hubParts?.get("body")?.el.hubParts?.get(anchor)?.el.querySelector(".turn-body")?.getBoundingClientRect().top;
   const was = top();
@@ -675,7 +676,7 @@ function followTranscript(body) {
   if (height === shownHeight) return;
   shownHeight = height;
   if (!chat?.following) return;
-  const first = reveal && body.hubParts.get(`t:${reveal}`)?.el;
+  const first = reveal && body.hubParts.get(body.hubFolds?.get(reveal) ?? `t:${reveal}`)?.el;
   if (!first) { scrollToEnd(); return; }
   // A message taller than the screen starts under the band; a short one ends the page.
   const band = app.querySelector(".band").getBoundingClientRect().bottom;
@@ -738,14 +739,45 @@ function renderDetail() {
   // A question that can be answered here is shown once, as the form.
   const answering = new Set(interaction?.canAnswer ? interaction.pending.map((pending) => pending.toolCallId) : []);
   let lastAt;
-  const turns = (chat?.items ?? []).filter((item) => item.role !== "question" || !answering.has(item.toolCallId)).map((item) => {
+  const working = session.status === "running" || session.status === "starting";
+  const shown = (chat?.items ?? []).filter((item) => item.role !== "question" || !answering.has(item.toolCallId));
+  const turns = [];
+  const folds = new Map();     // folded item id -> the fold's part key, so a new note can be revealed through it
+  for (let index = 0; index < shown.length; index += 1) {
+    const item = shown[index];
     const time = item.at !== undefined && (lastAt === undefined || item.at - lastAt >= TIME_GAP_MS) ? timeLabel(item.at) : "";
     if (item.at !== undefined) lastAt = item.at;
-    return [`t:${item.id}`, [item, time], () => turn(item, time)];
-  });
-  const working = session.status === "running" || session.status === "starting";
+    if (!item.interim) { turns.push([`t:${item.id}`, [item, time], () => turn(item, time)]); continue; }
+    // One fold per run of notes written between tool calls; the reply that ends the turn stays open.
+    let end = index;
+    while (shown[end + 1]?.interim) end += 1;
+    const run = shown.slice(index, end + 1);
+    index = end;
+    // The run the agent is still in keeps its newest note readable below the fold.
+    const live = working && end === shown.length - 1;
+    const folded = live ? run.slice(0, -1) : run;
+    const open = chat.openNotes.has(run[0].id);
+    if (folded.length) {
+      if (!open) for (const note of folded) folds.set(note.id, `f:${run[0].id}`);
+      const label = live ? `${folded.length} earlier ${folded.length === 1 ? "note" : "notes"}` : `${folded.length} ${folded.length === 1 ? "note" : "notes"}`;
+      turns.push([`f:${run[0].id}`, [label, open, time], () => h("button", { class: "notes", type: "button", "aria-expanded": String(open), "data-fold": run[0].id, onclick: (event) => {
+        if (open) chat.openNotes.delete(run[0].id); else chat.openNotes.add(run[0].id);
+        // The fold stays under the finger: no following to the end, and focus moves to its rebuilt button.
+        const was = event.currentTarget.getBoundingClientRect().top;
+        chat.following = false;
+        render();
+        const button = app.querySelector(`[data-fold="${CSS.escape(run[0].id)}"]`);
+        if (!button) return;
+        window.scrollBy(0, button.getBoundingClientRect().top - was);
+        button.focus({ preventScroll: true });
+      } }, time && h("time", { class: "stamp" }, time), h("span", { class: "notes-label" }, `${open ? "▾" : "▸"} ${label}`))]);
+      if (open) for (const note of folded) turns.push([`t:${note.id}`, [note, ""], () => turn(note, "")]);
+    }
+    if (live) { const last = run.at(-1); turns.push([`t:${last.id}`, [last, folded.length ? "" : time], () => turn(last, folded.length ? "" : time)]); }
+  }
   const work = session.work ?? {};
   const context = [session.ticketId, session.subtitle, session.group].filter(Boolean).join(" · ");
+  body.hubFolds = folds;
   sync(body, [
     // The band names the session; this line adds the ticket, like a chat's info line.
     ["intro", context, context && (() => h("p", { class: "intro" }, context))],

@@ -333,3 +333,12 @@ dialog { max-height: 85dvh; overflow-y: auto; }
 .limit-row.low .limit-left { color: var(--warning); }
 .search input::-webkit-search-cancel-button { display: none; }
 .icon-btn.find { font-size: 26px; font-weight: 700; }
+
+/* Notes the agent wrote between tool calls, folded to one line per turn */
+.notes {
+  align-self: flex-start; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1);
+  min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: var(--t-sm);
+}
+.notes .stamp { align-self: center; }
+.notes-label { min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--s3); border-radius: var(--r-field); background: var(--plate); }
+.notes[aria-expanded="true"] .notes-label { color: var(--text); }

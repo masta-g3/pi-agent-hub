@@ -770,9 +770,70 @@ check("a message written before a tool call is quieter than the turn's final rep
   say("a", "assistant", "Fixed.");
   await openChat(page);
   await turnWith(page, "Fixed.").waitFor();
+  await page.getByRole("button", { name: "1 note" }).click();
+  await turnWith(page, "Running tests first.").waitFor();
   assert.deepEqual(await page.locator(".turn.is-assistant").evaluateAll((all) => all.map((turn) => turn.classList.contains("interim"))), [true, false]);
   const sizes = await page.evaluate(() => [...document.querySelectorAll(".turn.is-assistant .turn-body")].map((body) => getComputedStyle(body).fontSize));
   assert.ok(parseFloat(sizes[0]) < parseFloat(sizes[1]), JSON.stringify(sizes));
+});
+
+check("notes written between tool calls fold into one line per turn; the newest shows while it works", async (page) => {
+  const note = (id, text) => world.branches.get("a").push({ type: "message", id, timestamp: new Date().toISOString(), message: { role: "assistant",
+    content: [{ type: "text", text }, { type: "toolCall", id: `t-${id}`, name: "bash", arguments: {} }] } });
+  reset([session("a", { status: "running" })]);
+  say("a", "user", "Fix it");
+  note("n1", "Reading the layout.");
+  note("n2", "Running tests first.");
+  await openChat(page);
+  // While the agent works, the newest note stays readable under the fold.
+  await page.getByRole("button", { name: "1 earlier note" }).waitFor();
+  assert.equal(await turnWith(page, "Running tests first.").isVisible(), true);
+  assert.equal(await turnWith(page, "Reading the layout.").isVisible(), false);
+  change(() => { say("a", "assistant", "Fixed."); world.sessions = [session("a")]; });
+  await turnWith(page, "Fixed.").waitFor();
+  await page.getByRole("button", { name: "2 notes" }).waitFor();
+  assert.equal(await turnWith(page, "Running tests first.").isVisible(), false);
+  // Opening a fold keeps it open through live updates; each turn folds on its own.
+  await page.getByRole("button", { name: "2 notes" }).click();
+  await turnWith(page, "Reading the layout.").waitFor();
+  say("a", "user", "Again");
+  note("n3", "Checking once more.");
+  say("a", "assistant", "Done.");
+  await turnWith(page, "Done.").waitFor({ timeout: 10_000 });
+  assert.equal(await turnWith(page, "Reading the layout.").isVisible(), true);
+  assert.equal(await turnWith(page, "Checking once more.").isVisible(), false);
+  assert.equal(await page.getByRole("button", { name: "1 note" }).count(), 1);
+});
+
+check("opening a fold keeps it in place and focused; earlier pages keep the reading position with folds", async (page) => {
+  const note = (id, text) => world.branches.get("a").push({ type: "message", id, timestamp: new Date().toISOString(), message: { role: "assistant",
+    content: [{ type: "text", text }, { type: "toolCall", id: `t-${id}`, name: "bash", arguments: {} }] } });
+  reset([session("a")]);
+  for (let turnIndex = 0; turnIndex < 12; turnIndex += 1) {
+    say("a", "user", `Ask ${turnIndex}`);
+    note(`n${turnIndex}a`, `Note ${turnIndex} one\nsecond line`);
+    note(`n${turnIndex}b`, `Note ${turnIndex} two\nsecond line`);
+    say("a", "assistant", `Answer ${turnIndex}\nsecond line\nthird line`);
+  }
+  await openChat(page);
+  await turnWith(page, "Answer 11").waitFor();
+  const fold = page.locator(".notes").last();
+  const before = (await fold.boundingBox()).y;
+  await fold.click();
+  await turnWith(page, "Note 11 one").waitFor();
+  const opened = page.locator(".notes").last();
+  assert.ok(Math.abs((await opened.boundingBox()).y - before) < 2, "the fold stays under the finger");
+  assert.equal(await opened.evaluate((el) => el === document.activeElement), true);
+  // The first loaded item can be a folded note; the view must not jump when earlier messages arrive.
+  await scrollTo(page, 0);
+  const reading = page.locator(".turn").first();
+  const text = await reading.locator(".turn-body").textContent();
+  // The body, not the turn: the time stamp above the first turn moves to the new first turn.
+  const top = (await reading.locator(".turn-body").boundingBox()).y;
+  await page.getByRole("button", { name: "Earlier messages" }).click();
+  await page.waitForFunction(() => !document.querySelector(".earlier")?.disabled);
+  const same = page.locator(".turn", { hasText: text }).first().locator(".turn-body");
+  assert.ok(Math.abs((await same.boundingBox()).y - top) < 4, "earlier messages keep the reading position");
 });
 
 check("a skill or file prompt shows as a folded chip with the words typed after it", async (page) => {

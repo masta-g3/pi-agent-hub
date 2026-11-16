@@ -1822,3 +1822,16 @@
   discovered_from: web-005
   references:
   - agent-work/history/20261115_web-005_phone_controls.md
+- id: web-006
+  status: done
+  title: Fold agent notes
+  subtitle: Collapse notes written between tool calls
+  description: The phone chat folds the agent notes written on the way to tool calls
+    into one tappable line per turn, keeps the final reply open, and shows the newest
+    note while the agent works.
+  priority: 2
+  created_at: '2026-11-15'
+  depends_on:
+  - web-005
+  completed_at: '2026-11-16'
+  plan_file: agent-work/history/20261116_web-006_fold_agent_notes.md
