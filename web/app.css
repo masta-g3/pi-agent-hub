@@ -334,11 +334,11 @@ dialog { max-height: 85dvh; overflow-y: auto; }
 .search input::-webkit-search-cancel-button { display: none; }
 .icon-btn.find { font-size: 26px; font-weight: 700; }
 
-/* Notes the agent wrote between tool calls, folded to one line per turn */
+/* Notes the agent wrote between tool calls, folded to one quiet line per turn: text, not a bubble */
 .notes {
   align-self: flex-start; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s1);
-  min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: var(--t-sm);
+  min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: var(--t-xs); font-style: italic;
 }
-.notes .stamp { align-self: center; }
-.notes-label { min-height: 32px; display: inline-flex; align-items: center; padding: 0 var(--s3); border-radius: var(--r-field); background: var(--plate); }
-.notes[aria-expanded="true"] .notes-label { color: var(--text); }
+.notes .stamp { align-self: center; font-style: normal; }
+.notes-label { min-height: 32px; display: inline-flex; align-items: center; }
+.turn:focus { outline: none; }

@@ -757,21 +757,24 @@ function renderDetail() {
     const live = working && end === shown.length - 1;
     const folded = live ? run.slice(0, -1) : run;
     const open = chat.openNotes.has(run[0].id);
-    if (folded.length) {
-      if (!open) for (const note of folded) folds.set(note.id, `f:${run[0].id}`);
+    if (folded.length && open) {
+      // Opened folds give way to the notes they held; the first note takes the fold's time stamp.
+      folded.forEach((note, at) => { const stamp = at ? "" : time; turns.push([`t:${note.id}`, [note, stamp], () => turn(note, stamp)]); });
+    } else if (folded.length) {
+      for (const note of folded) folds.set(note.id, `f:${run[0].id}`);
       const label = live ? `${folded.length} earlier ${folded.length === 1 ? "note" : "notes"}` : `${folded.length} ${folded.length === 1 ? "note" : "notes"}`;
-      turns.push([`f:${run[0].id}`, [label, open, time], () => h("button", { class: "notes", type: "button", "aria-expanded": String(open), "data-fold": run[0].id, onclick: (event) => {
-        if (open) chat.openNotes.delete(run[0].id); else chat.openNotes.add(run[0].id);
-        // The fold stays under the finger: no following to the end, and focus moves to its rebuilt button.
+      turns.push([`f:${run[0].id}`, [label, time], () => h("button", { class: "notes", type: "button", "aria-expanded": "false", onclick: (event) => {
+        // The first note appears where the fold was: no following to the end, and focus moves to it.
         const was = event.currentTarget.getBoundingClientRect().top;
+        chat.openNotes.add(run[0].id);
         chat.following = false;
         render();
-        const button = app.querySelector(`[data-fold="${CSS.escape(run[0].id)}"]`);
-        if (!button) return;
-        window.scrollBy(0, button.getBoundingClientRect().top - was);
-        button.focus({ preventScroll: true });
-      } }, time && h("time", { class: "stamp" }, time), h("span", { class: "notes-label" }, `${open ? "▾" : "▸"} ${label}`))]);
-      if (open) for (const note of folded) turns.push([`t:${note.id}`, [note, ""], () => turn(note, "")]);
+        const first = body.hubParts.get(`t:${run[0].id}`)?.el;
+        if (!first) return;
+        window.scrollBy(0, first.getBoundingClientRect().top - was);
+        first.tabIndex = -1;
+        first.focus({ preventScroll: true });
+      } }, time && h("time", { class: "stamp" }, time), h("span", { class: "notes-label" }, `${label} ›`))]);
     }
     if (live) { const last = run.at(-1); turns.push([`t:${last.id}`, [last, folded.length ? "" : time], () => turn(last, folded.length ? "" : time)]); }
   }

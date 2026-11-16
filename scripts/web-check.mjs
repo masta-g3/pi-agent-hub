@@ -796,6 +796,7 @@ check("notes written between tool calls fold into one line per turn; the newest 
   // Opening a fold keeps it open through live updates; each turn folds on its own.
   await page.getByRole("button", { name: "2 notes" }).click();
   await turnWith(page, "Reading the layout.").waitFor();
+  assert.equal(await page.getByRole("button", { name: "2 notes" }).count(), 0);
   say("a", "user", "Again");
   note("n3", "Checking once more.");
   say("a", "assistant", "Done.");
@@ -817,12 +818,15 @@ check("opening a fold keeps it in place and focused; earlier pages keep the read
   }
   await openChat(page);
   await turnWith(page, "Answer 11").waitFor();
+  const folds = await page.locator(".notes").count();
   const fold = page.locator(".notes").last();
   const before = (await fold.boundingBox()).y;
   await fold.click();
-  await turnWith(page, "Note 11 one").waitFor();
-  const opened = page.locator(".notes").last();
-  assert.ok(Math.abs((await opened.boundingBox()).y - before) < 2, "the fold stays under the finger");
+  const opened = turnWith(page, "Note 11 one");
+  await opened.waitFor();
+  // The fold gives way to its notes: the first note sits where the fold was, and takes focus.
+  assert.equal(await page.locator(".notes").count(), folds - 1);
+  assert.ok(Math.abs((await opened.boundingBox()).y - before) < 2, "the first note appears under the finger");
   assert.equal(await opened.evaluate((el) => el === document.activeElement), true);
   // The first loaded item can be a folded note; the view must not jump when earlier messages arrive.
   await scrollTo(page, 0);
