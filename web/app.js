@@ -9,7 +9,8 @@ const FOLLOW_PX = 120;             // this close to the end, the view follows ne
 const TIME_GAP_MS = 5 * 60_000;    // a turn shows its time only after a pause this long
 const WRITE_TIMEOUT_MS = 15_000;
 const INLINE_CARD_LIMIT = 8;
-const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", active: "ACTIVE", quiet: "QUIET" };
+const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", active: "ACTIVE", quiet: "QUIET", archived: "ARCHIVED" };
+const QUOTA_LOW = 25;              // percent left at or under which a quota reads as a warning
 const STATUS_GLYPHS = { starting: "●", running: "●", waiting: "◐", idle: "○", error: "×", stopped: "-" };
 const KIND_GLYPHS = { question: "?", ready: "✓", blocked: "!" };
 const KIND_LABELS = { question: "Question", ready: "Ready", blocked: "Blocked" };
@@ -24,7 +25,8 @@ const state = {
   snapshotAt: 0,
   lastEventAt: 0,
   stale: true,
-  collapsed: new Set(["quiet"]),
+  collapsed: new Set(["quiet", "archived"]),
+  search: undefined,           // list filter text while the search row is open
   detail: undefined,           // { id, data?, missing? }
   chat: undefined,             // transcript of the open session: { id, piSessionId, ...newTranscript() }
   sent: [],                    // replies shown before Pi records them: { localId, text, delivery, status }
@@ -78,7 +80,7 @@ function sync(root, parts) {
   root.hubParts = next;
 }
 
-const rows = () => state.snapshot?.tiers.flatMap((tier) => tier.sessions) ?? [];
+const rows = () => [...state.snapshot?.tiers.flatMap((tier) => tier.sessions) ?? [], ...state.snapshot?.archived ?? []];
 const route = () => /^#\/s\/([a-zA-Z0-9_-]+)$/.exec(location.hash)?.[1];
 const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const draftKey = (session) => `${session.id}:${session.piSessionId ?? ""}`;
@@ -89,6 +91,14 @@ function runTime(since) {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+/** Time until a quota resets: 45m, 3h 5m, 2d. */
+function untilLabel(ms) {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 48 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d`;
 }
 
 function ageSince(at) {
@@ -256,6 +266,7 @@ async function write(session, action, body) {
 
 const target = (session) => ({ piSessionId: session.piSessionId, instanceId: session.instanceId });
 const markRead = (session) => write(session, "read", { piSessionId: session.piSessionId, requestId: session.attention?.requestId });
+const resumable = (session) => session.status === "stopped" || session.status === "error";
 
 // ---- shared pieces ----
 
@@ -372,6 +383,43 @@ function inlineActions(session) {
         : h("button", { class: "send ghost", type: "button", disabled: busy || !answered(question, entry), onclick: next }, "Next")));
 }
 
+/** One search over what a row shows: title, group, ticket, subtitle, step and request. */
+function matches(session, query) {
+  const haystack = [session.title, session.group, session.ticketId, session.subtitle, session.step, session.attention?.text].filter(Boolean).join("\n").toLowerCase();
+  return haystack.includes(query);
+}
+
+/** The tightest quota window across accounts, as one band chip. */
+function quotaChip(limits) {
+  const windows = limits?.flatMap((account) => account.windows.map((window) => ({ ...window, stale: account.stale }))) ?? [];
+  if (!windows.length) return undefined;
+  const tight = windows.reduce((a, b) => b.left < a.left ? b : a);
+  const label = `${tight.stale ? "~" : ""}${tight.left}%`;
+  return h("button", { class: `quota${tight.left <= QUOTA_LOW ? " low" : ""}`, type: "button", "aria-label": `Limits, ${tight.left}% left`, onclick: () => openSheet("Limits", () => limitsSheet(state.snapshot?.limits ?? [])) }, label);
+}
+
+function searchRow() {
+  if (state.search === undefined) return undefined;
+  return h("div", { class: "search" },
+    h("input", { class: "field", type: "search", autocomplete: "off", enterKeyHint: "search", placeholder: "Search sessions", "aria-label": "Search sessions",
+      value: state.search, "data-focus": "search",
+      oninput: (event) => { state.search = event.target.value; render(); },
+      onkeydown: (event) => { if (event.key === "Enter") event.target.blur(); if (event.key === "Escape") closeSearch(); } }),
+    h("button", { class: "link-btn", type: "button", "aria-label": "Clear search", onclick: closeSearch }, "✕"));
+}
+
+function openSearch() {
+  if (state.search !== undefined) { closeSearch(); return; }
+  state.search = "";
+  render();
+  app.querySelector('[data-focus="search"]')?.focus();
+}
+
+function closeSearch() {
+  state.search = undefined;
+  render();
+}
+
 function listView() {
   const snapshot = state.snapshot;
   const count = snapshot?.requestCount ?? 0;
@@ -380,14 +428,24 @@ function listView() {
       h("h1", { class: "band-title" }, "Hub"),
       count ? h("span", { class: "band-count" }, `${count} ${count === 1 ? "request" : "requests"}`) : undefined,
       h("span", { class: "band-fill" }),
-      connection(false),
+      quotaChip(snapshot?.limits),
+      h("button", { class: "icon-btn find", type: "button", "aria-label": "Search", "aria-pressed": String(state.search !== undefined), onclick: openSearch }, "⌕"),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "New session", disabled: state.stale, onclick: openNewSession }, "+"),
+      connection(true),
       h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Notify")),
+    searchRow(),
     staleBanner());
   const list = h("main", { class: "list" });
+  const query = state.search?.trim().toLowerCase();
+  const sections = [...snapshot?.tiers ?? [], ...snapshot?.archived?.length ? [{ tier: "archived", sessions: snapshot.archived }] : []]
+    .map((tier) => ({ ...tier, sessions: query ? tier.sessions.filter((session) => matches(session, query)) : tier.sessions }))
+    .filter((tier) => tier.sessions.length);
   if (!snapshot) list.append(h("p", { class: "empty" }, "Loading sessions…"));
+  else if (query && !sections.length) list.append(h("p", { class: "empty" }, "No matches"));
   else if (!snapshot.tiers.length) list.append(h("p", { class: "empty" }, "No active sessions."));
-  for (const tier of snapshot?.tiers ?? []) {
-    const collapsible = tier.tier !== "needs-you" && tier.tier !== "new";
+  for (const tier of sections) {
+    // A search shows every match; folding returns when it is cleared.
+    const collapsible = !query && tier.tier !== "needs-you" && tier.tier !== "new";
     const collapsed = collapsible && state.collapsed.has(tier.tier);
     const label = [TIER_LABELS[tier.tier], h("span", { class: "tier-count" }, `· ${tier.sessions.length}`)];
     list.append(collapsible
@@ -675,6 +733,7 @@ function renderDetail() {
   const { interaction, unavailable } = detail.data;
   const chat = state.chat?.id === detail.id ? state.chat : undefined;
   const request = requestBlock(session, interaction);
+  const open = session.canInteract && !unavailable;
 
   // A question that can be answered here is shown once, as the form.
   const answering = new Set(interaction?.canAnswer ? interaction.pending.map((pending) => pending.toolCallId) : []);
@@ -707,18 +766,27 @@ function renderDetail() {
   ]);
   if (request) sync(body.hubParts.get("request").el, request.parts);
   const canRead = Boolean(session.attention) || session.status === "waiting";
+  const next = open ? interaction?.nextSkill : undefined;
+  const shortcuts = open ? interaction?.shortcuts ?? [] : [];
   // Mark read binds the conversation and request it shows, so a new request must rebuild the button.
   const readKey = canRead ? `${session.piSessionId}:${session.attention?.requestId ?? ""}` : "";
   const blocked = state.pending.has(session.id) || state.stale;
   const receipt = state.receipts.get(session.id);
-  const open = session.canInteract && !unavailable;
   // The composer is rebuilt when its buttons change; the draft is in state, so only focus needs restoring.
   const typing = document.activeElement?.matches?.(".dock textarea");
   sync(dock, [
     ["pill", "pill", chat?.newMessages && (() => h("button", { class: "pill", type: "button", onclick: goToEnd }, "New messages ↓"))],
     ["receipt", JSON.stringify(receipt ?? null), receipt && (() => receiptLine(session.id))],
-    ["closed", `${open}:${unavailable}`, !open && (() => h("p", { class: "notice" }, `${unavailable ?? "Session is not running"}. Open it in the terminal dashboard.`))],
-    ["read", `${readKey}:${blocked}`, canRead && (() => h("div", { class: "chips" }, readChip(session, blocked)))],
+    ["closed", `${open}:${unavailable}:${resumable(session)}:${blocked}`, !open && (() => resumable(session)
+      ? h("div", { class: "closed" }, h("p", { class: "notice grow" }, session.status === "error" ? "Session stopped with an error." : "Session is not running."),
+          h("button", { class: "send", type: "button", disabled: blocked, onclick: () => write(session, "resume", { piSessionId: session.piSessionId }) }, "Resume"))
+      : h("p", { class: "notice" }, `${unavailable ?? "Session is not running"}. Open it in the terminal dashboard.`))],
+    ["chips", JSON.stringify([readKey, blocked, next, shortcuts]), (canRead || next || shortcuts.length) && (() => h("div", { class: "chips" },
+      // The dashboard's `>`: only offered while the step is complete and Pi idle; the server checks again.
+      next && h("button", { class: "chip primary", type: "button", disabled: blocked, onclick: () => write(session, "next", { ...target(session), skill: next }) }, `Next: /${next}`),
+      shortcuts.map((shortcut) => h("button", { class: "chip", type: "button", disabled: blocked || Boolean(shortcut.disabled), title: shortcut.disabled ?? shortcut.send,
+        onclick: () => write(session, "shortcut", { ...target(session), index: shortcut.index, send: shortcut.send }) }, shortcut.label)),
+      canRead && readChip(session, blocked)))],
     ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}`, open && (() => composer(session, interaction))],
   ]);
   const box = dock.querySelector("textarea");
@@ -743,6 +811,9 @@ function render() {
     shownHeight = 0;
     window.scrollTo(0, 0);
   }
+  // The sheet sits outside the rebuilt page, so a lost connection disables its submit here.
+  const submit = settings.querySelector(".new-submit");
+  if (submit) submit.disabled = !submit.hubReady();
   const count = state.snapshot?.requestCount ?? 0;
   document.title = count ? `(${count}) Hub` : "Hub";
   if (id) renderDetail();
@@ -814,8 +885,100 @@ async function disablePush() {
   await subscription.unsubscribe();
 }
 
+let sheetToken = 0;
+settings.addEventListener("close", () => { sheetToken += 1; });
+
+/** One bottom sheet at a time; its body is rebuilt by `build`. Returns a check that is true while this sheet stays open. */
+function openSheet(name, build) {
+  if (settings.getAttribute("aria-label") !== name || !settings.open) sheetToken += 1;
+  const token = sheetToken;
+  settings.setAttribute("aria-label", name);
+  settings.replaceChildren(build());
+  if (!settings.open) settings.showModal();
+  return () => token === sheetToken && settings.open;
+}
+
+const closeButton = () => h("button", { class: "btn quiet", type: "button", onclick: () => settings.close() }, "Close");
+
+function limitsSheet(limits) {
+  return h("div", { class: "sheet" }, h("h2", {}, "Limits"),
+    limits.map((account) => h("section", { class: "limit" },
+      h("div", { class: "limit-head" }, h("span", { class: "option-label" }, account.label), account.stale && h("span", { class: "notice" }, "stale")),
+      account.windows.map((window) => {
+        const fill = h("span", { class: "bar-fill" });
+        fill.style.width = `${window.left}%`;
+        return h("div", { class: `limit-row${window.left <= QUOTA_LOW ? " low" : ""}` },
+          h("span", { class: "limit-label" }, window.label),
+          h("span", { class: "bar", "aria-hidden": "true" }, fill),
+          h("span", { class: "limit-left" }, `${window.left}% left`, window.resetAt && window.resetAt > Date.now() ? ` · resets in ${untilLabel(window.resetAt - Date.now())}` : ""));
+      }))),
+    closeButton());
+}
+
+const baseName = (path) => path.split("/").filter(Boolean).at(-1) ?? path;
+
+/** Start a session in a repository the dashboard already knows; the first prompt is a normal reply once Pi is live. */
+async function openNewSession() {
+  const current = openSheet("New session", () => h("div", { class: "sheet" }, h("h2", {}, "New session"), h("p", { class: "notice" }, "Loading repositories…")));
+  let options;
+  try { options = await getJson("/api/new"); }
+  catch (error) { if (current()) openSheet("New session", () => h("div", { class: "sheet" }, h("h2", {}, "New session"), h("p", { class: "receipt rejected" }, `Unavailable · ${error.message}`), closeButton())); return; }
+  // Closed, or replaced by another sheet, while the list loaded.
+  if (!current()) return;
+  const form = { cwd: undefined, group: "", touched: false, receipt: undefined, busy: false };
+  const draw = () => current() && openSheet("New session", () => {
+    const group = h("input", { class: "field", type: "text", autocomplete: "off", list: "groups", value: form.group, "aria-label": "Group", placeholder: "Group",
+      oninput: (event) => { form.group = event.target.value; form.touched = true; submit.disabled = !ready(); } });
+    const ready = () => Boolean(form.cwd && form.group.trim()) && !form.busy && !state.stale;
+    const submit = h("button", { class: "btn primary new-submit", type: "button", disabled: !ready(), onclick: async () => {
+      if (!ready()) return;
+      form.busy = true;
+      form.receipt = { kind: "submitting", text: "Starting…" };
+      draw();
+      let result = {};
+      let status = 0;
+      try {
+        const response = await fetch("/api/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cwd: form.cwd, group: form.group }), signal: AbortSignal.timeout(60_000) });
+        status = response.status;
+        result = await response.json().catch(() => ({}));
+      } catch { /* a lost response is unknown */ }
+      form.busy = false;
+      if (status === 200 && result.id) {
+        // The user moved on while it started; the new session is in the list.
+        if (!current()) return;
+        settings.close();
+        history.pushState({ fromList: true }, "", `#/s/${result.id}`);
+        onRoute();
+        return;
+      }
+      // Accepted without an id means the response was cut off: the session may exist.
+      form.receipt = status === 0 || status === 504 || status === 200
+        ? { kind: "unknown", text: "Delivery unknown · Check the list before retrying" }
+        : { kind: "rejected", text: `Rejected · ${result.error ?? `HTTP ${status}`}` };
+      draw();
+    } }, "Start session");
+    submit.hubReady = ready;
+    return h("div", { class: "sheet" }, h("h2", {}, "New session"),
+      options.repos.length
+        ? h("div", { class: "repos", role: "radiogroup", "aria-label": "Repository" }, options.repos.map((cwd) => h("label", { class: "option" },
+            h("input", { type: "radio", name: "repo", checked: form.cwd === cwd, onchange: () => {
+              form.cwd = cwd;
+              // The group follows the repository until it is typed, as in the dashboard.
+              if (!form.touched) form.group = baseName(cwd);
+              draw();
+            } }),
+            h("span", {}, h("span", { class: "option-label" }, baseName(cwd)), h("div", { class: "option-desc path" }, cwd)))))
+        : h("p", { class: "notice" }, "No known repositories. Start one session from the terminal dashboard first."),
+      h("label", { class: "label" }, "Group", group),
+      h("datalist", { id: "groups" }, options.groups.map((name) => h("option", { value: name }))),
+      form.receipt && h("p", { class: `receipt ${form.receipt.kind}`, role: "status" }, form.receipt.text),
+      h("div", { class: "sheet-foot" }, closeButton(), submit));
+  });
+  draw();
+}
+
 async function renderSettings(message) {
-  const close = h("button", { class: "btn quiet", type: "button", onclick: () => settings.close() }, "Close");
+  const close = closeButton();
   const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const sheet = h("div", { class: "sheet" }, h("h2", {}, "Notify this device"));
   if (!supported) {
@@ -837,12 +1000,11 @@ async function renderSettings(message) {
   }
   if (message) sheet.append(h("p", { class: "receipt rejected", role: "status" }, message));
   sheet.append(close);
-  settings.replaceChildren(sheet);
+  openSheet("Notifications", () => sheet);
 }
 
 async function openSettings() {
   await renderSettings();
-  settings.showModal();
 }
 
 navigator.serviceWorker?.addEventListener("message", (event) => {

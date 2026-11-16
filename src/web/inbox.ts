@@ -38,10 +38,12 @@ export interface InboxSession {
 }
 
 export interface InboxTier { tier: InboxTierName; sessions: InboxSession[] }
-export interface InboxSnapshot { now: number; requestCount: number; tiers: InboxTier[] }
+export interface InboxSnapshot { now: number; requestCount: number; tiers: InboxTier[]; archived: InboxSession[] }
 
 const TITLE_CHARS = 120;
 const TEXT_CHARS = 2_000;
+/** The phone shows only the newest archived parents; older ones stay in the terminal dashboard. */
+export const INBOX_ARCHIVED_LIMIT = 20;
 
 export function boundedText(value: string | undefined, limit: number): string | undefined {
   if (!value) return undefined;
@@ -51,23 +53,28 @@ export function boundedText(value: string | undefined, limit: number): string | 
   return chars.length > limit ? `${chars.slice(0, limit - 1).join("")}…` : text;
 }
 
-/** The phone's view of the fleet: non-archived owner trees in the Status cockpit's tiers and order. */
+/** The phone's view of the fleet: owner trees in the Status cockpit's tiers and order, plus the newest archived parents apart. */
 export function buildInboxSnapshot(sessions: RuntimeSession[], now: number): InboxSnapshot {
-  const projection = buildDashboardProjection({ sessions });
+  const projection = buildDashboardProjection({ sessions, archiveExpanded: true });
   const tiers: InboxTier[] = [];
+  const archived: InboxSession[] = [];
   let requestCount = 0;
   for (const row of projection.visible) {
     const tier = projection.cockpitTierById.get(row.id);
     // A subagent whose parent is gone owns its own tree in the cockpit, but the phone has no subagent screen.
-    if (!tier || tier === "archived" || row.kind === "subagent" || projection.cockpitOwnerById.get(row.id) !== row.id) continue;
+    if (!tier || row.kind === "subagent" || projection.cockpitOwnerById.get(row.id) !== row.id) continue;
     const descendants = projection.allTree.descendants(row.id);
+    if (tier === "archived") {
+      if (archived.length < INBOX_ARCHIVED_LIMIT) archived.push(inboxSession(row, descendants, now));
+      continue;
+    }
     const session = inboxSession(row, descendants, now);
     if (session.attention) requestCount += 1;
     const last = tiers.at(-1);
     if (last?.tier === tier) last.sessions.push(session);
     else tiers.push({ tier, sessions: [session] });
   }
-  return { now, requestCount, tiers };
+  return { now, requestCount, tiers, archived };
 }
 
 function inboxSession(row: RuntimeSession, descendants: readonly RuntimeSession[], now: number): InboxSession {

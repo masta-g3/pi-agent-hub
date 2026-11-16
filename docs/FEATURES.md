@@ -38,7 +38,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
 | Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. `/` completes the agent's skills; workflow steps appear as chips. |
 | Next skill | `>` sends the next workflow step's skill once the current step is complete. |
-| Phone inbox | `pi-hub web` serves a page to answer, reply, and get notifications on a phone. |
+| Phone inbox | `pi-hub web` serves a page to answer, reply, advance workflows, resume or start sessions, and get notifications on a phone. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Usage and quotas | `u` shows Cost, Tokens, and Limits from an optional usage producer. |
@@ -373,8 +373,14 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 - Each send shows **Submitting**, then **Accepted**, **Rejected**, or **Delivery unknown**. Nothing is sent twice on its own. A send to a session that restarted since the page loaded is rejected. An answer goes only to the question shown, and Mark read only clears the request shown.
 - After 10 seconds without data the page shows **Reconnecting** and disables sending.
 - **Notify** subscribes the device to a notification for each new request. Tapping it opens that session.
+- **Next step and shortcuts:** when a workflow step is complete and Pi is idle, the chat dock offers **Next: /review**, the same as `>` in the dashboard. Each configured `dashboard.shortcuts` entry is a chip, enabled on the same terms as its dashboard key.
+- **Resume:** a stopped or failed session shows **Resume**, which restarts it like `Enter` on a stopped row. The composer returns once Pi is live.
+- **New session:** **+** starts a session in a repository the dashboard already knows (recent and current sessions, without Hub-owned worktrees) and a group, then opens its chat. Type the first prompt once Pi is live. Worktrees and multi-repo sessions stay in the terminal dashboard.
+- **Limits:** with a usage producer such as pi-accounts, the band shows the tightest quota left, in the warning color at 25% or less. Tap it for every account window with its reset time.
+- **Search:** **⌕** filters the list by title, group, ticket, subtitle, step, or request text, and opens folded tiers while a query is set. **✕** clears it.
+- **Archived:** the 20 newest archived sessions sit in a folded **ARCHIVED** section at the end.
 
-The page cannot stop, delete, archive, restart, or create sessions, and it shows no subagent rows, pane output, tool output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
+The page cannot stop, delete, archive, or rename sessions, and it shows no subagent rows, pane output, tool output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
 
 ## Return shortcuts
 

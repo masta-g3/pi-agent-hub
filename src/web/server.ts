@@ -6,18 +6,23 @@ import { fileURLToPath } from "node:url";
 import { interactionTarget } from "../app/session-interaction.js";
 import type { ConversationPage } from "../core/conversation.js";
 import { DELIVERY_UNCONFIRMED, isObject, parseInteractionRequest, sameInteractionTarget, type AnswerInput, type InteractionTarget, type MessageDelivery, type SessionInteractionState } from "../core/session-interaction.js";
+import { nextSkill } from "../core/skill-reply.js";
 import type { RuntimeSession } from "../core/types.js";
+import { accountStale, type UsageData } from "../core/usage.js";
 import { formatQuestionText } from "../tui/question-dialog.js";
 import { visibleAttention } from "../tui/render-model.js";
-import { buildInboxSnapshot, type InboxSession } from "./inbox.js";
+import { boundedText, buildInboxSnapshot, type InboxSession } from "./inbox.js";
 
 export const WEB_BODY_CAP = 64 * 1024;
 export const WEB_PING_MS = 4_000;
 const CURSOR_CHARS = 256;
+const GROUP_CHARS = 120;
 /** The extension's two errors for a `read` whose branch or cursor is no longer current. */
 const CURSOR_GONE = /^Conversation (?:branch changed|cursor is no longer on the current branch)$/u;
 
 export interface PushSubscriptionInput { endpoint: string; p256dh: string; auth: string }
+export interface WebShortcut { key: string; send: string; label?: string }
+export interface NewSessionOptions { repos: string[]; groups: string[] }
 
 export interface WebServerDeps {
   staticDir: string;
@@ -30,6 +35,16 @@ export interface WebServerDeps {
   sendMessage(target: InteractionTarget, text: string, delivery: MessageDelivery): Promise<void>;
   acknowledge(sessionId: string, requestId: string | undefined, dismiss: boolean, expected: { piSessionId?: string }): Promise<void>;
   touch(sessionId: string): Promise<void>;
+  /** Configured dashboard shortcuts, offered as buttons and run through the guarded shortcut request. */
+  shortcuts?: readonly WebShortcut[];
+  runShortcut?(target: InteractionTarget, key: string, send: string): Promise<void>;
+  /** Restart a stopped or failed session; must refuse unless the latest row still matches `expected`. */
+  resume?(sessionId: string, expected: { piSessionId?: string }): Promise<void>;
+  newSession?: {
+    options(): NewSessionOptions;
+    create(input: { cwd: string; group: string }): Promise<string>;
+  };
+  usage?(): UsageData | undefined;
   push?: {
     publicKey(): Promise<string>;
     subscribe(subscription: PushSubscriptionInput): Promise<void>;
@@ -98,7 +113,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   let published: string | undefined;
 
   const snapshotFrame = () => {
-    const snapshot = buildInboxSnapshot(deps.sessions(), now());
+    const at = now();
+    const snapshot = { ...buildInboxSnapshot(deps.sessions(), at), ...limitsOf(deps.usage?.(), at) };
     // Compare without the clock so an unchanged fleet sends nothing.
     return { key: JSON.stringify({ ...snapshot, now: 0 }), frame: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` };
   };
@@ -110,8 +126,10 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!session) throw new HttpError(404, "Session not found");
     return session;
   };
-  const inboxRow = (id: string): InboxSession | undefined =>
-    buildInboxSnapshot(deps.sessions(), now()).tiers.flatMap((tier) => tier.sessions).find((row) => row.id === id);
+  const inboxRow = (id: string): InboxSession | undefined => {
+    const snapshot = buildInboxSnapshot(deps.sessions(), now());
+    return [...snapshot.tiers.flatMap((tier) => tier.sessions), ...snapshot.archived].find((row) => row.id === id);
+  };
 
   /** The live target, only when it is the one the page displayed. */
   const boundTarget = (session: RuntimeSession, body: Record<string, unknown>): InteractionTarget => {
@@ -121,9 +139,10 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     return target;
   };
 
-  const write = async (res: ServerResponse, send: () => Promise<void>, after: () => Promise<void>) => {
+  const write = async (res: ServerResponse, send: () => Promise<unknown>, after: () => Promise<void>, accepted: (result: any) => Record<string, unknown> = () => ({})) => {
+    let result: unknown;
     try {
-      await send();
+      result = await send();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const unknown = message === DELIVERY_UNCONFIRMED || /timeout|timed out/iu.test(message);
@@ -131,7 +150,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     }
     // Bookkeeping cannot turn confirmed delivery into a rejection.
     try { await after(); } catch { /* the next refresh shows the true state */ }
-    json(res, 200, { status: "accepted" });
+    json(res, 200, { status: "accepted", ...accepted(result) });
   };
 
   const routes = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -139,7 +158,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!origin) throw new HttpError(403, "Host not allowed");
     const url = new URL(req.url ?? "/", origin);
     const path = url.pathname;
-    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read|conversation))?$/u.exec(path);
+    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read|conversation|next|shortcut|resume))?$/u.exec(path);
 
     if (req.method === "GET") {
       const asset = STATIC_FILES[path];
@@ -158,6 +177,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         req.on("close", () => streams.delete(res));
         return;
       }
+      if (path === "/api/new" && deps.newSession) return json(res, 200, deps.newSession.options());
       if (path === "/api/push/key" && deps.push) return json(res, 200, { key: await deps.push.publicKey() });
       if (sessionRoute && !sessionRoute[2]) {
         const session = findSession(sessionRoute[1]!);
@@ -200,9 +220,26 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       await deps.push.unsubscribe(body.endpoint);
       return json(res, 200, { ok: true });
     }
-    // Reading the conversation is a GET; only these three routes write.
+    if (path === "/api/sessions" && deps.newSession) {
+      const create = deps.newSession.create;
+      const group = typeof body.group === "string" ? body.group.trim() : "";
+      // Only a repository the page offered: the phone never names an arbitrary directory.
+      if (typeof body.cwd !== "string" || !deps.newSession.options().repos.includes(body.cwd)) throw new HttpError(400, "Choose a listed repository");
+      if (!group || [...group].length > GROUP_CHARS) throw new HttpError(400, "Group is required");
+      const cwd = body.cwd;
+      return write(res, () => create({ cwd, group }), async () => {}, (id: string) => ({ id }));
+    }
+    // Reading the conversation is a GET; the other session routes write.
     if (!sessionRoute?.[2] || sessionRoute[2] === "conversation") throw new HttpError(404, "Not found");
     const session = findSession(sessionRoute[1]!);
+
+    if (sessionRoute[2] === "resume" && deps.resume) {
+      const resume = deps.resume;
+      const shownPi = typeof body.piSessionId === "string" ? body.piSessionId : undefined;
+      if ((session.status !== "stopped" && session.status !== "error") || session.piSessionId !== shownPi) throw new HttpError(409, "Session changed; reload the page");
+      // The lifecycle re-checks the latest row before it stops anything, so a second tap cannot kill the restarted session.
+      return write(res, () => resume(session.id, { piSessionId: shownPi }), () => deps.touch(session.id));
+    }
 
     if (sessionRoute[2] === "read") {
       const shownRequest = typeof body.requestId === "string" ? body.requestId : undefined;
@@ -214,6 +251,22 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     }
 
     const target = boundTarget(session, body);
+    if (sessionRoute[2] === "next") {
+      const skill = typeof body.skill === "string" ? body.skill : "";
+      const state = await deps.loadState(target);
+      // Recomputed from fresh state: the page may show a step that has since moved on.
+      if (advanceSkill(session, state) !== skill || !skill) throw new HttpError(409, "Next step changed; reload the page");
+      return write(res, () => deps.sendMessage(target, `/skill:${skill}`, "send"), () => deps.touch(session.id));
+    }
+    if (sessionRoute[2] === "shortcut") {
+      if (!deps.runShortcut) throw new HttpError(404, "Not found");
+      if (typeof body.index !== "number" || typeof body.send !== "string") throw new HttpError(400, "Invalid shortcut");
+      const shortcut = deps.shortcuts?.[body.index];
+      if (!shortcut || shortcut.send !== body.send) throw new HttpError(409, "Shortcut changed; reload the page");
+      const run = deps.runShortcut;
+      return write(res, () => run(target, shortcut.key, shortcut.send), () => deps.touch(session.id));
+    }
+    if (sessionRoute[2] !== "answer" && sessionRoute[2] !== "reply") throw new HttpError(404, "Not found");
     const envelope = { ...target, version: 1, id: randomUUID() };
     if (sessionRoute[2] === "answer") {
       const request = parseInteractionRequest({ ...envelope, kind: "submit-answer", toolCallId: body.toolCallId, answers: body.answers });
@@ -242,6 +295,11 @@ export function createWebServer(deps: WebServerDeps): WebServer {
           ...(state.answerChannel ? {} : { answerUnavailable: "Reload Pi in this session to answer from Hub" }),
           ...(state.questionUnavailableReason ? { answerUnavailable: state.questionUnavailableReason } : {}),
           messageDelivery: state.messageDelivery ?? "idle",
+          ...(advanceSkill(session, state) ? { nextSkill: advanceSkill(session, state) } : {}),
+          ...(deps.runShortcut && deps.shortcuts?.length ? { shortcuts: deps.shortcuts.map((shortcut, index) => {
+            const disabled = state.pending.length ? "Answer the pending question first" : state.shortcutDisabledReason;
+            return { index, label: shortcut.label ?? shortcut.send, send: shortcut.send, ...(disabled ? { disabled } : {}) };
+          }) } : {}),
           pending: state.pending.map((request) => ({
             toolCallId: request.toolCallId,
             questions: request.params.questions.map((question) => {
@@ -281,6 +339,26 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       await new Promise<void>((done) => { server.close(() => done()); server.closeAllConnections(); });
     },
   };
+}
+
+/** The dashboard's `>`: the next step's skill, only while Pi is idle with no question pending. */
+function advanceSkill(session: RuntimeSession, state: SessionInteractionState): string | undefined {
+  if (state.messageDelivery !== "idle" || state.pending.length) return undefined;
+  return nextSkill(session.workflow, state.skills ?? []);
+}
+
+/** Account quota for the band: each window's percent left. Nothing when no producer publishes usage. */
+function limitsOf(usage: UsageData | undefined, at: number) {
+  if (!usage?.accounts.length) return {};
+  return { limits: usage.accounts.map((account) => ({
+    label: boundedText(account.label, 60) ?? account.id,
+    stale: accountStale(account, at),
+    windows: account.windows.map((window) => ({
+      label: boundedText(window.label, 16) ?? window.id,
+      left: Math.max(0, Math.min(100, Math.round(window.remainingPercent))),
+      ...(window.resetAt === undefined ? {} : { resetAt: window.resetAt }),
+    })),
+  })) };
 }
 
 const baseHeaders = {

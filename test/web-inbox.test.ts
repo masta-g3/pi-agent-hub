@@ -124,3 +124,11 @@ test("producer text is stripped of control sequences and bounded", () => {
   assert.equal(row.title.startsWith("Title y"), true);
   assert.equal([...row.title].length, 120);
 });
+
+test("archived parents are listed apart from the tiers, newest first and capped", () => {
+  const archived = Array.from({ length: 25 }, (_, index) => session(`arc${index}`, { bucket: "archived", bucketChangedAt: NOW - 5_000 - index * 1000 }));
+  const snapshot = buildInboxSnapshot([...fleet(), ...archived], NOW);
+  assert.equal(snapshot.tiers.flatMap((tier) => tier.sessions).some((row) => row.id.startsWith("arc") || row.id === "archived"), false);
+  assert.equal(snapshot.archived.length, 20);
+  assert.deepEqual(snapshot.archived.slice(0, 3).map((row) => row.id), ["archived", "arc0", "arc1"]);
+});

@@ -290,3 +290,46 @@ dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .sheet { display: flex; flex-direction: column; gap: var(--s3); }
 .sheet h2 { font-size: var(--t-lg); }
 .steps { padding-left: var(--s5); list-style: decimal; color: var(--muted); }
+
+/* Band controls: search, new session and the quota chip */
+.icon-btn {
+  flex: none; min-height: var(--tap); min-width: var(--tap); padding: 0; border: 0; background: none;
+  color: var(--accent); font-size: var(--t-xl); line-height: 1;
+}
+.icon-btn[aria-pressed="true"] { color: var(--text); }
+.icon-btn:disabled { color: var(--muted); }
+.band-row { gap: var(--s1); }
+.band-title { margin-right: var(--s2); }
+.quota {
+  flex: none; min-height: 32px; padding: 0 var(--s3); border-radius: var(--r-field); border: var(--hairline) solid var(--rule);
+  background: var(--plate); color: var(--muted); font-size: var(--t-sm); font-variant-numeric: tabular-nums;
+}
+.quota.low { color: var(--warning); border-color: var(--warning); }
+.search { display: flex; align-items: center; gap: var(--s1); padding-bottom: var(--s2); }
+.search .field { border-radius: var(--r-field); }
+
+/* Dock: workflow and shortcut chips, resume */
+.chips { overflow-x: auto; scrollbar-width: none; }
+.chip { flex: none; white-space: nowrap; }
+.chip.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.chip.primary:disabled { background: var(--plate); border-color: var(--rule); color: var(--muted); }
+.closed { display: flex; align-items: center; gap: var(--s2); }
+.closed .grow { flex: 1; }
+
+/* Sheets */
+dialog { max-height: 85dvh; overflow-y: auto; }
+.sheet-foot { display: flex; justify-content: space-between; gap: var(--s2); }
+.repos { display: flex; flex-direction: column; gap: var(--s2); max-height: 40dvh; overflow-y: auto; }
+.repos .path { overflow-wrap: anywhere; }
+.sheet .label { display: flex; flex-direction: column; gap: var(--s1); }
+.limit { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: var(--hairline) solid var(--rule); }
+.limit-head { display: flex; justify-content: space-between; }
+.limit-row { display: grid; grid-template-columns: 3em 1fr; align-items: center; column-gap: var(--s2); font-size: var(--t-sm); }
+.limit-label { color: var(--muted); font-variant-numeric: tabular-nums; }
+.bar { height: 8px; border-radius: 4px; background: var(--lcd); overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: var(--success); }
+.limit-row.low .bar-fill { background: var(--warning); }
+.limit-left { grid-column: 2; color: var(--muted); font-variant-numeric: tabular-nums; }
+.limit-row.low .limit-left { color: var(--warning); }
+.search input::-webkit-search-cancel-button { display: none; }
+.icon-btn.find { font-size: 26px; font-weight: 700; }

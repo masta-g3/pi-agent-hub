@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createWebServer, expectedOrigin, type WebServerDeps } from "../src/web/server.js";
 import { DELIVERY_UNCONFIRMED, type SessionInteractionState } from "../src/core/session-interaction.js";
 import type { RuntimeSession } from "../src/core/types.js";
+import type { UsageData } from "../src/core/usage.js";
 
 function asking(overrides: Partial<RuntimeSession> = {}): RuntimeSession {
   return {
@@ -30,6 +31,8 @@ interface Harness {
   sessions: RuntimeSession[];
   staticDir: string;
   fail?: Error;
+  state?: SessionInteractionState;
+  usage?: UsageData;
   publish(): void;
   post(path: string, body: unknown, headers?: Record<string, string>): Promise<Response>;
 }
@@ -42,7 +45,7 @@ async function withServer(fn: (h: Harness) => Promise<void>, sessions: RuntimeSe
     staticDir,
     sessions: () => h.sessions,
     now: () => 1_000,
-    loadState: async () => STATE,
+    loadState: async () => h.state ?? STATE,
     async loadConversation(target, options) {
       h.calls.push(`read:${target.instanceId}:${JSON.stringify(options ?? {})}`);
       if (h.fail) throw h.fail;
@@ -60,6 +63,14 @@ async function withServer(fn: (h: Harness) => Promise<void>, sessions: RuntimeSe
     },
     async acknowledge(id, requestId, dismiss, expected) { h.calls.push(`ack:${id}:${requestId}:${dismiss}:${expected.piSessionId}`); },
     async touch(id) { h.calls.push(`touch:${id}`); },
+    shortcuts: [{ key: "c", send: "/skill:commit", label: "Commit" }],
+    async runShortcut(target, key, send) { h.calls.push(`shortcut:${target.instanceId}:${key}:${send}`); if (h.fail) throw h.fail; },
+    async resume(id, expected) { h.calls.push(`resume:${id}:${expected.piSessionId}`); if (h.fail) throw h.fail; },
+    newSession: {
+      options: () => ({ repos: ["/tmp/repo-a", "/tmp/repo-b"], groups: ["default", "ui"] }),
+      async create(input) { h.calls.push(`create:${input.cwd}:${input.group}`); if (h.fail) throw h.fail; return "new-id"; },
+    },
+    usage: () => h.usage,
   };
   const web = createWebServer(deps);
   await new Promise<void>((done) => web.server.listen(0, "127.0.0.1", done));
@@ -270,4 +281,93 @@ test("mark read dismisses only the request and conversation the card displayed",
     assert.equal((await h.post("/api/sessions/ask/read", { piSessionId: "pi-1" })).status, 200);
     assert.deepEqual(h.calls, ["ack:ask:undefined:false:pi-1"]);
   });
+});
+
+const WORKFLOW = { steps: [{ id: "execute", short: "EX" }, { id: "review", short: "RV" }], activeIndex: 0, currentStepComplete: true, updatedAt: 1 };
+const IDLE: SessionInteractionState = { answerChannel: "rpiv-events", questionProtocol: true, messageDelivery: "idle", pending: [], skills: [{ name: "review", description: "r" }] };
+
+test("detail offers the next skill and the configured shortcuts", async () => {
+  await withServer(async (h) => {
+    h.state = IDLE;
+    const body = await (await fetch(`${h.base}/api/sessions/ask?conversation=0`)).json() as any;
+    assert.equal(body.interaction.nextSkill, "review");
+    assert.deepEqual(body.interaction.shortcuts, [{ index: 0, label: "Commit", send: "/skill:commit" }]);
+    h.state = { ...IDLE, messageDelivery: "busy" };
+    assert.equal((await (await fetch(`${h.base}/api/sessions/ask?conversation=0`)).json() as any).interaction.nextSkill, undefined);
+    h.state = STATE;
+    const pending = await (await fetch(`${h.base}/api/sessions/ask?conversation=0`)).json() as any;
+    assert.equal(pending.interaction.nextSkill, undefined);
+    assert.equal(pending.interaction.shortcuts[0].disabled, "Answer the pending question first");
+  }, [asking({ workflow: WORKFLOW })]);
+});
+
+test("next sends exactly the displayed skill and rejects a stale one", async () => {
+  await withServer(async (h) => {
+    h.state = IDLE;
+    assert.equal((await h.post("/api/sessions/ask/next", { ...TARGET, skill: "commit" })).status, 409);
+    assert.equal((await h.post("/api/sessions/ask/next", { piSessionId: "pi-1", instanceId: "old", skill: "review" })).status, 409);
+    h.state = { ...IDLE, messageDelivery: "busy" };
+    assert.equal((await h.post("/api/sessions/ask/next", { ...TARGET, skill: "review" })).status, 409);
+    assert.deepEqual(h.calls, []);
+    h.state = IDLE;
+    const sent = await h.post("/api/sessions/ask/next", { ...TARGET, skill: "review" });
+    assert.deepEqual(await sent.json(), { status: "accepted" });
+    assert.deepEqual(h.calls, ["send:inst-1:send:/skill:review", "touch:ask"]);
+  }, [asking({ workflow: WORKFLOW })]);
+});
+
+test("a shortcut runs only when its index and text match the configuration", async () => {
+  await withServer(async (h) => {
+    assert.equal((await h.post("/api/sessions/ask/shortcut", { ...TARGET, index: 0, send: "/skill:other" })).status, 409);
+    assert.equal((await h.post("/api/sessions/ask/shortcut", { ...TARGET, index: 3, send: "/skill:commit" })).status, 409);
+    assert.equal((await h.post("/api/sessions/ask/shortcut", { ...TARGET, index: "0", send: "/skill:commit" })).status, 400);
+    assert.deepEqual(h.calls, []);
+    assert.equal((await h.post("/api/sessions/ask/shortcut", { ...TARGET, index: 0, send: "/skill:commit" })).status, 200);
+    assert.deepEqual(h.calls, ["shortcut:inst-1:c:/skill:commit", "touch:ask"]);
+  });
+});
+
+test("resume restarts only a stopped or failed session the page displayed", async () => {
+  await withServer(async (h) => {
+    assert.equal((await h.post("/api/sessions/ask/resume", { piSessionId: "pi-1" })).status, 409);
+    h.sessions = [asking({ status: "stopped" })];
+    assert.equal((await h.post("/api/sessions/ask/resume", { piSessionId: "pi-old" })).status, 409);
+    assert.deepEqual(h.calls, []);
+    assert.equal((await h.post("/api/sessions/ask/resume", { piSessionId: "pi-1" })).status, 200);
+    h.sessions = [asking({ status: "error", piSessionId: undefined })];
+    assert.equal((await h.post("/api/sessions/ask/resume", {})).status, 200);
+    assert.deepEqual(h.calls, ["resume:ask:pi-1", "touch:ask", "resume:ask:undefined", "touch:ask"]);
+    h.fail = new Error("Session changed; reload the page");
+    const rejected = await h.post("/api/sessions/ask/resume", {});
+    assert.equal(rejected.status, 409);
+    assert.deepEqual(await rejected.json(), { status: "rejected", error: "Session changed; reload the page" });
+  });
+});
+
+test("a new session starts only in an offered repository", async () => {
+  await withServer(async (h) => {
+    assert.deepEqual(await (await fetch(`${h.base}/api/new`)).json(), { repos: ["/tmp/repo-a", "/tmp/repo-b"], groups: ["default", "ui"] });
+    assert.equal((await h.post("/api/sessions", { cwd: "/etc", group: "x" })).status, 400);
+    assert.equal((await h.post("/api/sessions", { cwd: "/tmp/repo-a", group: "  " })).status, 400);
+    assert.equal((await h.post("/api/sessions", { cwd: "/tmp/repo-a", group: "g".repeat(121) })).status, 400);
+    assert.equal((await h.post("/api/sessions", { cwd: "/tmp/repo-a", group: "ui" }, { Origin: "https://evil.example.com" })).status, 403);
+    assert.deepEqual(h.calls, []);
+    const created = await h.post("/api/sessions", { cwd: "/tmp/repo-a", group: " ui " });
+    assert.deepEqual(await created.json(), { status: "accepted", id: "new-id" });
+    assert.deepEqual(h.calls, ["create:/tmp/repo-a:ui"]);
+  });
+});
+
+test("the snapshot carries account limits and archived parents can be opened", async () => {
+  await withServer(async (h) => {
+    h.usage = { accounts: [{ producer: "p", id: "a", provider: "x", label: "Claude", fetchedAt: 1_000, windows: [{ id: "5h", label: "5h", remainingPercent: 41, resetAt: 9_000 }] }], histories: [], producers: ["p"], hiddenTimeZones: 0 };
+    const response = await fetch(`${h.base}/api/events`);
+    const reader = response.body!.getReader();
+    const snapshot = JSON.parse(/data: (.*)\n/u.exec(new TextDecoder().decode((await reader.read()).value))![1]!);
+    await reader.cancel();
+    assert.deepEqual(snapshot.limits, [{ label: "Claude", stale: false, windows: [{ label: "5h", left: 41, resetAt: 9_000 }] }]);
+    assert.deepEqual(snapshot.archived.map((row: any) => row.id), ["old"]);
+    const detail = await (await fetch(`${h.base}/api/sessions/old?conversation=0`)).json() as any;
+    assert.equal(detail.session.id, "old");
+  }, [asking(), asking({ id: "old", tmuxSession: "pi-agent-hub-old", status: "stopped", bucket: "archived", bucketChangedAt: 500, context: undefined })]);
 });

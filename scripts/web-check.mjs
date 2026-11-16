@@ -54,7 +54,7 @@ const QUESTION = { toolCallId: "call-1", params: { questions: [{ question: "Whic
 function reset(sessions) {
   world = {
     sessions, branches: new Map(), pending: new Map(), busy: new Set(), calls: [], hold: undefined, fail: undefined, extraItems: [],
-    record: false, failEarlier: undefined, readDelayMs: 0, openReads: 0, maxOpenReads: 0, next: 0,
+    skills: [], usage: undefined, record: false, failEarlier: undefined, readDelayMs: 0, openReads: 0, maxOpenReads: 0, next: 0,
   };
   web?.publish();
 }
@@ -80,7 +80,7 @@ web = createWebServer({
   staticDir: join(repo, "web"),
   sessions: () => world.sessions,
   async loadState(target) {
-    return { answerChannel: "rpiv-events", questionProtocol: true, pending: world.pending.get(target.managedId) ?? [], messageDelivery: world.busy.has(target.managedId) ? "busy" : "idle" };
+    return { answerChannel: "rpiv-events", questionProtocol: true, pending: world.pending.get(target.managedId) ?? [], messageDelivery: world.busy.has(target.managedId) ? "busy" : "idle", skills: world.skills };
   },
   async loadConversation(target, options = {}) {
     world.openReads += 1;
@@ -106,6 +106,21 @@ web = createWebServer({
   },
   async acknowledge(id, requestId) { world.calls.push(`ack:${id}:${requestId}`); },
   async touch() {},
+  shortcuts: [{ key: "c", send: "/skill:commit", label: "Commit" }],
+  async runShortcut(target, key, send) { world.calls.push(`shortcut:${target.managedId}:${key}:${send}`); },
+  async resume(id) {
+    world.calls.push(`resume:${id}`);
+    change(() => { world.sessions = world.sessions.map((row) => row.id === id ? { ...row, status: "idle" } : row); });
+  },
+  newSession: {
+    options: () => ({ repos: ["/src/alpha", "/src/beta"], groups: ["default", "ui"] }),
+    async create(input) {
+      world.calls.push(`create:${input.cwd}:${input.group}`);
+      change(() => { world.sessions = [...world.sessions, session("fresh", { title: "New · beta", group: input.group, status: "starting", piSessionId: undefined, interaction: undefined })]; });
+      return "fresh";
+    },
+  },
+  usage: () => world.usage,
 });
 reset([]);
 const serverPort = await new Promise((resolve) => web.server.listen(0, "127.0.0.1", () => resolve(web.server.address().port)));
@@ -263,6 +278,85 @@ check("a silent stream shows Reconnecting, blocks Send, then recovers", async (p
   } finally { resume(); }
   await page.locator(".conn.on").waitFor({ timeout: 20_000 });
   assert.equal(await page.getByRole("button", { name: "Send" }).isDisabled(), false);
+});
+
+// ---- controls ----
+
+check("a completed step offers Next with its skill, and shortcuts run as chips", async (page) => {
+  reset([session("a", { workflow: { steps: [{ id: "execute", short: "EX" }, { id: "review", short: "RV" }], activeIndex: 0, currentStepComplete: true, updatedAt: 1 } })]);
+  world.skills = [{ name: "review", description: "" }];
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Next: /review" }).click();
+  await page.getByText(/^Accepted/u).waitFor();
+  assert.deepEqual(sends(), ["send:a:send:/skill:review"]);
+  await page.getByRole("button", { name: "Commit" }).click();
+  await page.waitForFunction(() => document.querySelector(".receipt")?.textContent.startsWith("Accepted"));
+  await page.waitForTimeout(200);
+  assert.ok(world.calls.includes("shortcut:a:c:/skill:commit"));
+});
+
+check("a stopped session offers Resume, and the composer returns once it runs", async (page) => {
+  reset([session("a", { status: "stopped" })]);
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Resume" }).click();
+  await page.getByText(/^Accepted/u).waitFor();
+  assert.deepEqual(world.calls, ["resume:a"]);
+  await reply(page).waitFor();
+});
+
+check("+ starts a session in a listed repository and opens it", async (page) => {
+  reset([session("a")]);
+  await open(page);
+  await page.getByRole("button", { name: "New session" }).click();
+  await page.getByRole("radio", { name: /beta/u }).check();
+  // The group follows the chosen repository until it is typed.
+  assert.equal(await page.getByLabel("Group").inputValue(), "beta");
+  await page.getByLabel("Group").fill("ui");
+  await page.getByRole("button", { name: "Start session" }).click();
+  await page.locator(".band-name", { hasText: "New · beta" }).waitFor();
+  assert.deepEqual(world.calls, ["create:/src/beta:ui"]);
+});
+
+check("the band shows the tightest quota and its sheet lists every window", async (page) => {
+  reset([session("a")]);
+  await open(page);
+  await page.locator(".band-title").waitFor();
+  assert.equal(await page.locator(".quota").count(), 0);
+  world.usage = { accounts: [
+    { producer: "p", id: "c", provider: "x", label: "Claude", fetchedAt: Date.now(), windows: [{ id: "5h", label: "5h", remainingPercent: 64 }, { id: "7d", label: "7d", remainingPercent: 18, resetAt: Date.now() + 3_600_000 }] },
+    { producer: "p", id: "o", provider: "y", label: "Codex", fetchedAt: Date.now(), windows: [{ id: "5h", label: "5h", remainingPercent: 90 }] },
+  ], histories: [], producers: ["p"], hiddenTimeZones: 0 };
+  change(() => { world.sessions = [session("a", { title: "Tick" })]; });
+  await page.locator(".quota", { hasText: "18%" }).click();
+  for (const text of ["Claude", "Codex", "64% left", "18% left", "90% left"]) await page.locator("dialog").getByText(text).waitFor();
+  assert.match(await page.locator("dialog").textContent(), /resets in 1h/u);
+});
+
+check("search filters every tier and Archived, and clears", async (page) => {
+  reset([
+    session("a", { title: "Auth login" }), session("b", { title: "Billing", group: "payments" }),
+    session("old", { title: "Old auth spike", bucket: "archived", bucketChangedAt: 5 }),
+  ]);
+  await open(page);
+  await page.getByRole("button", { name: /^QUIET/u }).waitFor();
+  // Archived is collapsed until opened.
+  assert.equal(await page.getByText("Old auth spike").count(), 0);
+  await page.getByRole("button", { name: /^ARCHIVED/u }).click();
+  await page.getByText("Old auth spike").waitFor();
+  await page.getByRole("button", { name: /^ARCHIVED/u }).click();
+  await page.getByRole("button", { name: "Search" }).click();
+  await page.keyboard.type("auth");
+  await page.getByText("Old auth spike").waitFor();
+  assert.equal(await page.getByText("Billing").count(), 0);
+  await page.getByLabel("Search sessions").fill("payments");
+  await page.getByText("Billing").waitFor();
+  await page.getByLabel("Search sessions").fill("zzz");
+  await page.getByText("No matches").waitFor();
+  await page.getByRole("button", { name: "Clear search" }).click();
+  // Folding returns with the full list.
+  await page.getByRole("button", { name: /^QUIET/u }).waitFor();
+  assert.equal(await page.getByLabel("Search sessions").count(), 0);
+  assert.equal(await page.getByText("Auth login").count(), 0);
 });
 
 // ---- Markdown ----

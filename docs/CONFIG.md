@@ -360,7 +360,7 @@ tailscale serve --bg 4747     # prints https://<machine>.<tailnet>.ts.net
 tailscale serve reset         # stop sharing
 ```
 
-Anyone who can open the page can make your agents act, so do not publish it with Tailscale Funnel or a public tunnel. The server refuses requests whose `Host` is not a loopback name or a `.ts.net` name, and writes that do not come from the page's own origin.
+Anyone who can open the page can make your agents act, resume them, and start new sessions in your known repositories, so do not publish it with Tailscale Funnel or a public tunnel. The server refuses requests whose `Host` is not a loopback name or a `.ts.net` name, and writes that do not come from the page's own origin.
 
 To get notifications on an iPhone, open the `https://…ts.net` address in Safari, choose **Share → Add to Home Screen**, open Hub from the Home Screen, then tap **Notify → Turn on notifications**. iOS offers notifications only to Home Screen web apps. Other browsers can subscribe from a normal tab.
 
