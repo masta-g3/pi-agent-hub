@@ -727,7 +727,7 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   const indent = terminalWidth < 40 ? 2 : 4;
   // Running subagents and extra repositories ride the title like on roster rows; tiny panes keep them on the metadata line.
   const counts = roomy ? cardMarkers(session, styles) : "";
-  const marker = `${session.worktreeMarker ? ` ${session.worktreeMarker}` : ""}${stripAnsi(counts)}${session.unopened ? " new" : ""}`;
+  const marker = `${stripAnsi(titleMarkers(session, styles))}${stripAnsi(counts)}${session.unopened ? " new" : ""}`;
   const group = styles.muted(session.group);
   const state = session.attention ? attentionGlyph(session.attention.kind, styles) : styles.status(session.displayStatus, session.symbol);
   const disclosure = session.boardExpanded === undefined ? "" : `${session.boardExpanded ? glyphs.expanded : glyphs.collapsed} `;
@@ -744,7 +744,7 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   const branch = branchName ? styles.muted(` ${glyphs.pendingStep} ${word ? `${word} ${glyphs.pendingStep} ` : ""}${branchName}`) : "";
   const branchOnTop = groupOnTop && branch !== "" && !repoNameSignal(session, styles, repoMode)
     && displayWidth(session.title + group + branch) + 2 <= titleRoom;
-  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : ""}${counts}${styles.muted(session.unopened ? " new" : "")}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
+  const title = `${prefix}${styles.strong(truncate(session.title, Math.max(1, titleRoom - (groupOnTop ? displayWidth(group) + 2 : 0))))}${titleMarkers(session, styles)}${counts}${styles.muted(session.unopened ? " new" : "")}${groupOnTop ? `  ${group}` : ""}${branchOnTop ? branch : ""}`;
   const top = `${selectionMarker(tone(glyphs.selected))} ${age ? twoColumn(title, age, contentWidth) : title}`;
   // Metadata sits under the title text (after the stripe and state glyph); STEP carries workflow position.
   const metadata = inboxMetadataLine(session, Math.max(1, width - indent), terminalWidth, styles, repoMode, !groupOnTop, !branchOnTop, !roomy);
@@ -2579,15 +2579,20 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     const doing = lensOf(session)?.doing;
     const room = Math.max(0, width - displayWidth(prefix) - (step ? displayWidth(step) + 2 : 0));
     const badge = rowModel(session, styles);
+    // A run's ticket runner is named by its ticket, kept whole: ids that differ only in their number must stay apart.
+    const identity = session.orchestratedTicket ? `${glyphs.orchestration} ${session.orchestratedTicket}` : session.agentName ?? "subagent";
+    const identityCap = session.orchestratedTicket ? displayWidth(identity) : 20;
     // The model is spare-room metadata: it shows only beside a readable agent name.
-    const model = badge && room - displayWidth(badge) - 2 >= Math.min(20, displayWidth(session.agentName ?? "subagent")) + 9 ? badge : "";
+    const model = badge && room - displayWidth(badge) - 2 >= Math.min(identityCap, displayWidth(identity)) + 9 ? badge : "";
     const available = Math.max(0, room - (model ? displayWidth(model) + 2 : 0));
     const task = (doing ? plainAttentionText(doing) : session.taskPreview)?.trim() ?? "";
-    const minTask = task ? Math.min(8, Math.max(0, available - 10)) : 0;
-    const nameWidth = Math.max(0, Math.min(20, available - (task ? minTask + 1 : 0)));
-    const name = styles.muted(truncate(session.agentName ?? "subagent", nameWidth));
+    // A runner's ticket id outranks its task, which takes only the room left; an ordinary agent name yields room to it.
+    const reserveTask = Boolean(task) && !session.orchestratedTicket;
+    const minTask = reserveTask ? Math.min(8, Math.max(0, available - 10)) : 0;
+    const nameWidth = Math.max(0, Math.min(identityCap, available - (reserveTask ? minTask + 1 : 0)));
+    const name = styles.muted(truncate(identity, nameWidth));
     const taskWidth = Math.max(0, available - displayWidth(name) - (task ? 1 : 0));
-    const taskText = task ? ` ${doing ? styles.text(truncate(task, taskWidth)) : styles.muted(truncate(task, taskWidth))}` : "";
+    const taskText = task && taskWidth > 0 ? ` ${doing ? styles.text(truncate(task, taskWidth)) : styles.muted(truncate(task, taskWidth))}` : "";
     return truncate(`${prefix}${name}${step ? `  ${step}` : ""}${model ? `  ${model}` : ""}${taskText}`, width);
   }
 
@@ -2595,7 +2600,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
     ? styles.accent(session.boardExpanded ? glyphs.expanded : glyphs.collapsed)
     : " ";
   const prefix = `${selection}${options.gutterColumn ? "  " : " "}${disclosure} ${state} ${sidePaneMarker}`;
-  const worktree = session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : "";
+  const worktree = titleMarkers(session, styles);
   if (options.titleFirst) {
     const markers = options.card ? cardMarkers(session, styles) : "";
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(markers));
@@ -2641,6 +2646,12 @@ function newBadge(session: RenderSession, titleSpace: number, styles: LayoutStyl
   if (!session.unopened) return "";
   const titleNeed = Math.min(12, displayWidth(session.title));
   return titleSpace - NEW_BADGE.length >= titleNeed ? styles.accent(NEW_BADGE) : "";
+}
+
+/** Identity markers that follow every parent title and outlive its truncation: worktree, then orchestration. */
+function titleMarkers(session: RenderSession, styles: LayoutStyles): string {
+  const worktree = session.worktreeMarker ? ` ${worktreeMarkerStyle(session.worktreeMarker, styles)}` : "";
+  return `${worktree}${session.orchestrator ? ` ${styles.muted(glyphs.orchestration)}` : ""}`;
 }
 
 function worktreeMarkerStyle(marker: NonNullable<RenderSession["worktreeMarker"]>, styles: LayoutStyles): string {

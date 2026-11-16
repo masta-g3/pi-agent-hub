@@ -290,6 +290,8 @@ Compaction is separate from mode and workflow state. Its bounded heartbeat `oper
 
 The snapshot drives the per-session rail and canonical lanes in the read-only `S` workflow board. Modes change the active step's display only; pipeline identity and lane placement continue to use the ordered base step ids. When visible Active parents report different ordered-id pipelines, Hub deterministically selects the most prevalent pipeline, treats label/short-only versions as compatible, and uses the newest compatible vocabulary. Incompatible and workflowless Active parent trees render once in synthetic `OTHER ACTIVE`; Backlog/Archived remain footer-only. Heartbeats fire on agent start/end, after all `agent_end` handlers settle, and every 15 seconds. Final context is immediate; other producer changes still have the periodic fallback.
 
+An entry can also carry `orchestration: { tickets: [{ id, … }] }`, with or without `activeStep`. Hub reads only the ticket ids: 1–24 unique ids like `web-002`, each at most 80 characters, compared in lowercase; any malformed or repeated id drops the whole field without touching the workflow or lens. The heartbeat carries them as `orchestration: { ticketIds }`, and `registry.json` keeps them like the lens until a fresh heartbeat omits them. A session with ticket ids gets the `⊛` title marker; a direct subagent child whose workflow `ticketId` is one of them shows `⊛ <ticket-id>` in place of its agent name.
+
 ## Global config
 
 Optional global config lives at `config.json` under the global state directory:

@@ -10,11 +10,11 @@ import { loadThemeCommand } from "../core/theme-command.js";
 import { loadNameCommand, NAME_COMMAND_TIMEOUT_MS } from "../core/name-command.js";
 import { colorFromAnsi } from "../core/theme-color.js";
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_STALE_MS } from "../core/status.js";
-import { ACTION_DETAIL_MAX, ACTIVITY_RECENT_MAX, parseWorkflowEntry } from "../core/heartbeat.js";
+import { ACTION_DETAIL_MAX, ACTIVITY_RECENT_MAX, parseEntryOrchestration, parseWorkflowEntry } from "../core/heartbeat.js";
 import { registerMcpTools } from "../mcp/register-tools.js";
 import { parseSessionContext } from "../core/session-context.js";
 import { writeJsonAtomic } from "../core/atomic-json.js";
-import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, SessionAction, WorkflowLens, WorkflowRuntimeSnapshot } from "../core/types.js";
+import type { ActiveThemeSnapshot, ActiveThemeToken, Heartbeat, HeartbeatOperation, SessionAction, SessionOrchestration, WorkflowLens, WorkflowRuntimeSnapshot } from "../core/types.js";
 
 type PiTheme = {
   name?: string;
@@ -472,20 +472,25 @@ export function actionDetail(toolName: string, args: unknown, cwd: string): stri
   return chars.length <= ACTION_DETAIL_MAX ? clean : `${chars.slice(0, ACTION_DETAIL_MAX - 1).join("")}…`;
 }
 
-/** The positioned workflow, or a lens the producer published without a step. */
-function workflowFields(ctx: PiContext): { workflow?: WorkflowRuntimeSnapshot; lens?: WorkflowLens } {
-  const entry = workflowEntry(ctx);
-  return !entry ? {} : "steps" in entry ? { workflow: entry } : { lens: entry.lens };
+/** The positioned workflow, or a lens the producer published without a step, and any orchestration run beside either. */
+function workflowFields(ctx: PiContext): { workflow?: WorkflowRuntimeSnapshot; lens?: WorkflowLens; orchestration?: SessionOrchestration } {
+  const data = workflowEntryData(ctx);
+  const entry = parseWorkflowEntry(data);
+  const orchestration = parseEntryOrchestration(data);
+  return {
+    ...(!entry ? {} : "steps" in entry ? { workflow: entry } : { lens: entry.lens }),
+    ...(orchestration ? { orchestration } : {}),
+  };
 }
 
-function workflowEntry(ctx: PiContext): ReturnType<typeof parseWorkflowEntry> {
+function workflowEntryData(ctx: PiContext): unknown {
   try {
     const entries = ctx.sessionManager?.getBranch?.();
     if (!entries) return undefined;
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as { type?: string; customType?: string; data?: unknown } | undefined;
       if (entry?.type !== "custom" || entry.customType !== WORKFLOW_RUNTIME_ENTRY) continue;
-      return parseWorkflowEntry(entry.data);
+      return entry.data;
     }
   } catch {}
   return undefined;

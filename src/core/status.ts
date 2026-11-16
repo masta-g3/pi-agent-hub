@@ -113,6 +113,7 @@ export function applyComputedStatus(session: ManagedSession, computed: ComputedS
     activeTheme: isFreshHeartbeat(heartbeat, now) ? heartbeat.activeTheme : undefined,
     workflow: isFreshHeartbeat(heartbeat, now) ? retainedWorkflow(heartbeat.workflow) : session.workflow,
     lens: isFreshHeartbeat(heartbeat, now) ? heartbeat.lens : session.lens,
+    orchestration: isFreshHeartbeat(heartbeat, now) ? heartbeat.orchestration : session.orchestration,
   }, now);
 }
 

@@ -93,6 +93,10 @@ export interface RenderSession {
   worktreeCount?: number;
   worktreeLifecycle?: WorktreeLifecycleSnapshot;
   worktreeMarker?: string;
+  /** The session publishes an orchestration run. */
+  orchestrator?: true;
+  /** The run ticket this subagent works, when its direct parent orchestrates that ticket. */
+  orchestratedTicket?: string;
   pinned?: boolean;
   pinSlot?: number;
   pinFocused?: boolean;
@@ -1168,6 +1172,8 @@ function toRenderSession(session: RuntimeSession, selected: boolean, sessions: R
     worktreeCount: worktrees.length || undefined,
     worktreeLifecycle: effectiveWorktreeLifecycle(session),
     worktreeMarker: worktreeGlyph(worktreeMarker(session)),
+    ...(session.orchestration?.ticketIds.length ? { orchestrator: true } : {}),
+    ...orchestratedTicket(session, tree),
     ...(pinned ? { pinned: true } : {}),
     ...(pinSlot !== undefined ? { pinSlot } : {}),
     ...(pinFocused ? { pinFocused: true } : {}),
@@ -1200,6 +1206,13 @@ export function visibleAttention(session: RuntimeSession): SessionAttention | un
   if (session.acknowledgedAt !== undefined && session.context !== undefined
     && session.acknowledgedAt >= session.context.updatedAt) return undefined;
   return attention;
+}
+
+/** Only a direct child that works one of its parent's run tickets is a runner; nested helpers stay plain. */
+function orchestratedTicket(session: RuntimeSession, tree: SessionTreeIndex<RuntimeSession>): Pick<RenderSession, "orchestratedTicket"> {
+  const ticketId = session.kind === "subagent" && session.parentId ? session.workflow?.ticketId?.toLowerCase() : undefined;
+  if (!ticketId) return {};
+  return tree.get(session.parentId!)?.orchestration?.ticketIds.includes(ticketId) ? { orchestratedTicket: ticketId } : {};
 }
 
 function ticketDisplay(session: RuntimeSession): Pick<RenderSession, "ticketId" | "ticketSubtitle" | "ticketDescription"> {

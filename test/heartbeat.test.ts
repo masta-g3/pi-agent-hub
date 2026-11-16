@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseHeartbeat, parseHeartbeatModel, parseSessionActivity, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
+import { parseEntryOrchestration, parseHeartbeat, parseHeartbeatModel, parseSessionActivity, parseWorkflowEntry, parseWorkflowSnapshot, readHeartbeat } from "../src/core/heartbeat.js";
 import { heartbeatPath } from "../src/core/paths.js";
 import { applyComputedStatus } from "../src/core/status.js";
 import type { ManagedSession } from "../src/core/types.js";
-import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_PLANNING_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const core = {
   managedSessionId: "api",
@@ -386,4 +386,43 @@ test("a lens-only heartbeat round-trips through computed status and retention", 
   // A positioned workflow wins over a stray lens.
   const both = parseHeartbeat({ ...core, state: "running", stateSince: now, updatedAt: now, lens, workflow: { steps: [{ id: "x", short: "X" }], activeIndex: 0, updatedAt: now } }, "api")!;
   assert.equal(both.lens, undefined);
+});
+
+test("a Rules orchestration run yields its ticket ids, positioned or not", () => {
+  assert.equal(parseEntryOrchestration(ORCHESTRATION_EPIC_ENTRY)?.ticketIds.length, 24);
+  assert.equal(parseEntryOrchestration(ORCHESTRATION_EPIC_ENTRY)?.ticketIds[0], "sfcity-010");
+  assert.deepEqual(parseEntryOrchestration(ORCHESTRATION_TICKET_ENTRY), { ticketIds: ["web-002"] });
+  assert.deepEqual(parseEntryOrchestration(ORCHESTRATION_PLANNING_ENTRY), { ticketIds: ["web-002"] });
+  assert.deepEqual(parseEntryOrchestration({ orchestration: { tickets: [{ id: " Web-002 ", state: "queued", extra: 1 }] } }), { ticketIds: ["web-002"] });
+  const id = (index: number) => `x-${String(index).padStart(3, "0")}`;
+  for (const orchestration of [undefined, {}, { tickets: [] }, { tickets: "x-001" }, { tickets: [{ id: "x-001" }, { id: "x-001" }] },
+    { tickets: [{ id: "x-001" }, { id: "nope" }] }, { tickets: [{ id: 7 }] }, { tickets: [{ id: `${"a".repeat(77)}-001` }] },
+    { tickets: Array.from({ length: 25 }, (_, index) => ({ id: id(index) })) }]) {
+    assert.equal(parseEntryOrchestration({ orchestration }), undefined, JSON.stringify(orchestration)?.slice(0, 60));
+  }
+  assert.equal(parseEntryOrchestration({ orchestration: { tickets: Array.from({ length: 24 }, (_, index) => ({ id: id(index) })) } })?.ticketIds.length, 24);
+});
+
+test("heartbeat orchestration is validated apart from the workflow and lens", () => {
+  const now = 10_000;
+  const lens = parseWorkflowEntry(ORCHESTRATION_TICKET_ENTRY)!.lens;
+  const beat = (orchestration: unknown) => parseHeartbeat({ ...core, state: "running", stateSince: now, updatedAt: now, lens, orchestration }, "api")!;
+  assert.deepEqual(beat({ ticketIds: ["web-002"] }).orchestration, { ticketIds: ["web-002"] });
+  for (const bad of [{ ticketIds: [] }, { ticketIds: ["web-002", "web-002"] }, { ticketIds: ["bad"] }, { tickets: [{ id: "web-002" }] }, "web-002"]) {
+    const parsed = beat(bad);
+    assert.equal(parsed.orchestration, undefined, JSON.stringify(bad));
+    assert.deepEqual(parsed.lens, lens);
+  }
+});
+
+test("computed status keeps the orchestration for a stopped session until a fresh heartbeat drops it", () => {
+  const now = 10_000;
+  const session: ManagedSession = { id: "api", title: "api", cwd: "/tmp/api", group: "default", tmuxSession: "pi-agent-hub-api", status: "running", createdAt: 1, updatedAt: 1 };
+  const heartbeat = parseHeartbeat({ ...core, state: "running", stateSince: now - 100, updatedAt: now, orchestration: { ticketIds: ["web-002"] } }, "api")!;
+  const updated = applyComputedStatus(session, { status: "running" }, now, heartbeat);
+  assert.deepEqual(updated.orchestration, { ticketIds: ["web-002"] });
+  const stale = applyComputedStatus({ ...updated, status: "stopped" }, { status: "stopped" }, now + 60_000, { ...heartbeat, updatedAt: 0 });
+  assert.deepEqual(stale.orchestration, { ticketIds: ["web-002"] });
+  const { orchestration: _orchestration, ...without } = heartbeat;
+  assert.equal(applyComputedStatus(updated, { status: "running" }, now, without).orchestration, undefined);
 });

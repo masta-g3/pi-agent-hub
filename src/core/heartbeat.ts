@@ -10,6 +10,7 @@ import type {
   HeartbeatModel,
   SessionAction,
   SessionActivity,
+  SessionOrchestration,
   SessionPlanSummary,
   WorkflowActivityDisplay,
   WorkflowLens,
@@ -49,6 +50,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
   const operation = parseHeartbeatOperation(value.operation);
   const activity = parseSessionActivity(value.activity);
   const model = parseHeartbeatModel(value.model);
+  const orchestration = isObject(value.orchestration) ? orchestrationOf(value.orchestration.ticketIds) : undefined;
   return {
     managedSessionId,
     ...(isObject(value.interaction) && value.interaction.version === 1 && typeof value.interaction.instanceId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value.interaction.instanceId)
@@ -71,6 +73,7 @@ export function parseHeartbeat(value: unknown, expectedSessionId: string): Heart
     ...(context ? { context } : {}),
     ...(workflow ? { workflow } : {}),
     ...(lens ? { lens } : {}),
+    ...(orchestration ? { orchestration } : {}),
     ...(activity ? { activity } : {}),
     ...(model ? { model } : {}),
   };
@@ -114,6 +117,24 @@ export function parseSessionActivity(value: unknown): SessionActivity | undefine
   return current || recent.length || calls
     ? { ...(current ? { current } : {}), ...(recent.length ? { recent } : {}), ...(calls ? { calls } : {}) }
     : undefined;
+}
+
+const ORCHESTRATION_TICKETS_MAX = 24;
+const ORCHESTRATION_ID_MAX = 80;
+const ORCHESTRATION_ID = /^[a-z][a-z0-9-]*-\d{3}$/;
+
+/** A Rules entry's published orchestration run, whether or not the parent's own step is underway. */
+export function parseEntryOrchestration(value: unknown): SessionOrchestration | undefined {
+  if (!isObject(value) || !isObject(value.orchestration) || !Array.isArray(value.orchestration.tickets)) return undefined;
+  return orchestrationOf(value.orchestration.tickets.map((ticket) => isObject(ticket) ? ticket.id : undefined));
+}
+
+/** Any malformed or repeated id drops the whole list, so a marker never names a partial run. */
+function orchestrationOf(ids: unknown): SessionOrchestration | undefined {
+  if (!Array.isArray(ids) || !ids.length || ids.length > ORCHESTRATION_TICKETS_MAX) return undefined;
+  const ticketIds = ids.map((id) => typeof id === "string" ? id.trim().toLowerCase() : "");
+  const valid = ticketIds.every((id) => id.length <= ORCHESTRATION_ID_MAX && ORCHESTRATION_ID.test(id));
+  return valid && new Set(ticketIds).size === ticketIds.length ? { ticketIds } : undefined;
 }
 
 /** A Rules entry with a step gives a positioned workflow; one without a step but with a lens gives that lens alone. */

@@ -46,6 +46,11 @@ export interface WorkflowLens {
   list?: { label: string; head?: string; items: { state: WorkflowLensState; text: string }[]; before: number; after: number };
 }
 
+/** The ticket ids of an orchestration run a producer publishes, independent of its workflow position. */
+export interface SessionOrchestration {
+  ticketIds: string[];
+}
+
 export interface WorkflowActivityDisplay {
   id: string;
   label: string;
@@ -187,6 +192,8 @@ export interface ManagedSession {
   workflow?: WorkflowSnapshot;
   /** A producer lens published without a workflow position, such as an orchestrator's run; retained like the workflow. */
   lens?: WorkflowLens;
+  /** Tickets of the orchestration run this session publishes; retained like the lens. */
+  orchestration?: SessionOrchestration;
   worktreePath?: string;
   worktreeRepoRoot?: string;
   worktreeBranch?: string;
@@ -275,6 +282,7 @@ export interface Heartbeat {
   workflow?: WorkflowRuntimeSnapshot;
   /** Lens-only producer snapshot; present only without a workflow. */
   lens?: WorkflowLens;
+  orchestration?: SessionOrchestration;
   activity?: SessionActivity;
   model?: HeartbeatModel;
 }

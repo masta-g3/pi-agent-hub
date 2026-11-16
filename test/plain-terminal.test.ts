@@ -114,6 +114,11 @@ test("ASCII fleet, dense rows, board, workspace and form chrome fit exact widths
     assert.equal(truncate('user 雪 text',20),'user 雪 text');
     for (const marker of ['⎇','⇡','⚠']) assert.match(worktreeGlyph(marker),/^[\\x20-\\x7e]+$/);
     for (const glyph of Object.values(ascii)) assert.match(glyph,/^[\\x20-\\x7e]+$/);
+    const run = [{...sessions[0],id:'orch',title:'Run epic',orchestration:{ticketIds:['web-002']}},
+      {...sessions[0],id:'runner',kind:'subagent',parentId:'orch',agentName:'ticket-runner',workflow:{...sessions[0].workflow,ticketId:'web-002'}}];
+    const marked = renderSessions(buildRenderModel({sessions:run,selectedId:'orch',width:120,height:20,now:1000,expandedProjectParentIds:new Set(['orch'])}),darkTheme).lines.map(stripAnsi);
+    assert.ok(marked.some(line => line.includes('Run epic @ %')), marked.join('\\n'));
+    assert.ok(marked.some(line => line.includes('% web-002')), marked.join('\\n'));
     const controller = new SessionsController({version:1,sessions:[{...sessions[0],title:'User 雪 → title',group:'Group ✓'}]});
     const view = new SessionsView(controller,()=>{},{terminalRows:()=>40},darkTheme);
     assert.ok(view.render(160).map(stripAnsi).join('\\n').includes('User 雪 → title'));

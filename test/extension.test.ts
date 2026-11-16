@@ -12,7 +12,7 @@ import { publishThemeCommand } from "../src/core/theme-command.js";
 import { nameCommandPath, publishNameCommand } from "../src/core/name-command.js";
 import { writeJsonAtomic } from "../src/core/atomic-json.js";
 import type { Heartbeat } from "../src/core/types.js";
-import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
+import { ORCHESTRATION_EPIC_ENTRY, ORCHESTRATION_PLANNING_ENTRY, ORCHESTRATION_TICKET_ENTRY } from "./fixtures/orchestration.js";
 
 const EXTENSION_KEY = Symbol.for("pi-agent-hub.extension.loaded");
 const FORK_ATTEMPT = "571b5a3d-55fa-4c90-b5cc-fc2f907785d1";
@@ -1266,5 +1266,12 @@ test("piAgentHubExtension bridges a lens-only orchestration entry without a work
     assert.equal(heartbeat.workflow, undefined);
     assert.equal(heartbeat.lens?.doing, data.lens.doing);
     assert.equal(heartbeat.lens?.summary, data.lens.summary);
+    assert.deepEqual(heartbeat.orchestration?.ticketIds, data.orchestration.tickets.map(ticket => ticket.id));
   }
+  // The parent's own step can run while the run stays published.
+  const planning = await heartbeatWithSessionManager({ getBranch: () => [{ type: "custom", customType: "workflow-runtime", data: ORCHESTRATION_PLANNING_ENTRY }] });
+  assert.equal(planning.workflow?.steps[planning.workflow.activeIndex]?.id, "plan-md");
+  assert.deepEqual(planning.orchestration, { ticketIds: ["web-002"] });
+  const plain = await heartbeatWithSessionManager({ getBranch: () => [WORKFLOW_ENTRY] });
+  assert.equal(plain.orchestration, undefined);
 });
