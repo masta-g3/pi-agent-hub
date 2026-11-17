@@ -3,7 +3,8 @@ import { glyphs, modelIcons, type ModelIcons } from "./glyphs.js";
 
 export type ModelVendor = "anthropic" | "openai" | "google";
 
-const CLAUDE_FAMILIES: Record<string, string> = { opus: "opus", sonnet: "son", haiku: "haiku" };
+/** Long family names get a short form; other families (opus, haiku, fable, ...) show whole. */
+const CLAUDE_SHORT: Record<string, string> = { sonnet: "son" };
 const TAG_MAX = 8;
 
 /** The id's last path segment without a trailing release date, e.g. `openai/gpt-5-20250807` to `gpt-5`. */
@@ -18,12 +19,13 @@ function initials(suffix: string): string {
 
 export function modelTag(model: HeartbeatModel): string {
   const id = baseId(model.id);
-  const claude = /^claude-(?:(opus|sonnet|haiku)-(\d+)(?:-(\d))?|(\d+)(?:-(\d))?-(opus|sonnet|haiku))(?:-|$)/.exec(id);
+  // Current ids put the family first (claude-opus-4-5); Claude 3 ids put the version first (claude-3-5-sonnet).
+  const claude = /^claude-(?:([a-z]+)-(\d+)(?:-(\d))?|(\d+)(?:-(\d))?-([a-z]+))(?:-|$)/.exec(id);
   if (claude) {
     const family = claude[1] ?? claude[6]!;
     const major = claude[2] ?? claude[4]!;
     const minor = claude[3] ?? claude[5];
-    return `${CLAUDE_FAMILIES[family]}${major}${minor ? `.${minor}` : ""}`;
+    return `${CLAUDE_SHORT[family] ?? family}${major}${minor ? `.${minor}` : ""}`;
   }
   const versioned = /^(gpt|gemini)-([\d.]+[a-z]?)((?:-[a-z]+)*)$/.exec(id);
   if (versioned) return `${versioned[1] === "gpt" ? "gpt" : "gem"}${versioned[2]}${initials(versioned[3]!)}`;
