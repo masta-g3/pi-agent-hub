@@ -421,19 +421,33 @@ function closeSearch() {
   render();
 }
 
+/** A line bell in the text color; an emoji bell would ignore the theme. */
+function bellIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", width: "22", height: "22", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(key, value);
+  for (const d of ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]) {
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+
 function listView() {
   const snapshot = state.snapshot;
   const count = snapshot?.requestCount ?? 0;
   const band = h("header", { class: "band" },
     h("div", { class: "band-row" },
       h("h1", { class: "band-title" }, "Hub"),
-      count ? h("span", { class: "band-count" }, `${count} ${count === 1 ? "request" : "requests"}`) : undefined,
+      // The word drops on narrow screens; the number always stays.
+      count ? h("span", { class: "band-count", "aria-label": `${count} ${count === 1 ? "request" : "requests"}` }, String(count), h("span", { class: "band-count-word" }, ` ${count === 1 ? "request" : "requests"}`)) : undefined,
       h("span", { class: "band-fill" }),
       quotaChip(snapshot?.limits),
       h("button", { class: "icon-btn find", type: "button", "aria-label": "Search", "aria-pressed": String(state.search !== undefined), onclick: openSearch }, "⌕"),
       h("button", { class: "icon-btn", type: "button", "aria-label": "New session", disabled: state.stale, onclick: openNewSession }, "+"),
       connection(true),
-      h("button", { class: "link-btn", type: "button", onclick: openSettings }, "Notify")),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Notifications", onclick: openSettings }, bellIcon())),
     searchRow(),
     staleBanner());
   const list = h("main", { class: "list" });

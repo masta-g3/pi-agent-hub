@@ -342,3 +342,13 @@ dialog { max-height: 85dvh; overflow-y: auto; }
 .notes .stamp { align-self: center; font-style: normal; }
 .notes-label { min-height: 32px; display: inline-flex; align-items: center; }
 .turn:focus { outline: none; }
+
+/* The band is one row at every phone width: items never wrap; the request word and the title give way first. */
+.band-row > * { flex-shrink: 0; white-space: nowrap; }
+.band-row > .band-fill, .band-row > .band-id { flex-shrink: 1; min-width: 0; }
+
+@media (max-width: 374px) {
+  .band-count-word { display: none; }
+  .band-count { min-width: 22px; padding: 0 var(--s1); border-radius: var(--r-field); background: var(--warning-wash); text-align: center; }
+  .band-row .icon-btn { min-width: 36px; }
+}

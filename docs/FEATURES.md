@@ -372,7 +372,8 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 - Back returns to the list where you left it.
 - Each send shows **Submitting**, then **Accepted**, **Rejected**, or **Delivery unknown**. Nothing is sent twice on its own. A send to a session that restarted since the page loaded is rejected. An answer goes only to the question shown, and Mark read only clears the request shown.
 - After 10 seconds without data the page shows **Reconnecting** and disables sending.
-- **Notify** subscribes the device to a notification for each new request. Tapping it opens that session.
+- The bell subscribes the device to a notification for each new request. Tapping a notification opens that session.
+- The top bar stays one row on any phone: below 375 points wide, the request count shows as a number only.
 - **Next step and shortcuts:** when a workflow step is complete and Pi is idle, the chat dock offers **Next: /review**, the same as `>` in the dashboard. Each configured `dashboard.shortcuts` entry is a chip, enabled on the same terms as its dashboard key.
 - **Resume:** a stopped or failed session shows **Resume**, which restarts it like `Enter` on a stopped row. The composer returns once Pi is live.
 - **New session:** **+** starts a session in a repository the dashboard already knows (recent and current sessions, without Hub-owned worktrees) and a group, then opens its chat. Type the first prompt once Pi is live. Worktrees and multi-repo sessions stay in the terminal dashboard.

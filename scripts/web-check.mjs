@@ -359,6 +359,20 @@ check("search filters every tier and Archived, and clears", async (page) => {
   assert.equal(await page.getByText("Auth login").count(), 0);
 });
 
+check("the band stays one row on a narrow phone with every control", async (page) => {
+  reset(Array.from({ length: 12 }, (_, index) => session(`r${index}`, { status: "waiting", ...attention("ready", `q${index}`, "Done.") })));
+  world.usage = { accounts: [{ producer: "p", id: "c", provider: "x", label: "C", fetchedAt: 0, windows: [{ id: "5h", label: "5h", remainingPercent: 100 }] }], histories: [], producers: ["p"], hiddenTimeZones: 0 };
+  await page.setViewportSize({ width: 320, height: 640 });
+  await open(page);
+  await page.locator(".quota").waitFor();
+  const tops = await page.locator(".band-row > *").evaluateAll((all) => all.filter((el) => el.offsetWidth).map((el) => el.getBoundingClientRect().height));
+  assert.ok(Math.max(...tops) <= 44, `no band item wraps: ${tops}`);
+  assert.equal(await page.locator(".band-row").evaluate((el) => el.getBoundingClientRect().height), 44);
+  assert.equal(await page.locator(".band-count").getAttribute("aria-label"), "12 requests");
+  await page.getByRole("button", { name: "Notifications" }).click();
+  await page.locator("dialog").getByText("Notify this device").waitFor();
+});
+
 // ---- Markdown ----
 
 const MARKDOWN = [
