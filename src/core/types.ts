@@ -106,6 +106,8 @@ export interface SessionAttention {
   requestId?: string;
   kind: SessionAttentionKind;
   text: string;
+  /** The producer's one-line name for the request, for list rows; `text` stays the whole request. */
+  title?: string;
   recommendation?: string;
   artifact?: string;
 }

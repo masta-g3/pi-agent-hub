@@ -99,9 +99,9 @@ test("board grid leaves the Repo Backlog workflow rail unchanged", () => {
     const index = layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "backlog");
     return stripAnsi(layout.lines[index]!).slice(0, layout.listWidth);
   };
-  // Beside the card pane the roster keeps the full lifecycle rail once it has room for it.
-  assert.match(row(200), /backlog · QUIET · ✓ PL─◉ EX─· RV─· RF─· CM/);
-  // A narrower roster keeps the compact current step.
+  // The full rail needs 120 columns, where the list beside the card is 50 cells, so rows keep the compact step.
+  assert.match(row(99), /Card backlog\s+backlog · QUIET · ◉EX · 1m$/);
+  // The 50-cell list keeps the compact step before the lifecycle words.
   assert.match(row(160), /Card backlog\s+◉EX$/);
 });
 

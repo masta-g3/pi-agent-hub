@@ -114,10 +114,11 @@ test("split geometry clamps to 30/70", () => {
 });
 
 test("sidebar repair preserves the 38-cell named pin minimum", () => {
+  // The default matches the fleet list's width beside its card; at 120 two 38-cell pins leave 42.
   assert.equal(sidebarRepairWidth(60, 120), 42);
-  assert.equal(sidebarRepairWidth(12, 160), 42);
+  assert.equal(sidebarRepairWidth(12, 160), 50);
   assert.equal(sidebarRepairWidth(72, 160), 60);
-  assert.equal(sidebarRepairWidth(12, 99), 42);
+  assert.equal(sidebarRepairWidth(12, 99), 50);
   assert.equal(sidebarRepairWidth(12, 79), 40);
 });
 

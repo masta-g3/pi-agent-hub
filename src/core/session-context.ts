@@ -5,6 +5,7 @@ const TICKET_ID_MAX = 80;
 const SUBTITLE_MAX = 64;
 const DESCRIPTION_MAX = 240;
 const ATTENTION_MAX = 150;
+const ATTENTION_TITLE_MAX = 80;
 const ATTENTION_REQUEST_ID_MAX = 64;
 const RECOMMENDATION_MAX = 150;
 const ARTIFACT_MAX = 1024;
@@ -90,12 +91,14 @@ function parseAttention(value: unknown): SessionAttention | undefined {
   const text = boundedText(value.text, ATTENTION_MAX);
   if (requestId === null || !text) return undefined;
   // Optional handoff details are isolated so a malformed one cannot hide the request.
+  const title = boundedText(value.title, ATTENTION_TITLE_MAX);
   const recommendation = boundedText(value.recommendation, RECOMMENDATION_MAX);
   const artifact = artifactText(value.artifact);
   return {
     ...(requestId ? { requestId } : {}),
     kind: value.kind as SessionAttention["kind"],
     text,
+    ...(title ? { title } : {}),
     ...(recommendation ? { recommendation } : {}),
     ...(artifact ? { artifact } : {}),
   };

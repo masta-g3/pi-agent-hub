@@ -74,8 +74,8 @@ test("list reclaims the navigator columns without changing workspace geometry", 
     const layout = renderSessions(model);
     assert.doesNotMatch(layout.lines.join("\n"), /TIERS/);
     assert.equal(layout.listStartX, 1);
-    // Below 100 the roster takes the full width; from 100 the side pane takes the rest after a one-cell rule.
-    assert.equal(layout.listWidth, ({ 100: 38, 120: 46, 160: 61 } as Record<number, number>)[width] ?? width);
+    // Below 100 the list takes the full width; from 100 it keeps 50 cells beside the card.
+    assert.equal(layout.listWidth, width >= 100 ? 50 : width);
     assert.equal(layout.workspaceStartX, undefined);
   }
 });

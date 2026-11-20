@@ -201,12 +201,15 @@ test("modules align their field labels and show a field only with a value", () =
   }
 });
 
-test("an unselected request wraps to a second line and leaves its recommendation to the card", () => {
-  const layout = render(panelFleet, { width: 80 });
-  const lines = moduleLines(layout, "asking");
-  assert.equal(lines.length, 3, lines.join("\n"));
+test("an unselected request reads whole beside the card and in one line below 100 columns", () => {
+  // Below 100 columns the docked list keeps one status line.
+  const narrow = moduleLines(render(panelFleet, { width: 80 }), "asking");
+  assert.equal(narrow.length, 2, narrow.join("\n"));
+  assert.match(narrow[1]!, /^ +ASK {4}Which neighborhood.*…/);
+  // Beside the card the list states the request whole, and its recommendation, hanging under the text.
+  const lines = moduleLines(render(panelFleet, { width: 130 }), "asking");
   assert.match(lines[1]!, /^ +ASK {4}Which neighborhood/);
-  assert.ok(!lines.some((line) => line.includes("North Beach")), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("→ North Beach")), lines.join("\n"));
   const valueColumn = lines[1]!.indexOf("Which");
   assert.equal(lines[2]!.search(/\S/), valueColumn);
   const card = cardText(render(panelFleet, { width: 80, selectedId: "asking" }));
@@ -228,8 +231,8 @@ test("ERR replaces NOW, and WHERE drops the mode, pass, meter, stages, then coun
   };
   // The side pane narrows with the window, so each width shows one more piece dropped.
   assert.equal(where(130), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2  FOC");
-  assert.equal(where(120), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2");
-  assert.equal(where(100), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  3/8");
+  assert.equal(where(120), "WHERE  PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8");
+  assert.equal(where(100), "WHERE  PL✓ EX✓ RV◉ RF· CM·  3/8");
   // Below 80 the rail is the plain step, which names the mode.
   assert.equal(where(60), "WHERE  FOC │ review✓ fix◉ done·  ▰▰▰▱▱▱▱▱ 3/8  pass 2");
   assert.equal(where(46), "WHERE  FOC │ review✓ fix◉ done·  3/8");
@@ -327,13 +330,14 @@ const commitLens = { doing: "Commit complete", stages: stagesAt(["archive", "com
   list: { label: "CLOSE", head: "2 commits", items: [{ state: "done" as const, text: "Plan archived" }, { state: "done" as const, text: "Ticket card-lens-002 done" },
     { state: "done" as const, text: "pi-agent-hub 3f9c2e1 Add step lens contract" }, { state: "done" as const, text: "rules a1b2c3d Publish the workflow lens" }], before: 0, after: 0 } };
 
-test("Plan and completed Commit lenses render their lists at 100 and 160 columns", () => {
+test("Plan and completed Commit lenses render their lists at 120 and 160 columns", () => {
   const planning = session("planning", { title: "Plan lenses", status: "waiting", workflow: panelWorkflow(0, { activity: { id: "reviewing-plan", label: "Reviewing plan" }, lens: planLens }) });
   const closed = session("closed", { title: "Commit lenses", status: "idle", workflow: panelWorkflow(4, { currentStepComplete: true, activity: { id: "commit-complete", label: "Commit complete" }, lens: commitLens }) });
-  for (const width of [100, 160]) {
+  for (const width of [120, 160]) {
     const plan = cardText(render([planning, closed], { width, selectedId: "planning" }));
     assert.ok(plan.some((line) => /^ *DOING {2}Reviewing plan$/.test(line)), plan.join("\n"));
     // The 100-column side pane is too narrow for the stages, so WHERE keeps the rail.
+    // A 69-cell card at 120 has no room for the stages; 160 does.
     const planWhere = width === 160 ? / │ inspect✓ scope✓ write✓ critic◉ ready·$/ : /CM·$/;
     assert.ok(plan.some((line) => /^ *WHERE {2}PL◉ EX· RV· RF· CM·/.test(line) && planWhere.test(line)), plan.join("\n"));
     assert.deepEqual(field(plan, "PLAN").map((line) => line.trim()), ["PLAN   3 phases · 10 tasks · 5 criteria", "✓ 4 answered", "! 1 waiting: Keep the \"Use as reply\" button?", "◉ critic pass 1"]);
@@ -356,10 +360,10 @@ const reflectLens = { doing: "STRUCTURE.md: Markdown safety rule", stages: stage
     { state: "active" as const, text: "STRUCTURE.md: Markdown safety rule" }, { state: "attention" as const, text: "New ticket: keyboard dock check" },
     { state: "skipped" as const, text: "Retry wording: no change" }], before: 0, after: 0 } };
 
-test("Review and Reflect lenses render their item lists at 100 and 160 columns", () => {
+test("Review and Reflect lenses render their item lists at 120 and 160 columns", () => {
   const reviewing = session("reviewing", { title: "Review lenses", workflow: panelWorkflow(2, { activity: { id: "fixing-review-findings", label: "Fixing findings", pass: 2 }, lens: reviewLens }) });
   const reflecting = session("reflecting", { title: "Reflect lenses", workflow: panelWorkflow(3, { activity: { id: "updating-guidance", label: "Updating guidance" }, lens: reflectLens }) });
-  for (const width of [100, 160]) {
+  for (const width of [120, 160]) {
     const review = cardText(render([reviewing, reflecting], { width, selectedId: "reviewing" }));
     assert.ok(review.some((line) => /^ *DOING {2}Parser stall on long backtick runs$/.test(line)), review.join("\n"));
     assert.ok(review.some((line) => /^ *WHERE {2}PL✓ EX✓ RV◉ RF· CM· │ review✓ fix◉ done· {2}pass 2$/.test(line)), review.join("\n"));
@@ -741,8 +745,8 @@ test("quiet roster rows say what the agent last reported, else its task, else no
   assert.match(moduleLines(layout, "ticketed")[1]!, /TASK {3}Tidy the export queue/);
   assert.match(moduleLines(layout, "progress")[1]!, /DONE {3}Merged the queue cleanup\./);
   assert.equal(moduleLines(layout, "bare").length, 1);
-  // At 160+ the title row names the task, so the fallback does not repeat it.
-  assert.equal(moduleLines(render([picked, ticketed], { width: 200, height: 40 }), "ticketed").length, 1);
+  // A title row never names the task, so the fallback shows at every width.
+  assert.match(moduleLines(render([picked, ticketed], { width: 200, height: 40 }), "ticketed")[1]!, /TASK {3}Tidy the export queue/);
 });
 
 test("short windows keep requests and faults before quiet notes", () => {
@@ -768,7 +772,7 @@ test("orchestrator lenses render DOING, a rail-free WHERE with summary, and the 
   const single = session("single", { title: "Run web-002", lens: lensOf(ORCHESTRATION_TICKET_ENTRY) });
   const where = (subject: RuntimeSession, width: number) =>
     cardText(render([subject], { width, selectedId: subject.id })).find((line) => /^\W*WHERE /.test(line))?.replace(/^▌/u, " ").trim() ?? "";
-  for (const width of [100, 160]) {
+  for (const width of [120, 160]) {
     const card = cardText(render([epic], { width, selectedId: "epic" }));
     assert.ok(card.some((line) => /BLK +sfcity-014 parked · Which tile CDN\?/.test(line)), card.join("\n"));
     assert.ok(card.some((line) => /DOING +Running 2 tickets; next gate sfcity-013 review/.test(line)), card.join("\n"));
@@ -778,7 +782,7 @@ test("orchestrator lenses render DOING, a rail-free WHERE with summary, and the 
     assert.equal(list[0], "TIX    ✓ 2 earlier");
     assert.ok(list.includes("◉ sfcity-012 EX") && list.includes("! sfcity-014 parked"), list.join("\n"));
   }
-  assert.equal(where(epic, 160), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed · 2 running · 1 parked · 19 queued");
+  assert.equal(where(epic, 130), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed · 2 running · 1 parked · 19 queued");
   // The summary drops first, then the meter.
   assert.equal(where(epic, 100), "WHERE  ▰▱▱▱▱▱▱▱ 2/24 committed");
   assert.equal(where(epic, 30), "WHERE  2/24 committed");

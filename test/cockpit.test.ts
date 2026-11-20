@@ -64,7 +64,7 @@ test("project cockpit classifies independent state axes without promotion", () =
 
 test("status view leaves the quiet cue to its tier heading while repo grouping keeps it", () => {
   const rowLines = (fleetGrouping: "status" | "repo") => {
-    // The roster takes 61 of 160 columns beside the side pane, room enough for the group and its tier cue.
+    // The list keeps 50 cells beside the card; a short group leaves room for its tier cue.
     const layout = renderSessions(buildRenderModel({ sessions: cockpitFleet(), width: 160, now: COCKPIT_NOW, fleetGrouping, expandedProjectParentIds: new Set(["quiet-parent"]) }));
     const line = (id: string, offset: number) => {
       const index = layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === id);
@@ -72,7 +72,7 @@ test("status view leaves the quiet cue to its tier heading while repo grouping k
       return sliceByColumn(stripAnsi(layout.lines[index + offset] ?? ""), 0, layout.listWidth);
     };
     // Cards carry their identity, including Repo grouping's tier cue, on the title line.
-    return { metadata: line("mcp", 0), backlog: line("theme", 0) };
+    return { metadata: line("quiet-parent", 0), backlog: line("theme", 0) };
   };
   const status = rowLines("status");
   assert.doesNotMatch(status.metadata, /quiet|QUIET/);

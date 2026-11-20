@@ -1222,8 +1222,9 @@ test("named pin presence updates rendering without registry mutation", () => {
   state = { ...state, slots: ["docs", "api", undefined, undefined], activeSessionId: "api" };
   const rendered = stripAnsi(view.render(100).join("\n"));
   assert.match(rendered, /2 pinned/);
-  assert.match(rendered, /○ ▣2 api[^\n]*\n[^\n]*\[default\]/);
-  assert.match(rendered, /○ ▢1 docs[^\n]*\n[^\n]*\[default\]/);
+  // Pin rows name the group beside the title.
+  assert.match(rendered, /○ ▣2 api +default/);
+  assert.match(rendered, /○ ▢1 docs +default/);
   assert.strictEqual(controller.snapshot().registry, before);
 });
 

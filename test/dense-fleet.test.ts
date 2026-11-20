@@ -43,10 +43,10 @@ for (const width of [120, 160]) {
     test(`30 parents fit as one-line modules beside the side pane at ${width} in ${fleetGrouping}`, () => {
       const layout = render(fleet(30), { width, fleetGrouping, height: 46 });
       assert.equal(layout.rowTargets.filter((target) => target?.kind === "session").length, 30);
-      // The selected card sits in the pane beside the roster; its rows are not roster targets. Only s0 has a
-      // task, which its quiet status line names when the title row has no room for it (below 160).
+      // The selected card sits beside the list; its rows are not list targets. Only s0 has a task, which its
+      // quiet status line names at every width.
       for (let index = 1; index < 30; index += 1) assert.equal(continuations(layout, `s${index}`), 0);
-      assert.equal(continuations(layout, "s0"), width < 160 ? 1 : 0);
+      assert.equal(continuations(layout, "s0"), 1);
       assert.equal(layout.listScrollTop, 0);
       assert.doesNotMatch(layout.lines.map(stripAnsi).join("\n"), /[↑↓] \d+ more|─{20,}$/m);
       const row = columns(layout, titleIndex(layout, "s1")).roster;
@@ -92,8 +92,8 @@ const busy = (count: number) => fleet(count).map((session, index) => index ? { .
 
 test("eight parents keep their activity line when every neighbor fits", () => {
   const layout = render(busy(8));
-  // The selected module has no lens; at 160 its title row already names its task, so it keeps one row.
-  assert.equal(continuations(layout, "s0"), 0);
+  // The selected module has no lens; its quiet status line names its task.
+  assert.equal(continuations(layout, "s0"), 1);
   // One DOING status line each; WHERE lives only in the card.
   for (let index = 1; index < 8; index += 1) {
     assert.equal(continuations(layout, `s${index}`), 1);

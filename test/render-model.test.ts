@@ -277,8 +277,9 @@ test("parent cards show the chosen group once and keep actual repo identity sepa
           assert.equal(dock.match(/My project/g)?.length ?? 0, 1, dock);
           continue;
         } else {
-          assert.match(card, /● ▢1 Task[\s\S]*\[My project\]/, `${width} ${grouping}: ${card}`);
-          assert.doesNotMatch(card.split("\n")[0] ?? "", /\[My project\]|\bEX\b/);
+          // Pin rows name the group beside the title, without brackets.
+          assert.match(card, /● ▢1 Task {3}My project/, `${width} ${grouping}: ${card}`);
+          assert.doesNotMatch(card, /\[My project\]/);
         }
         assert.equal(card.match(grouping === "stage" && width <= 60 ? /My pr…/g : /My project/g)?.length ?? 0,
           grouping === "stage" && width >= 100 ? 0 : 1, card);
@@ -339,8 +340,8 @@ test("group badges stay bounded and width-safe in status repo board archive and 
       const target = layout.rowTargets[index];
       return (target?.kind === "session" || target?.kind === "session-continuation") && target.id === id;
     }).map(stripAnsi).join("\n"));
-    // Board and pin rows keep bracket badges; fleet cards name the group as plain muted text.
-    const badge = input.grouping === "stage" || input.pinSlots ? /\[[^\]]+\]/ : /^(?![\s\S]*\[)[\s\S]*default/;
+    // Board rows keep bracket badges; fleet and pin rows name the group as plain muted text.
+    const badge = input.grouping === "stage" ? /\[[^\]]+\]/ : /^(?![\s\S]*\[)[\s\S]*default/;
     assert.ok(cards.every((card) => badge.test(card)), cards.join("\n"));
   }
   const archivedRow = dockRowsOf(renderSessions(buildRenderModel({ sessions: [archived], width: 60 }))).find((line) => line.includes("Old title")) ?? "";
@@ -800,7 +801,7 @@ test("archived tails show one meaning: closure outcome, else compact producer st
   assert.match(rowText(lines, "Note templates"), /● .*Note templates\s+✓ · now/);
   assert.doesNotMatch(rowText(lines, "Note templates"), /CM/);
   // Beside the side pane the roster truncates the long title before the tail.
-  assert.match(rowText(lines, "Alternative planning"), /× .*Alternative planning …?\s*⊘ · 3d│$/);
+  assert.match(rowText(lines, "Alternative planning"), /× .*Alternative planning (?:approach|ap…|app…|appr…|appro…)\s*⊘ · 3d│$/);
   assert.doesNotMatch(rowText(lines, "Alternative planning"), /EX/);
   assert.match(rowText(lines, "Custom producer"), /Custom producer\s+DRAFT ◉ · 1d/);
   const repoLines = renderSessions(buildRenderModel({ sessions, selectedSection: "archived", width: 120, now: ARCHIVE_NOW, archiveExpanded: true, fleetGrouping: "repo" })).lines;
@@ -1126,8 +1127,8 @@ test("render model records named pin and focused identity", () => {
   const text = renderSessions(model).lines.map(stripAnsi).join("\n");
   assert.match(text, /PINNED FLEET\s+2 sessions · 2 pinned/);
   assert.doesNotMatch(text, /PINNED ·/);
-  assert.match(text, /● ▣2 api[\s\S]*\[default\]/);
-  assert.match(text, /○ ▢1 docs[\s\S]*\[default\]/);
+  assert.match(text, /● ▣2 api +default/);
+  assert.match(text, /○ ▢1 docs +default/);
 });
 
 test("named pin summary reports constraint and unpinned rows gain title width", () => {
@@ -1218,13 +1219,12 @@ test("workspace uses frozen responsive geometry", () => {
   const planned = { ...session("planned", "default", "idle"), workflow: WORKFLOW };
   // Below 100 the roster spans the screen and the card docks below it.
   assert.equal(renderSessions(buildRenderModel({ sessions: [planned], selectedId: "planned", width: 99 })).listWidth, 99);
-  // At 100+ the roster takes about 38% (min 38); the pane takes the rest up to 104 cells, after a one-cell `│`.
-  for (const [width, listWidth] of [[100, 38], [120, 46], [160, 61], [200, 95]] as const) {
+  // At 100+ the list keeps 50 cells, like the pinned sidebar; the card takes the rest after a one-cell `│`.
+  for (const [width, listWidth] of [[100, 50], [120, 50], [160, 50], [200, 50]] as const) {
     const layout = renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width }));
     assert.equal(layout.listWidth, listWidth, `${width}`);
     const pane = layout.lines.map(stripAnsi).filter((line) => line[listWidth] === "│");
     assert.ok(pane.length > 1, `${width}`);
-    assert.ok(width - listWidth - 1 <= 104, `${width}`);
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
   }
   assert.equal(renderSessions(workspaceModel({ sessions: [planned], selectedId: "planned", width: 120, grouping: "stage" })).listWidth, 85);
@@ -1238,7 +1238,7 @@ test("layout hit maps handle empty and persistent workspace layouts", () => {
   const wide = renderSessions(workspaceModel({ sessions: [session("a", "default", "idle")], selectedId: "a", width: 120 }));
   assert.equal(wide.lines.length, wide.rowTargets.length);
   assert.equal(wide.lines.length, wide.workspaceRowTargets.length);
-  assert.equal(wide.listWidth, 46);
+  assert.equal(wide.listWidth, 50);
   // The pane's key hits carry absolute x right of the roster.
   const open = wide.cardCommandHits.find(hit => hit.commandId === "action:a:open");
   assert.ok(open);
@@ -1924,7 +1924,7 @@ test("multi-repo pinned sessions keep repo and worktree row identity", () => {
   const theme = { ...darkTheme, accent: "#010203" };
   const rendered = renderSessions(model, theme).lines.join("\n");
   const plain = stripAnsi(rendered);
-  assert.match(plain, /○ ▢1 api ⎇[\s\S]*\[default\] api ⧉ 3/);
+  assert.match(plain, /○ ▢1 api ⎇ ⧉3 {3}default/);
   assert.doesNotMatch(plain, /\[3 repos\]/);
   assert.ok(rendered.includes(styleToken(theme, "muted", "⎇")));
   assert.doesNotMatch(rendered, /extra\s+\/repo\/web/);
@@ -1994,9 +1994,10 @@ test("narrow group badges prioritize a readable title", () => {
   const row = stripAnsi(layout.lines[index] ?? "");
 
   assert.match(row, /Authorit/);
-  assert.doesNotMatch(row, /\[engineering-x\]/);
-  const metadata = layout.lines.filter((_, lineIndex) => layout.rowTargets[lineIndex]?.kind === "session-continuation").map(stripAnsi).join("\n");
-  assert.match(metadata, /\[engineering-x\]/);
+  // The whole title outranks the group, which shows beside it only when it fits; the status sits under it.
+  assert.doesNotMatch(row, /engineering-x/);
+  const status = layout.lines.filter((_, lineIndex) => layout.rowTargets[lineIndex]?.kind === "session-continuation").map(stripAnsi).join("\n");
+  assert.match(status, /ASK {4}Review this/);
   assert.equal(visibleWidth(row), 40);
 });
 
@@ -2146,7 +2147,7 @@ test("adaptive list preserves selected height-neighbor windowing", () => {
   }));
   const layout = renderSessions(buildRenderModel({ sessions, selectedId: "s3", width: 120, height: 11 }));
   const text = layout.lines.map(stripAnsi).join("\n");
-  assert.equal(layout.listWidth, 46);
+  assert.equal(layout.listWidth, 50);
   assert.match(text, /Stored session 3/);
   const roster = rosterRowsOf(layout).join("\n");
   assert.match(roster, /Stored session 2[\s\S]*Stored session 3[\s\S]*Stored session 4/);
@@ -2270,7 +2271,8 @@ test("action workspace keeps only positive decision content across responsive wi
     assert.deepEqual([...positions].sort((a, b) => a - b), positions, `${width}: content order`);
     assert.doesNotMatch(text, /SELECTED SESSION|RECOMMENDED NEXT|bounded producer|producer context|\bSTATE\b|running · ACTIVE|no explicit request|no subagents/i);
     assert.doesNotMatch(text, /Ship once notarization/, `${width}: description must not trail a complete subtitle`);
-    if (width >= 60) assert.match(text, /i Details/);
+    // A card under 60 cells, below 100 columns or beside the 50-cell list at 100, shortens its keys.
+    if (width >= 60 && width !== 100) assert.match(text, /i Details/);
     assert.match(text, /: (All )?[Aa]ctions/);
     assert.ok(layout.cardCommandHits.length >= (width >= 60 ? 3 : 1));
     for (const line of layout.lines) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
@@ -2460,8 +2462,8 @@ test("adaptive cockpit uses full parents, micro children, and single lifecycle r
   const card = cardRowsOf(layout).join("\n");
 
   assert.match(roster, /▌ +▾ \? Release decision ↳1/);
-  // The roster's request status line may wrap to a second line; the card keeps it whole.
-  assert.match(roster, /▌ +ASK {4}Use the approved card\s*\n▌ +hierarchy\?/);
+  // Beside the card the list's request reads whole while rows allow.
+  assert.match(roster, /▌ +ASK {4}Use the approved card hierarchy\?/);
   assert.match(card, /ASK {4}Use the approved card hierarchy\?/);
   assert.doesNotMatch(text, /#cockpit-008/);
   // The roster module and the side pane card each name the group once.

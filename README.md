@@ -77,7 +77,7 @@ See [Dashboard keys](docs/FEATURES.md#dashboard-keys) for all controls.
 
 The Status view sorts sessions into sections. `NEEDS YOU` holds explicit requests, `HEALTH` errors, `NEW` sessions you have not opened, `ACTIVE` running work, and `QUIET` the rest. A waiting agent is not a request. Requests come from an extension that reports them. See [Status vocabulary](docs/FEATURES.md#status-vocabulary).
 
-Each agent gets a title line and at most one status line: its request, error, current tool call, or last progress note. The selected agent's card shows the full request, plan checklist, recent tool calls, and latest message. The card sits beside the list, or below it under 100 columns. The card never shows pane output or tool output. See [Details](docs/FEATURES.md#details).
+Each agent shows a title and one status: its request, error, current tool call, or last progress note. A request reads whole while rows allow. The selected agent's card shows the full request, plan checklist, recent tool calls, and latest message. The card sits beside the list, or below it under 100 columns. Pinning keeps the same list. The card never shows pane output or tool output. See [Details](docs/FEATURES.md#details).
 
 Groups, Backlog, and Archive sort sessions but never stop an agent. Archiving also closes the session's pin. `v` groups sessions by repository instead of status. `A` archives a session as Done, Abandoned, or with no outcome. `U` reopens it, and `z` undoes the last move. See [Groups and session actions](docs/FEATURES.md#groups-and-session-actions).
 

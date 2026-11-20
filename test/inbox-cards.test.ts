@@ -67,8 +67,8 @@ test("both fleet groupings reclaim the full width and synthetic headers carry no
     const input = { sessions: [asking], selectedId: asking.id, width, height: 30, now, fleetGrouping, guidanceHidden: true,
       workspaceCommands: selectWorkspaceCommands(asking, commands, 3) };
     const layout = renderSessions(buildRenderModel(input));
-    // No board workspace column: the roster takes about 38% and the side pane the rest.
-    assert.equal(layout.listWidth, width === 120 ? 46 : 61);
+    // No board workspace column: the list keeps 50 cells and the card takes the rest.
+    assert.equal(layout.listWidth, 50);
     assert.equal(layout.workspaceStartX, undefined);
     const open = layout.cardCommandHits.find(hit => hit.commandId === `action:${asking.id}:open`);
     assert.ok(open && open.x > layout.listStartX + layout.listWidth);

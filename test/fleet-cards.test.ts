@@ -218,7 +218,8 @@ test("wide selected cards show repo beside group, then task, DOING, WHERE and th
   assert.match(card[5]!, /◉ Write the card tests/);
   assert.match(card[6]!, /NOW {4}Thinking…/);
   // The roster keeps only the title row and one status line; the readout lives in the card.
-  assert.match(titleLine(rendered, "rich"), /Dashboard UI polish ⎇ {3}cards · Taller fleet cards +EX$/);
+  // The task stays in the card; the title row names the group, the step and nothing else.
+  assert.match(titleLine(rendered, "rich"), /Dashboard UI polish ⎇ {3}cards +EX$/);
   assert.ok(!rendered.roster.some((line) => line.includes("STEP")), rendered.roster.join("\n"));
 });
 
@@ -294,56 +295,33 @@ test("moving the selection never moves list rows: the selected card sits in the 
   assert.ok(cardLines(docked, "rich").some((line) => line.includes("Taller fleet cards")));
 });
 
-test("wide cards in one group are separated by one plain spacer", () => {
-  const rendered = render([session("selected"), rich, session("next")]);
-  const between = linesBetween(rendered, "rich", "next");
-  assert.equal(between.length, 1, between.join("\n"));
-  const spacer = between[0]!;
-  assert.equal(spacer.trim(), "", "the spacer carries no gutter or frame");
-  const spacerIndex = rendered.roster.indexOf(spacer, rendered.layout.rowTargets.findIndex((target) => target?.kind === "session" && target.id === "rich"));
-  assert.equal(rendered.layout.rowTargets[spacerIndex], undefined);
-});
-
-test("spacers follow expanded child trees and stay off narrow, compact and board layouts", () => {
+test("list rows are packed: no blank row separates sessions or child trees in a group", () => {
   const parent = session("parent");
   const child = session("child", { kind: "subagent", parentId: "parent", agentName: "scout", taskPreview: "look around" });
-  const expanded = render([parent, child, session("next")], { expandedProjectParentIds: new Set(["parent"]) });
-  assert.equal(linesBetween(expanded, "child", "next").length, 1);
+  assert.equal(linesBetween(render([session("selected"), rich, session("next")]), "rich", "next").length, 0);
+  assert.equal(linesBetween(render([parent, child, session("next")], { expandedProjectParentIds: new Set(["parent"]) }), "child", "next").length, 0);
   for (const input of [{ width: 99 }, { compactRows: true }, { grouping: "stage" as const }]) {
     const next = session("next", { workflow: rich.workflow });
     assert.equal(linesBetween(render([rich, next], input), "rich", "next").length, 0, JSON.stringify(input));
   }
 });
 
-test("fleets taller than the pane render without spacers", () => {
-  const sessions = Array.from({ length: 12 }, (_, index) => session(`s${index}`));
-  const rendered = render(sessions, { height: 20 });
-  const targets = rendered.layout.rowTargets;
-  const first = targets.findIndex((target) => target?.kind === "session");
-  // Only the roster counts; the side pane beside it keeps blank rows above its keys.
-  assert.ok(rendered.pane);
-  let last = rendered.layout.footerRow! - 1;
-  while (last >= 0 && !targetId(targets[last])) last -= 1;
-  assert.ok(last > first, "the roster fills the pane height");
-  const blank = rendered.roster.slice(first, last + 1).filter((line) => line.trim() === "");
-  assert.deepEqual(blank, []);
-});
-
-test("neighbor modules keep group and task beside the title and one status line under it", () => {
+test("neighbor modules keep the group beside the title and their status under it", () => {
   const seen = new Set<number>();
   for (let height = 8; height <= 30; height += 1) {
     const rendered = render([session("selected"), { ...rich, group: "cards" }], { height });
     const title = titleLine(rendered, "rich");
     if (!title) continue;
-    assert.match(title, /Dashboard UI polish ⎇ {3}cards · Taller fleet cards/, `height ${height}`);
+    // The task stays in the selected session's card; a title row never names it.
+    assert.match(title, /Dashboard UI polish ⎇ {3}cards +EX$/, `height ${height}`);
+    assert.doesNotMatch(title, /Taller fleet cards/, `height ${height}`);
     const card = cardLines(rendered, "rich");
-    // The step moves to the title row; the readout stays in the card.
-    assert.match(title, / EX$/, `height ${height}`);
-    assert.ok(card.length <= 1, `height ${height}:\n${card.join("\n")}`);
+    assert.ok(card.length <= 2, `height ${height}:\n${card.join("\n")}`);
     if (card.length) assert.match(card[0]!, /DOING {2}writing plan +▰{3}▱{5} 3\/8$/);
     seen.add(card.length);
   }
-  assert.ok(seen.has(1), [...seen].join(","));
+  // Two rows always fit beside the card, so the status line stays at every height.
+  assert.deepEqual([...seen], [1])
 });
 
 test("crowded panes keep the selected card whole with neighbors on both sides", () => {
@@ -407,10 +385,11 @@ test("narrow and pinned views carry a differing repo name on the metadata line",
   for (const input of [{ width: 60 }, { width: 99 }, { width: 120, pinSlots: ["diff", undefined], activePinnedSessionId: "diff" }] as Partial<BuildRenderModelInput>[]) {
     const rendered = render([differing, same], { height: 40, ...input });
     const diffCard = cardLines(rendered, "diff");
-    // The metadata line, then, with nothing else to show, the fleet card's one-line quiet note.
-    assert.deepEqual(diffCard.slice(1).map(line => line.replace(/^▌\s*/u, "").trim()), input.pinSlots ? [] : ["NOW    Thinking…"], JSON.stringify(input) + "\n" + diffCard.join("\n"));
-    if (input.pinSlots) assert.match(diffCard[0]!, /\[mobile\] hub-repo/, JSON.stringify(input) + "\n" + diffCard[0]);
+    // Pin rows name the group beside the title; the pin strip names the repo of the selected session.
+    if (input.pinSlots) assert.match(titleLine(rendered, "diff"), /Session diff +mobile/, JSON.stringify(input));
     else {
+      // The metadata line, then, with nothing else to show, the fleet card's one-line quiet note.
+      assert.deepEqual(diffCard.slice(1).map(line => line.replace(/^▌\s*/u, "").trim()), ["NOW    Thinking…"], JSON.stringify(input) + "\n" + diffCard.join("\n"));
       const title = rendered.roster[rendered.layout.rowTargets.findIndex(target => target?.kind === "session" && target.id === "diff")]!;
       assert.match(title, /mobile/);
       assert.doesNotMatch(title, /\[mobile\]/);
@@ -427,23 +406,26 @@ test("narrow and pinned views carry a differing repo name on the metadata line",
 
 const longRequest = "Review complete with three findings fixed in the renderer, two tests added for the phone layout, and one open question about keycap spacing";
 
-test("unselected request modules keep the request within two lines and leave the recommendation to the card", () => {
+test("unselected requests read whole beside the card while rows allow, and in one line below 100 columns", () => {
   const asking = session("asking", { status: "waiting", context: { version: 1, updatedAt: NOW,
     attention: { kind: "ready", requestId: "r", text: longRequest, recommendation: "Run reflect next" } } });
-  for (const width of [60, 100, 160]) {
-    const rendered = render([session("selected"), asking], { width, height: 40 });
-    const card = cardLines(rendered, "asking");
-    assert.equal(card.length, 2, `${width}:\n${card.join("\n")}`);
+  for (const width of [100, 160]) {
+    const card = cardLines(render([session("selected"), asking], { width, height: 40 }), "asking");
+    const text = card.join(" ").replace(/\s+/g, " ");
     assert.match(card[0]!, /RDY {4}Review complete/);
-    assert.ok(!card.some((line) => line.includes("Run reflect next")), `${width}:\n${card.join("\n")}`);
+    assert.ok(text.includes("keycap spacing") && text.includes("→ Run reflect next"), `${width}:\n${card.join("\n")}`);
     // Continuation lines hang under the request text, not under the label.
     assert.equal(card[1]!.search(/\S/), card[0]!.indexOf("Review"), `${width}:\n${card.join("\n")}`);
   }
+  // Below 100 columns the docked list keeps one status line; the card below it has the rest.
+  const narrow = cardLines(render([session("selected"), asking], { width: 60, height: 40 }), "asking");
+  assert.equal(narrow.length, 1, narrow.join("\n"));
+  assert.match(narrow[0]!, /RDY {4}Review complete.*…$/);
   // Selected, the card carries the whole request and its recommendation.
   const selected = cardLines(render([asking, session("other")], { width: 160, height: 40 }), "asking");
   const text = selected.join(" ").replace(/\s+/g, " ");
   assert.ok(text.includes("keycap spacing"), text);
-  assert.ok(selected.some((line) => /→ Run reflect next/.test(line)), selected.join("\n"));
+  assert.ok(selected.some((line) => /→ Run reflect next/.test(line)), selected.join("\n"))
 });
 
 test("unselected active modules say what they are doing, with the step on the title row", () => {
@@ -512,7 +494,7 @@ test("unselected modules keep dim for decoration off the plate", () => {
   const rows = layout.lines.filter((_line, index) => targetId(layout.rowTargets[index]) === "busy")
     .map((row) => row.split(styleToken(theme, "dim", "│"))[0]!);
   // Group names and empty meter cells read in muted; unselected modules sit on no surface.
-  assert.ok(rows.some((row) => row.includes(styleToken(theme, "muted", "cards · Taller fleet cards"))), rows.join("\n"));
+  assert.ok(rows.some((row) => row.includes(styleToken(theme, "muted", "cards"))), rows.join("\n"));
   assert.ok(rows.some((row) => row.includes(styleToken(theme, "muted", "▱▱▱▱▱"))), rows.join("\n"));
   assert.ok(rows.every((row) => !row.includes("\u001b[48;")));
 });

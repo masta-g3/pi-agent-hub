@@ -80,9 +80,8 @@ test("fleet, pin and subagent rows show the tag; the card adds thinking and prov
   assert.ok(fleet.lines.some(line => /opus5\.5 · medium · claude-code/.test(stripAnsi(line))), "card names model, thinking and provider");
 
   const pins = render(rows, { pinSlots: ["sel"], expandedProjectParentIds: new Set(["other"]) });
-  // Pin rows carry metadata on the line under the title.
-  const pinTitle = pins.rowTargets.findIndex(target => target?.kind === "session" && target.id === "other");
-  assert.match(stripAnsi(pins.lines[pinTitle + 1]!), /\[team\].*3m · gpt5/);
+  // Pin rows end their title row with the tag before the age.
+  assert.match(lineOf(pins, "other"), /Title-other.*team.*gpt5 +3m$/);
 });
 
 test("stopped rows show no model", () => {

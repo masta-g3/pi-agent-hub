@@ -30,6 +30,15 @@ test("handoff attention accepts bounded recommendation and raw artifact fields",
   assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: base })?.attention, base);
 });
 
+test("attention accepts a bounded one-line title and drops a malformed one without hiding the request", () => {
+  const base = { requestId: "r1", kind: "ready", text: "Review it" };
+  assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, title: " PR #6   ready " } })?.attention, { ...base, title: "PR #6 ready" });
+  assert.equal(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, title: "x".repeat(80) } })?.attention?.title?.length, 80);
+  for (const title of ["x".repeat(81), " ", 7]) {
+    assert.deepEqual(parseSessionContext({ version: 1, updatedAt: 1, attention: { ...base, title } })?.attention, base);
+  }
+});
+
 test("generic context accepts producer-neutral worktree-only snapshots", () => {
   const parsed = parseSessionContext({
     version: 1,

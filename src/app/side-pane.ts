@@ -18,7 +18,7 @@ import {
 } from "../core/tmux.js";
 import { MANAGED_SESSION_PREFIX } from "../core/names.js";
 
-export const SIDEBAR_WIDTH = 42;
+export const SIDEBAR_WIDTH = 50;
 const MIN_SIDEBAR_WIDTH = 40;
 const MAX_SIDEBAR_WIDTH = 60;
 const MIN_PIN_WIDTH = 38;

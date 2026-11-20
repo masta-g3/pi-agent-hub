@@ -89,7 +89,7 @@ test("idle to busy rejects without a send, keeps draft, and requires an explicit
   const { view, sent, busy } = await setup(); view.handleInput("p"); type(view, "keep me"); await busy();
   view.handleInput("\r"); await tick();
   assert.equal(sent.length, 0);
-  assert.match(text(view, 120), /Rejected · Pi started working; choose Steer now or Queue for later/);
+  assert.match(text(view, 130), /Rejected · Pi started working; choose Steer now or Queue for later/);
   assert.match(text(view), /keep me█/);
   view.handleInput("\t"); view.handleInput("\u001b[C"); view.handleInput("\r"); await tick();
   assert.equal(sent[0]?.delivery, "followUp");

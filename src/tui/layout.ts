@@ -17,9 +17,16 @@ export const NARROW_LAYOUT_MAX_WIDTH = 60;
 export const MIN_LAYOUT_WIDTH = 30;
 /** Unselected fleet rows collapse below this height; the selected card keeps its content. */
 const SHORT_FLEET_HEIGHT = 20;
-/** From this width the selected session's card sits beside the roster instead of below it. */
-const SIDE_PANE_MIN_WIDTH = 100;
-const PANE_MAX_WIDTH = 104;
+/** From this width the selected session's card sits beside the list instead of below it. */
+const WIDE_FLEET_MIN_WIDTH = 100;
+/** The list beside the card keeps one width, like the pinned sidebar, so pinning never reshapes it. */
+const LIST_WIDTH = 50;
+/** A card that cannot use columns (an open panel, Details, a subagent) keeps this reading width. */
+const CARD_MAX_WIDTH = 104;
+/** Card widths that earn a second and a third column: the work and the message, then the request on its own. */
+const TWO_COLUMN_MIN_WIDTH = 100;
+const THREE_COLUMN_MIN_WIDTH = 150;
+const CARD_COLUMN_MAX_WIDTH = 86;
 
 export type SessionListTarget =
   | { kind: "session"; id: string }
@@ -61,7 +68,7 @@ export interface SessionsLayout {
   workspaceStartX?: number;
   listWidth: number;
   listScrollTop: number;
-  /** The side pane beside the roster: its 1-based start column and, per screen row, the session its card row belongs to. */
+  /** The card beside the list: its 1-based start column and, per screen row, the session its card row belongs to. */
   pane?: { x: number; targets: (SessionListTarget | undefined)[] };
   footerRow?: number;
   footerItems: FooterItem[];
@@ -159,13 +166,12 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceWidth = model.grouping === "stage" && (model.showWorkspace || (!model.pinMode && syntheticSelection && width >= 120))
     ? (width >= 160 ? 44 : 34)
     : 0;
-  // The no-pin fleet shows the selected session's card beside the roster at 100+ columns, below it otherwise;
+  // The no-pin fleet shows the selected session's card beside the list at 100+ columns, below it otherwise;
   // either way rows keep their height whatever is selected.
   const dock = model.grouping !== "stage" && !model.pinMode && !model.noMatches && !model.empty;
-  // An open conversation owns the screen's lower part; the card returns below the short roster.
-  const side = dock && width >= SIDE_PANE_MIN_WIDTH && !model.compactRows;
-  // The roster takes about two fifths; past 160 columns it also takes what the pane's reading width does not need.
-  const paneWidth = side ? Math.min(PANE_MAX_WIDTH, width - Math.max(38, Math.round(width * 0.38)) - 1) : 0;
+  // An open conversation owns the screen's lower part; the card returns below the short list.
+  const side = dock && width >= WIDE_FLEET_MIN_WIDTH && !model.compactRows;
+  const paneWidth = side ? width - LIST_WIDTH - 1 : 0;
   const listWidth = width - workspaceWidth - (workspaceWidth ? 1 : 0) - (side ? paneWidth + 1 : 0);
   const listStartX = 1;
   const decisionRows = model.pinMode && model.workspace?.panel && model.height
@@ -191,27 +197,29 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   // A rule separates list and dock when rows allow; a focused panel may take the whole body on a tiny window.
   const dockRule = dock && !side && (targetRows === undefined || (cardRows > 0 && targetRows >= 8));
   const listRows = targetRows === undefined ? undefined : cardRows >= targetRows ? 0 : Math.max(1, targetRows - cardRows - (dockRule ? 1 : 0));
-  // Card spacers are a luxury: drop them all once the fleet needs windowing.
-  const spaced = renderSessionList(model, listWidth, styles, true, false, dock);
-  let left = listRows !== undefined && spaced.lines.length > listRows
-    ? renderSessionList(model, listWidth, styles, false, false, dock)
-    : spaced;
+  // Wrapped statuses are a luxury: every module steps down together (requests cut to two lines, then one
+  // status line each, then titles alone) before the list scrolls. The narrow docked list starts at one line.
+  const ladder = model.grouping !== "stage" && (side || model.pinMode);
+  let left = renderSessionList(model, listWidth, styles, ladder ? "whole" : "line", dock);
+  for (const rung of ["brief", "line"] as const) {
+    if (ladder && listRows !== undefined && left.lines.length > listRows) left = renderSessionList(model, listWidth, styles, rung, dock);
+  }
   if (model.grouping !== "stage" && model.width > NARROW_LAYOUT_MAX_WIDTH && listRows !== undefined) {
     const twoLineHeight = left.lines.reduce((count, _line, index) => {
       const optional = (left.continuationPriorities.get(index) ?? -1) >= 0;
       const selectedOwner = !dock && left.selectedOwnerId !== undefined && left.lineMeta[index]?.ownerId === left.selectedOwnerId;
       return count + (optional && !selectedOwner ? 0 : 1);
     }, 0);
-    if (twoLineHeight > listRows) left = renderSessionList(model, listWidth, styles, false, true, dock);
+    if (twoLineHeight > listRows) left = renderSessionList(model, listWidth, styles, "dense", dock);
   }
-  const card = side ? dockedCard(model, paneWidth, styles, targetRows)
+  const card = side ? fleetCard(model, paneWidth, styles, targetRows)
     : dock ? dockedCard(model, listWidth, styles, targetRows === undefined ? undefined : cardRows) : undefined;
   const workspace: WorkspaceRendered = workspaceWidth && model.workspace
     ? renderActionWorkspace(model.workspace, workspaceWidth, targetRows, model.now, styles)
     : { lines: [] as string[], targets: [] as (string | undefined)[] };
   const rows = listRows ?? Math.max(left.lines.length, workspace.lines.length, side ? card?.lines.length ?? 0 : 0, 8);
   const windowedLeft = windowList(left, rows, model.listScrollTop ?? 0, styles);
-  // The pane's keys stay on its last rows, so they do not move as the content above them changes.
+  // The card's keys stay on its last rows, so they do not move as the content above them changes.
   const pane: ({ line: string; commands?: NonNullable<SessionLineMeta["commands"]> } | undefined)[] = [];
   if (side && card) {
     const cells = card.lines.map((line, index) => ({ line, commands: card.lineMeta[index]?.commands }));
@@ -233,10 +241,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const padded = pad(decorated, listWidth);
     const selected = Boolean(left.selectedOwnerId && meta?.ownerId === left.selectedOwnerId)
       || (!left.selectedOwnerId && i >= windowedLeft.selectedIndex && i <= windowedLeft.selectedEndIndex);
-    // Only the selected owner tree sits on a plate; every other module reads off the base background.
     const leftLine = selected ? styles.selected(padded) : padded;
     const workspaceLine = workspaceWidth ? `${styles.border(glyphs.vertical)}${pad(workspace.lines[i] ?? "", workspaceWidth)}` : "";
-    // The side pane reads off the base background: the roster row carries the selection, so the card drops its stripe.
+    // The card reads off the base background: the list row carries the selection, so the card drops its stripe.
     const paneLine = side ? `${styles.dim(glyphs.vertical)}${pane[i] === undefined ? "" : ` ${withoutStripeTone(sliceByColumn(pane[i]!.line, 1, paneWidth))}`}` : "";
     body.push(`${leftLine}${workspaceLine}${paneLine}`);
   }
@@ -318,7 +325,7 @@ function dockRows(bodyRows: number | undefined, expanded: boolean): number {
  */
 function dockedCard(model: RenderModel, width: number, styles: LayoutStyles, rows: number | undefined): ListWindow | undefined {
   if (rows === 0) return undefined;
-  const inline = renderSessionList(model, width, styles, false);
+  const inline = renderSessionList(model, width, styles);
   const title = inline.targets[inline.selectedIndex];
   if (title?.kind !== "session") return undefined;
   const span = Array.from({ length: inline.selectedEndIndex - inline.selectedIndex + 1 }, (_, offset) => inline.selectedIndex + offset);
@@ -327,6 +334,81 @@ function dockedCard(model: RenderModel, width: number, styles: LayoutStyles, row
       ? { lines: span.map((index) => inline.lines[index]!), targets: span.map((index) => inline.targets[index]), lineMeta: span.map((index) => inline.lineMeta[index]), selectedIndex: 0, selectedEndIndex: span.length - 1, top: inline.selectedIndex }
       : windowSelectedCard(inline, rows, styles);
   return { ...window, targets: window.targets.map((target) => target ? { kind: "session-continuation" as const, id: title.id } : target) };
+}
+
+/**
+ * The selected session's card beside the list: its identity row, then its fields set in columns when the
+ * card is wide enough (the work, the message, then the request on its own), with its keys on the last
+ * rows. A narrow card, an open panel, Details and a subagent's card keep one reading column.
+ */
+function fleetCard(model: RenderModel, width: number, styles: LayoutStyles, rows: number | undefined): ListWindow | undefined {
+  if (rows === 0) return undefined;
+  const session = model.sections.flatMap((section) => section.groups.flatMap((group) => group.sessions)).find((candidate) => candidate.selected);
+  const workspace = session && model.workspace?.session.id === session.id ? model.workspace : undefined;
+  if (!session || session.kind === "subagent" || workspace?.panel || workspace?.evidenceVisible || width < TWO_COLUMN_MIN_WIDTH) {
+    return dockedCard(model, Math.min(width, CARD_MAX_WIDTH), styles, rows);
+  }
+  const head = selectedCardIdentity(session, width, model.width, { ...styles, dim: styles.muted }, model.fleetGrouping === "repo");
+  // Fields and keys start under the title text, after the stripe and the state glyph.
+  const indent = " ".repeat(head.indent);
+  const top = [head.top, ...(head.metadata ? [`${indent}${head.metadata}`] : [])];
+  const inner = width - head.indent;
+  const keys = workspace ? cardKeyRows(workspace, inner, styles) : [];
+  const bodyRows = rows === undefined ? undefined : Math.max(0, rows - top.length - keys.length);
+  const gap = ` ${styles.dim(glyphs.vertical)} `;
+  const columnCount = width >= THREE_COLUMN_MIN_WIDTH ? 3 : 2;
+  const fields = (fieldWidth: number) => detailFieldSections(session, fieldWidth, styles, { terminalWidth: model.width, now: model.now, ...(bodyRows === undefined ? {} : { saidRows: bodyRows }) });
+  let columnWidth = Math.min(CARD_COLUMN_MAX_WIDTH, Math.floor((inner - (columnCount - 1) * 3) / columnCount));
+  let sections = fields(columnWidth);
+  // A card with nothing said reads as one column at a full reading width.
+  const single = sections.saidStart === sections.lines.length;
+  if (single) {
+    columnWidth = Math.min(inner, CARD_MAX_WIDTH);
+    sections = fields(columnWidth);
+  }
+  const trim = (lines: string[]) => {
+    const kept = [...lines];
+    while (kept.length && !stripAnsi(kept[0]!).trim()) kept.shift();
+    while (kept.length && !stripAnsi(kept.at(-1)!).trim()) kept.pop();
+    return kept;
+  };
+  const part = (from: number, to: number) => trim(sections.lines.slice(from, to).map((field) => field.line));
+  const summary = session.ticketSubtitle ?? session.ticketDescription;
+  const measure = Math.min(columnWidth, PROSE_MEASURE);
+  const blocks = workspace ? actionWorkspaceBlocks(workspace, columnWidth, model.now, styles) : [];
+  const request = [
+    ...(summary ? wrapWords(plainAttentionText(summary), measure, measure).map(styles.muted) : []),
+    ...part(0, sections.workStart),
+    ...blocks.flatMap((block) => block.key === "closure" ? block.lines : []),
+    // The ERR field already states the error; guidance adds only what to do about it.
+    ...(workspace?.guidance ? wrapWords(workspace.guidance, measure, measure) : []),
+  ];
+  const work = part(sections.workStart, sections.saidStart);
+  const said = part(sections.saidStart, sections.lines.length);
+  const stacked = (from: string[][]) => from.filter((lines) => lines.length).flatMap((lines, index) => index ? ["", ...lines] : lines);
+  // A request or fault earns its own column when there are three; otherwise it shares the first with the
+  // work. A column taller than the card scrolls by itself; the others stay put.
+  const lead = Boolean(session.attention || session.pendingQuestion || (session.displayStatus === "error" && session.error));
+  const columns = (single ? [stacked([request, work])] : columnCount === 3 && lead && work.length ? [request, work, said] : [stacked([request, work]), said])
+    .filter((lines) => lines.length)
+    .map((lines) => lines.slice(Math.min(model.cardScrollOffset ?? 0, Math.max(0, lines.length - (bodyRows ?? lines.length)))));
+  const height = bodyRows ?? Math.max(0, ...columns.map((lines) => lines.length));
+  const body = Array.from({ length: height }, (_, row) =>
+    `${indent}${columns.map((lines, index) => index === columns.length - 1 ? truncate(lines[row] ?? "", inner - index * (columnWidth + 3)) : pad(lines[row] ?? "", columnWidth)).join(gap)}`.trimEnd());
+  const keyLines = keys.map((row) => `${indent}${row.line}`);
+  const lines = rows === undefined ? [...top, ...body, ...keyLines] : [...top, ...body, ...keyLines].slice(0, rows);
+  const target = { kind: "session-continuation" as const, id: session.id };
+  return {
+    lines,
+    targets: lines.map(() => target),
+    lineMeta: lines.map((_, index) => {
+      const key = keys[index - top.length - body.length];
+      return { ownerId: session.cockpitOwnerId, richTree: false, treeEnd: false, ...(key ? { commands: key.hits.map((hit) => ({ ...hit, x: hit.x + head.indent })) } : {}) };
+    }),
+    selectedIndex: 0,
+    selectedEndIndex: lines.length - 1,
+    top: 0,
+  };
 }
 
 function renderAttentionAnnouncement(
@@ -752,10 +834,17 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
 }
 
 /**
+ * How much each row shows as the list runs out of rows: statuses wrapped with requests whole, requests cut
+ * to two lines, one status line each, then titles alone.
+ */
+type ListRung = "whole" | "brief" | "line" | "dense";
+
+/**
  * `docked` renders the selected fleet session like every other row; its card then docks in a fixed strip
  * below the list, so moving the selection never moves rows.
  */
-function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, spacers: boolean, dense = false, docked = false): SessionListContent {
+function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, rung: ListRung = "line", docked = false): SessionListContent {
+  const dense = rung === "dense";
   if (model.noMatches) {
     const lines = noMatchListLines(width, model, styles);
     return {
@@ -781,6 +870,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       if (hasVisibleChild || adaptiveCardLines(session, Math.max(0, width - 3), styles, board, model.width).length > 0) richOwners.add(session.cockpitOwnerId);
     }
   }
+  // Beside the card, fleet modules wrap their status like pin rows.
+  const wrapping = model.pinMode || (!board && docked && model.width >= WIDE_FLEET_MIN_WIDTH && !model.compactRows);
   const lines: string[] = [];
   const targets: (SessionListTarget | undefined)[] = [];
   const lineMeta: (SessionLineMeta | undefined)[] = [];
@@ -801,7 +892,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     } : undefined));
   };
   let gridWorkflow: WorkflowRuntimeSnapshot | undefined;
-  const gridGap = !board && !model.pinMode || model.width <= NARROW_LAYOUT_MAX_WIDTH ? " " : "  ";
+  const gridGap = model.width <= NARROW_LAYOUT_MAX_WIDTH ? " " : "  ";
   const shortRows = !board && model.width < 100 && model.height !== undefined && model.height > 0 && model.height < SHORT_FLEET_HEIGHT;
   const pushRow = (session: RenderSession, siblings: RenderSession[], index: number, context: number[] = []) => {
     // Text on the selection plate reads at muted or stronger.
@@ -811,11 +902,12 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     const childLast = shape === "micro-child"
       ? !siblings.slice(index + 1).some((candidate) => candidate.kind === "subagent" && candidate.parentId === session.parentId)
       : false;
-    const gutterColumn = model.width >= 100 && !model.pinMode;
+    // Only board trees draw gutters; fleet and pin lists keep one shape, so pinning never shifts a row.
+    const gutterColumn = board && model.width >= 100;
     const titleFirst = !board && shape === "full-parent";
     const inbox = !board && !model.pinMode;
-    // Roster rows name their own step; only board and pin rows sit under a shared grid.
-    const cell = (titleFirst && !inbox) || board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
+    // Fleet and pin rows name their own step; only board rows sit under a shared grid.
+    const cell = board ? fleetWorkflowCell(session, rowStyles, gridWorkflow, gridGap) : undefined;
     const workspace = session.selected && model.workspace?.session.id === session.id ? model.workspace : undefined;
     const frame = inbox && session.selected && shape !== "micro-child" && !docked
       ? selectedCardIdentity(session, width, model.width, rowStyles, model.fleetGrouping === "repo") : undefined;
@@ -826,31 +918,27 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     let keyStart = -1;
     const inline = inbox && session.selected && !docked;
     const oneLine = titleFirst && (shortRows || (dense && (docked || session.cockpitOwnerId !== selectedOwnerId))) && !inline;
-    // Fleet parents are modules; only an inline selected card replaces its module with the full card.
-    const card = titleFirst && inbox && !inline;
+    // Fleet and pin parents are modules; only an inline selected card replaces its module with the full card.
+    const card = titleFirst && !inline;
+    // A request reads whole while rows allow, then cut to two lines, then by its name on one line.
+    const wrap = oneLine || !wrapping || !moduleTier(session.cockpitTier) ? undefined
+      : rung === "whole" ? WHOLE_STATUS : rung === "brief" ? BRIEF_STATUS : undefined;
     const row = renderSessionRow(session, width, rowStyles, { board, repoMode: model.fleetGrouping === "repo" && !board, terminalWidth: model.width, childLast, gutterColumn, titleFirst, oneLine: oneLine || card, card, workflowCell: cell });
     pushLine(frame?.top ?? row, { kind: "session", id: session.id }, session);
     contextIndexes.set(lines.length - 1, context);
+    const pushDetail = (indent: number, detail: FieldLine) => {
+      pushLine(`${" ".repeat(indent)}${detail.line}`, { kind: "session-continuation", id: session.id }, session);
+      continuationPriorities.set(lines.length - 1, detail.priority);
+    };
     if (frame?.metadata) {
       pushLine(`${indent}${frame.metadata}`, { kind: "session-continuation", id: session.id }, session);
       continuationPriorities.set(lines.length - 1, -1);
     } else if (frame) {
       // The card's title row carries everything the metadata line would show.
-    } else if (card) {
-      if (!oneLine && !model.compactRows) {
-        // Detail lines start under the state glyph.
-        const detailIndent = gutterColumn ? 5 : 4;
-        for (const detail of rosterLines(session, Math.max(1, width - detailIndent), rowStyles, model.width)) {
-          pushLine(`${" ".repeat(detailIndent)}${detail.line}`, { kind: "session-continuation", id: session.id }, session);
-          continuationPriorities.set(lines.length - 1, detail.priority);
-        }
-      }
-    } else if (titleFirst && cell && (!oneLine || (shortRows && session.selected))) {
-      const metadataCell = oneLine ? { ...cell, right: "" } : cell;
-      // Without card lines, the metadata line is the only place a differing repo name can appear.
-      const repoInline = model.width < 100 || model.compactRows || oneLine;
-      pushLine(`${indent}${fleetMetadataLine(session, width - indent.length, rowStyles, metadataCell, model.fleetGrouping === "repo", repoInline)}`, { kind: "session-continuation", id: session.id }, session);
-      continuationPriorities.set(lines.length - 1, -1);
+    } else if (card && !oneLine && (!model.compactRows || model.pinMode)) {
+      // Detail lines start under the state glyph; the status line carries the progress.
+      const detailIndent = gutterColumn ? 5 : 4;
+      for (const detail of rosterLines(session, Math.max(1, width - detailIndent), rowStyles, { meter: true, wrap, receipt: !model.pinMode })) pushDetail(detailIndent, detail);
     }
     // A selected child that runs a workflow shows its own field card under its micro row, without a plate.
     const childCard = inline && shape === "micro-child" && Boolean(session.workflow || session.lens);
@@ -962,9 +1050,8 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
   if (releaseCue && model.sections[0]?.cockpitTier !== "needs-you") pushReleaseCue();
   for (const section of model.sections) {
     if (!firstSection) pushLine("");
-    // Board and pin rows sit under a shared grid from 40 columns; roster rows name their own step.
-    gridWorkflow = (!board && !model.pinMode) || model.width < 40 ? undefined : board ? section.gridWorkflow : section.groups.flatMap((group) => group.sessions)
-      .find((session) => adaptiveRowShape(session) === "full-parent" && session.workflow)?.workflow;
+    // Board rows sit under a shared grid from 40 columns; fleet and pin rows name their own step.
+    gridWorkflow = board && model.width >= 40 ? section.gridWorkflow : undefined;
     const headingTitle = board || section.cockpitTier ? `${section.title} ${section.sessionsTotal}` : section.title;
     const headingRight = board
       ? ""
@@ -977,7 +1064,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         ].join(styles.border(` ${glyphs.pendingStep} `))
         : cockpitHeadingRight(section, displayWidth(headingTitle), width, styles);
     if (gridWorkflow) {
-      const headingWidth = board ? displayWidth(headingTitle) + 4 : section.cockpitTier ? displayWidth(headingTitle) + 3 : Math.min(20, displayWidth(headingTitle) + 4);
+      const headingWidth = displayWidth(headingTitle) + 4;
       const rightWidth = (headingRight ? displayWidth(headingRight) + 2 : 0) + displayWidth(workflowGridHeader(gridWorkflow, gridGap));
       if (headingWidth + 1 + rightWidth > width) gridWorkflow = undefined;
     }
@@ -995,7 +1082,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     pushLine(
       board
         ? sectionHeader(headingTitle, gridWorkflow ? [headingRight, styles.muted(workflowGridHeader(gridWorkflow, gridGap))].filter(Boolean).join("  ") : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, "active", false, true)
-        : fleetSectionHeader(section.title, section.repoKey === undefined && section.cockpitTier ? section.sessionsTotal : undefined, gridWorkflow ? [headingRight, styles.muted(workflowGridHeader(gridWorkflow, gridGap))].filter(Boolean).join("  ") : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier),
+        : fleetSectionHeader(section.title, section.repoKey === undefined && section.cockpitTier ? section.sessionsTotal : undefined, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -1011,15 +1098,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         pushLine(twoColumn(`   ${styles.muted(group.name)}`, group.attentionCount ? styles.warning(`?${group.attentionCount}`) : "", width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
-      const cardSpacers = spacers && model.width >= 100 && !board && !model.compactRows && moduleTier(section.cockpitTier ?? "quiet");
-      let parentSeen = false;
-      for (const [index, session] of group.sessions.entries()) {
-        if (adaptiveRowShape(session) === "full-parent") {
-          if (cardSpacers && parentSeen) pushLine("");
-          parentSeen = true;
-        }
-        pushRow(session, group.sessions, index, context);
-      }
+      for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
     }
     if (section.cockpitTier === "needs-you") pushReleaseCue();
     if (section.archiveDisclosure) {
@@ -1773,7 +1852,6 @@ function workflowGridHeader(workflow: WorkflowRuntimeSnapshot, gap: string): str
 interface FleetWorkflowCell {
   right: string;
   compatible: boolean;
-  gridWidth: number;
 }
 
 /** Positional markers under the section grid, or an explicit step label for other pipelines. */
@@ -1786,7 +1864,7 @@ function fleetWorkflowCell(session: RenderSession, styles: LayoutStyles, grid: W
       ? workflow.steps.map((step, index) => pad(styledWorkflowMarker(workflow, index, styles), Math.max(2, displayWidth(step.short)))).join(gap)
       : railCompact(workflow, activeWorkflowMode(session), styles)
     : "";
-  return { right, compatible, gridWidth: grid ? displayWidth(workflowGridHeader(grid, gap)) : 0 };
+  return { right, compatible };
 }
 
 /** The selected module's identity line: group, repo and branch, then counts the title row had no room for. */
@@ -1906,45 +1984,6 @@ function cardKeyRows(workspace: RenderWorkspace, width: number, styles: LayoutSt
   return rows.length ? rows : [{ line: "", plain: "", hits: [] }];
 }
 
-function fleetMetadataLine(session: RenderSession, width: number, styles: LayoutStyles, cell: FleetWorkflowCell, repoMode: boolean, repoInline = false): string {
-  const mode = activeWorkflowMode(session);
-  const { right, compatible } = cell;
-  const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-  const taskCount = planTaskCount(executePlan(session));
-  const optionalSignals = [
-    session.runningSubagentCount ? styles.live(`${glyphs.subagents}${session.runningSubagentCount}`) : "",
-    mode && compatible ? styles.accent(mode.short) : "",
-    taskCount ? styles.muted(`${taskCount.completed}/${taskCount.total} tasks`) : "",
-    // Status grouping already names the tier in the section heading.
-    repoMode ? cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier]) : "",
-    session.repoCount > 1 ? styles.muted(`${glyphs.repos} ${session.repoCount}`) : "",
-  ].filter(Boolean);
-  const leftWidth = Math.max(0, width - (right ? displayWidth(right) + 1 : 0));
-  const minimumGroup = Math.min(8, Math.max(0, leftWidth - (hidden ? displayWidth(hidden) + 1 : 0)));
-  let signals = hidden;
-  // The repo name never shrinks the group badge; it comes only when the full badge still fits.
-  const repo = repoInline ? repoNameSignal(session, styles, repoMode) : "";
-  const fullGroup = Math.min(24, displayWidth(session.group) + 2);
-  const repoFits = Boolean(repo) && fullGroup + 1 + displayWidth(signals ? `${signals} ${repo}` : repo) <= leftWidth;
-  if (repoFits) signals = signals ? `${signals} ${repo}` : repo;
-  const groupFloor = repoFits ? fullGroup : minimumGroup;
-  for (const signal of optionalSignals) {
-    const candidate = signals ? `${signals} ${signal}` : signal;
-    if (groupFloor + 1 + displayWidth(candidate) <= leftWidth) signals = candidate;
-  }
-  const groupWidth = Math.max(0, leftWidth - (signals ? displayWidth(signals) + 1 : 0));
-  const group = groupWidth >= 3 ? renderGroupBadge(session.group, Math.min(24, groupWidth), styles) : "";
-  let left = truncate([group, signals].filter(Boolean).join(" "), leftWidth);
-  const age = rowAge(session);
-  if (age && displayWidth(left) + displayWidth(age) + 3 <= leftWidth) left += styles.muted(` ${glyphs.pendingStep} ${age}`);
-  // The model is the last signal: only after the group shows whole and the age fits.
-  const model = rowModel(session, styles);
-  if (model && group && stripAnsi(group).includes(session.group) && (!age || left.includes(age)) && displayWidth(left) + displayWidth(model) + 3 <= leftWidth) {
-    left += styles.muted(` ${glyphs.pendingStep} `) + model;
-  }
-  return right ? twoColumn(left, right, width) : left;
-}
-
 /** Lowest-priority row metadata: fitting ladders drop it before any other tail item. */
 function rowModel(session: RenderSession, styles: LayoutStyles): string {
   return session.model ? styles.muted(modelBadge(session.model)) : "";
@@ -2024,44 +2063,19 @@ function rowRightAdornment(session: RenderSession, styles: LayoutStyles, board: 
   return hierarchy(workflow ? [workflow] : []).find(fits) ?? "";
 }
 
-/** Drop group, then age, before sacrificing the grid or the title's readable minimum. */
-function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
+/** A module's title row ends with its hidden child requests, model, step and age; the model fills only spare room. */
+function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutStyles): string {
   const minimumTitle = Math.min(12, displayWidth(session.title));
   const fits = (tail: string) => Boolean(tail) && width - displayWidth(tail) - 1 >= minimumTitle;
-  // A module's title row ends with its age; its STEP field carries workflow position.
-  if (options.card && moduleTier(session.cockpitTier)) {
-    const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-    const age = rowAge(session) ? styles.muted(rowAge(session)!.padStart(3)) : "";
-    const step = rosterStep(session, styles);
-    const model = rowModel(session, styles);
-    const withModel = [hidden, model, step, age].filter(Boolean).join("  ");
-    // The model fills only spare room: the whole title and group must still fit beside it.
-    const modelFits = Boolean(model) && width - displayWidth(withModel) - 1 >= displayWidth(session.title) + 3 + displayWidth(session.group) + (session.unopened ? NEW_BADGE.length : 0);
-    return [...(modelFits ? [[hidden, model, step, age]] : []), [hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
-  }
-  // Pin rows: the shared grid, then group and age.
-  const workflow = options.workflowCell?.right ?? "";
-  const grid = workflow + " ".repeat(Math.max(0, (options.workflowCell?.gridWidth ?? 0) - displayWidth(workflow)));
-  const compact = session.workflow ? railCompact(session.workflow, activeWorkflowMode(session), styles) : "";
-  // Selected short-window rows retain group metadata below; phones keep their title + progress shape.
-  if (session.selected || options.terminalWidth <= NARROW_LAYOUT_MAX_WIDTH) return [grid, compact].find(fits) ?? "";
   const hidden = session.hiddenChildRequestCount ? styles.warning(`?${session.hiddenChildRequestCount}`) : "";
-  const age = rowAge(session) ?? "";
-  const metadata = (group: boolean, withAge: boolean) => styles.muted([
-    ...(group ? [session.group] : []), ...(withAge && age ? [age] : []),
-  ].join(` ${glyphs.pendingStep} `));
+  const age = rowAge(session) ? styles.muted(rowAge(session)!.padStart(3)) : "";
+  const step = rosterStep(session, styles);
   const model = rowModel(session, styles);
-  const modelTail = [hidden, model, metadata(true, true), grid].filter(Boolean).join("  ");
-  return [
-    ...(model && width - displayWidth(modelTail) - 1 >= displayWidth(session.title) ? [[hidden, model, metadata(true, true), grid]] : []),
-    [hidden, metadata(true, true), grid],
-    [hidden, metadata(false, true), grid],
-    [hidden, grid],
-    [hidden, compact],
-    [hidden],
-    [grid],
-    [compact],
-  ].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
+  const withModel = [hidden, model, step, age].filter(Boolean).join("  ");
+  // The whole title and group must still fit beside the model.
+  const modelFits = Boolean(model) && width - displayWidth(withModel) - 1 >= displayWidth(session.title) + 3 + displayWidth(session.group) + (session.unopened ? NEW_BADGE.length : 0);
+  return [...(modelFits ? [[hidden, model, step, age]] : []),
+    [hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
 }
 
 function archivedMeaning(session: RenderSession, styles: LayoutStyles): string {
@@ -2228,7 +2242,7 @@ interface SessionRowOptions {
   gutterColumn: boolean;
   titleFirst?: boolean;
   oneLine?: boolean;
-  /** An unselected fleet card title: group and task ride beside the title instead of on a metadata line. */
+  /** A fleet or pin module's title row: the group rides beside the title instead of on a metadata line. */
   card?: boolean;
   workflowCell?: FleetWorkflowCell;
 }
@@ -2240,12 +2254,9 @@ function cardMarkers(session: RenderSession, styles: LayoutStyles): string {
   return `${running}${repos}`;
 }
 
-/** Group, then the task at 100+ columns; Repo grouping also names the tier. A module's mode rides its STEP field. */
-function cardIdentity(session: RenderSession, styles: LayoutStyles, options: SessionRowOptions, room: number): string {
-  // Beside the detail pane the roster is narrow, and the pane names the task.
-  const task = options.terminalWidth >= 160 ? session.ticketSubtitle ?? session.ticketDescription : undefined;
-  const parts = [session.group, ...(task ? [plainAttentionText(task)] : [])];
-  const text = styles.muted(parts.join(` ${glyphs.pendingStep} `));
+/** The group; Repo grouping also names the tier. The selected session's card names the task. */
+function cardIdentity(session: RenderSession, styles: LayoutStyles, options: Pick<SessionRowOptions, "repoMode" | "terminalWidth">, room: number): string {
+  const text = styles.muted(session.group);
   // Repo grouping names the tier whole or not at all: a cut label reads as noise.
   const tier = options.repoMode && options.terminalWidth >= 100 ? ` ${cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])}` : "";
   return tier && displayWidth(text) + displayWidth(tier) <= room ? `${text}${tier}` : truncate(text, room);
@@ -2410,46 +2421,65 @@ function rosterProgress(session: RenderSession, styles: LayoutStyles, width: num
   return width >= 40 ? `${taskMeter(tasks, styles)} ${count}` : count;
 }
 
+/** How many lines a list row's status may take: a request's or fault's text, a request's recommendation, any other status. */
+interface StatusLines { text: number; recommendation: number; other: number }
+/** Requests are bounded at 150 characters, so these caps show one whole from about 34 cells. */
+const WHOLE_STATUS: StatusLines = { text: 5, recommendation: 2, other: 2 };
+const BRIEF_STATUS: StatusLines = { text: 2, recommendation: 0, other: 1 };
+
 /**
- * A roster module's one status line under its title: the request, the fault, the lens DOING, the live tool
- * call, the running subagent, or the last progress note, in that order. Its right edge carries the lens
- * progress. A request may take a second line when rows allow.
+ * A module's status: the request, the fault, the lens DOING, the live tool call, the running subagent,
+ * the last progress note, a handoff already read, then the task, in that order. It takes one line, cut
+ * to fit, with a request shown by its name. With `wrap` caps, a request or fault instead wraps whole, a
+ * request adds its recommendation, and other prose may take a second line. `meter` puts the lens progress
+ * at the first line's right edge.
  */
-function rosterLines(session: RenderSession, width: number, styles: LayoutStyles, terminalWidth: number): FieldLine[] {
-  const right = rosterProgress(session, styles, width);
+function rosterLines(session: RenderSession, width: number, styles: LayoutStyles, options: { meter?: boolean; wrap?: StatusLines; receipt?: boolean } = {}): FieldLine[] {
+  const right = options.meter ? rosterProgress(session, styles, width) : "";
   const valueWidth = Math.max(4, width - FIELD_INDENT.length - (right ? displayWidth(right) + 2 : 0));
   // Requests and faults keep priority 0, so short windows keep them on every row; live work comes next.
   const first = (label: string, tone: (text: string) => string, value: string, priority = 0): FieldLine => {
     const left = `${fieldLabel(label, tone)}${value}`;
     return { line: right ? twoColumn(left, right, width) : left, priority };
   };
-  const attention = session.attention;
-  if (attention) {
-    const words = wrapWords(plainAttentionText(attention.text), valueWidth, Math.max(4, width - FIELD_INDENT.length));
-    const second = words.length > 1 ? truncate(words.slice(1).join(" "), Math.max(4, width - FIELD_INDENT.length)) : "";
-    return [first(requestLabel(attention.kind), styles.warning, styles.text(words[0] ?? "")),
-      ...(second ? [{ line: `${FIELD_INDENT}${styles.text(second)}`, priority: 2 }] : []),
-      ...(session.deliveryResult ? [{ line: receiptLine(session, width, styles), priority: 0 }] : [])];
-  }
   const lines: FieldLine[] = [];
+  const attention = session.attention;
   const live = session.displayStatus === "running";
   const error = session.displayStatus === "error" && session.error ? plainAttentionText(session.error) : "";
   const action = live ? session.activity?.current ?? session.activity?.recent?.[0] : undefined;
   const doing = lensOf(session)?.doing;
   const child = session.boardExpanded ? undefined : session.runningSubagent;
-  // The title row names the task at 160+; below that the quiet fallback can.
-  const ticketTask = session.ticketSubtitle ?? session.ticketDescription;
-  const task = ticketTask ? (terminalWidth < 160 ? ticketTask : undefined) : session.progress?.goal;
-  if (error) lines.push(first("ERR", styles.error, styles.text(truncate(error, valueWidth))));
-  else if (doing) lines.push(first("DOING", live ? styles.live : styles.muted, styles.text(truncate(plainAttentionText(doing), valueWidth)), 1));
+  const task = session.ticketSubtitle ?? session.ticketDescription ?? session.progress?.goal;
+  // Wrapped text keeps its cap: the last kept line ends in an ellipsis when more follows.
+  // Only the first line shares its row with the progress; later lines take the full value width.
+  const fullWidth = Math.max(4, width - FIELD_INDENT.length);
+  const wrapped = (text: string, cap: number, hang = 0, first = valueWidth) => {
+    const all = wrapWords(text, first - hang, fullWidth - hang).map((line, index) => `${" ".repeat(hang && index ? hang : 0)}${line}`);
+    return all.length > cap ? [...all.slice(0, cap - 1), truncate(`${all[cap - 1]} ${all[cap]!.trim()}`, cap > 1 ? fullWidth : first)] : all;
+  };
+  const wrap = options.wrap;
+  // Prose takes `cap` lines; the first keeps the field's priority and the rest give way first.
+  const prose = (label: string, tone: (text: string) => string, text: string, ink: (text: string) => string, priority: number, cap: number) => {
+    const [head = "", ...rest] = cap > 1 ? wrapped(text, cap) : [truncate(text, valueWidth)];
+    lines.push(first(label, tone, ink(head), priority), ...rest.map((line) => ({ line: `${FIELD_INDENT}${ink(line)}`, priority: 3 })));
+  };
+  if (attention && wrap) {
+    prose(requestLabel(attention.kind), styles.warning, plainAttentionText(attention.text), styles.text, 0, wrap.text);
+    if (attention.recommendation && wrap.recommendation) {
+      lines.push(...wrapped(`${glyphs.right} ${plainAttentionText(attention.recommendation)}`, wrap.recommendation, 2, fullWidth).map((line) => ({ line: `${FIELD_INDENT}${styles.muted(line)}`, priority: 4 })));
+    }
+  // On one line the list names a request; the selected session's card states it whole.
+  } else if (attention) prose(requestLabel(attention.kind), styles.warning, plainAttentionText(attention.title ?? attention.text), styles.text, 0, 1);
+  else if (error) prose("ERR", styles.error, error, styles.text, 0, wrap?.text ?? 1);
+  else if (doing) prose("DOING", live ? styles.live : styles.muted, plainAttentionText(doing), styles.text, 1, wrap?.other ?? 1);
   else if (action) lines.push(first("NOW", styles.live, actionText(action, valueWidth, styles, styles.text), 1));
   else if (child) lines.push(first("SUB", styles.live, truncate([styles.text(child.agentName), child.taskPreview && styles.muted(plainAttentionText(child.taskPreview))].filter(Boolean).join(" "), valueWidth), 1));
-  else if (session.progress?.done) lines.push(first("DONE", styles.muted, styles.text(truncate(plainAttentionText(session.progress.done), valueWidth)), 2));
+  else if (session.progress?.done) prose("DONE", styles.muted, plainAttentionText(session.progress.done), styles.text, 2, wrap?.other ?? 1);
   // A quiet agent still says something useful: the handoff you already read, else the task it works on.
-  else if (session.context?.attention?.text) lines.push(first("SAID", styles.muted, styles.muted(truncate(plainAttentionText(session.context.attention.text), valueWidth)), 2));
-  else if (task) lines.push(first("TASK", styles.muted, styles.muted(truncate(plainAttentionText(task), valueWidth)), 2));
+  else if (session.context?.attention) prose("SAID", styles.muted, plainAttentionText(session.context.attention.title ?? session.context.attention.text), styles.muted, 2, wrap?.other ?? 1);
+  else if (task) prose("TASK", styles.muted, plainAttentionText(task), styles.muted, 2, wrap?.other ?? 1);
   else if (right) lines.push({ line: twoColumn("", right, width), priority: 2 });
-  if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
+  if (session.deliveryResult && options.receipt !== false) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
   return lines;
 }
 
@@ -2459,6 +2489,8 @@ interface DetailFieldOptions {
   hideQuestion?: boolean;
   /** An Answer or Reply panel is open: keep what the agent asked and said, drop position and activity. */
   replying?: boolean;
+  /** Rows the message may take, in place of its fixed fold: a column with rows to spare shows more of it. */
+  saidRows?: number;
 }
 
 const LOG_ACTIONS = 3;
@@ -2470,6 +2502,11 @@ const SAID_LINES = 14;
  * latest message. A label appears only with a value.
  */
 function detailFieldLines(session: RenderSession, width: number, styles: LayoutStyles, options: DetailFieldOptions): FieldLine[] {
+  return detailFieldSections(session, width, styles, options).lines;
+}
+
+/** The fields with where the work (from DOING) and the message (SAID) start, so a wide card can set each in its own column. */
+function detailFieldSections(session: RenderSession, width: number, styles: LayoutStyles, options: DetailFieldOptions): { lines: FieldLine[]; workStart: number; saidStart: number } {
   const lines: FieldLine[] = [];
   const valueWidth = Math.max(4, width - FIELD_INDENT.length);
   // Sentences wrap at a reading measure; a wide pane does not stretch them edge to edge.
@@ -2489,7 +2526,7 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
   if (session.deliveryResult) lines.push({ line: receiptLine(session, width, styles), priority: 0 });
   const error = session.displayStatus === "error" && session.error ? plainAttentionText(session.error) : "";
   if (error) lines.push(...fieldLines("ERR", styles.error, wrapWords(error, proseWidth, proseWidth).map(styles.text), [0]));
-  const compact = options.terminalWidth < SIDE_PANE_MIN_WIDTH;
+  const compact = options.terminalWidth < WIDE_FLEET_MIN_WIDTH;
   // The side pane has rows to spare: a blank row separates request, position, activity, progress and message.
   const group = () => { if (!compact && lines.length && lines.at(-1)!.line !== "") lines.push({ line: "", priority: 4 }); };
   group();
@@ -2497,6 +2534,7 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
     if (value) lines.push(...fieldLines(label, styles.muted, wrapWords(plainAttentionText(value), proseWidth, proseWidth).map(styles.text), [2]));
   };
   if (!options.replying && !session.ticketSubtitle && !session.ticketDescription) note("GOAL", session.progress?.goal);
+  const workStart = lines.length;
   const notes = () => {
     // A ready handoff already says what was done.
     if (request?.kind !== "ready") note("DONE", session.progress?.done);
@@ -2534,6 +2572,7 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
     lines.push(...fieldLines("SUB", styles.muted, [truncate(doing, valueWidth)], [3]));
   }
   group();
+  const saidStart = lines.length;
   // Without the live message (a session not yet reloaded), a handoff you already read still says what it reported.
   const message = session.lastMessage ?? (!request && !options.replying && session.displayStatus !== "running" ? session.context?.attention?.text : undefined);
   if (message) {
@@ -2544,7 +2583,10 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
     let textLines = 0;
     // Beside an open question or reply the message is context: a few lines, so the editor leads.
     const cap = options.replying ? SAID_LINES_REPLYING : SAID_LINES;
-    const cut = session.messageExpanded && !options.replying ? said.length : said.findIndex((line) => stripAnsi(line).trim() && ++textLines > cap);
+    const cut = session.messageExpanded && !options.replying ? said.length
+      // A row budget counts every line and keeps one row for the fold.
+      : options.saidRows !== undefined ? (said.length + 1 > options.saidRows ? Math.max(1, options.saidRows - 2) : -1)
+      : said.findIndex((line) => stripAnsi(line).trim() && ++textLines > cap);
     const shown = cut < 0 ? said : said.slice(0, cut);
     while (shown.length && !stripAnsi(shown.at(-1)!).trim()) shown.pop();
     // The panel owns the keys while it is open, so the fold names no key there.
@@ -2560,8 +2602,9 @@ function detailFieldLines(session: RenderSession, width: number, styles: LayoutS
   if (!lines.length && !options.replying && session.kind !== "subagent") {
     const quiet = `${session.displayStatus === "stopped" ? "Stopped" : "Idle"}${session.activityAge && session.activityAge !== "now" ? ` ${session.activityAge}` : ""}`;
     lines.push({ line: styles.muted(`${quiet} ${glyphs.pendingStep} nothing reported yet`), priority: 3 });
+    return { lines, workStart: lines.length, saidStart: lines.length };
   }
-  return lines;
+  return { lines, workStart: Math.min(workStart, lines.length), saidStart: Math.min(saidStart, lines.length) };
 }
 
 function renderSessionRow(session: RenderSession, width: number, styles: LayoutStyles, options: SessionRowOptions): string {
@@ -2604,7 +2647,7 @@ function renderSessionRow(session: RenderSession, width: number, styles: LayoutS
   if (options.titleFirst) {
     const markers = options.card ? cardMarkers(session, styles) : "";
     const available = Math.max(0, width - displayWidth(prefix) - displayWidth(worktree) - displayWidth(markers));
-    const right = options.oneLine ? fleetOneLineTail(session, available, styles, options) : "";
+    const right = options.oneLine ? fleetOneLineTail(session, available, styles) : "";
     const titleSpace = available - (right ? displayWidth(right) + 1 : 0);
     const newMarker = newBadge(session, titleSpace, styles);
     const title = truncate(session.title, titleSpace - displayWidth(newMarker));
