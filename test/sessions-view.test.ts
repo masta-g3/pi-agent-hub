@@ -5183,3 +5183,25 @@ test("C toggles the selected card's full message and resets when the selection m
   controller.selectSession("one");
   assert.doesNotMatch(view.render(130).map(stripAnsi).join("\n"), /C Fold/);
 });
+
+test("moving the selection reads the new card's live state at once, not on the next refresh tick", async () => {
+  const reads: string[] = [];
+  const controller = new SessionsController({ version: 1, sessions: [readySession("api", "api"), readySession("docs", "docs")] });
+  controller.selectSession("api");
+  const view = new SessionsView(controller, async () => {}, {
+    interactionTarget,
+    loadInteractionState: async (target) => { reads.push(target.managedId); return { questionProtocol: false, pending: [], lastMessage: `said by ${target.managedId}` }; },
+  });
+  view.render(130);
+  await view.refreshInteraction();
+  view.handleInput("j");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(controller.selected()?.id, "docs");
+  assert.deepEqual(reads, ["api", "docs"]);
+  assert.match(stripAnsi(view.render(130).join("\n")), /said by docs/);
+  // A key that keeps the selection reads nothing new.
+  view.handleInput("?");
+  view.handleInput("\u001b");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reads, ["api", "docs"]);
+});

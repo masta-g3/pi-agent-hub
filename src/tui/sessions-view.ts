@@ -270,7 +270,10 @@ export class SessionsView implements Component {
   handleInput(data: string): void {
     this.lastInputAt = this.actions.now?.() ?? Date.now();
     if (this.guardTyping(data, this.lastInputAt)) return;
+    const before = this.selectedInteractionSession()?.id;
     this.dispatchInput(data);
+    // A new selection reads its card's live state now instead of on the next refresh tick.
+    if (this.selectedInteractionSession()?.id !== before) void this.refreshInteraction();
   }
 
   /**
