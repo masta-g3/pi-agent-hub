@@ -27,6 +27,11 @@ export function usageCountdown(ms: number): string {
   if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   return `${minutes}m`;
 }
+/** Header countdowns match the pi-accounts footer: one rounded-up unit. */
+function compactCountdown(ms: number): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60000));
+  return minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${Math.ceil(minutes / 60)}h` : `${Math.ceil(minutes / 1440)}d`;
+}
 function resetTime(time: number, now: number): string { return new Intl.DateTimeFormat("en", { ...(time - now > 86400000 ? { weekday: "short" as const } : {}), hour: "2-digit", minute: "2-digit", hour12: false }).format(time); }
 const quotaTone = (percent: number): ThemeToken => percent > 25 ? "success" : percent > 0 ? "warning" : "error";
 function quotaBar(window: UsageWindow, width: number, now: number, theme?: SessionsTheme, stale = false, mark = false): string {
@@ -44,7 +49,9 @@ export function quotaSegment(data: UsageData | undefined, width: number, now: nu
     const stale = accountStale(a, now);
     const label = paint(theme, "muted", `${stale && a.windows.length ? "~" : ""}${a.label}`);
     if (!a.windows.length) return a.error ? `${label} ${paint(theme, "warning", glyphs.warning)}` : label;
-    return label + windows.map(w => ` ${paint(theme, "muted", w.label)}${quotaBar(w, 5, now, theme, stale)}${w.remainingPercent <= 25 && w.resetAt && !windowExpired(w, now) ? ` ${paint(theme, stale ? "muted" : quotaTone(w.remainingPercent), usageCountdown(w.resetAt - now))}` : ""}`).join("");
+    // The reset countdown replaces the window label: it tells the windows apart and says when quota returns.
+    const countdown = (w: UsageWindow) => w.resetAt && !windowExpired(w, now) ? ` ${paint(theme, stale || w.remainingPercent > 25 ? "muted" : quotaTone(w.remainingPercent), compactCountdown(w.resetAt - now))}` : "";
+    return label + windows.map(w => ` ${quotaBar(w, 5, now, theme, stale)}${countdown(w)}`).join("");
   };
   const worst = data.accounts.reduce((a, b) => {
     const severity = (a: UsageAccount) => Math.min(...a.windows.map(w => w.remainingPercent), 101);

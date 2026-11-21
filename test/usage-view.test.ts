@@ -108,6 +108,13 @@ test("quota preserves endpoints, expires readings, and has a width ladder", () =
   assert.equal(quotaSegment(data, 5, USAGE_NOW), "");
   const expired = { ...data, accounts: [{ ...data.accounts[0]!, windows: [{ ...data.accounts[0]!.windows[0]!, resetAt: USAGE_NOW - 1 }] }] };
   assert.match(quotaSegment(expired, 80, USAGE_NOW), /\?\?\?\?\?/);
+  assert.doesNotMatch(quotaSegment(expired, 80, USAGE_NOW), /\?\?\?\?\? \d/, "expired windows show no countdown");
+});
+test("quota bars show time to reset instead of window labels", () => {
+  const full = stripAnsi(quotaSegment(data, 200, USAGE_NOW));
+  assert.match(full, /Codex 1 \S{5} 2h \S{5} 6d/);
+  assert.match(full, /Claude 1 \S{5} 3h/);
+  assert.doesNotMatch(full, /(?:5h|wk)[▰▱]/, "no window label before a bar");
 });
 
 test("the chart cursor sits under the middle of its bar", () => {
