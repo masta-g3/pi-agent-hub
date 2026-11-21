@@ -488,15 +488,29 @@ NO_COLOR=1 PI_AGENT_HUB_GLYPHS=ascii pi-hub
 
 Set `PI_AGENT_HUB_REDUCED_MOTION=1` to show the final Accepted receipt without its one-time 600 ms emphasis change. `NO_COLOR` also disables that change. This switch does not change running-session indicators.
 
-The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols without model icons. All three variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
+Set `PI_AGENT_HUB_GLYPHS=nerd` to draw the dashboard with [Nerd Font](https://www.nerdfonts.com) icons. Use it only with a Nerd Font 3.4 or later, on every device that shows the dashboard; other fonts show empty boxes or question marks.
+
+| Area | What changes |
+| --- | --- |
+| Session state | Play (running), unread mail (waiting), small ring (idle), filled cross (error), square (stopped). The selected running row shows an arc spinner. |
+| Requests | Filled check circle (ready), question circle (question), blocked sign (blocked) on rows, cards and banners. |
+| Tiers | An icon before each Status fleet heading: bell (NEEDS YOU), pulse (HEALTH), sparkle (NEW), play (ACTIVE), moon (QUIET), archive (ARCHIVED). The header fleet meter uses the same icons. |
+| Fields | An icon before each card and row label such as `DOING`, `WHERE`, `NOW`, `LOG` and `SAID`. Request and error labels (`ASK`, `RDY`, `BLK`, `ERR`) get none, because the state icon beside the title already shows them. Values start two cells further right. |
+| Tool calls | A per-tool icon in `NOW` and `LOG`: terminal, eye, pencil, new file, search, globe, agent, else tools. |
+| Workflow | A check for a finished step, a dot circle for the active step, and capped task and quota meters. |
+| Markers | Worktree branch, ready to merge, cleanup check, orchestration, repository count, running subagents, artifact, note, favorite, pin, abandoned, ticket, usage warning, and expand and collapse chevrons. |
+| Chrome | A pi logo before `pi hub`, a folder before each group name, and rounded pills for keycaps and the mode label. A pill is as wide as the square keycap. Pills need a theme that paints keycaps and are not used with `NO_COLOR`. |
+| Model tag | A vendor icon: a star for Claude, a hexagon for OpenAI, the Google logo, or a robot for other vendors. Hub detects the vendor from the model id, then the provider. |
+
+Separators, rules, the selection stripe and dialog frames stay Unicode. Each state keeps its own shape, so rows read without color. Every icon is one cell wide.
+
+The glyph set is selected once when the dashboard process starts. Unset or other values keep the default Unicode symbols without icons. All three variables survive dashboard recreation. They are not saved in `config.json`. ASCII mode covers Hub-owned chrome only. User and producer text is not transliterated. Pi's Markdown message formatting in Conversation stays unchanged, including Unicode quote and table borders. These options do not change managed Pi sessions or tmux chrome.
 
 ## Theme behavior
 
 Press `t` to open dashboard theme settings. The list contains Pi's `dark` and `light` themes plus custom/package themes from global Pi resources. Project-local themes are deliberately excluded because a synchronized choice becomes Pi's global default. Pi 0.83 or newer is required for the matching Automatic light/dark setting.
 
 Moving through fixed themes previews the dashboard immediately. Selecting Automatic exposes separate light and dark choices; `←`/`→` changes the focused choice. Those choices remain intact when browsing fixed themes and returning to Automatic within the same dialog. `Space` toggles **Sync to Pi**, `Enter` saves, and `Escape` restores the theme active when the dialog opened. Preview updates dashboard ANSI, dashboard status chrome, and sidebar pane borders only. It does not write settings or alter managed Pi sessions.
-
-Set `PI_AGENT_HUB_GLYPHS=nerd` to keep the Unicode symbols and add a vendor icon before each model tag: Claude, OpenAI, Google, or a robot for other vendors. Use it only with a [Nerd Font](https://www.nerdfonts.com) 3.5 or later; other fonts show empty boxes. Hub detects the vendor from the model id, then the provider.
 
 Synchronization defaults on when `dashboard.themeSync` is absent or `true`. Pi's global `theme` in `<PI_CODING_AGENT_DIR>/settings.json` is then the source of truth; Hub does not mirror it. Confirming saves through Pi's settings manager, clears any detached Hub override, and asks every currently live managed session, including subagents, to apply the resolved concrete theme once. New managed and unmanaged Pi processes inherit the saved global setting normally. A running session may change its own theme afterward because Hub does not continuously enforce the choice.
 

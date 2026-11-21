@@ -1252,7 +1252,7 @@ function symbolFor(status: RenderSession["displayStatus"], selected: boolean, no
     case "waiting": return glyphs.waiting;
     case "idle": return glyphs.idle;
     case "error": return glyphs.error;
-    case "stopped": return "-";
+    case "stopped": return glyphs.stopped;
   }
 }
 

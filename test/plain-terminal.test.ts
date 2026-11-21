@@ -131,6 +131,51 @@ test("ASCII fleet, dense rows, board, workspace and form chrome fit exact widths
   `, { PI_AGENT_HUB_GLYPHS: "ascii" });
 });
 
+test("Nerd Font mode keeps one-cell icons, exact widths and the default geometry of keys", () => {
+  run(`
+    const { nerd, unicode, nerdIcons } = await import('./dist/src/tui/glyphs.js');
+    const flat = (value) => typeof value === 'string' ? [value] : Object.values(value).flatMap(flat);
+    for (const icon of flat(nerdIcons)) assert.equal(visibleWidth(icon), 1);
+    // The spinner is a string of one-cell frames; every other glyph keeps its Unicode width.
+    for (const key of Object.keys(nerd)) assert.equal(visibleWidth(nerd[key]), key === 'spinner' ? [...nerd.spinner].length : visibleWidth(unicode[key]), key);
+    // Each state keeps its own shape, so rows read without color.
+    const states = ['running','waiting','idle','error','stopped','requestReady','requestQuestion','requestBlocked'].map(key => nerd[key]);
+    assert.equal(new Set(states).size, states.length);
+    for (const key of ['selected','horizontal','vertical','pendingStep','topLeft','ellipsis']) assert.equal(nerd[key], unicode[key]);
+    assert.equal(worktreeGlyph('⎇'), nerd.worktree);
+    const plain = frames.map(stripAnsi);
+    for (const old of ['⎇','●','◐','○','×','▰','▱']) assert.ok(plain.every(line => !line.includes(old)), old);
+    assert.ok(plain.some(line => line.includes(nerd.worktree)));
+    const fleet = renderSessions(buildRenderModel({sessions,selectedId:'s1',width:120,height:40,now:1000}),darkTheme);
+    const rows = fleet.lines.map(stripAnsi);
+    assert.ok(fleet.lines.every(line => visibleWidth(line) === 120));
+    assert.ok(rows.some(line => line.includes(nerdIcons.tiers.active + ' ACTIVE ')), rows.join('\\n'));
+    // The state slot already shows the request, so its label carries no second icon.
+    assert.ok(rows.some(line => /^\\S?\\s+RDY /u.test(line.slice(line.indexOf('RDY') - 4))), rows.join('\\n'));
+    assert.ok(rows.every(line => !line.includes(nerd.requestReady + ' RDY')), rows.join('\\n'));
+    assert.ok(rows.some(line => line.includes(nerdIcons.fields.WHERE + ' WHERE')), rows.join('\\n'));
+    assert.ok(rows[0].includes(nerdIcons.brand + ' pi hub') && rows[0].includes(nerdIcons.capLeft + 'FLEET' + nerdIcons.capRight), rows[0]);
+    assert.ok(rows.some(line => line.includes(nerdIcons.group + ' work')));
+    assert.ok(rows.at(-1).includes(nerdIcons.capLeft + '?' + nerdIcons.capRight + 'Help'), rows.at(-1));
+    const board = renderSessions(buildRenderModel({sessions,selectedId:'s0',width:120,height:40,grouping:'stage',now:1000}),darkTheme).lines.map(stripAnsi);
+    // ACTIVE and QUIET share their icon with the running and idle states, so only the other tiers can be told apart here.
+    assert.ok(board.every(line => !['needs-you','health','new','archived'].some(tier => line.includes(nerdIcons.tiers[tier]))), 'board lanes carry no tier icon');
+  `, { PI_AGENT_HUB_GLYPHS: "nerd" });
+  // An unpainted theme keeps the pill's width, so the header does not shift when keycaps lose their surface.
+  run(`
+    const header = (theme) => stripAnsi(renderSessions(buildRenderModel({sessions,selectedId:'s1',width:120,height:40,now:1000}),theme).lines[0]);
+    const painted = header(darkTheme);
+    const quiet = header({...darkTheme,selectedBg:'',statusLineBg:''});
+    assert.equal(quiet.indexOf('FLEET'), painted.indexOf('FLEET'), quiet);
+    assert.equal(quiet.slice(quiet.indexOf('FLEET') - 1, quiet.indexOf('FLEET') + 6), ' FLEET ', quiet);
+  `, { PI_AGENT_HUB_GLYPHS: "nerd" });
+  // A pill is as wide as the square key, so footer and card key hit ranges match the default set.
+  const hits = `const layout = renderSessions(buildRenderModel({sessions,selectedId:'s1',width:120,height:40,now:1000,
+    workspaceCommands:selectWorkspaceCommands(sessions[1],buildDashboardCommands({sessions,selectedId:'s1',capabilities:{openSession:true}}),3)}),darkTheme);
+    console.log(JSON.stringify([layout.footerItems, layout.cardCommandHits]));`;
+  assert.equal(run(hits, { PI_AGENT_HUB_GLYPHS: "nerd" }), run(hits, {}));
+});
+
 test("dashboard recreation forwards glyph and no-color preferences", () => {
   assert.deepEqual(dashboardEnv({ PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" }), { PI_AGENT_HUB_GLYPHS: "ascii", PI_AGENT_HUB_REDUCED_MOTION: "1", NO_COLOR: "1" });
 });

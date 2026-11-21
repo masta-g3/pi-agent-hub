@@ -1,5 +1,5 @@
 import { modelBadge, modelCardText } from "./model-badge.js";
-import { glyphs } from "./glyphs.js";
+import { glyphs, icons, meterCell } from "./glyphs.js";
 import { quotaSegment } from "./usage-view.js";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { plainTerminalText } from "../core/terminal-text.js";
@@ -421,7 +421,7 @@ function renderAttentionAnnouncement(
   const newest = active[0];
   if (!visible || !newest) return { lines: [], targets: [] };
   const tone = styles.panel ? styles.warning : newest.kind === "blocked" ? styles.error : newest.kind === "ready" ? styles.success : styles.warning;
-  const glyph = newest.kind === "blocked" ? "!" : newest.kind === "ready" ? glyphs.ready : "?";
+  const glyph = newest.kind === "blocked" ? glyphs.requestBlocked : newest.kind === "ready" ? glyphs.requestReady : glyphs.requestQuestion;
   const label = active.length > 1 ? `${glyph} ${active.length} NEW` : `${glyph} ${newest.kind.toUpperCase()}`;
   const identity = plainAttentionText(newest.ownerTitle ? `${newest.title} ${glyphs.right} ${newest.ownerTitle}` : newest.title);
   const workspaceDuplicatesRequest = model.workspace?.session.id === newest.sessionId;
@@ -513,6 +513,8 @@ interface LayoutStyles {
   band(text: string): string;
   /** A key drawn as a key; bold accent text when surfaces cannot be derived. Panel keys read in accent. */
   keycap(key: string): string;
+  /** The header's mode label: accent text, or a pill where keycaps are pills. */
+  mode(label: string): string;
   /** Whether bands, plates and keycaps carry backgrounds. */
   painted: boolean;
   /**
@@ -529,6 +531,10 @@ function createStyles(theme: SessionsTheme, live: string | number = theme.succes
   const padded = !noColor();
   const painted = padded && surfaces.keycapBg !== "";
   const bold = (text: string) => `\u001b[1m${text}\u001b[22m`;
+  // Rounded caps take the cells a painted keycap pads with, so a pill is exactly as wide as the square key.
+  const pill = painted && icons
+    ? (text: string, ink: "accent" | "text") => `${styleFg(surfaces.keycapBg, icons!.capLeft)}${styleBg(surfaces.keycapBg, bold(styleToken(theme, ink, text)))}${styleFg(surfaces.keycapBg, icons!.capRight)}`
+    : undefined;
   return {
     theme,
     usageTheme: theme,
@@ -550,8 +556,11 @@ function createStyles(theme: SessionsTheme, live: string | number = theme.succes
     keycap: (key) => {
       const label = padded ? ` ${key} ` : key;
       const ink = panel ? "accent" : "text";
+      if (pill) return pill(key, ink);
       return painted ? styleBg(surfaces.keycapBg, bold(styleToken(theme, ink, label))) : bold(styleToken(theme, "accent", label));
     },
+    // Unpainted icon mode keeps the cap cells as spaces, so the header does not shift when the sidebar goes quiet.
+    mode: (label) => pill ? pill(label, "accent") : styleToken(theme, "accent", icons && padded ? ` ${label} ` : label),
     option: (text) => styleBgToken(theme, "statusLineBg", text.replace(/\x1b\[0m/gu, "\x1b[39m")),
     status: (status, text) => status === "running" ? styleFg(live, text) : styleToken(theme, status === "error" ? "error" : status === "waiting" ? "warning" : "muted", text),
   };
@@ -626,17 +635,19 @@ function pinSummaryLabel(model: RenderModel): string {
 
 interface HeaderSummary { line: string; chips: TierChip[]; quota?: { x: number; width: number } }
 
-const BRAND = "pi hub";
+const BRAND = icons ? `${icons.brand} pi hub` : "pi hub";
 
 /** The brand is the header's lowest priority: it shows only when mode, signals and quota leave room. */
 function headerWithQuota(mode: string, right: string, model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
   const brandWidth = displayWidth(BRAND) + 2;
-  const room = width - displayWidth(mode) - displayWidth(right) - 5;
+  const label = styles.mode(mode);
+  const modeWidth = displayWidth(label);
+  const room = width - modeWidth - displayWidth(right) - 5;
   const quota = quotaSegment(model.usage, room, model.now, styles.usageTheme);
   const brand = room - (quota ? displayWidth(quota) + 3 : 0) >= brandWidth ? `${styles.strong(BRAND)}  ` : "";
   const modeX = displayWidth(brand);
-  const left = brand + styles.accent(mode) + (quota ? `   ${quota}` : "");
-  return { line: headerBand(twoColumn(left, right, width), width, styles), chips: [], ...(quota ? { quota: { x: modeX + displayWidth(mode) + 3, width: displayWidth(quota) } } : {}) };
+  const left = brand + label + (quota ? `   ${quota}` : "");
+  return { line: headerBand(twoColumn(left, right, width), width, styles), chips: [], ...(quota ? { quota: { x: modeX + modeWidth + 3, width: displayWidth(quota) } } : {}) };
 }
 
 /** Fleet meter cells: a distinct shape per tier, so the tiers read without color. */
@@ -676,14 +687,14 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
   let shape: (typeof shapes)[number] = shapes[0];
   const group = (entry: (typeof entries)[number]) => {
     const cell = METER_CELLS[entry.tier];
-    const glyph = glyphs[cell.glyph];
+    const glyph = icons?.tiers[entry.tier] ?? glyphs[cell.glyph];
     const form = shape(entry.ownerCount);
     const text = form === "cells" ? glyph.repeat(entry.ownerCount) : form === "short" ? `${glyph}${entry.ownerCount}` : `${entry.ownerCount}`;
     return styles[cell.tone](text);
   };
   const meter = () => entries.map(group).join(" ");
   const right = () => [meter(), signals.join(separator)].filter(Boolean).join(entries.length ? "  " : "");
-  const fits = () => displayWidth("FLEET") + 1 + displayWidth(right()) <= width;
+  const fits = () => displayWidth(styles.mode("FLEET")) + 1 + displayWidth(right()) <= width;
   for (const candidate of shapes) {
     shape = candidate;
     if (fits()) break;
@@ -734,8 +745,8 @@ function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyle
     [required, ...(needs ? [needs] : [])],
     [required],
   ].map((parts) => parts.join(styles.border(` ${glyphs.pendingStep} `)));
-  const right = candidates.find(right => right && displayWidth(mode) + displayWidth(right) + 1 <= width);
-  return right ? headerWithQuota(mode, right, model, width, styles) : { line: headerBand(truncate(styles.accent(mode), width), width, styles), chips: [] };
+  const right = candidates.find(right => right && displayWidth(styles.mode(mode)) + displayWidth(right) + 1 <= width);
+  return right ? headerWithQuota(mode, right, model, width, styles) : { line: headerBand(truncate(styles.mode(mode), width), width, styles), chips: [] };
 }
 
 function pinnedDecisionRows(height: number | undefined): number {
@@ -810,7 +821,7 @@ function selectedCardIdentity(session: RenderSession, width: number, terminalWid
   // Running subagents and extra repositories ride the title like on roster rows; tiny panes keep them on the metadata line.
   const counts = roomy ? cardMarkers(session, styles) : "";
   const marker = `${stripAnsi(titleMarkers(session, styles))}${stripAnsi(counts)}${session.unopened ? " new" : ""}`;
-  const group = styles.muted(session.group);
+  const group = styles.muted(groupText(session.group));
   const state = session.attention ? attentionGlyph(session.attention.kind, styles) : styles.status(session.displayStatus, session.symbol);
   const disclosure = session.boardExpanded === undefined ? "" : `${session.boardExpanded ? glyphs.expanded : glyphs.collapsed} `;
   const prefix = `${disclosure}${state} `;
@@ -1012,7 +1023,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       }
       // A rule sets the question or reply apart from the context kept above it.
       if (focused && prefix.length) {
-        const head = focused.kind === "answer" ? `${rowStyles.dim(glyphs.horizontal.repeat(2))} ${rowStyles.warning("ASK")} ` : "";
+        const head = focused.kind === "answer" ? `${rowStyles.dim(glyphs.horizontal.repeat(2))} ${rowStyles.warning(`${fieldIcon("ASK")}ASK`)} ` : "";
         prefix.push(`${head}${rowStyles.dim(glyphs.horizontal.repeat(Math.max(0, contentWidth - displayWidth(head))))}`);
       }
       panel = { bodyStart, width, indent, frame: { focused: Boolean(workspace?.panel), metadata: frame.metadata, tone: frame.tone, keys: keyRows },
@@ -1052,7 +1063,9 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     if (!firstSection) pushLine("");
     // Board rows sit under a shared grid from 40 columns; fleet and pin rows name their own step.
     gridWorkflow = board && model.width >= 40 ? section.gridWorkflow : undefined;
-    const headingTitle = board || section.cockpitTier ? `${section.title} ${section.sessionsTotal}` : section.title;
+    // A fleet tier heading's icon and its space widen the title that the right-side signals fit against.
+    const tierIcon = !board && !section.repoKey && section.cockpitTier ? icons?.tiers[section.cockpitTier] : undefined;
+    const headingTitle = board || section.cockpitTier ? `${tierIcon ? `${tierIcon} ` : ""}${section.title} ${section.sessionsTotal}` : section.title;
     const headingRight = board
       ? ""
       : section.repoKey
@@ -1082,7 +1095,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
     pushLine(
       board
         ? sectionHeader(headingTitle, gridWorkflow ? [headingRight, styles.muted(workflowGridHeader(gridWorkflow, gridGap))].filter(Boolean).join("  ") : headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, "active", false, true)
-        : fleetSectionHeader(section.title, section.repoKey === undefined && section.cockpitTier ? section.sessionsTotal : undefined, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier),
+        : fleetSectionHeader(section.title, section.repoKey === undefined && section.cockpitTier ? section.sessionsTotal : undefined, headingRight, width, styles, section.collapsible ? section.collapsed : undefined, section.selected, section.cockpitTier, tierIcon),
       headerTarget,
       undefined,
       { sectionOwnerIds, tier: section.cockpitTier, richTree: false, treeEnd: false },
@@ -1095,7 +1108,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       let groupHeadingIndex: number | undefined;
       if (board && model.width >= 100) {
         groupHeadingIndex = lines.length;
-        pushLine(twoColumn(`   ${styles.muted(group.name)}`, group.attentionCount ? styles.warning(`?${group.attentionCount}`) : "", width));
+        pushLine(twoColumn(`   ${styles.muted(groupText(group.name))}`, group.attentionCount ? styles.warning(`?${group.attentionCount}`) : "", width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
       for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
@@ -1518,7 +1531,7 @@ function adaptiveCardLines(
     if (terminalWidth < 100) return receipt;
     const lines: { line: string; priority: number }[] = [];
     const context = session.ticketId
-      ? `#${session.ticketId}${session.ticketSubtitle ? ` ${glyphs.pendingStep} ${session.ticketSubtitle}` : ""}`
+      ? `${ticketText(session.ticketId)}${session.ticketSubtitle ? ` ${glyphs.pendingStep} ${session.ticketSubtitle}` : ""}`
       : session.ticketSubtitle;
     if (context) lines.push({ line: styles.muted(truncate(context, width)), priority: 2 });
     lines.push(...receipt);
@@ -1648,7 +1661,7 @@ function actionWorkspaceBlocks(workspace: RenderWorkspace, width: number, now: n
     targets: lines.map((_, index) => targets[index]),
   });
   const meta = [
-    session.ticketId ? `#${session.ticketId}` : undefined,
+    session.ticketId ? ticketText(session.ticketId) : undefined,
     session.repoLabel,
     session.repoCount > 1 ? `${glyphs.repos}${session.repoCount}` : undefined,
     session.worktreeBranch ? stripAnsi(worktreeBranchLabel(session, session.worktreeBranch, styles)) : session.worktreeMarker ? `${session.worktreeMarker} worktree` : undefined,
@@ -1872,7 +1885,7 @@ function inboxMetadataLine(session: RenderSession, width: number, terminalWidth:
   const hidden = session.hiddenChildRequestCount ? ` ?${session.hiddenChildRequestCount}` : "";
   const budget = Math.max(0, width - displayWidth(hidden));
   const branchName = session.worktreeBranch ?? session.worktreeLifecycle?.repositories?.find(item => item.role === "primary" && item.state !== "cleaned")?.branch;
-  const group = includeGroup ? styles.muted(truncate(session.group, Math.min(24, budget))) : "";
+  const group = includeGroup ? styles.muted(truncate(groupText(session.group), Math.min(24 + groupText("").length, budget))) : "";
   const repo = terminalWidth >= 40 ? repoNameSignal(session, styles, repoMode) : "";
   const branch = includeBranch && terminalWidth >= 40 && branchName ? worktreeBranchLabel(session, branchName, styles) : "";
   let left = group;
@@ -2073,7 +2086,7 @@ function fleetOneLineTail(session: RenderSession, width: number, styles: LayoutS
   const model = rowModel(session, styles);
   const withModel = [hidden, model, step, age].filter(Boolean).join("  ");
   // The whole title and group must still fit beside the model.
-  const modelFits = Boolean(model) && width - displayWidth(withModel) - 1 >= displayWidth(session.title) + 3 + displayWidth(session.group) + (session.unopened ? NEW_BADGE.length : 0);
+  const modelFits = Boolean(model) && width - displayWidth(withModel) - 1 >= displayWidth(session.title) + 3 + displayWidth(groupText(session.group)) + (session.unopened ? NEW_BADGE.length : 0);
   return [...(modelFits ? [[hidden, model, step, age]] : []),
     [hidden, step, age], [hidden, step], [hidden, age], [hidden], [step], [age]].map((parts) => parts.filter(Boolean).join("  ")).find(fits) ?? "";
 }
@@ -2204,11 +2217,11 @@ function sectionHeader(title: string, right: string, width: number, styles: Layo
  * Fleet headings are ruled panel sections: a bold label, its count in the tier's signal tone (warning for
  * NEEDS YOU, error for HEALTH, else muted), then a dim rule up to any right-side signals.
  */
-function fleetSectionHeader(title: string, count: number | undefined, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier): string {
+function fleetSectionHeader(title: string, count: number | undefined, right: string, width: number, styles: LayoutStyles, collapsed?: boolean, selected = false, tier?: CockpitTier, icon?: string): string {
   const countTone = tier === "needs-you" ? styles.warning : tier === "health" ? styles.error : styles.muted;
   // Selection and disclosure keep separate columns so a selected, collapsed tier still shows both.
   const prefix = `${selected ? cardStripe(styles.accent) : " "}${collapsed ? styles.muted(glyphs.collapsed) : styles.dim(glyphs.horizontal)}${styles.dim(glyphs.horizontal)} `;
-  const left = `${prefix}${styles.strong(title)}${count === undefined ? "" : ` ${countTone(`${count}`)}`} `;
+  const left = `${prefix}${icon ? `${countTone(icon)} ` : ""}${styles.strong(title)}${count === undefined ? "" : ` ${countTone(`${count}`)}`} `;
   const tail = right ? ` ${right}` : "";
   const rule = width - displayWidth(left) - displayWidth(tail);
   return rule > 0 ? `${left}${styles.dim(glyphs.horizontal.repeat(rule))}${tail}` : twoColumn(left, right, width);
@@ -2228,10 +2241,9 @@ function cockpitHeadingRight(section: RenderModel["sections"][number], titleWidt
 }
 
 function attentionGlyph(kind: NonNullable<RenderSession["attention"]>["kind"], styles: LayoutStyles): string {
-  if (styles.panel) return styles.warning(kind === "ready" ? glyphs.ready : kind === "question" ? "?" : "!");
-  if (kind === "ready") return styles.success(glyphs.ready);
-  if (kind === "question") return styles.warning("?");
-  return styles.error("!");
+  const glyph = kind === "ready" ? glyphs.requestReady : kind === "question" ? glyphs.requestQuestion : glyphs.requestBlocked;
+  if (styles.panel) return styles.warning(glyph);
+  return styles[kind === "ready" ? "success" : kind === "question" ? "warning" : "error"](glyph);
 }
 
 interface SessionRowOptions {
@@ -2256,7 +2268,7 @@ function cardMarkers(session: RenderSession, styles: LayoutStyles): string {
 
 /** The group; Repo grouping also names the tier. The selected session's card names the task. */
 function cardIdentity(session: RenderSession, styles: LayoutStyles, options: Pick<SessionRowOptions, "repoMode" | "terminalWidth">, room: number): string {
-  const text = styles.muted(session.group);
+  const text = styles.muted(groupText(session.group));
   // Repo grouping names the tier whole or not at all: a cut label reads as noise.
   const tier = options.repoMode && options.terminalWidth >= 100 ? ` ${cockpitTone(session.cockpitTier, styles)(COCKPIT_ROW_LABELS[session.cockpitTier])}` : "";
   return tier && displayWidth(text) + displayWidth(tier) <= room ? `${text}${tier}` : truncate(text, room);
@@ -2264,7 +2276,13 @@ function cardIdentity(session: RenderSession, styles: LayoutStyles, options: Pic
 
 /** Field labels take five cells and two spaces, so every module's values start in one column. */
 const FIELD_LABEL_WIDTH = 5;
-const FIELD_INDENT = " ".repeat(FIELD_LABEL_WIDTH + 2);
+/** A field icon and its space lead the label, so the value column moves right with them. */
+const FIELD_ICON_WIDTH = icons ? 2 : 0;
+const FIELD_INDENT = " ".repeat(FIELD_ICON_WIDTH + FIELD_LABEL_WIDTH + 2);
+
+function fieldIcon(label: string): string {
+  return icons ? `${icons.fields[label] ?? icons.fieldDefault} ` : "";
+}
 const TASK_METER_CELLS = 8;
 
 type FieldLine = { line: string; priority: number };
@@ -2275,7 +2293,7 @@ function requestLabel(kind: NonNullable<RenderSession["attention"]>["kind"]): st
 
 /** Producer labels can be wider than the column; they keep one space before the value instead of throwing. */
 function fieldLabel(label: string, tone: (text: string) => string): string {
-  return `${tone(label)}${" ".repeat(Math.max(1, FIELD_LABEL_WIDTH + 2 - displayWidth(label)))}`;
+  return `${tone(`${fieldIcon(label)}${label}`)}${" ".repeat(Math.max(1, FIELD_LABEL_WIDTH + 2 - displayWidth(label)))}`;
 }
 
 /** A labeled field: the label, then its value lines hanging at the shared value column. */
@@ -2285,7 +2303,8 @@ function fieldLines(label: string, tone: (text: string) => string, values: strin
 
 function taskMeter(count: { completed: number; total: number }, styles: LayoutStyles): string {
   const filled = Math.max(0, Math.min(TASK_METER_CELLS, Math.round((count.completed / count.total) * TASK_METER_CELLS)));
-  return `${styles.text(glyphs.quotaFilled.repeat(filled))}${styles.muted(glyphs.quotaEmpty.repeat(TASK_METER_CELLS - filled))}`;
+  const cells = Array.from({ length: TASK_METER_CELLS }, (_, index) => meterCell(index, TASK_METER_CELLS, index < filled));
+  return `${styles.text(cells.slice(0, filled).join(""))}${styles.muted(cells.slice(filled).join(""))}`;
 }
 
 /** The producer's lens is work state like the rail: a stopped or stale session keeps it. */
@@ -2396,8 +2415,9 @@ function lensListLines(session: RenderSession, valueWidth: number, styles: Layou
 
 /** What one tool call was for: the tool's name in a fixed column, then its short argument. */
 function actionText(action: SessionAction, width: number, styles: LayoutStyles, tone: (text: string) => string): string {
+  const icon = icons ? `${icons.tools[action.tool] ?? icons.toolDefault} ` : "";
   const tool = pad(truncate(action.tool, ACTION_TOOL_WIDTH), ACTION_TOOL_WIDTH);
-  return `${tone(tool)} ${styles.muted(truncate(plainAttentionText(action.detail ?? ""), Math.max(0, width - ACTION_TOOL_WIDTH - 1)))}`;
+  return `${tone(`${icon}${tool}`)} ${styles.muted(truncate(plainAttentionText(action.detail ?? ""), Math.max(0, width - displayWidth(icon) - ACTION_TOOL_WIDTH - 1)))}`;
 }
 const ACTION_TOOL_WIDTH = 7;
 const ACTION_AGE_WIDTH = 3;
@@ -2593,7 +2613,7 @@ function detailFieldSections(session: RenderSession, width: number, styles: Layo
     if (shown.length < said.length) shown.push(styles.muted(`${glyphs.ellipsis} ${said.length - shown.length} more lines${options.replying ? "" : ` ${glyphs.pendingStep} C Full message`}`));
     else if (session.messageExpanded) shown.push(styles.muted(`C Fold ${glyphs.pendingStep} c Conversation`));
     if (ruled) {
-      const head = `${styles.dim(glyphs.horizontal.repeat(2))} ${styles.muted("SAID")} `;
+      const head = `${styles.dim(glyphs.horizontal.repeat(2))} ${styles.muted(`${fieldIcon("SAID")}SAID`)} `;
       lines.push({ line: `${head}${styles.dim(glyphs.horizontal.repeat(Math.max(0, width - displayWidth(head))))}`, priority: 3 }, ...shown.map((line) => ({ line, priority: 3 })));
     } else lines.push(...fieldLines("SAID", styles.muted, shown, [3]));
   }
@@ -2709,6 +2729,16 @@ function worktreeBranchLabel(session: RenderSession, branch: string, styles: Lay
 
 function worktreeWord(session: RenderSession): string {
   return session.worktreeMarker === glyphs.worktreeMerge ? "merge" : session.worktreeMarker === glyphs.worktreeCheck ? "check" : "";
+}
+
+/** A group name, led by a folder icon where icons are on. */
+function groupText(name: string): string {
+  return icons ? `${icons.group} ${name}` : name;
+}
+
+/** `#id`, or a tag icon and the id where icons are on. */
+function ticketText(id: string): string {
+  return `${glyphs.ticket}${icons ? " " : ""}${id}`;
 }
 
 function renderGroupBadge(group: string, width: number, styles: LayoutStyles): string {

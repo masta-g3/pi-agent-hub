@@ -43,10 +43,10 @@ test("vendor comes from the model id first, then the provider", () => {
 test("only Nerd Font icons add a one-cell vendor icon", () => {
   const model = { provider: "anthropic", id: "claude-opus-4-5" };
   assert.equal(modelBadge(model, undefined), "opus4.5");
-  assert.equal(modelBadge(model, nerd), "\u{EC82} opus4.5");
-  assert.equal(modelBadge({ provider: "openai", id: "gpt-5" }, nerd), "\u{EC81} gpt5");
-  assert.equal(modelBadge({ provider: "google", id: "gemini-2.5-pro" }, nerd), "\u{F02AD} gem2.5p");
-  assert.equal(modelBadge({ provider: "ollama", id: "qwen3" }, nerd), "\u{EC20} qwen3");
+  assert.equal(modelBadge(model, nerd), `${nerd.anthropic} opus4.5`);
+  assert.equal(modelBadge({ provider: "openai", id: "gpt-5" }, nerd), `${nerd.openai} gpt5`);
+  assert.equal(modelBadge({ provider: "google", id: "gemini-2.5-pro" }, nerd), `${nerd.google} gem2.5p`);
+  assert.equal(modelBadge({ provider: "ollama", id: "qwen3" }, nerd), `${nerd.other} qwen3`);
   assert.equal(visibleWidth(modelBadge(model, nerd)), 9);
 });
 

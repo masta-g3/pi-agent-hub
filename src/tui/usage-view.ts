@@ -3,7 +3,7 @@ import { accountStale, aggregateUsage, mergeUsageBuckets, USAGE_PERIODS, usagePa
 import { usageDir } from "../core/paths.js";
 import { ageLabel } from "./age.js";
 import type { DialogHit } from "./dialog-mouse.js";
-import { glyphs } from "./glyphs.js";
+import { glyphs, meterCell } from "./glyphs.js";
 import { noColor, styleBgToken, styleToken, type SessionsTheme, type ThemeToken } from "./theme.js";
 
 export interface UsageViewState { tab: "cost" | "tokens" | "limits"; period: UsagePeriod; breakdown: UsageBreakdown; selected: number; detail: boolean; cursor: number; limitScroll: number }
@@ -35,7 +35,7 @@ function quotaBar(window: UsageWindow, width: number, now: number, theme?: Sessi
   const fill = percent <= 0 ? 0 : percent >= 100 ? width : Math.min(width - 1, Math.max(1, Math.round(percent / 100 * width)));
   const pace = mark ? usagePace(window, now) : undefined;
   const tick = pace ? Math.min(width - 1, Math.max(0, Math.round(pace.expectedRemaining * width))) : -1;
-  return Array.from({ length: width }, (_, i) => i === tick ? bold(paint(theme, "text", glyphs.attentionBar)) : paint(theme, i < fill && !stale ? quotaTone(percent) : "muted", i < fill ? glyphs.quotaFilled : glyphs.quotaEmpty)).join("");
+  return Array.from({ length: width }, (_, i) => i === tick ? bold(paint(theme, "text", glyphs.attentionBar)) : paint(theme, i < fill && !stale ? quotaTone(percent) : "muted", meterCell(i, width, i < fill))).join("");
 }
 function constrainedWindow(account: UsageAccount): UsageWindow[] { return account.windows.length ? [account.windows.reduce((a, b) => b.remainingPercent < a.remainingPercent ? b : a)] : []; }
 export function quotaSegment(data: UsageData | undefined, width: number, now: number, theme?: SessionsTheme): string {
