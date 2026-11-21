@@ -200,8 +200,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   // Wrapped statuses are a luxury: every module steps down together (requests cut to two lines, then one
   // status line each, then titles alone) before the list scrolls. The narrow docked list starts at one line.
   const ladder = model.grouping !== "stage" && (side || model.pinMode);
-  let left = renderSessionList(model, listWidth, styles, ladder ? "whole" : "line", dock);
-  for (const rung of ["brief", "line"] as const) {
+  // A blank row between modules is the first luxury to go, before any status line shortens.
+  let left = renderSessionList(model, listWidth, styles, ladder ? "whole" : "line", dock, ladder);
+  for (const rung of ["whole", "brief", "line"] as const) {
     if (ladder && listRows !== undefined && left.lines.length > listRows) left = renderSessionList(model, listWidth, styles, rung, dock);
   }
   if (model.grouping !== "stage" && model.width > NARROW_LAYOUT_MAX_WIDTH && listRows !== undefined) {
@@ -852,9 +853,10 @@ type ListRung = "whole" | "brief" | "line" | "dense";
 
 /**
  * `docked` renders the selected fleet session like every other row; its card then docks in a fixed strip
- * below the list, so moving the selection never moves rows.
+ * below the list, so moving the selection never moves rows. `spaced` puts a blank row between fleet and pin
+ * modules in a group; Archived rows stay packed.
  */
-function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, rung: ListRung = "line", docked = false): SessionListContent {
+function renderSessionList(model: RenderModel, width: number, styles: LayoutStyles, rung: ListRung = "line", docked = false, spaced = false): SessionListContent {
   const dense = rung === "dense";
   if (model.noMatches) {
     const lines = noMatchListLines(width, model, styles);
@@ -1111,7 +1113,10 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
         pushLine(twoColumn(`   ${styles.muted(groupText(group.name))}`, group.attentionCount ? styles.warning(`?${group.attentionCount}`) : "", width));
       }
       const context = [sectionHeadingIndex, ...(groupHeadingIndex === undefined ? [] : [groupHeadingIndex])];
-      for (const [index, session] of group.sessions.entries()) pushRow(session, group.sessions, index, context);
+      for (const [index, session] of group.sessions.entries()) {
+        if (spaced && !board && index > 0 && session.kind !== "subagent" && moduleTier(session.cockpitTier)) pushLine("");
+        pushRow(session, group.sessions, index, context);
+      }
     }
     if (section.cockpitTier === "needs-you") pushReleaseCue();
     if (section.archiveDisclosure) {

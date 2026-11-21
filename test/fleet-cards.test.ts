@@ -295,15 +295,28 @@ test("moving the selection never moves list rows: the selected card sits in the 
   assert.ok(cardLines(docked, "rich").some((line) => line.includes("Taller fleet cards")));
 });
 
-test("list rows are packed: no blank row separates sessions or child trees in a group", () => {
+test("beside the card and in pins one blank row separates modules while rows allow; children, archive, board and dock stay packed", () => {
   const parent = session("parent");
   const child = session("child", { kind: "subagent", parentId: "parent", agentName: "scout", taskPreview: "look around" });
-  assert.equal(linesBetween(render([session("selected"), rich, session("next")]), "rich", "next").length, 0);
-  assert.equal(linesBetween(render([parent, child, session("next")], { expandedProjectParentIds: new Set(["parent"]) }), "child", "next").length, 0);
+  const blank = (lines: string[]) => lines.map((line) => line.trim());
+  assert.deepEqual(blank(linesBetween(render([session("selected"), rich, session("next")]), "rich", "next")), [""]);
+  assert.deepEqual(blank(linesBetween(render([session("selected"), rich, session("next")], { pinSlots: ["selected"], width: 50 }), "rich", "next")), [""]);
+  // A subagent stays under its parent; the gap comes before the next parent.
+  const tree = render([parent, child, session("next")], { expandedProjectParentIds: new Set(["parent"]) });
+  assert.equal(linesBetween(tree, "parent", "child").length, 0);
+  assert.deepEqual(blank(linesBetween(tree, "child", "next")), [""]);
+  const archived = (id: string) => session(id, { bucket: "archived", bucketChangedAt: NOW });
+  assert.equal(linesBetween(render([session("selected"), archived("old"), archived("older")]), "old", "older").length, 0);
   for (const input of [{ width: 99 }, { compactRows: true }, { grouping: "stage" as const }]) {
     const next = session("next", { workflow: rich.workflow });
     assert.equal(linesBetween(render([rich, next], input), "rich", "next").length, 0, JSON.stringify(input));
   }
+  // The gaps go first when rows run short: a window that fits every packed row drops them before any status line.
+  const fleet = [session("a"), rich, session("b"), session("c")];
+  const packed = render(fleet, { height: 60 }).roster.filter((line) => line.trim()).length;
+  const tight = render(fleet, { height: packed + 2 });
+  assert.equal(linesBetween(tight, "rich", "b").length, 0, tight.roster.join("\n"));
+  assert.ok(tight.roster.some((line) => line.includes("DOING")), tight.roster.join("\n"));
 });
 
 test("neighbor modules keep the group beside the title and their status under it", () => {
