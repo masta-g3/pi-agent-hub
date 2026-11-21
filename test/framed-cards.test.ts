@@ -34,8 +34,10 @@ function cardRows(layout: ReturnType<typeof render>, id = "s"): number[] {
 /** At 100+ the selected card is a pane right of the roster's `│`: its text per body row, blank rows kept. */
 function paneRows(layout: ReturnType<typeof render>): string[] | undefined {
   const plain = layout.lines.map(stripAnsi);
-  if (!plain.some((line, index) => index > 0 && Array.from(line)[layout.listWidth] === "│")) return undefined;
-  return plain.slice(1, layout.footerRow ?? plain.length).map((line) => Array.from(line).slice(layout.listWidth + 1).join("").trimEnd());
+  // The pane starts on the list's first row, below the header band and any blank row under it.
+  const start = plain.findIndex((line, index) => index > 0 && Array.from(line)[layout.listWidth] === "│");
+  if (start < 0) return undefined;
+  return plain.slice(start, layout.footerRow ?? plain.length).map((line) => Array.from(line).slice(layout.listWidth + 1).join("").trimEnd());
 }
 /** One session's roster rows (title and status lines), above any dock. */
 function moduleRows(layout: ReturnType<typeof render>, id = "s"): string[] {
@@ -139,7 +141,7 @@ test("the card starts at its identity row and ends with its keys at every height
     const pane = paneRows(layout);
     if (pane) {
       // Beside the roster the card takes the body's rows: identity first, keys last.
-      assert.equal(pane.length, layout.footerRow! - 1);
+      assert.equal(pane.length, layout.footerRow! - 1 - (height >= 30 ? 1 : 0));
       assert.match(pane[0]!, /Selected request/, `${width}x${height}:\n${rows.join("\n")}`);
       assert.match(pane.at(-1)!, /Open in Pi/, `${width}x${height}:\n${rows.join("\n")}`);
       continue;
@@ -331,5 +333,16 @@ test("Tab explains older and unsupported sessions without hiding Open in Pi", as
     const view = new SessionsView(new SessionsController({ version: 1, sessions: [session] }), () => {}, { terminalRows: () => 30, interactionTarget, loadInteractionState: async () => structuredClone(state) as unknown as import("../src/core/session-interaction.js").SessionInteractionState, submitAnswer: async () => assert.fail("unanswerable"), attachOutsideTmux: () => {} });
     view.render(120); await view.refreshInteraction(); view.handleInput("\t");
     const rendered = stripAnsi(view.render(120).join("\n")); assert.match(rendered, new RegExp(reason)); assert.match(rendered, /Enter Open in Pi/);
+  }
+});
+
+test("tall windows keep one blank row under the header band; short ones give it to the list", () => {
+  for (const width of [160, 60]) {
+    const tall = render(width, { height: 30 });
+    assert.equal(stripAnsi(tall.lines[1]!).trim(), "", `${width}`);
+    assert.match(stripAnsi(tall.lines[2]!), /NEEDS YOU/, `${width}`);
+    // Row targets follow the shifted list.
+    assert.equal(tall.rowTargets.findIndex((target) => target && "id" in target && target.id === "s"), 3, `${width}`);
+    assert.match(stripAnsi(render(width, { height: 29 }).lines[1]!), /NEEDS YOU/, `${width}`);
   }
 });

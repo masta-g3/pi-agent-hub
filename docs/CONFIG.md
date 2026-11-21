@@ -492,9 +492,9 @@ Set `PI_AGENT_HUB_GLYPHS=nerd` to draw the dashboard with [Nerd Font](https://ww
 
 | Area | What changes |
 | --- | --- |
-| Session state | Play (running), unread mail (waiting), small ring (idle), filled cross (error), square (stopped). The selected running row shows an arc spinner. |
+| Session state | Filled dot (running), unread mail (waiting), small ring (idle), filled cross (error), square (stopped). The selected running row shows an arc spinner. |
 | Requests | Filled check circle (ready), question circle (question), blocked sign (blocked) on rows, cards and banners. |
-| Tiers | An icon before each Status fleet heading: bell (NEEDS YOU), pulse (HEALTH), sparkle (NEW), play (ACTIVE), moon (QUIET), archive (ARCHIVED). The header fleet meter uses the same icons. |
+| Tiers | An icon before each Status fleet heading: bell (NEEDS YOU), pulse (HEALTH), sparkle (NEW), play (ACTIVE), moon (QUIET), archive (ARCHIVED). The header fleet meter uses the same icons. No row state reuses a tier icon. |
 | Fields | An icon before each card and row label such as `DOING`, `WHERE`, `NOW`, `LOG` and `SAID`. Request and error labels (`ASK`, `RDY`, `BLK`, `ERR`) get none, because the state icon beside the title already shows them. Values start two cells further right. |
 | Tool calls | A per-tool icon in `NOW` and `LOG`: terminal, eye, pencil, new file, search, globe, agent, else tools. |
 | Workflow | A check for a finished step, a dot circle for the active step, and capped task and quota meters. |

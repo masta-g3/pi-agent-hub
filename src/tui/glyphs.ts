@@ -41,7 +41,7 @@ export const ascii: GlyphSet = {
  */
 export const nerd: GlyphSet = {
   ...unicode,
-  running: "\u{F500}", waiting: "\u{F52B}", idle: "\u{F4C3}", error: "\u{F530}", stopped: "\u{F04D}",
+  running: "\u{F444}", waiting: "\u{F52B}", idle: "\u{F4C3}", error: "\u{F530}", stopped: "\u{F04D}",
   spinner: "\u{EE06}\u{EE07}\u{EE08}\u{EE09}\u{EE0A}\u{EE0B}",
   ready: "\u{F42E}", requestReady: "\u{F4A4}", requestQuestion: "\u{F420}", requestBlocked: "\u{F479}",
   expanded: "\u{F47C}", collapsed: "\u{F460}", activeStep: "\u{F192}", ticket: "\u{F412}",

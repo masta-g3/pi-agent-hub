@@ -158,8 +158,9 @@ test("Nerd Font mode keeps one-cell icons, exact widths and the default geometry
     assert.ok(rows.some(line => line.includes(nerdIcons.group + ' work')));
     assert.ok(rows.at(-1).includes(nerdIcons.capLeft + '?' + nerdIcons.capRight + 'Help'), rows.at(-1));
     const board = renderSessions(buildRenderModel({sessions,selectedId:'s0',width:120,height:40,grouping:'stage',now:1000}),darkTheme).lines.map(stripAnsi);
-    // ACTIVE and QUIET share their icon with the running and idle states, so only the other tiers can be told apart here.
-    assert.ok(board.every(line => !['needs-you','health','new','archived'].some(tier => line.includes(nerdIcons.tiers[tier]))), 'board lanes carry no tier icon');
+    // Tier icons stay on headings: no row state reuses one, so the board shows none of them.
+    assert.ok(Object.values(nerdIcons.tiers).every(icon => !states.includes(icon)));
+    assert.ok(board.every(line => !Object.values(nerdIcons.tiers).some(icon => line.includes(icon))), 'board lanes carry no tier icon');
   `, { PI_AGENT_HUB_GLYPHS: "nerd" });
   // An unpainted theme keeps the pill's width, so the header does not shift when keycaps lose their surface.
   run(`

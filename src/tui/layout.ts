@@ -187,7 +187,9 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const baseStripLines = filterLines.length + decision.lines.length;
   const announcement = renderAttentionAnnouncement(model, width, styles,
     !model.height || model.height - 5 - baseStripLines - (model.pinMode ? 1 : 2) >= 4);
-  const stripLines = announcement.lines.length + baseStripLines;
+  // A blank row sets the header band and its strips apart from the list when the window has rows to spare.
+  const gapLines = model.height !== undefined && model.height >= HEADER_GAP_MIN_HEIGHT ? [""] : [];
+  const stripLines = announcement.lines.length + gapLines.length + baseStripLines;
   const targetRows = bodyRowsFromHeight(model.height, stripLines, footerVisible ? 1 : 0);
   const expanded = Boolean(model.workspace?.panel || model.workspace?.evidenceVisible || model.workspace?.session.messageExpanded);
   // A focused panel or Details grow the dock only as far as their content needs, so neighbors stay when they fit.
@@ -230,7 +232,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     pane.push(...content, ...Array.from({ length: Math.max(0, rows - content.length - keys.length) }, () => undefined), ...keys);
   }
   const summary = renderHeaderSummary(model, width, styles);
-  const body: string[] = [summary.line, ...filterLines, ...announcement.lines];
+  const body: string[] = [summary.line, ...filterLines, ...announcement.lines, ...gapLines];
   const visibleLinesByOwner = new Map<string, number>();
   for (const meta of windowedLeft.lineMeta) {
     if (meta?.ownerId && meta.richTree) visibleLinesByOwner.set(meta.ownerId, (visibleLinesByOwner.get(meta.ownerId) ?? 0) + 1);
@@ -248,7 +250,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const paneLine = side ? `${styles.dim(glyphs.vertical)}${pane[i] === undefined ? "" : ` ${withoutStripeTone(sliceByColumn(pane[i]!.line, 1, paneWidth))}`}` : "";
     body.push(`${leftLine}${workspaceLine}${paneLine}`);
   }
-  const cardStart = 1 + filterLines.length + announcement.lines.length + rows + (rows && dockRule ? 1 : 0);
+  const cardStart = 1 + filterLines.length + announcement.lines.length + gapLines.length + rows + (rows && dockRule ? 1 : 0);
   // The dock keeps its rows even with nothing to show, so the footer never moves with the selection.
   const cardHeight = side ? 0 : targetRows === undefined ? card?.lines.length ?? 0 : cardRows;
   if (cardHeight) {
@@ -267,7 +269,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   const workspaceRowTargets = lines.map(() => undefined as string | undefined);
   const announcementRowTargets = lines.map(() => undefined as string | undefined);
   for (let i = 0; i < announcement.targets.length; i += 1) announcementRowTargets[1 + filterLines.length + i] = announcement.targets[i];
-  const listStart = 1 + filterLines.length + announcement.lines.length;
+  const listStart = 1 + filterLines.length + announcement.lines.length + gapLines.length;
   const decisionStart = listStart + rows;
   if (card) for (let i = 0; i < cardHeight && cardStart + i < lines.length; i += 1) rowTargets[cardStart + i] = card.targets[i];
   const contentEnd = lines.length;
@@ -478,6 +480,9 @@ function renderWorkspaceScreen(workspace: RenderWorkspace, width: number, height
     footerItems: workspace.panel ? [] : footerLayout(footer, width, styles, 1).items,
   };
 }
+
+/** Windows this tall keep a blank row under the header band. */
+const HEADER_GAP_MIN_HEIGHT = 30;
 
 function bodyRowsFromHeight(height: number | undefined, stripLines: number, footerRows: number): number | undefined {
   if (!height || height <= 0) return undefined;
