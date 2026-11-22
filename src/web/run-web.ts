@@ -78,6 +78,20 @@ export async function runWeb(options: { port?: number } = {}): Promise<void> {
         return created.id;
       }),
     },
+    // Labels only: tmux and Pi keep running. The terminal dashboard closes a pin when it sees the archive.
+    lifecycle: {
+      archive: (id, closure, expected) => lifecycle(async () => {
+        const target = { piSessionId: expected.piSessionId, strict: true, ...(expected.section ? { section: expected.section } : {}) };
+        await (closure ? controller.closeSession(id, closure, target) : controller.moveSessionToBucket(id, "archived", undefined, target));
+      }),
+      backlog: (id, expected) => lifecycle(async () => {
+        await controller.moveSessionToBucket(id, "backlog", undefined, { piSessionId: expected.piSessionId, strict: true, ...(expected.section ? { section: expected.section } : {}) });
+      }),
+      restore: (id, expected) => lifecycle(async () => {
+        if (!expected.bucket) throw new Error("Session changed; reload the page");
+        await controller.restoreSessionBucket(id, undefined, { piSessionId: expected.piSessionId, strict: true, bucket: expected.bucket, ...(expected.closure ? { closure: expected.closure } : {}) });
+      }),
+    },
     usage: () => controller.snapshot().usage,
     push,
   });

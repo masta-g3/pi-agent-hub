@@ -1232,3 +1232,33 @@ test("undoChange refuses later edits and replaced conversations without writing"
     assert.equal((await loadRegistry()).sessions[0]?.bucket, "archived");
   });
 });
+
+test("strict targets compare the Pi id exactly inside the lock, and a guarded Restore keeps a newer outcome", async () => {
+  await withTempSessionsDir(async () => {
+    const parent = session("idle", { id: "parent", title: "parent", piSessionId: "pi-1" });
+    const bare = session("stopped", { id: "bare", title: "bare" });
+    await updateRegistry(() => ({ version: 1, sessions: [parent, bare] }));
+    const controller = new SessionsController({ version: 1, sessions: [parent, bare] });
+
+    await assert.rejects(() => controller.moveSessionToBucket("parent", "backlog", 100, { piSessionId: undefined, strict: true }), /changed/);
+    await assert.rejects(() => controller.closeSession("parent", "done", { piSessionId: undefined, strict: true }, 100), /changed/);
+    await assert.rejects(() => controller.moveSessionToBucket("bare", "backlog", 100, { piSessionId: "pi-1", strict: true }), /changed/);
+    assert.deepEqual((await loadRegistry()).sessions, [parent, bare]);
+    await controller.moveSessionToBucket("bare", "backlog", 100, { piSessionId: undefined, strict: true });
+    assert.equal((await loadRegistry()).sessions[1]!.bucket, "backlog");
+
+    // Archived elsewhere since the page read it as Active: a stale Done is refused.
+    await controller.moveSessionToBucket("parent", "archived", 150);
+    await assert.rejects(() => controller.closeSession("parent", "done", { piSessionId: "pi-1", strict: true, section: "active" }, 160), /lifecycle changed/);
+    assert.equal((await loadRegistry()).sessions[0]!.closure, undefined);
+    await controller.closeSession("parent", "done", { piSessionId: "pi-1", strict: true, section: "archived" }, 200);
+    // The page still shows the row as archived without an outcome: its Restore must not clear Done.
+    await assert.rejects(() => controller.restoreSessionBucket("parent", 300, { piSessionId: "pi-1", strict: true, bucket: "archived" }), /lifecycle changed/);
+    await assert.rejects(() => controller.restoreSessionBucket("parent", 300, { piSessionId: "pi-2", strict: true, bucket: "archived", closure: "done" }), /changed/);
+    assert.equal((await loadRegistry()).sessions[0]!.closure, "done");
+    await controller.restoreSessionBucket("parent", 300, { piSessionId: "pi-1", strict: true, bucket: "archived", closure: "done" });
+    const restored = (await loadRegistry()).sessions[0]!;
+    assert.equal(restored.closure, undefined);
+    assert.equal(restored.bucket, undefined);
+  });
+});

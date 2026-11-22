@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildInboxSnapshot } from "../src/web/inbox.js";
+import { buildInboxSnapshot, inboxDetail } from "../src/web/inbox.js";
 import { buildDashboardProjection } from "../src/tui/render-model.js";
 import type { RuntimeSession, SessionAttention } from "../src/core/types.js";
 
@@ -131,4 +131,77 @@ test("archived parents are listed apart from the tiers, newest first and capped"
   assert.equal(snapshot.tiers.flatMap((tier) => tier.sessions).some((row) => row.id.startsWith("arc") || row.id === "archived"), false);
   assert.equal(snapshot.archived.length, 20);
   assert.deepEqual(snapshot.archived.slice(0, 3).map((row) => row.id), ["archived", "arc0", "arc1"]);
+});
+
+test("a backlogged parent leaves the tiers for its own uncounted list, newest first", () => {
+  const snapshot = buildInboxSnapshot([
+    asking("parked", {}, { bucket: "backlog", bucketChangedAt: NOW - 5_000 }),
+    session("later", { bucket: "backlog", bucketChangedAt: NOW - 1_000 }),
+    session("child", { kind: "subagent", parentId: "later", status: "running" }),
+    session("work", { status: "running" }),
+  ], NOW);
+  assert.deepEqual(snapshot.tiers.flatMap((tier) => tier.sessions).map((row) => row.id), ["work"]);
+  assert.deepEqual(snapshot.backlog.map((row) => row.id), ["later", "parked"]);
+  assert.equal(snapshot.requestCount, 0);
+});
+
+test("rows carry the step short, lens progress and an archived outcome", () => {
+  const snapshot = buildInboxSnapshot([
+    session("lens", { status: "running", workflow: { steps: [{ id: "execute", short: "exe" }], activeIndex: 0, updatedAt: 1, lens: { progress: { completed: 3, total: 8 } } } }),
+    session("empty", { lens: { progress: { completed: 0, total: 0 } } }),
+    session("done", { bucket: "archived", bucketChangedAt: NOW, closure: "done" }),
+  ], NOW);
+  const rows = new Map([...snapshot.tiers.flatMap((tier) => tier.sessions), ...snapshot.archived].map((row) => [row.id, row]));
+  assert.equal(rows.get("lens")!.stepShort, "exe");
+  assert.deepEqual(rows.get("lens")!.progress, { completed: 3, total: 8 });
+  assert.equal(rows.get("empty")!.progress, undefined);
+  assert.equal(rows.get("done")!.closure, "done");
+});
+
+test("the card carries the dashboard card's fields, bounded, windowed and without empty values", () => {
+  const items = Array.from({ length: 20 }, (_, index) => ({ state: index < 9 ? "done" as const : index === 9 ? "active" as const : "pending" as const, text: `task ${index}` }));
+  const parent = session("card", {
+    status: "running", cwd: "/src/hub",
+    model: { provider: "anthropic", id: "claude-opus-4-5", thinking: "high" },
+    context: { version: 1, updatedAt: 1, progress: { goal: "Ship the card", done: "Wrote tests", updatedAt: 1 } },
+    activity: { current: { tool: "edit", detail: "web/app.js", at: NOW }, recent: [1, 2, 3, 4].map((n) => ({ tool: "read", detail: `f${n}`, at: NOW - n })) },
+    workflow: { steps: [{ id: "execute", short: "exe" }], activeIndex: 0, updatedAt: 1,
+      lens: { doing: `\x1b[1mWiring\x1b[0m <b>card</b> ${"z".repeat(400)}`, stages: [{ label: "build", state: "active" }], progress: { completed: 9, total: 20, unit: "tasks" }, pass: 2,
+        list: { label: "Phase 2", head: "3 of 6", items, before: 4, after: 1 } } },
+  });
+  const kids = [1, 2, 3, 4].map((n) => session(`kid${n}`, { kind: "subagent", parentId: "card", status: "running", agentName: `scout${n}`, taskPreview: "map" }));
+  const detail = inboxDetail([parent, ...kids], "card", NOW)!;
+  const card = detail.card;
+  assert.equal(card.section, "active");
+  assert.equal(card.goal, "Ship the card");
+  assert.equal(card.done, "Wrote tests");
+  assert.equal(card.next, undefined);
+  assert.equal(card.doing!.startsWith("Wiring <b>card</b> z"), true);
+  assert.equal([...card.doing!].length, 240);
+  assert.deepEqual(card.progress, { completed: 9, total: 20, unit: "tasks" });
+  assert.equal(card.pass, 2);
+  assert.equal(card.now, "edit web/app.js");
+  assert.deepEqual(card.log.map((entry) => entry.text), ["read f1", "read f2", "read f3"]);
+  assert.deepEqual(card.subagents.map((child) => child.name), ["scout1", "scout2", "scout3"]);
+  assert.equal(card.model, "opus4.5 high");
+  assert.equal(card.repo, "hub");
+  assert.equal(card.list!.items.length, 12);
+  assert.equal(card.list!.items[2]!.text, "task 9");
+  assert.equal(card.list!.before, 4 + 7);
+  assert.equal(card.list!.after, 1 + 1);
+  assert.equal(inboxDetail([parent, ...kids], "kid1", NOW), undefined);
+});
+
+test("the card names no goal under ticket copy and no live tool for a stopped session", () => {
+  const card = inboxDetail([session("s", { status: "stopped", context: { version: 1, updatedAt: 1, ticket: { id: "t-1", subtitle: "Sub" }, progress: { goal: "Goal", updatedAt: 1 } },
+    activity: { current: { tool: "bash", at: NOW } } })], "s", NOW)!.card;
+  assert.equal(card.goal, undefined);
+  assert.equal(card.now, undefined);
+  assert.equal(card.model, undefined);
+});
+
+test("detail opens a parent beyond the list caps", () => {
+  const archived = Array.from({ length: 25 }, (_, index) => session(`a${index}`, { bucket: "archived", bucketChangedAt: NOW - index }));
+  assert.equal(buildInboxSnapshot(archived, NOW).archived.some((row) => row.id === "a24"), false);
+  assert.equal(inboxDetail(archived, "a24", NOW)!.card.section, "archived");
 });

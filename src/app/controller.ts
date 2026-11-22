@@ -7,7 +7,7 @@ import { nameCommandPath } from "../core/name-command.js";
 import { loadRegistry, normalizeGroup, renameGroup as renameRegistryGroup, updateRegistry } from "../core/registry.js";
 import { nextUpdatedAt } from "../core/session-version.js";
 import { applySessionUndo, type RegistryChange, type SessionUndo } from "../core/session-undo.js";
-import { ARCHIVE_PRUNE_AFTER_MS, closeBucket, moveToBucket, restoreBucket, sessionClosure, sessionSection } from "../core/session-bucket.js";
+import { ARCHIVE_PRUNE_AFTER_MS, closeBucket, moveToBucket, restoreBucket, sessionClosure, sessionSection, type SessionSection } from "../core/session-bucket.js";
 import { assignGroupOrder, compareSessionPriority, nextOrderInGroup, orderedSessions } from "../core/session-order.js";
 import { createSessionTreeIndex, orderedSessionRows, isSubagentSession, sessionCascadeIds } from "../core/session-tree.js";
 import { readPiSessionName } from "../core/pi-session-name.js";
@@ -236,7 +236,7 @@ export class SessionsController {
   }
 
   /** `expected` opts into the Archive chooser guard: a missing, replaced or closed latest parent rejects instead of no-op. */
-  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now(), expected?: { piSessionId?: string }): Promise<RegistryChange | undefined> {
+  async moveSessionToBucket(id: string, bucket: SessionBucket, now = Date.now(), expected?: ParentTarget): Promise<RegistryChange | undefined> {
     const selected = this.registry.sessions.find((session) => session.id === id);
     if (!expected && (!selected || isSubagentSession(selected))) return undefined;
     const wasSelected = this.selectedId === id;
@@ -255,7 +255,7 @@ export class SessionsController {
   }
 
   /** Closes the exact parent conversation; `expected.piSessionId` guards against restart-new replacement. */
-  async closeSession(id: string, closure: SessionClosure, expected: { piSessionId?: string } = {}, now = Date.now()): Promise<RegistryChange> {
+  async closeSession(id: string, closure: SessionClosure, expected: ParentTarget = {}, now = Date.now()): Promise<RegistryChange> {
     const wasSelected = this.selectedId === id;
     const oldIndex = this.visibleSessions().findIndex((session) => session.id === id);
     let failure: string | undefined;
@@ -275,15 +275,24 @@ export class SessionsController {
     return change;
   }
 
-  async restoreSessionBucket(id: string, now = Date.now()): Promise<RegistryChange | undefined> {
+  /**
+   * `expected` (the phone) also names the bucket and outcome it displayed, so a Restore cannot erase
+   * a newer Done/Abandoned decision or act on a replaced conversation.
+   */
+  async restoreSessionBucket(id: string, now = Date.now(), expected?: ParentTarget & { bucket: SessionBucket; closure?: SessionClosure }): Promise<RegistryChange | undefined> {
     const selected = this.registry.sessions.find((session) => session.id === id);
-    if (!selected || isSubagentSession(selected)) return undefined;
-    return this.mutateRegistry((latest) => {
+    if (!expected && (!selected || isSubagentSession(selected))) return undefined;
+    let failure: string | undefined;
+    const change = await this.mutateRegistry((latest) => {
       const current = latest.sessions.find((session) => session.id === id);
-      if (!current || isSubagentSession(current)) return latest;
+      failure = expected ? parentTargetFailure(current, expected, "restore")
+        ?? (current!.bucket !== expected.bucket || sessionClosure(current!) !== expected.closure ? "session lifecycle changed; reload the page" : undefined) : undefined;
+      if (failure || !current || isSubagentSession(current)) return latest;
       const ids = sessionCascadeIds(latest.sessions, id);
       return { ...latest, sessions: latest.sessions.map((session) => ids.has(session.id) ? restoreBucket(session, now) : session) };
     });
+    if (failure) throw new Error(failure);
+    return change;
   }
 
   async syncPiName(id: string, now = Date.now()): Promise<SyncPiNameResult> {
@@ -460,9 +469,16 @@ async function removeDashboardState(session: ManagedSession): Promise<void> {
   }
 }
 
-function parentTargetFailure(current: ManagedSession | undefined, expected: { piSessionId?: string }, action: string): string | undefined {
+/**
+ * `strict` (the phone) compares the Pi id exactly, so an absent displayed id matches only an absent latest id.
+ * `section` is the lifecycle the phone displayed; a change made elsewhere since then rejects.
+ */
+export interface ParentTarget { piSessionId?: string; strict?: boolean; section?: SessionSection }
+
+function parentTargetFailure(current: ManagedSession | undefined, expected: ParentTarget, action: string): string | undefined {
   return !current ? "session is no longer available"
     : isSubagentSession(current) ? "subagent rows follow their parent"
-    : expected.piSessionId !== undefined && current.piSessionId !== expected.piSessionId ? `session conversation changed; ${action} cancelled`
+    : (expected.strict || expected.piSessionId !== undefined) && current.piSessionId !== expected.piSessionId ? `session conversation changed; ${action} cancelled`
+    : expected.section !== undefined && sessionSection(current) !== expected.section ? "session lifecycle changed; reload the page"
     : undefined;
 }

@@ -352,3 +352,72 @@ dialog { max-height: 85dvh; overflow-y: auto; }
   .band-count { min-width: 22px; padding: 0 var(--s1); border-radius: var(--r-field); background: var(--warning-wash); text-align: center; }
   .band-row .icon-btn { min-width: 36px; }
 }
+
+/* Chat header: the identity is one button that opens the session card */
+.band-id { padding: 0; border: 0; background: none; text-align: left; color: inherit; min-height: var(--tap); justify-content: center; cursor: pointer; }
+.band-name-row { display: flex; align-items: center; gap: var(--s1); min-width: 0; }
+.band-name-row .band-name { flex: 0 1 auto; }
+.band-info { flex: none; display: inline-flex; color: var(--muted); }
+
+/* List row progress: a hairline under the row, nothing more */
+.meter { display: block; height: var(--meter-h); margin: var(--s2) 0 0 calc(var(--glyph) + var(--s2)); border-radius: var(--meter-h); background: var(--lcd); overflow: hidden; }
+.meter-fill { display: block; height: 100%; background: var(--accent); }
+
+/* Session card sheet */
+:root { --meter-h: 2px; --card-label: 4.5em; }
+.card-sheet, .card-body { display: flex; flex-direction: column; gap: var(--s4); }
+.card-sheet::before { content: ""; align-self: center; width: 36px; height: 4px; border-radius: 2px; background: var(--rule); margin-top: calc(var(--s2) * -1); }
+.card-head { display: flex; flex-direction: column; gap: 2px; }
+.card-sub { font-size: var(--t-sm); color: var(--muted); }
+.card-sub .state { font-weight: 600; }
+.card-context { font-size: var(--t-sm); }
+.card-meta { font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.live { color: var(--success); }
+.card-where { display: flex; flex-direction: column; gap: var(--s2); }
+.rail { display: flex; gap: var(--s1); margin: 0; padding: 0; list-style: none; overflow-x: auto; scrollbar-width: none; }
+.rail-step {
+  flex: none; padding: 2px var(--s2); border-radius: var(--r-field); border: var(--hairline) solid var(--rule);
+  font-size: var(--t-xs); color: var(--muted); white-space: nowrap;
+}
+.rail-step.is-active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.rail-step.is-done { border-color: transparent; }
+.stages .rail-step.is-active { background: var(--plate); color: var(--accent); border-color: var(--accent); }
+.card-progress { display: grid; grid-template-columns: 1fr; gap: var(--s1); font-size: var(--t-xs); }
+.card-progress .bar-fill { background: var(--accent); }
+.card-fields { display: flex; flex-direction: column; gap: var(--s3); }
+.card-field { display: grid; grid-template-columns: var(--card-label) 1fr; column-gap: var(--s2); align-items: baseline; font-size: var(--t-sm); }
+.card-label { color: var(--muted); font-size: var(--t-xs); font-weight: 700; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-value { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.card-value strong { font-size: var(--t-md); font-weight: 600; }
+.card-list, .card-log { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.card-list li { display: grid; grid-template-columns: 1.25em 1fr; }
+.card-list .mark { font-family: var(--mono); color: var(--muted); }
+.card-list .is-active { font-weight: 600; }
+.card-list .is-active .mark { color: var(--accent); }
+.card-list .is-done, .card-list .is-skipped { color: var(--muted); }
+.card-list .is-attention .mark { color: var(--warning); }
+.card-log li { display: grid; grid-template-columns: 2.5em 1fr; min-width: 0; }
+.card-log li:has(.live) { display: block; }
+.log-age { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-actions { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: var(--hairline) solid var(--rule); }
+.card-buttons { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.card-buttons .btn { flex: 1 1 0; text-align: center; }
+.card-sheet .receipt { padding-left: 0; }
+
+/* Skill completion and step chips above the reply box */
+.compose { display: flex; flex-direction: column; gap: var(--s2); }
+.suggest:empty { display: none; }
+.skills { margin: 0; padding: var(--s1) 0; list-style: none; background: var(--plate); border: var(--hairline) solid var(--rule); border-radius: var(--r-plate); max-height: 40dvh; overflow-y: auto; }
+.skill {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: var(--tap);
+  padding: var(--s2) var(--s3); border: 0; background: none; text-align: left;
+}
+.skill:active, .skill:focus-visible { background: var(--page); }
+.skill-name { font-family: var(--mono); font-size: var(--t-sm); font-weight: 600; color: var(--accent); }
+.skill-desc { color: var(--muted); font-size: var(--t-xs); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.steps-row .chip { font-family: var(--mono); }
+.card-buttons .btn { flex: 1 0 auto; padding: var(--s2) var(--s3); white-space: nowrap; }
+.card-actions.confirm .btn.quiet { align-self: stretch; text-align: center; }
+.card-head + .card-context { margin-top: calc(var(--s3) * -1); }

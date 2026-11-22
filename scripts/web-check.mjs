@@ -120,6 +120,21 @@ web = createWebServer({
       return "fresh";
     },
   },
+  // Lifecycle labels, applied to the in-memory fleet the way the controller applies them to the registry.
+  lifecycle: {
+    async archive(id, closure, expected) {
+      world.calls.push(`archive:${id}:${closure}:${expected.piSessionId}`);
+      change(() => { world.sessions = world.sessions.map((row) => row.id === id ? { ...row, bucket: "archived", bucketChangedAt: Date.now(), ...(closure ? { closure } : {}) } : row); });
+    },
+    async backlog(id, expected) {
+      world.calls.push(`backlog:${id}:${expected.piSessionId}`);
+      change(() => { world.sessions = world.sessions.map((row) => row.id === id ? { ...row, bucket: "backlog", bucketChangedAt: Date.now() } : row); });
+    },
+    async restore(id, expected) {
+      world.calls.push(`restore:${id}:${expected.piSessionId}:${expected.bucket}:${expected.closure}`);
+      change(() => { world.sessions = world.sessions.map((row) => { if (row.id !== id) return row; const { bucket, bucketChangedAt, closure, ...rest } = row; return rest; }); });
+    },
+  },
   usage: () => world.usage,
 });
 reset([]);
@@ -371,6 +386,162 @@ check("the band stays one row on a narrow phone with every control", async (page
   assert.equal(await page.locator(".band-count").getAttribute("aria-label"), "12 requests");
   await page.getByRole("button", { name: "Notifications" }).click();
   await page.locator("dialog").getByText("Notify this device").waitFor();
+});
+
+// ---- session card ----
+
+const LENS = {
+  doing: "Wiring the skill composer",
+  stages: [{ label: "build", state: "active" }, { label: "verify", state: "pending" }],
+  progress: { completed: 3, total: 8, unit: "tasks" },
+  list: { label: "Phase 2", head: "3 of 6", items: [{ state: "done", text: "Add skills" }, { state: "active", text: "Completion list" }, { state: "pending", text: "Step chips" }], before: 0, after: 2 },
+};
+const WORKFLOW = { steps: [{ id: "plan-md", short: "plan" }, { id: "execute", short: "exe" }, { id: "review", short: "rev" }], activeIndex: 1, updatedAt: 1, lens: LENS };
+const card = (page) => page.locator("dialog.open, dialog[open]");
+
+check("the chat header opens the session card with its live fields", async (page) => {
+  reset([
+    session("a", { status: "running", workflow: WORKFLOW, model: { provider: "anthropic", id: "claude-opus-4-5", thinking: "high" },
+      activity: { current: { tool: "edit", detail: "web/app.js", at: Date.now() }, recent: [{ tool: "read", detail: "web/app.css", at: Date.now() - 12_000 }] } }),
+    session("kid", { kind: "subagent", parentId: "a", status: "running", agentName: "scout", taskPreview: "map web checks" }),
+  ]);
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  const sheet = card(page);
+  for (const text of ["Wiring the skill composer", "exe", "✓ plan", "3/8 tasks", "Completion list", "edit web/app.js", "read web/app.css", "scout", "opus4.5 high"]) await sheet.getByText(text, { exact: false }).first().waitFor();
+  assert.equal(await sheet.getByText("GOAL").count(), 0, "an empty field is not shown");
+  // The card follows the live session while open.
+  change(() => { world.sessions = world.sessions.map((row) => row.id === "a" ? { ...row, workflow: { ...WORKFLOW, lens: { ...LENS, doing: "Writing checks" } } } : row); });
+  await sheet.getByText("Writing checks").waitFor();
+  await page.getByRole("button", { name: "Close" }).click();
+  assert.equal(await card(page).count(), 0);
+});
+
+check("Archive asks for an outcome, posts once and offers Restore", async (page) => {
+  reset([session("a")]);
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  await page.getByRole("button", { name: "Archive…" }).click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await card(page).getByText(/^Accepted/u).waitFor();
+  assert.deepEqual(world.calls, ["archive:a:done:pi-a"]);
+  await card(page).getByText("Archived · Done").waitFor();
+  await card(page).getByText("Archived · Done").waitFor();
+  await page.getByRole("button", { name: "Restore" }).click();
+  await page.waitForFunction(() => document.querySelector("dialog .card-sub")?.textContent === "Idle");
+  assert.deepEqual(world.calls.at(-1), "restore:a:pi-a:archived:done");
+  await page.getByRole("button", { name: "Backlog" }).waitFor();
+});
+
+check("an Archive choice never reaches a replaced conversation", async (page) => {
+  reset([session("a")]);
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  await page.getByRole("button", { name: "Archive…" }).click();
+  // A poll while choosing keeps the choice; a new conversation ends it.
+  change(() => { world.sessions = [session("a", { title: "Session a", lastActivityAt: Date.now() })]; });
+  await page.waitForTimeout(1_800);
+  await page.getByRole("button", { name: "Abandoned" }).waitFor();
+  change(() => { world.sessions = [session("a", { piSessionId: "pi-new", interaction: { version: 1, instanceId: "inst-new" } })]; });
+  await page.waitForFunction(() => !document.querySelector("dialog .confirm"));
+  await page.getByRole("button", { name: "Archive…" }).waitFor();
+  assert.deepEqual(world.calls, []);
+});
+
+check("Backlog moves a session to a folded section, and a stopped one restores without Pi", async (page) => {
+  reset([session("a", { status: "stopped", interaction: undefined }), session("b")]);
+  await open(page, "/#/s/a");
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  await page.getByRole("button", { name: "Backlog" }).click();
+  await card(page).getByText("Stopped · Backlog").waitFor();
+  assert.deepEqual(world.calls, ["backlog:a:pi-a"]);
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByLabel("Back to inbox").click();
+  assert.equal(await card(page).count(), 0, "a closed card stays closed through live updates");
+  await page.getByRole("button", { name: /^BACKLOG/u }).click();
+  await page.locator(".row .title", { hasText: "Session a" }).click();
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  await page.getByRole("button", { name: "Restore" }).click();
+  await card(page).getByText(/^Accepted/u).waitFor();
+  assert.equal(world.calls.at(-1), "restore:a:pi-a:backlog:undefined");
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByLabel("Back to inbox").click();
+  await page.getByRole("button", { name: /^QUIET/u }).waitFor();
+  assert.equal(await page.getByRole("button", { name: /^BACKLOG/u }).count(), 0);
+});
+
+check("/ lists loaded skills, step chips fill the next step, and Send runs the skill", async (page) => {
+  reset([session("a", { workflow: { ...WORKFLOW, lens: undefined } })]);
+  world.skills = [{ name: "plan-md", description: "Plan a feature" }, { name: "execute", description: "Execute on a plan" }, { name: "review", description: "Review finished work" }];
+  await open(page, "/#/s/a");
+  await reply(page).click();
+  const chips = page.getByRole("group", { name: "Workflow steps" });
+  await chips.getByRole("button", { name: "/execute" }).waitFor();
+  assert.match(await chips.getByRole("button", { name: "/execute" }).getAttribute("class"), /primary/u);
+  await reply(page).fill("/re");
+  await page.getByRole("option", { name: /\/review/u }).click();
+  assert.equal(await reply(page).inputValue(), "/review ");
+  await reply(page).pressSequentially("the card");
+  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByText(/^Accepted/u).waitFor();
+  assert.deepEqual(sends(), ["send:a:send:/skill:review the card"]);
+  assert.equal(await reply(page).inputValue(), "");
+  // While the agent works, a skill steers with its receipt only: Pi records it expanded, so no typed bubble waits for it.
+  change(() => { world.busy.add("a"); world.sessions = [session("a", { status: "running", workflow: { ...WORKFLOW, lens: undefined } })]; });
+  await page.getByRole("button", { name: "Steer" }).waitFor();
+  await reply(page).fill("/review again");
+  await page.getByRole("button", { name: "Steer" }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".receipt").length && !document.querySelector(".receipt.submitting"));
+  assert.equal(sends().at(-1), "send:a:steer:/skill:review again");
+  assert.equal(await page.locator(".turn.local").count(), 0);
+  // An unknown name is sent as typed.
+  await reply(page).fill("/nope");
+  assert.equal(await page.getByRole("listbox", { name: "Skills" }).count(), 0);
+});
+
+check("a replaced conversation blocks skill replies until its own detail arrives, and a gone session closes its card", async (page) => {
+  reset([session("a", { workflow: { ...WORKFLOW, lens: undefined } })]);
+  world.skills = [{ name: "review", description: "" }];
+  await open(page, "/#/s/a");
+  await reply(page).fill("/review now");
+  world.readDelayMs = 3_000;
+  change(() => { world.sessions = [session("a", { piSessionId: "pi-new", interaction: { version: 1, instanceId: "inst-new" }, workflow: { ...WORKFLOW, lens: undefined } })]; });
+  await page.waitForFunction(() => [...document.querySelectorAll(".dock .send")].every((button) => button.disabled), undefined, { timeout: 2_500 });
+  world.readDelayMs = 0;
+  await page.waitForFunction(() => [...document.querySelectorAll(".dock .send")].some((button) => !button.disabled));
+  assert.deepEqual(sends(), []);
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  await page.getByRole("button", { name: "Archive…" }).waitFor();
+  change(() => { world.sessions = []; });
+  await page.getByText("This session is no longer in the inbox.").waitFor();
+  await page.waitForFunction(() => !document.querySelector("dialog[open]"));
+});
+
+check("a list row adds only a progress hairline and its step short", async (page) => {
+  reset([session("a", { status: "running", workflow: WORKFLOW }), session("b", { status: "running" })]);
+  await open(page);
+  const row = page.locator(".row", { hasText: "Session a" });
+  await row.locator(".meter").waitFor();
+  assert.match(await row.locator(".meta").textContent(), /^exe/u);
+  const width = await row.locator(".meter-fill").evaluate((el) => el.getBoundingClientRect().width / el.parentElement.getBoundingClientRect().width);
+  assert.ok(Math.abs(width - 3 / 8) < 0.02, `meter is proportional: ${width}`);
+  assert.equal(await page.locator(".row", { hasText: "Session b" }).locator(".meter").count(), 0);
+});
+
+check("card and skill text cannot become HTML", async (page) => {
+  const evil = "<img src=x onerror=\"window.hacked = 1\">\u001b[31m";
+  reset([session("a", { workflow: { ...WORKFLOW, lens: { ...LENS, doing: `${evil}${"z".repeat(400)}`, list: { ...LENS.list, items: [{ state: "active", text: evil }] } } } })]);
+  world.skills = [{ name: "review", description: evil }];
+  await open(page, "/#/s/a");
+  await reply(page).fill("/rev");
+  await page.getByRole("option", { name: /\/review/u }).waitFor();
+  await page.getByRole("button", { name: "Session a, session card" }).click();
+  const doing = await card(page).locator("strong").first().textContent();
+  assert.ok(doing.startsWith("<img src=x"), doing);
+  assert.equal([...doing].length, 240);
+  assert.equal(doing.includes("\u001b"), false);
+  assert.equal(await page.locator("dialog img, .suggest img").count(), 0);
+  assert.equal(await page.evaluate(() => window.hacked), undefined);
 });
 
 // ---- Markdown ----

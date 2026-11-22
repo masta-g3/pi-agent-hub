@@ -2,6 +2,7 @@
 import { acceptPage, clearTranscript, newTranscript } from "/transcript.js";
 import { settleSent, splitPrompt } from "/chat.js";
 import { renderMarkdown } from "/markdown.js";
+import { skillMatches, toSkillCommand } from "/skill-reply.js";
 
 const STALE_MS = 10_000;
 const DETAIL_POLL_MS = 1_500;
@@ -9,7 +10,13 @@ const FOLLOW_PX = 120;             // this close to the end, the view follows ne
 const TIME_GAP_MS = 5 * 60_000;    // a turn shows its time only after a pause this long
 const WRITE_TIMEOUT_MS = 15_000;
 const INLINE_CARD_LIMIT = 8;
-const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", active: "ACTIVE", quiet: "QUIET", archived: "ARCHIVED" };
+const TIER_LABELS = { "needs-you": "NEEDS YOU", health: "HEALTH", new: "NEW", active: "ACTIVE", quiet: "QUIET", backlog: "BACKLOG", archived: "ARCHIVED" };
+// The dashboard card's list marks, so the phone reads the same.
+const LIST_MARKS = { done: "✓", active: "◉", pending: "·", attention: "!", skipped: "–" };
+// Pills carry active and pending by fill and outline; a done step keeps its check.
+const STEP_MARKS = { done: "✓ ", active: "", pending: "" };
+const CLOSURE_LABELS = { done: "Done", abandoned: "Abandoned" };
+const CARD_SHEET = "Session card";
 const QUOTA_LOW = 25;              // percent left at or under which a quota reads as a warning
 const STATUS_GLYPHS = { starting: "●", running: "●", waiting: "◐", idle: "○", error: "×", stopped: "-" };
 const KIND_GLYPHS = { question: "?", ready: "✓", blocked: "!" };
@@ -25,7 +32,7 @@ const state = {
   snapshotAt: 0,
   lastEventAt: 0,
   stale: true,
-  collapsed: new Set(["quiet", "archived"]),
+  collapsed: new Set(["quiet", "backlog", "archived"]),
   search: undefined,           // list filter text while the search row is open
   detail: undefined,           // { id, data?, missing? }
   chat: undefined,             // transcript of the open session: { id, piSessionId, ...newTranscript() }
@@ -38,6 +45,7 @@ const state = {
   receipts: new Map(),         // session id -> { kind, text }
   pending: new Set(),          // session ids with a write in flight
   listY: 0,                    // list scroll position, restored on return
+  sheet: undefined,            // the open card sheet: { id, confirm? } where confirm freezes the target it acts on
 };
 
 const app = document.getElementById("app");
@@ -75,12 +83,14 @@ function sync(root, parts) {
     next.set(name, entry);
     wanted.push(entry.el);
   }
+  // Remove what is gone first: moving an unchanged node to make room would drop its focus.
+  const keep = new Set(wanted);
+  for (const child of [...root.children]) if (!keep.has(child)) child.remove();
   wanted.forEach((el, index) => { if (root.children[index] !== el) root.insertBefore(el, root.children[index] ?? null); });
-  while (root.children.length > wanted.length) root.lastChild.remove();
   root.hubParts = next;
 }
 
-const rows = () => [...state.snapshot?.tiers.flatMap((tier) => tier.sessions) ?? [], ...state.snapshot?.archived ?? []];
+const rows = () => [...state.snapshot?.tiers.flatMap((tier) => tier.sessions) ?? [], ...state.snapshot?.backlog ?? [], ...state.snapshot?.archived ?? []];
 const route = () => /^#\/s\/([a-zA-Z0-9_-]+)$/.exec(location.hash)?.[1];
 const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const draftKey = (session) => `${session.id}:${session.piSessionId ?? ""}`;
@@ -289,12 +299,20 @@ function receiptLine(sessionId) {
 
 function meta(session) {
   const parts = [];
-  if (session.step && !session.attention) parts.push(session.step);
+  if (session.closure) parts.push(CLOSURE_LABELS[session.closure]);
+  else if ((session.stepShort || session.step) && !session.attention) parts.push(session.stepShort || session.step);
   if (session.attention && session.group) parts.push(session.group);
   if (session.runningSubagents) parts.push(h("span", { class: "live" }, `↳${session.runningSubagents}`));
   if (session.hiddenChildRequests) parts.push(h("span", { class: "request" }, `?${session.hiddenChildRequests} child`));
   if (session.age) parts.push(session.age);
   return h("span", { class: "meta" }, parts.flatMap((part, index) => index ? [" · ", part] : [part]));
+}
+
+/** A hairline as long as the work done: the only progress cue a list row carries. */
+function meterLine(progress) {
+  const fill = h("span", { class: "meter-fill" });
+  fill.style.width = `${Math.round(Math.min(1, progress.completed / progress.total) * 100)}%`;
+  return h("span", { class: "meter", role: "img", "aria-label": `${progress.completed} of ${progress.total} done` }, fill);
 }
 
 // ---- list ----
@@ -312,7 +330,8 @@ function listRow(session) {
     attention?.recommendation && h("p", { class: "sub" }, `Recommends: ${attention.recommendation}`),
     // A working agent shows what it does now; an older note would read as current.
     !attention && session.work ? h("p", { class: `sub one-line${session.work.tool ? "" : " thinking"}` }, session.work.tool ?? "Thinking")
-      : !attention && session.statusLine && h("p", { class: `sub one-line${fault ? " fault" : ""}` }, session.statusLine));
+      : !attention && session.statusLine && h("p", { class: `sub one-line${fault ? " fault" : ""}` }, session.statusLine),
+    session.progress && meterLine(session.progress));
   if (!attention && !fault) return h("li", { class: "row" }, main);
   return h("li", { class: `row plate${fault && !attention ? " fault" : ""}` }, main, inlineActions(session), receiptLine(session.id));
 }
@@ -421,18 +440,21 @@ function closeSearch() {
   render();
 }
 
-/** A line bell in the text color; an emoji bell would ignore the theme. */
-function bellIcon() {
+/** A line icon in the text color; an emoji would ignore the theme. */
+function lineIcon(paths, size = 22) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
-  for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", width: "22", height: "22", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(key, value);
-  for (const d of ["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]) {
+  for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", width: String(size), height: String(size), fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(key, value);
+  for (const d of paths) {
     const path = document.createElementNS(ns, "path");
     path.setAttribute("d", d);
     svg.append(path);
   }
   return svg;
 }
+
+const bellIcon = () => lineIcon(["M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0"]);
+const infoIcon = () => lineIcon(["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20", "M12 16v-4", "M12 8h.01"], 20);
 
 function listView() {
   const snapshot = state.snapshot;
@@ -452,7 +474,9 @@ function listView() {
     staleBanner());
   const list = h("main", { class: "list" });
   const query = state.search?.trim().toLowerCase();
-  const sections = [...snapshot?.tiers ?? [], ...snapshot?.archived?.length ? [{ tier: "archived", sessions: snapshot.archived }] : []]
+  const sections = [...snapshot?.tiers ?? [],
+    ...snapshot?.backlog?.length ? [{ tier: "backlog", sessions: snapshot.backlog }] : [],
+    ...snapshot?.archived?.length ? [{ tier: "archived", sessions: snapshot.archived }] : []]
     .map((tier) => ({ ...tier, sessions: query ? tier.sessions.filter((session) => matches(session, query)) : tier.sessions }))
     .filter((tier) => tier.sessions.length);
   if (!snapshot) list.append(h("p", { class: "empty" }, "Loading sessions…"));
@@ -589,24 +613,59 @@ function fitComposer(box) {
   if (state.chat?.following) scrollToEnd();
 }
 
-function composer(session, interaction) {
+function composer(session, interaction, blocked) {
   const busy = interaction?.messageDelivery === "busy";
-  const blocked = state.pending.has(session.id) || state.stale;
   const key = draftKey(session);
+  // Read live, so a new step or skill list never rebuilds the box under the user's edit.
+  const live = () => state.detail?.id === session.id ? state.detail.data?.interaction : undefined;
+  const skills = () => live()?.skills ?? [];
   // Messages, not a form: without this, iOS offers saved contact details such as a phone number.
   const box = h("textarea", { class: "field grow", rows: 1, autocomplete: "off", "data-draft": key, placeholder: busy ? "Message" : "Reply", "aria-label": "Reply", value: state.drafts.get(key) ?? "",
-    oninput: (event) => { state.drafts.set(key, event.target.value); fitComposer(event.target); } });
+    oninput: (event) => { state.drafts.set(key, event.target.value); fitComposer(event.target); suggest(); },
+    onfocus: () => suggest(), onblur: (event) => { if (!suggestions.contains(event.relatedTarget)) suggest(); } });
+  const suggestions = h("div", { class: "suggest", onfocusout: (event) => { if (event.relatedTarget !== box && !suggestions.contains(event.relatedTarget)) suggest(); } });
+  /** Fill a skill into the box; nothing is sent until Send. */
+  const pick = (name) => {
+    box.value = `/${name} `;
+    state.drafts.set(key, box.value);
+    fitComposer(box);
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+    suggest();
+  };
+  // Keep the keyboard up: a tap on a suggestion must not blur the box first.
+  const keep = (event) => event.preventDefault();
+  /** `/` lists matching skills; an empty, focused box offers the workflow steps, the next one marked. */
+  function suggest() {
+    const matches = skillMatches(box.value, skills());
+    const focused = document.activeElement === box || suggestions.contains(document.activeElement);
+    const steps = live()?.steps;
+    const offerSteps = steps && focused && !box.value;
+    // Polls call this too: unchanged suggestions stay, so focus and a tap in progress survive.
+    const key = JSON.stringify(matches.length ? matches : offerSteps ? steps : null);
+    if (suggestions.hubKey === key) return;
+    suggestions.hubKey = key;
+    suggestions.replaceChildren(...matches.length
+      ? [h("ul", { class: "skills", role: "listbox", "aria-label": "Skills" }, matches.map((skill) => h("li", {},
+          h("button", { class: "skill", type: "button", role: "option", onpointerdown: keep, onclick: () => pick(skill.name) },
+            h("span", { class: "skill-name" }, `/${skill.name}`), skill.description && h("span", { class: "skill-desc" }, skill.description)))))]
+      : offerSteps ? [h("div", { class: "chips steps-row", role: "group", "aria-label": "Workflow steps" }, steps.ids.map((id, index) =>
+          h("button", { class: `chip${index === steps.pick ? " primary" : ""}`, type: "button", onpointerdown: keep, onclick: () => pick(id) }, `/${id}`)))]
+      : []);
+  }
   const send = (delivery) => async () => {
     const text = box.value.trim();
     if (!text) { box.focus(); return; }
-    if (state.pending.has(session.id) || state.stale) return;
-    // Pi runs a slash command instead of recording it as typed, so only the receipt reports it.
-    const reply = delivery === "send" && text.startsWith("/") ? undefined : { localId: localId += 1, text, delivery, status: "sending" };
+    if (blocked || state.pending.has(session.id) || state.stale) return;
+    // `/review rest` runs as Pi's `/skill:review rest`; the draft keeps what was typed.
+    const wire = toSkillCommand(text, skills());
+    // Pi runs a slash command, and records a skill expanded, not as typed, so only the receipt reports those.
+    const reply = (delivery === "send" && text.startsWith("/")) || wire !== text || text.startsWith("/skill:") ? undefined : { localId: localId += 1, text, delivery, status: "sending" };
     if (reply && state.chat?.id === session.id) {
       state.sent = [...state.sent, reply];
       state.chat.following = true;
     }
-    const result = await write(session, "reply", { ...target(session), text, delivery });
+    const result = await write(session, "reply", { ...target(session), text: wire, delivery });
     if (reply) {
       state.sent = result === "accepted" || result === "unknown"
         ? state.sent.map((entry) => entry.localId === reply.localId ? { ...entry, status: result } : entry)
@@ -621,12 +680,16 @@ function composer(session, interaction) {
     if (shown) { shown.value = ""; fitComposer(shown); }
   };
   // One row, as in a messenger: the box grows upward, the buttons stay at its foot.
-  return h("div", { class: "composer" },
+  const row = h("div", { class: "composer" },
     box,
     busy
       ? [h("button", { class: "send ghost", type: "button", disabled: blocked, title: "Deliver after the agent finishes", onclick: send("followUp") }, "Queue"),
          h("button", { class: "send", type: "button", disabled: blocked, title: "Deliver now, while it works", onclick: send("steer") }, "Steer")]
       : h("button", { class: "send", type: "button", disabled: blocked, onclick: send("send") }, "Send"));
+  suggest();
+  const compose = h("div", { class: "compose" }, suggestions, row);
+  compose.hubSuggest = suggest;
+  return compose;
 }
 
 function readChip(session, blocked) {
@@ -714,6 +777,7 @@ function statusLine(session) {
     session.attention ? KIND_LABELS[session.attention.kind] : STATUS_WORDS[session.status] ?? session.status)];
   const at = session.steps?.findIndex((step) => step.state === "active") ?? -1;
   if (session.step) parts.push(at >= 0 ? `${session.step} ${at + 1}/${session.steps.length}` : session.step);
+  if (session.progress) parts.push(`${session.progress.completed}/${session.progress.total} done`);
   if (session.runningSubagents) parts.push(`↳${session.runningSubagents}`);
   return h("div", { class: "band-sub" }, parts.flatMap((part, index) => index ? [" · ", part] : [part]));
 }
@@ -731,15 +795,19 @@ function renderDetail() {
   const detail = state.detail;
   // The list snapshot is fresher than the last detail fetch for everything it carries.
   const session = detail?.data && (rows().find((row) => row.id === detail.id) ?? detail.data.session);
-  const head = session && [session.title, session.status, session.attention?.kind, session.step, session.steps, session.runningSubagents];
+  const head = session && [session.title, session.status, session.attention?.kind, session.step, session.steps, session.runningSubagents, session.progress];
   const band = ["band", JSON.stringify([state.stale, state.stale ? ageSince(state.snapshotAt) : "", head]), () => h("header", { class: "band chat-band" },
     h("div", { class: "band-row" }, backLink(),
-      session ? h("div", { class: "band-id" }, h("span", { class: "band-name", title: session.title }, session.title), statusLine(session)) : h("span", { class: "band-fill" }),
+      // The whole identity opens the card, as a chat's header opens its info.
+      session ? h("button", { class: "band-id", type: "button", "aria-haspopup": "dialog", "aria-label": `${session.title}, session card`, onclick: () => openCard(session.id) },
+        h("span", { class: "band-name-row" }, h("span", { class: "band-name", title: session.title }, session.title), h("span", { class: "band-info" }, infoIcon())), statusLine(session))
+        : h("span", { class: "band-fill" }),
       connection(true)),
     staleBanner())];
   if (!session) {
     sync(app, [band, ["empty", String(detail?.missing), () => h("main", { class: "detail" },
       h("p", { class: "empty" }, detail?.missing ? "This session is no longer in the inbox." : "Loading…"))]]);
+    renderCardSheet();
     return;
   }
   sync(app, [band, ["body", "body", () => h("main", { class: "detail transcript" })], ["dock", "dock", () => h("footer", { class: "dock" })]]);
@@ -819,7 +887,9 @@ function renderDetail() {
   const shortcuts = open ? interaction?.shortcuts ?? [] : [];
   // Mark read binds the conversation and request it shows, so a new request must rebuild the button.
   const readKey = canRead ? `${session.piSessionId}:${session.attention?.requestId ?? ""}` : "";
-  const blocked = state.pending.has(session.id) || state.stale;
+  // Skills, steps and Next come from the last detail read: wait for a fresh one when the live list names another target.
+  const read = detail.data.session;
+  const blocked = state.pending.has(session.id) || state.stale || read.piSessionId !== session.piSessionId || read.instanceId !== session.instanceId;
   const receipt = state.receipts.get(session.id);
   // The composer is rebuilt when its buttons change; the draft is in state, so only focus needs restoring.
   const typing = document.activeElement?.matches?.(".dock textarea");
@@ -836,12 +906,137 @@ function renderDetail() {
       shortcuts.map((shortcut) => h("button", { class: "chip", type: "button", disabled: blocked || Boolean(shortcut.disabled), title: shortcut.disabled ?? shortcut.send,
         onclick: () => write(session, "shortcut", { ...target(session), index: shortcut.index, send: shortcut.send }) }, shortcut.label)),
       canRead && readChip(session, blocked)))],
-    ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}`, open && (() => composer(session, interaction))],
+    ["composer", `${draftKey(session)}:${session.instanceId}:${interaction?.messageDelivery}:${blocked}`, open && (() => composer(session, interaction, blocked))],
   ]);
+  // New skills or steps refresh the suggestions only.
+  dock.hubParts.get("composer")?.el.hubSuggest?.();
   const box = dock.querySelector("textarea");
   if (box && !box.style.height) fitComposer(box);
   if (typing) box?.focus();
   followTranscript(body);
+  renderCardSheet();
+}
+
+// ---- session card ----
+
+function openCard(id) {
+  state.sheet = { id };
+  renderCardSheet();
+}
+
+/**
+ * The card sheet follows detail polls while open. Its actions bind the identity the card was read with, and stay off
+ * while the live list reports another conversation, until fresh detail arrives.
+ */
+function renderCardSheet() {
+  const sheet = state.sheet;
+  const detail = state.detail;
+  if (!sheet) return;
+  // Closed (its close event comes later), another sheet owns the dialog, or the screen moved on.
+  if ((sheet.shown && !settings.open) || detail?.id !== sheet.id || (settings.open && settings.getAttribute("aria-label") !== CARD_SHEET)) { state.sheet = undefined; return; }
+  const card = detail.data?.card;
+  if (!card) {
+    // The session is gone: its card must not stay open with live buttons.
+    if (detail.missing) { if (settings.open && settings.getAttribute("aria-label") === CARD_SHEET) settings.close(); state.sheet = undefined; }
+    return;
+  }
+  const shown = detail.data.session;
+  const live = rows().find((row) => row.id === sheet.id) ?? shown;
+  const current = live.piSessionId === shown.piSessionId;
+  // An Archive choice acts on the conversation it was opened for, never on a replacement.
+  if (sheet.confirm && (sheet.confirm.piSessionId !== shown.piSessionId || sheet.confirm.section !== card.section || sheet.confirm.closure !== shown.closure)) sheet.confirm = undefined;
+  // The live list knows the lifecycle before the next detail read does.
+  const liveSection = state.snapshot?.archived?.some((row) => row.id === sheet.id) ? "archived" : state.snapshot?.backlog?.some((row) => row.id === sheet.id) ? "backlog" : rows().some((row) => row.id === sheet.id) ? "active" : card.section;
+  if (sheet.confirm && liveSection !== sheet.confirm.section) sheet.confirm = undefined;
+  const blocked = state.pending.has(sheet.id) || state.stale || !current || liveSection !== card.section;
+  if (!sheet.shown || !settings.open || settings.getAttribute("aria-label") !== CARD_SHEET) {
+    openSheet(CARD_SHEET, () => h("div", { class: "sheet card-sheet" }));
+    settings.scrollTop = 0;
+    sheet.shown = true;
+  }
+  // Separate parts: a live update to the body never rebuilds the buttons under a tap.
+  sync(settings.firstChild, [
+    ["body", JSON.stringify([card, shown, live.steps, live.status, live.attention?.kind, live.closure]), () => h("div", { class: "card-body" }, cardBody(live, card))],
+    ["receipt", JSON.stringify(state.receipts.get(sheet.id) ?? null), state.receipts.has(sheet.id) && (() => receiptLine(live.id))],
+    ["actions", JSON.stringify([card.section, shown.piSessionId, shown.closure, sheet.confirm, blocked]), () => cardActions(live, shown, card, blocked)],
+  ]);
+}
+
+function cardBody(live, card) {
+  const field = (label, ...value) => h("div", { class: "card-field" }, h("span", { class: "card-label" }, label), h("div", { class: "card-value" }, ...value));
+  const fields = [];
+  if (card.goal) fields.push(field("GOAL", card.goal));
+  if (card.doing) fields.push(field("DOING", h("strong", {}, card.doing)));
+  if (card.done) fields.push(field("DONE", card.done));
+  if (card.next) fields.push(field("NEXT", card.next));
+  if (card.list) {
+    const list = card.list;
+    fields.push(field(list.label,
+      list.head && h("div", {}, list.head),
+      list.before ? h("div", { class: "muted" }, `${LIST_MARKS.done} ${list.before} earlier`) : undefined,
+      h("ul", { class: "card-list" }, list.items.map((item) => h("li", { class: `is-${item.state}` }, h("span", { class: "mark", "aria-hidden": "true" }, LIST_MARKS[item.state]), h("span", {}, item.text)))),
+      list.after ? h("div", { class: "muted" }, `${LIST_MARKS.pending} ${list.after} more`) : undefined));
+  }
+  if (card.now) fields.push(field("NOW", h("span", { class: "live" }, card.now)));
+  if (card.log.length) fields.push(field("LOG", h("ul", { class: "card-log" }, card.log.map((entry) => h("li", {},
+    h("span", { class: "log-age" }, ageShort(entry.at)), h("span", { class: "log-text" }, entry.text))))));
+  if (card.subagents.length) fields.push(field("SUB", h("ul", { class: "card-log" }, card.subagents.map((child) => h("li", {},
+    h("span", { class: "live" }, child.name), child.task && h("span", { class: "muted" }, ` · ${child.task}`))))));
+  const where = [];
+  if (live.steps?.length) where.push(h("ol", { class: "rail", "aria-label": "Workflow" }, live.steps.map((step) => h("li", { class: `rail-step is-${step.state}` }, `${STEP_MARKS[step.state]}${step.short}`))));
+  if (card.stages?.length) where.push(h("ol", { class: "rail stages", "aria-label": "Stages" }, card.stages.map((stage) => h("li", { class: `rail-step is-${stage.state}` }, `${STEP_MARKS[stage.state]}${stage.label}`))));
+  if (card.progress) {
+    const fill = h("span", { class: "bar-fill" });
+    fill.style.width = `${Math.round(Math.min(1, card.progress.completed / card.progress.total) * 100)}%`;
+    const words = [`${card.progress.completed}/${card.progress.total}${card.progress.unit ? ` ${card.progress.unit}` : ""}`, card.pass && `pass ${card.pass}`, card.summary, card.mode].filter(Boolean).join(" · ");
+    where.push(h("div", { class: "card-progress" }, h("span", { class: "bar", "aria-hidden": "true" }, fill), h("span", { class: "muted" }, words)));
+  } else if (card.pass || card.summary || card.mode) where.push(h("div", { class: "muted" }, [card.pass && `pass ${card.pass}`, card.summary, card.mode].filter(Boolean).join(" · ")));
+  const lifecycle = card.section === "archived" ? `Archived${live.closure ? ` · ${CLOSURE_LABELS[live.closure]}` : ""}` : card.section === "backlog" ? "Backlog" : undefined;
+  const meta = [card.repo, card.branch && `⎇ ${card.branch}`, card.model].filter(Boolean).join(" · ");
+  const context = [live.ticketId, live.subtitle].filter(Boolean).join(" · ");
+  return [
+    h("div", { class: "card-head" },
+      h("h2", {}, live.title),
+      h("div", { class: "card-sub" }, h("span", { class: `state is-${live.attention ? "request" : live.status}` }, live.attention ? KIND_LABELS[live.attention.kind] : STATUS_WORDS[live.status] ?? live.status),
+        lifecycle && ` · ${lifecycle}`)),
+    context && h("p", { class: "card-context" }, context),
+    meta && h("p", { class: "muted card-meta" }, meta),
+    where.length ? h("div", { class: "card-where" }, where) : undefined,
+    fields.length ? h("div", { class: "card-fields" }, fields) : h("p", { class: "notice" }, "No live detail from this session yet."),
+  ];
+}
+
+/** Labels only: Archive, Backlog and Restore never stop tmux or Pi. */
+function cardActions(live, shown, card, blocked) {
+  const sheet = state.sheet;
+  const close = h("button", { class: "btn quiet", type: "button", onclick: () => settings.close() }, "Close");
+  if (sheet.confirm) {
+    const frozen = sheet.confirm;
+    const archive = (closure) => async () => {
+      await write(live, "archive", { piSessionId: frozen.piSessionId, section: frozen.section, ...(closure ? { closure } : {}) });
+      // The receipt says how it went; the choice is spent either way.
+      if (state.sheet === sheet) { sheet.confirm = undefined; renderCardSheet(); }
+    };
+    return h("div", { class: "card-actions confirm" },
+      h("p", { class: "label" }, "Archive as"),
+      h("div", { class: "card-buttons" },
+        h("button", { class: "btn primary", type: "button", disabled: blocked, onclick: archive("done") }, "Done"),
+        h("button", { class: "btn", type: "button", disabled: blocked, onclick: archive("abandoned") }, "Abandoned"),
+        h("button", { class: "btn", type: "button", disabled: blocked, onclick: archive(undefined) }, "Archive only")),
+      h("button", { class: "btn quiet", type: "button", onclick: () => { sheet.confirm = undefined; renderCardSheet(); } }, "Cancel"));
+  }
+  const buttons = [];
+  if (card.section !== "archived") buttons.push(h("button", { class: "btn", type: "button", disabled: blocked, onclick: () => { sheet.confirm = { piSessionId: shown.piSessionId, section: card.section, closure: shown.closure }; renderCardSheet(); } }, "Archive…"));
+  if (card.section === "active") buttons.push(h("button", { class: "btn", type: "button", disabled: blocked, onclick: () => write(live, "backlog", { piSessionId: shown.piSessionId, section: card.section }) }, "Backlog"));
+  if (card.section !== "active") buttons.push(h("button", { class: "btn", type: "button", disabled: blocked,
+    onclick: () => write(live, "restore", { piSessionId: shown.piSessionId, bucket: card.section, ...(shown.closure ? { closure: shown.closure } : {}) }) }, "Restore"));
+  return h("div", { class: "card-actions" }, h("div", { class: "card-buttons" }, buttons, close));
+}
+
+/** A tool call's age in the card's fixed column: 12s, 4m, 2h. */
+function ageShort(at) {
+  const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m` : seconds < 86_400 ? `${Math.floor(seconds / 3600)}h` : `${Math.floor(seconds / 86_400)}d`;
 }
 
 // ---- render ----
@@ -894,6 +1089,8 @@ function onRoute() {
   state.chat = undefined;
   state.sent = [];
   state.earlier = false;
+  if (state.sheet && settings.open) settings.close();
+  state.sheet = undefined;
   render();
   if (id) void loadDetail();
 }
@@ -935,7 +1132,7 @@ async function disablePush() {
 }
 
 let sheetToken = 0;
-settings.addEventListener("close", () => { sheetToken += 1; });
+settings.addEventListener("close", () => { sheetToken += 1; state.sheet = undefined; });
 
 /** One bottom sheet at a time; its body is rebuilt by `build`. Returns a check that is true while this sheet stays open. */
 function openSheet(name, build) {

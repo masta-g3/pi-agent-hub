@@ -38,7 +38,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
 | Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. `/` completes the agent's skills; workflow steps appear as chips. |
 | Next skill | `>` sends the next workflow step's skill once the current step is complete. |
-| Phone inbox | `pi-hub web` serves a page to answer, reply, advance workflows, resume or start sessions, and get notifications on a phone. |
+| Phone inbox | `pi-hub web` serves a page to answer, reply with skills, read the session card, advance workflows, archive or backlog, resume or start sessions, and get notifications on a phone. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Usage and quotas | `u` shows Cost, Tokens, and Limits from an optional usage producer. |
@@ -379,9 +379,13 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 - **New session:** **+** starts a session in a repository the dashboard already knows (recent and current sessions, without Hub-owned worktrees) and a group, then opens its chat. Type the first prompt once Pi is live. Worktrees and multi-repo sessions stay in the terminal dashboard.
 - **Limits:** with a usage producer such as pi-accounts, the band shows the tightest quota left, in the warning color at 25% or less. Tap it for every account window with its reset time.
 - **Search:** **⌕** filters the list by title, group, ticket, subtitle, step, or request text, and opens folded tiers while a query is set. **✕** clears it.
-- **Archived:** the 20 newest archived sessions sit in a folded **ARCHIVED** section at the end.
+- **Archived:** the 20 newest archived sessions sit in a folded **ARCHIVED** section at the end. Backlogged sessions sit in a folded **BACKLOG** section before it; they are not counted as requests.
+- **Session card:** tap the chat header for the session's card: the task, **DOING**, the workflow steps, progress and checklist, the live tool call, the last three tool calls, running subagents, repository, branch and model. Fields without a value are not shown, and the card updates while open.
+- **Archive, Backlog, Restore:** from the card. **Archive…** asks for **Done**, **Abandoned** or **Archive only**, like `A`. **Restore** returns an archived or backlogged session to Active and clears its outcome, like `U`. None of them stop tmux or Pi. If the session is pinned in the terminal dashboard, its pin closes at the dashboard's next refresh. There is no undo on the phone; Restore reverses.
+- **Skills:** type `/` in the reply box to pick one of the session's loaded skills; `/review the card` sends Pi's `/skill:review the card`. In an empty box, the workflow steps show as chips with the next step filled; a chip fills the box and never sends by itself.
+- **List rows** add only a thin progress line when the workflow reports progress, and the step's short name.
 
-The page cannot stop, delete, archive, or rename sessions, and it shows no subagent rows, pane output, tool output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
+The page cannot stop, delete, rename, fork or finish a worktree session, and it shows no subagent rows, pane output, tool output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
 
 ## Return shortcuts
 
@@ -440,7 +444,7 @@ Groups are labels, not project records. `g` moves a session to a label, creating
 
 Within Status sections, errors and unread waits come first across all groups; every other session follows by last interaction, newest-first, whatever its runtime status. Your own open, pin focus, answer, or send counts as interaction. `K` / `J` breaks exact priority/activity ties only, and is unavailable while filtering or in Repo/board views. Archived always uses archive time.
 
-Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; Backlog does not. Children follow their parent's lifecycle and cannot move independently.
+Backlog and Archive do not stop tmux or Pi. Archiving closes the session's pin; Backlog does not. An archive from the phone page closes the pin at the dashboard's next refresh; a pin you open on an archived session afterwards stays. Children follow their parent's lifecycle and cannot move independently.
 
 After `B`, `A`, `U`, `a`, or `g`, the footer names the change, such as `z Undo · Backlog → Checkout flow`. `z` reverses only the most recent of these changes, for the session and its children, then selects and reveals the session without opening it. It stays available until the next such change or a dashboard restart, and is never saved. If the session changed since, now runs a different Pi conversation, or was removed, `z` changes nothing and says so. Undo does not reopen a pin that Archive closed.
 

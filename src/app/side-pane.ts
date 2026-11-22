@@ -353,9 +353,10 @@ export async function retargetFollowPane(options: { ownPane: string; target: str
   return true;
 }
 
-export async function closeSidePaneShowing(options: { target: string; ownPane: string }, exec: TmuxExec = realTmuxExec): Promise<boolean> {
+/** With `paneId`, only that live pane, and only while it still shows `target`. */
+export async function closeSidePaneShowing(options: { target: string; ownPane: string; paneId?: string }, exec: TmuxExec = realTmuxExec): Promise<boolean> {
   const inspected = await inspectSidePaneWindow(options.ownPane, exec);
-  const matching = inspected.pins.filter((pin) => pin.session === options.target);
+  const matching = inspected.pins.filter((pin) => pin.session === options.target && (options.paneId === undefined || pin.paneId === options.paneId));
   for (const pin of matching) await killPane(pin.paneId, exec);
   await removeDuplicates(inspected, exec);
   return matching.length > 0;

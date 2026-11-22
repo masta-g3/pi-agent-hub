@@ -49,6 +49,8 @@ For a feature-only install, use temporary staging from an agreed committed basel
 
 Installation does not reload an already running dashboard. Quit that dashboard with `q`, then run `pi-hub` to load the installed code; managed Pi sessions remain running.
 
+A running `pi-hub web` serves the installed `web/` files fresh on each request, so page changes need only a reload. Server changes need a restart: stop `pi-hub web` and start it with the same command and `PI_AGENT_HUB_DIR`. If it is the only command of a tmux session, stopping it ends that session, so start a new one.
+
 ## Git hooks
 
 This repo includes lightweight local hooks in `.githooks/`:

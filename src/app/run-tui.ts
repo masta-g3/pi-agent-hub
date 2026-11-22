@@ -326,6 +326,25 @@ export async function archiveDashboardSession(
   return closure ? controller.closeSession(sessionId, closure, expected) : controller.moveSessionToBucket(sessionId, "archived", undefined, expected);
 }
 
+/** Archived session ids, seeded at startup so only archives made after it count. */
+export function archivedSessionIds(sessions: readonly ManagedSession[]): Set<string> {
+  return new Set(sessions.filter((session) => sessionSection(session) === "archived").map((session) => session.id));
+}
+
+/**
+ * Pins of sessions archived since the last refresh, elsewhere such as the phone: the dashboard's own Archive already
+ * closed its pin. Only a pane that was already open at the last refresh counts, so a pin opened after the archive,
+ * or in the same interval, stays; the queued close re-checks that exact pane.
+ */
+export function newlyArchivedPins(
+  previous: { archived: ReadonlySet<string>; paneIds: ReadonlySet<string> },
+  current: ReadonlySet<string>,
+  pins: readonly { sessionId: string; tmuxSession: string; paneId: string }[],
+): { tmuxSession: string; paneId: string }[] {
+  return pins.filter((pin) => current.has(pin.sessionId) && !previous.archived.has(pin.sessionId) && previous.paneIds.has(pin.paneId))
+    .map(({ tmuxSession, paneId }) => ({ tmuxSession, paneId }));
+}
+
 export async function runTui(): Promise<void> {
   const cwd = process.cwd();
   await cleanupRetiredSessionMetadata();
@@ -397,12 +416,18 @@ export async function runTui(): Promise<void> {
   };
   const attentionCounts = { counts: new Map<string, number>(), resetAt: Date.now() };
   let attentionCountSync = Promise.resolve();
+  let lastSeen = { archived: archivedSessionIds(controller.snapshot().registry.sessions), paneIds: new Set<string>() };
   const afterRefresh = async () => {
     void view.refreshInteraction();
     const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
     attentionState = observation.state;
     view.setAttentionAnnouncements(observation.active);
     if (!ownsDashboardTmux) return;
+    // Only the Hub dashboard's own pins close; queued on the side-pane lifecycle, which re-checks the live pane.
+    const archived = archivedSessionIds(controller.snapshot().registry.sessions);
+    const pins = sidePanes?.snapshot().pins ?? [];
+    for (const pin of newlyArchivedPins(lastSeen, archived, pins)) void sidePanes?.detach(pin.tmuxSession, pin.paneId).catch(() => {});
+    lastSeen = { archived, paneIds: new Set(pins.map((pin) => pin.paneId)) };
     // Registry mutations also refresh outside the loops; serialize writes so shutdown can drain them before clearing.
     if (!stopped) {
       const sessions = controller.snapshot().sessions;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, liveChromeTargets, restartAllTargets, startDashboardActionLoop, syncAttentionCounts, clearAttentionCounts, terminalNotification } from "../src/app/run-tui.js";
+import { applyDashboardAction, attentionExternalMessage, buildNewFormContext, archiveDashboardSession, archivedSessionIds, newlyArchivedPins, createViewStateWriter, dashboardOwnsTmuxSession, deliverAttentionBatch, normalizeSessionsViewState, persistDashboardThemeSelection, processDashboardAction, liveChromeTargets, restartAllTargets, startDashboardActionLoop, syncAttentionCounts, clearAttentionCounts, terminalNotification } from "../src/app/run-tui.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, normalizeCockpitOnboarding, releaseCueVisible, startAttentionTrip } from "../src/tui/cockpit-onboarding.js";
 import { createRegistryMutator } from "../src/app/refresh-loop.js";
 import type { AttentionDeliveryEntry } from "../src/app/attention-delivery.js";
@@ -603,4 +603,21 @@ test("registry mutator resolves with the action result", async () => {
   const mutate = createRegistryMutator({ pause: async () => {}, resume: () => {}, refresh: async () => {}, render: () => {} });
 
   assert.equal(await mutate(async () => "created-id"), "created-id");
+});
+
+test("only pins of sessions archived since the last refresh close, each by the pane seen then", () => {
+  const row = (id: string, bucket?: "archived" | "backlog") => ({ id, title: id, cwd: "/tmp", group: "g", tmuxSession: `pi-agent-hub-${id}`, status: "idle" as const, createdAt: 1, updatedAt: 1, ...(bucket ? { bucket } : {}) });
+  // Archived before the dashboard started: a pin the user opened on it stays.
+  const previous = archivedSessionIds([row("old", "archived"), row("api"), row("docs")]);
+  const current = archivedSessionIds([row("old", "archived"), row("api", "archived"), row("docs", "backlog")]);
+  const pins = [
+    { sessionId: "old", tmuxSession: "pi-agent-hub-old", paneId: "%2" },
+    { sessionId: "api", tmuxSession: "pi-agent-hub-api", paneId: "%3" },
+    { sessionId: "docs", tmuxSession: "pi-agent-hub-docs", paneId: "%4" },
+  ];
+  const paneIds = new Set(["%2", "%3", "%4"]);
+  assert.deepEqual(newlyArchivedPins({ archived: previous, paneIds }, current, pins), [{ tmuxSession: "pi-agent-hub-api", paneId: "%3" }]);
+  assert.deepEqual(newlyArchivedPins({ archived: current, paneIds }, current, pins), []);
+  // A pin opened since the last refresh, after or alongside the archive, stays.
+  assert.deepEqual(newlyArchivedPins({ archived: previous, paneIds: new Set(["%2", "%4"]) }, current, pins), []);
 });

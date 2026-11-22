@@ -6,23 +6,28 @@ import { fileURLToPath } from "node:url";
 import { interactionTarget } from "../app/session-interaction.js";
 import type { ConversationPage } from "../core/conversation.js";
 import { DELIVERY_UNCONFIRMED, isObject, parseInteractionRequest, sameInteractionTarget, type AnswerInput, type InteractionTarget, type MessageDelivery, type SessionInteractionState } from "../core/session-interaction.js";
-import { nextSkill } from "../core/skill-reply.js";
-import type { RuntimeSession } from "../core/types.js";
+import { nextSkill, workflowSkillSteps } from "../core/skill-reply.js";
+import type { SessionSection } from "../core/session-bucket.js";
+import type { RuntimeSession, SessionBucket, SessionClosure } from "../core/types.js";
 import { accountStale, type UsageData } from "../core/usage.js";
 import { formatQuestionText } from "../tui/question-dialog.js";
 import { visibleAttention } from "../tui/render-model.js";
-import { boundedText, buildInboxSnapshot, type InboxSession } from "./inbox.js";
+import { boundedText, buildInboxSnapshot, inboxDetail } from "./inbox.js";
 
 export const WEB_BODY_CAP = 64 * 1024;
 export const WEB_PING_MS = 4_000;
 const CURSOR_CHARS = 256;
 const GROUP_CHARS = 120;
+const SKILL_NAME_CHARS = 64;
+const SKILL_DESCRIPTION_CHARS = 160;
 /** The extension's two errors for a `read` whose branch or cursor is no longer current. */
 const CURSOR_GONE = /^Conversation (?:branch changed|cursor is no longer on the current branch)$/u;
 
 export interface PushSubscriptionInput { endpoint: string; p256dh: string; auth: string }
 export interface WebShortcut { key: string; send: string; label?: string }
 export interface NewSessionOptions { repos: string[]; groups: string[] }
+/** The parent the page displayed; lifecycle writes refuse when the latest row differs, including an absent Pi id. */
+export interface LifecycleTarget { piSessionId: string | undefined; section?: SessionSection; bucket?: SessionBucket; closure?: SessionClosure }
 
 export interface WebServerDeps {
   staticDir: string;
@@ -43,6 +48,12 @@ export interface WebServerDeps {
   newSession?: {
     options(): NewSessionOptions;
     create(input: { cwd: string; group: string }): Promise<string>;
+  };
+  /** Archive (with an optional outcome), Backlog and Restore; labels only, never stopping tmux or Pi. */
+  lifecycle?: {
+    archive(sessionId: string, closure: SessionClosure | undefined, expected: LifecycleTarget): Promise<void>;
+    backlog(sessionId: string, expected: LifecycleTarget): Promise<void>;
+    restore(sessionId: string, expected: LifecycleTarget): Promise<void>;
   };
   usage?(): UsageData | undefined;
   push?: {
@@ -83,6 +94,8 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
   "/chat.js": { file: "chat.js", type: "text/javascript; charset=utf-8" },
   "/markdown.js": { file: "markdown.js", type: "text/javascript; charset=utf-8" },
+  // Skill completion is shared with the dashboard the same way.
+  "/skill-reply.js": { file: fileURLToPath(new URL("../core/skill-reply.js", import.meta.url)), type: "text/javascript; charset=utf-8" },
   // Shared with the dashboard: the compiled module next to this compiled server, not a file in `web/`.
   "/transcript.js": { file: fileURLToPath(new URL("../core/transcript.js", import.meta.url)), type: "text/javascript; charset=utf-8" },
   "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
@@ -126,10 +139,6 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!session) throw new HttpError(404, "Session not found");
     return session;
   };
-  const inboxRow = (id: string): InboxSession | undefined => {
-    const snapshot = buildInboxSnapshot(deps.sessions(), now());
-    return [...snapshot.tiers.flatMap((tier) => tier.sessions), ...snapshot.archived].find((row) => row.id === id);
-  };
 
   /** The live target, only when it is the one the page displayed. */
   const boundTarget = (session: RuntimeSession, body: Record<string, unknown>): InteractionTarget => {
@@ -158,7 +167,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!origin) throw new HttpError(403, "Host not allowed");
     const url = new URL(req.url ?? "/", origin);
     const path = url.pathname;
-    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read|conversation|next|shortcut|resume))?$/u.exec(path);
+    const sessionRoute = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(answer|reply|read|conversation|next|shortcut|resume|archive|backlog|restore))?$/u.exec(path);
 
     if (req.method === "GET") {
       const asset = STATIC_FILES[path];
@@ -241,6 +250,34 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       return write(res, () => resume(session.id, { piSessionId: shownPi }), () => deps.touch(session.id));
     }
 
+    if (sessionRoute[2] === "archive" || sessionRoute[2] === "backlog" || sessionRoute[2] === "restore") {
+      if (!deps.lifecycle) throw new HttpError(404, "Not found");
+      const lifecycle = deps.lifecycle;
+      if (body.piSessionId !== undefined && typeof body.piSessionId !== "string") throw new HttpError(400, "Invalid target");
+      const expected: LifecycleTarget = {
+        piSessionId: body.piSessionId as string | undefined,
+        ...(body.bucket === "backlog" || body.bucket === "archived" ? { bucket: body.bucket } : {}),
+        ...(body.closure === "done" || body.closure === "abandoned" ? { closure: body.closure } : {}),
+      };
+      if (session.piSessionId !== expected.piSessionId) throw new HttpError(409, "Session changed; reload the page");
+      const action = sessionRoute[2];
+      // Archive and Backlog act from the lifecycle the page displayed; a change made elsewhere since then rejects.
+      const section = body.section === "active" || body.section === "backlog" ? body.section : undefined;
+      if (action === "archive") {
+        if (body.closure !== undefined && body.closure !== "done" && body.closure !== "abandoned") throw new HttpError(400, "Invalid outcome");
+        if (!section) throw new HttpError(400, "Invalid target");
+        const closure = body.closure as SessionClosure | undefined;
+        return write(res, () => lifecycle.archive(session.id, closure, { piSessionId: expected.piSessionId, section }), async () => {});
+      }
+      if (action === "backlog") {
+        if (section !== "active") throw new HttpError(400, "Invalid target");
+        return write(res, () => lifecycle.backlog(session.id, { piSessionId: expected.piSessionId, section }), async () => {});
+      }
+      // Restore needs the bucket it undoes, so it cannot erase a newer decision.
+      if (!expected.bucket) throw new HttpError(400, "Invalid target");
+      return write(res, () => lifecycle.restore(session.id, expected), async () => {});
+    }
+
     if (sessionRoute[2] === "read") {
       const shownRequest = typeof body.requestId === "string" ? body.requestId : undefined;
       const shownPi = typeof body.piSessionId === "string" ? body.piSessionId : undefined;
@@ -283,18 +320,29 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   };
 
   const detail = async (session: RuntimeSession, withConversation: boolean) => {
-    const row = inboxRow(session.id);
+    // The row and card come from the registry, so a stopped session or a failed bridge still shows them.
+    const shown = inboxDetail(deps.sessions(), session.id, now());
+    if (!shown) throw new HttpError(404, "Session not found");
+    const { session: row, card } = shown;
     const target = interactionTarget(session);
-    if (!target) return { session: row, unavailable: unavailableReason(session) };
+    if (!target) return { session: row, card, unavailable: unavailableReason(session) };
     try {
       const [state, conversation] = await Promise.all([deps.loadState(target), withConversation ? deps.loadConversation(target) : undefined]);
+      const skills = (state.skills ?? []).map((skill) => ({
+        name: skill.name.slice(0, SKILL_NAME_CHARS),
+        ...(boundedText(skill.description, SKILL_DESCRIPTION_CHARS) ? { description: boundedText(skill.description, SKILL_DESCRIPTION_CHARS) } : {}),
+      }));
+      const steps = workflowSkillSteps(session.workflow, state.skills ?? []);
       return {
         session: row,
+        card,
         interaction: {
           canAnswer: state.answerChannel === "rpiv-events" && state.questionProtocol && !state.questionUnavailableReason,
           ...(state.answerChannel ? {} : { answerUnavailable: "Reload Pi in this session to answer from Hub" }),
           ...(state.questionUnavailableReason ? { answerUnavailable: state.questionUnavailableReason } : {}),
           messageDelivery: state.messageDelivery ?? "idle",
+          ...(skills.length ? { skills } : {}),
+          ...(steps ? { steps } : {}),
           ...(advanceSkill(session, state) ? { nextSkill: advanceSkill(session, state) } : {}),
           ...(deps.runShortcut && deps.shortcuts?.length ? { shortcuts: deps.shortcuts.map((shortcut, index) => {
             const disabled = state.pending.length ? "Answer the pending question first" : state.shortcutDisabledReason;
@@ -311,7 +359,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         ...(conversation ? { conversation: conversationPage(conversation) } : {}),
       };
     } catch (error) {
-      return { session: row, unavailable: error instanceof Error ? error.message : "Session interaction unavailable" };
+      return { session: row, card, unavailable: error instanceof Error ? error.message : "Session interaction unavailable" };
     }
   };
 

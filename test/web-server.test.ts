@@ -70,6 +70,11 @@ async function withServer(fn: (h: Harness) => Promise<void>, sessions: RuntimeSe
       options: () => ({ repos: ["/tmp/repo-a", "/tmp/repo-b"], groups: ["default", "ui"] }),
       async create(input) { h.calls.push(`create:${input.cwd}:${input.group}`); if (h.fail) throw h.fail; return "new-id"; },
     },
+    lifecycle: {
+      async archive(id, closure, expected) { h.calls.push(`archive:${id}:${closure}:${expected.piSessionId}:${expected.section}`); if (h.fail) throw h.fail; },
+      async backlog(id, expected) { h.calls.push(`backlog:${id}:${expected.piSessionId}:${expected.section}`); if (h.fail) throw h.fail; },
+      async restore(id, expected) { h.calls.push(`restore:${id}:${expected.piSessionId}:${expected.bucket}:${expected.closure}`); if (h.fail) throw h.fail; },
+    },
     usage: () => h.usage,
   };
   const web = createWebServer(deps);
@@ -370,4 +375,51 @@ test("the snapshot carries account limits and archived parents can be opened", a
     const detail = await (await fetch(`${h.base}/api/sessions/old?conversation=0`)).json() as any;
     assert.equal(detail.session.id, "old");
   }, [asking(), asking({ id: "old", tmuxSession: "pi-agent-hub-old", status: "stopped", bucket: "archived", bucketChangedAt: 500, context: undefined })]);
+});
+
+test("detail carries the card even when the session cannot interact, plus loaded skills and step chips", async () => {
+  await withServer(async (h) => {
+    h.state = { ...STATE, pending: [], skills: [{ name: "plan-md", description: "Plan" }, { name: "execute", description: `<b>${"d".repeat(300)}` }] };
+    const live = await (await fetch(`${h.base}/api/sessions/ask?conversation=0`)).json() as any;
+    assert.equal(live.card.doing, "Wiring");
+    assert.deepEqual(live.interaction.skills.map((skill: any) => skill.name), ["plan-md", "execute"]);
+    assert.equal(live.interaction.skills[1].description.startsWith("<b>d"), true);
+    assert.equal([...live.interaction.skills[1].description].length, 160);
+    assert.deepEqual(live.interaction.steps, { ids: ["plan-md", "execute"], pick: 1 });
+    const stopped = await (await fetch(`${h.base}/api/sessions/off?conversation=0`)).json() as any;
+    assert.equal(stopped.unavailable, "Session is not running");
+    assert.equal(stopped.card.section, "backlog");
+    assert.equal(stopped.session.id, "off");
+    const script = await fetch(`${h.base}/skill-reply.js`);
+    assert.equal(script.status, 200);
+    assert.match(await script.text(), /export function skillMatches/u);
+  }, [
+    asking({ workflow: { steps: [{ id: "plan-md", short: "pl" }, { id: "execute", short: "exe" }], activeIndex: 0, currentStepComplete: true, updatedAt: 1, lens: { doing: "Wiring" } } }),
+    asking({ id: "off", tmuxSession: "pi-agent-hub-off", status: "stopped", bucket: "backlog", bucketChangedAt: 5, interaction: undefined, context: undefined }),
+  ]);
+});
+
+test("archive, backlog and restore act only on the displayed conversation", async () => {
+  await withServer(async (h) => {
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-1", section: "active", closure: "done" })).status, 200);
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-1", section: "backlog" })).status, 200);
+    assert.equal((await h.post("/api/sessions/ask/backlog", { piSessionId: "pi-1", section: "active" })).status, 200);
+    assert.equal((await h.post("/api/sessions/ask/restore", { piSessionId: "pi-1", bucket: "archived", closure: "abandoned" })).status, 200);
+    assert.deepEqual(h.calls, ["archive:ask:done:pi-1:active", "archive:ask:undefined:pi-1:backlog", "backlog:ask:pi-1:active", "restore:ask:pi-1:archived:abandoned"]);
+    h.calls.length = 0;
+    // A replaced conversation, a missing identity, a bad outcome, a Restore without its bucket, a subagent, a foreign origin.
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-old" })).status, 409);
+    assert.equal((await h.post("/api/sessions/ask/backlog", {})).status, 409);
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-1", section: "active", closure: "maybe" })).status, 400);
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-1" })).status, 400);
+    assert.equal((await h.post("/api/sessions/ask/backlog", { piSessionId: "pi-1", section: "backlog" })).status, 400);
+    assert.equal((await h.post("/api/sessions/ask/restore", { piSessionId: "pi-1" })).status, 400);
+    assert.equal((await h.post("/api/sessions/kid/archive", { piSessionId: "pi-kid" })).status, 404);
+    assert.equal((await h.post("/api/sessions/ask/archive", { piSessionId: "pi-1" }, { Origin: "http://evil.test" })).status, 403);
+    assert.deepEqual(h.calls, []);
+    h.fail = new Error("session is closed; Reopen it first");
+    const rejected = await h.post("/api/sessions/ask/backlog", { piSessionId: "pi-1", section: "active" });
+    assert.equal(rejected.status, 409);
+    assert.equal((await rejected.json() as any).error, "session is closed; Reopen it first");
+  }, [asking(), asking({ id: "kid", tmuxSession: "pi-agent-hub-kid", kind: "subagent", parentId: "ask", piSessionId: "pi-kid" })]);
 });

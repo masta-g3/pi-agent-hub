@@ -335,6 +335,14 @@ test("close showing and all use pane IDs and tolerate disappearance", async () =
   const showing = sidePaneExec(panes, sessions);
   assert.equal(await closeSidePaneShowing({ target: "pi-agent-hub-docs", ownPane: "%1" }, showing), true);
   assert.deepEqual(showing.calls.at(-1)?.args, ["kill-pane", "-t", "%3"]);
+  // A pane id from an earlier look closes nothing once that pane was replaced, even for the same session.
+  const replaced = sidePaneExec(panes, sessions);
+  assert.equal(await closeSidePaneShowing({ target: "pi-agent-hub-docs", ownPane: "%1", paneId: "%9" }, replaced), false);
+  assert.equal(replaced.calls.some((call) => call.args[0] === "kill-pane"), false);
+  assert.equal(await closeSidePaneShowing({ target: "pi-agent-hub-api", ownPane: "%1", paneId: "%3" }, replaced), false);
+  const exact = sidePaneExec(panes, sessions);
+  assert.equal(await closeSidePaneShowing({ target: "pi-agent-hub-docs", ownPane: "%1", paneId: "%3" }, exact), true);
+  assert.deepEqual(exact.calls.at(-1)?.args, ["kill-pane", "-t", "%3"]);
   const all = sidePaneExec(panes, sessions);
   await closeSidePanes({ ownPane: "%1" }, all);
   assert.equal(all.calls.filter((call) => call.args[0] === "kill-pane").length, 2);

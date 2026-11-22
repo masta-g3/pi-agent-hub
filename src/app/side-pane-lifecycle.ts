@@ -113,7 +113,8 @@ export interface SidePaneLifecycle {
   resize(delta: -1 | 1): Promise<ResizeSidePaneResult>;
   focusDirection(direction: SpatialDirection): Promise<FocusSidePaneResult>;
   returnToCockpit(): Promise<FocusSidePaneResult>;
-  detach(tmuxSession: string): Promise<boolean>;
+  /** Close the pin showing `tmuxSession`; with `paneId`, only that exact pane, so a later pin of the same session stays. */
+  detach(tmuxSession: string, paneId?: string): Promise<boolean>;
   handoff(tmuxSession: string): Promise<boolean>;
   refreshPanelChrome(): void;
   sync(): void;
@@ -613,12 +614,12 @@ export function createSidePaneLifecycle(deps: SidePaneLifecycleDependencies): Si
         return { kind: "focused" as const };
       }));
     },
-    detach(tmuxSession) {
+    detach(tmuxSession, paneId) {
       if (stopped) return Promise.resolve(false);
       return trackIntent(withPausedPresence(async () => {
         const ownPane = deps.ownPane();
         if (!ownPane) return false;
-        const closed = await closeSidePaneShowing({ target: tmuxSession, ownPane }, exec);
+        const closed = await closeSidePaneShowing({ target: tmuxSession, ownPane, ...(paneId ? { paneId } : {}) }, exec);
         if (closed) await afterMutation(undefined);
         return closed;
       }));
