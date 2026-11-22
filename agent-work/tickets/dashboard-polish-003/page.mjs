@@ -18,7 +18,10 @@ export function toHtml(text) {
   }
   return out;
 }
-export const css = `body{margin:0;background:#0b0d14;color:#cdd6f4;font:14px/1.3 "SF Mono",Menlo,monospace;padding:32px;display:inline-block}.win{background:#1e1e2e;border:1px solid #313244;border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.5);overflow:hidden}.bar{height:30px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#181825}.bar i{width:12px;height:12px;border-radius:50%;display:block}pre{background:#1e1e2e;display:inline-block;padding:0;margin:0 0 24px;font:inherit}h3{font:600 12px system-ui;color:#7f849c}`;
+// Nerd Font icons need a Nerd Font: load the installed JetBrains Mono Nerd Font Mono files by path.
+const fonts = `${process.env.HOME}/Library/Fonts`;
+const face = (weight, file) => `@font-face{font-family:"JBM Nerd";font-weight:${weight};src:url("file://${fonts}/${file}")}`;
+export const css = `${face(400, "JetBrainsMonoNerdFontMono-Regular.ttf")}${face(700, "JetBrainsMonoNerdFontMono-Bold.ttf")}body{margin:0;background:#0b0d14;color:#cdd6f4;font:14px/1.3 "JBM Nerd","SF Mono",Menlo,monospace;padding:32px;display:inline-block}.win{background:#1e1e2e;border:1px solid #313244;border-radius:12px;box-shadow:0 20px 50px rgba(0,0,0,.5);overflow:hidden}.bar{height:30px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#181825}.bar i{width:12px;height:12px;border-radius:50%;display:block}pre{background:#1e1e2e;display:inline-block;padding:0;margin:0 0 24px;font:inherit}h3{font:600 12px system-ui;color:#7f849c}`;
 if (process.argv[1]?.endsWith("page.mjs")) {
 const shots = JSON.parse(process.argv[2]);
 const body = shots.map(([w, h, sel, extra]) => `<div class=win><div class=bar><i style=background:#f38ba8></i><i style=background:#f9e2af></i><i style=background:#a6e3a1></i></div><pre style="padding:8px 10px 4px">${toHtml(frame(w, h, sel, extra ?? {}, true, theme))}</pre></div>`).join("\n");

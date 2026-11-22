@@ -8,7 +8,7 @@ New here? [Features](docs/FEATURES.md) has the daily workflow and the full key m
 
 ![pi-agent-hub dashboard](assets/pi-agent-hub-dashboard.png)
 
-*The dashboard at 150 columns, with example sessions. Every agent gets a line on the left. The selected agent's card is on the right. Tickets, requests, plans, and workflow steps come from optional Pi extensions.*
+*The dashboard at 150 columns, with example sessions and [Nerd Font icons](#icons). Every agent gets a line on the left. The selected agent's card is on the right. Tickets, requests, plans, and workflow steps come from optional Pi extensions.*
 
 ## Why pi-agent-hub?
 
@@ -24,12 +24,14 @@ Pi runs the agents. tmux keeps them alive. Hub adds one keyboard-driven dashboar
 | Card answers and replies | Answer supported questions with `Tab`, or write a reply with `p`. |
 | Conversation | Read completed messages and question/answer history below the fleet. |
 | Phone inbox | Answer and reply from a phone browser with `pi-hub web`. Each new request sends a notification. |
-| Optional workflow board | See workflow position, task progress, and nested subagents from compatible Pi extensions. |
-| Usage and account quotas | Press `u` for token/cost history and account limits from an optional producer. |
+| Optional workflow board | See workflow position, task progress, and nested subagents from [Rules](#integrations) or a compatible extension. |
+| Usage and account quotas | Press `u` for token and cost history and account limits from [pi-accounts](#integrations). |
 | Project skills and MCP | Choose capabilities for the selected session's primary repo. |
 | Multi-repo workspaces | Give one session access to several repos without moving the source folders. |
 | Hub-owned worktrees | Start a session on its own branch, then finish, forget, or discard it. |
 | Local and recoverable | No cloud service, no custom agent runtime, no repo scanning. Sessions stay normal tmux sessions. |
+
+Some features need a companion Pi package. See [Integrations](#integrations).
 
 ## Quick start
 
@@ -83,17 +85,20 @@ Groups, Backlog, and Archive sort sessions but never stop an agent. Archiving al
 
 Pins and follow view are opt-in. `P` keeps a live session beside the list, and `o` opens one pane that follows the selection. Hub never replaces a pin you already have. See [Sidebar workspace](docs/FEATURES.md#sidebar-workspace).
 
-### Optional Pi integrations
+## Integrations
 
-Hub works on its own. Pi extensions can add task context, explicit requests, workflow progress, and subagent rows.
+Hub works on its own. These Pi packages fill in the rest of the dashboard: tickets, requests, plans, subagents, answers, and quotas. Without them, a session shows its runtime status and little else.
 
-- [Rules](https://github.com/masta-g3/rules) adds skills and a Plan → Execute → Review → Reflect → Commit workflow. Hub shows its tickets, requests, and progress. `S` opens the read-only workflow board.
-- [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) 2.15.0+ lets you answer questions from the card. See [Inline questions](docs/CONFIG.md#inline-questions) to install it.
-- [pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) runs child agents in tmux. Hub shows them under their parent session.
-- `pi-accounts` can publish quota readings and token/cost rollups through the [usage snapshot contract](docs/CONFIG.md#usage-snapshot). Header bars open Limits; `u` opens Usage. Cost estimates are API-equivalent, not your bill. Hub never reads conversations or credentials for this integration.
-- Your own Pi extensions can publish the supported context and workflow metadata. Configured dashboard shortcuts can send Pi commands to the selected session.
+| Package | What Hub shows | Install |
+| --- | --- | --- |
+| [Rules](https://github.com/masta-g3/rules) | Linked tickets, requests (`ASK`, `RDY`, `BLK`), the workflow step, the plan checklist, progress notes, and the `S` workflow board | Clone and run its sync script. See [Rules workflow](docs/CONFIG.md#rules-workflow) |
+| [pi-tmux-subagents](https://github.com/masta-g3/pi-tmux-subagents) | Child agents nested under their parent, with their own status and task | `pi install npm:pi-tmux-subagents` |
+| [rpiv-ask-user-question](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) 2.15.0+ | Answering an agent's question on its card with `Tab` | `pi install npm:@juicesharp/rpiv-ask-user-question` |
+| [pi-accounts](https://github.com/masta-g3/pi-accounts) | Quota bars in the header and the `u` Usage view: cost, tokens, and limits | `pi install git:github.com/masta-g3/pi-accounts` |
 
-These are ordinary Pi extensions. Hub has no plugin loader of its own. Hub shows workflow state but never runs or advances a workflow. See [Optional integrations](docs/CONFIG.md#optional-integrations) for setup, prerequisites, and the metadata contracts.
+Run `/reload` in open Pi sessions after you install one. Rules' sync also installs pi-tmux-subagents. Install pi-accounts from git, because the npm package with that name belongs to a different project. Its cost figures are API-equivalent estimates, not your bill. For usage, Hub reads only the files pi-accounts writes, never your conversations or credentials.
+
+These are ordinary Pi extensions. Hub has no plugin loader of its own, and it never runs or advances a workflow. Your own extensions can publish the same session context, workflow metadata, and usage snapshots. [Dashboard shortcuts](docs/CONFIG.md#dashboard-shortcuts) can send Pi commands to the selected session. See [Optional integrations](docs/CONFIG.md#optional-integrations) for setup and the data formats.
 
 ## Install
 
@@ -122,6 +127,16 @@ $PiBin = "$env:USERPROFILE\.pi\agent\npm\node_modules\.bin"
 ```
 
 Hub still needs tmux and a compatible shell. For local development, see [Development](docs/DEVELOPMENT.md).
+
+### Icons
+
+The screenshots use [Nerd Font](https://www.nerdfonts.com) icons. To turn them on, use a Nerd Font 3.4 or later in your terminal and add this to your shell profile:
+
+```bash
+export PI_AGENT_HUB_GLYPHS=nerd
+```
+
+Without it, Hub uses plain Unicode symbols that work in any font. Set `PI_AGENT_HUB_GLYPHS=ascii` for ASCII only. See [Plain terminals](docs/CONFIG.md#plain-terminals) for every icon.
 
 ## Common commands
 

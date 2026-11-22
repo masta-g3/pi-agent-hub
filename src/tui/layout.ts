@@ -1030,7 +1030,7 @@ function renderSessionList(model: RenderModel, width: number, styles: LayoutStyl
       }
       // A rule sets the question or reply apart from the context kept above it.
       if (focused && prefix.length) {
-        const head = focused.kind === "answer" ? `${rowStyles.dim(glyphs.horizontal.repeat(2))} ${rowStyles.warning(`${fieldIcon("ASK")}ASK`)} ` : "";
+        const head = focused.kind === "answer" ? `${rowStyles.dim(glyphs.horizontal.repeat(2))} ${rowStyles.warning("ASK")} ` : "";
         prefix.push(`${head}${rowStyles.dim(glyphs.horizontal.repeat(Math.max(0, contentWidth - displayWidth(head))))}`);
       }
       panel = { bodyStart, width, indent, frame: { focused: Boolean(workspace?.panel), metadata: frame.metadata, tone: frame.tone, keys: keyRows },

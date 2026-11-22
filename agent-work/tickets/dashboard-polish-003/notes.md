@@ -1,11 +1,12 @@
 # README screenshot and daily-loop GIF
 
-Both images are drawn by the real renderer with anonymized sample sessions from `demo.mjs`.
+Both images are drawn by the real renderer with anonymized sample sessions from `demo.mjs`, in Nerd Font mode (`PI_AGENT_HUB_GLYPHS=nerd`). `page.mjs` loads JetBrains Mono Nerd Font Mono from `~/Library/Fonts`; without it the icons render as boxes.
 Re-run them after dashboard changes; unchanged code reproduces both files byte-for-byte.
 
 ```bash
 D=agent-work/tickets/dashboard-polish-003; OUT=$(mktemp -d)
 EXE=<path to a Playwright Chromium binary, e.g. ~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium>
+export PI_AGENT_HUB_GLYPHS=nerd
 npx tsc -p tsconfig.json --outDir $OUT/dist && ln -s $PWD/node_modules $OUT/node_modules && cp package.json $OUT/
 
 # Screenshot
