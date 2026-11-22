@@ -500,7 +500,7 @@ Set `PI_AGENT_HUB_GLYPHS=nerd` to draw the dashboard with [Nerd Font](https://ww
 | Workflow | A check for a finished step, a dot circle for the active step, and capped task and quota meters. |
 | Markers | Worktree branch, ready to merge, cleanup check, orchestration, repository count, running subagents, artifact, note, favorite, pin, abandoned, ticket, usage warning, and expand and collapse chevrons. |
 | Chrome | A pi logo before `pi hub`, a folder before each group name, and rounded pills for keycaps and the mode label. A pill is as wide as the square keycap. Pills need a theme that paints keycaps and are not used with `NO_COLOR`. |
-| Model tag | A vendor icon: a star for Claude, a hexagon for OpenAI, the Google logo, or a robot for other vendors. Hub detects the vendor from the model id, then the provider. |
+| Model tag | A vendor icon: a star for Claude, a camera iris for OpenAI, the Google logo, or a robot for other vendors. Hub detects the vendor from the model id, then the provider. |
 
 Separators, rules, the selection stripe and dialog frames stay Unicode. Each state keeps its own shape, so rows read without color. Every icon is one cell wide.
 

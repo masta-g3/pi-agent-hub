@@ -56,9 +56,9 @@ export const glyphs: GlyphSet = mode === "ascii" ? ascii : mode === "nerd" ? ner
 /**
  * Nerd Font vendor icons for the model badge, enabled by `PI_AGENT_HUB_GLYPHS=nerd`; other sets show text only.
  * The Claude and OpenAI logos exist only in Nerd Fonts 3.5 patched fonts, not in the Symbols fallback font that
- * terminals bundle, so the badge uses a star, a hexagon and a robot that every 3.x font has.
+ * terminals bundle, so the badge uses a star, a camera iris and a robot that every 3.x font has.
  */
-export const nerdModelIcons = { anthropic: "\u{F4F5}", openai: "\u{F02D9}", google: "\u{F02AD}", other: "\u{F06A9}" } as const;
+export const nerdModelIcons = { anthropic: "\u{F4F5}", openai: "\u{F0104}", google: "\u{F02AD}", other: "\u{F06A9}" } as const;
 export type ModelIcons = typeof nerdModelIcons;
 export const modelIcons: ModelIcons | undefined = mode === "nerd" ? nerdModelIcons : undefined;
 
