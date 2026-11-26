@@ -177,6 +177,11 @@ test("apply computed status preserves the latest heartbeat activity time", () =>
   assert.equal(older.lastActivityAt, now - 500);
 });
 
+test("a shutdown heartbeat does not count as activity", () => {
+  const stopped = applyComputedStatus(session({ lastActivityAt: now - 5_000 }), { status: "stopped" }, now, heartbeat({ state: "shutdown", stateSince: now - 1_000 }));
+  assert.equal(stopped.lastActivityAt, now - 5_000);
+});
+
 test("apply computed status keeps fresh active theme and drops stale theme", () => {
   const activeTheme = { name: "solarized-dark", sourcePath: "/themes/solarized-dark.json" };
   const fresh = applyComputedStatus(session(), { status: "waiting" }, now, heartbeat({ activeTheme }));

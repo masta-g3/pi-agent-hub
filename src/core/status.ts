@@ -104,7 +104,8 @@ export function applyComputedStatus(session: ManagedSession, computed: ComputedS
     error: computed.error,
     sessionFile: heartbeat?.piSessionFile ?? session.sessionFile,
     piSessionId: heartbeat?.piSessionId ?? session.piSessionId,
-    lastActivityAt: latestActivityAt(session.lastActivityAt, heartbeat?.stateSince),
+    // Shutdown is not activity: a restart must not outdate the resumed conversation's own time.
+    lastActivityAt: latestActivityAt(session.lastActivityAt, heartbeat?.state === "shutdown" ? undefined : heartbeat?.stateSince),
     kind: heartbeat?.kind ?? session.kind,
     parentId: heartbeat?.parentId ?? session.parentId,
     agentName: heartbeat?.agentName ?? session.agentName,

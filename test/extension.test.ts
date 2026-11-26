@@ -243,6 +243,19 @@ test("compaction publishes transient running and restores or preserves continuat
   }
 });
 
+test("a resumed conversation reports waiting since its last message, and a fork since its creation", async () => {
+  const resumed = (created: string) => heartbeatWithSessionManager({
+    getHeader: () => ({ type: "session", timestamp: created }),
+    // Custom entries written on load are not conversation activity.
+    getBranch: () => [
+      { type: "message", timestamp: "2026-10-28T00:39:05.421Z", message: { role: "assistant" } },
+      { type: "custom", customType: "workflow-runtime", timestamp: "2026-11-25T23:34:40.619Z", data: {} },
+    ],
+  }, async () => {});
+  assert.equal((await resumed("2026-10-06T19:15:12.094Z")).stateSince, Date.parse("2026-10-28T00:39:05.421Z"));
+  assert.equal((await resumed("2026-11-25T23:30:00.000Z")).stateSince, Date.parse("2026-11-25T23:30:00.000Z"));
+});
+
 test("blocking Pi prompts publish waiting and restore the prior lifecycle state and activity time", async () => {
   delete (globalThis as Record<symbol, unknown>)[EXTENSION_KEY];
   const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-extension-prompt-"));

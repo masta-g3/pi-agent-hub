@@ -40,6 +40,7 @@ type PiContext = {
     getSessionFile?: () => string | undefined;
     getSessionId?: () => string | undefined;
     getBranch?: () => unknown[] | undefined;
+    getHeader?: () => { timestamp?: unknown } | null | undefined;
   };
 };
 
@@ -150,15 +151,15 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
     }
   }
 
-  async function applyThemeAndHeartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string) {
+  async function applyThemeAndHeartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string, stateSinceOverride?: number) {
     await applyThemeCommand(ctx);
-    await heartbeat(state, ctx, message);
+    await heartbeat(state, ctx, message, stateSinceOverride);
   }
 
-  async function publishLifecycle(state: Heartbeat["state"], ctx: PiContext, message?: string) {
+  async function publishLifecycle(state: Heartbeat["state"], ctx: PiContext, message?: string, stateSinceOverride?: number) {
     lifecycleRevision += 1;
     interaction?.lifecycleChanged();
-    await applyThemeAndHeartbeat(state, ctx, message);
+    await applyThemeAndHeartbeat(state, ctx, message, stateSinceOverride);
   }
 
   async function heartbeat(state: Heartbeat["state"], ctx: PiContext, message?: string, stateSinceOverride?: number) {
@@ -250,7 +251,8 @@ export default function piAgentHubExtension(pi: ExtensionAPI, dependencies: {
       else mcpCleanup = cleanup;
     };
     const startHeartbeat = async () => {
-      await publishLifecycle("waiting", piCtx);
+      // A resumed conversation has waited since its last message, a fork since its creation; a restart is not activity.
+      await publishLifecycle("waiting", piCtx, undefined, resumedAt(piCtx));
       if (!active()) return;
       heartbeatTimer = setInterval(() => void heartbeat(currentState, piCtx), HEARTBEAT_INTERVAL_MS);
       acceptingNameCommands = true;
@@ -481,6 +483,22 @@ function workflowFields(ctx: PiContext): { workflow?: WorkflowRuntimeSnapshot; l
     ...(!entry ? {} : "steps" in entry ? { workflow: entry } : { lens: entry.lens }),
     ...(orchestration ? { orchestration } : {}),
   };
+}
+
+function resumedAt(ctx: PiContext): number | undefined {
+  try {
+    const entries = ctx.sessionManager?.getBranch?.() ?? [];
+    // Without a message the session is new and starts now.
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i] as { type?: string; timestamp?: unknown } | undefined;
+      if (entry?.type !== "message") continue;
+      const times = [entry.timestamp, ctx.sessionManager?.getHeader?.()?.timestamp]
+        .map((value) => typeof value === "string" ? Date.parse(value) : NaN).filter(Number.isFinite);
+      const at = Math.max(...times);
+      return times.length && at <= Date.now() ? at : undefined;
+    }
+  } catch {}
+  return undefined;
 }
 
 function workflowEntryData(ctx: PiContext): unknown {
