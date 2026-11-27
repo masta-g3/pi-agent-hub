@@ -76,6 +76,7 @@ async function withServer(fn: (h: Harness) => Promise<void>, sessions: RuntimeSe
       async restore(id, expected) { h.calls.push(`restore:${id}:${expected.piSessionId}:${expected.bucket}:${expected.closure}`); if (h.fail) throw h.fail; },
     },
     usage: () => h.usage,
+    instanceId: "instance-1",
   };
   const web = createWebServer(deps);
   await new Promise<void>((done) => web.server.listen(0, "127.0.0.1", done));
@@ -126,6 +127,18 @@ test("serves the page with a strict content security policy and rejects foreign 
     // fetch() cannot forge Host; a rebinding browser sends the attacker's name here.
     const status = await new Promise<number>((done, fail) => {
       request(`${h.base}/`, { headers: { Host: "evil.example.com" } }, (res) => { res.resume(); done(res.statusCode ?? 0); }).on("error", fail).end();
+    });
+    assert.equal(status, 403);
+  });
+});
+
+test("instance route names this process and refuses foreign hosts", async () => {
+  await withServer(async (h) => {
+    const response = await fetch(`${h.base}/api/instance`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { instanceId: "instance-1" });
+    const status = await new Promise<number>((done, fail) => {
+      request(`${h.base}/api/instance`, { headers: { Host: "evil.example.com" } }, (res) => { res.resume(); done(res.statusCode ?? 0); }).on("error", fail).end();
     });
     assert.equal(status, 403);
   });

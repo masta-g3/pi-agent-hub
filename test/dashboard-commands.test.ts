@@ -501,3 +501,27 @@ test("undo command follows the stored entry, not the selection", () => {
   const views = dashboardHelpSections().find((section) => section.label === "Views")!;
   assert.ok(views.commands.some((command) => command.label === "Undo last change" && command.displayKey === "z"));
 });
+
+test("phone inbox commands bind to the shown state, stay palette-only, and ignore session selection", () => {
+  const web = (input: Partial<Parameters<typeof buildDashboardCommands>[0]>) => buildDashboardCommands({ sessions: [], capabilities: { webInbox: true }, ...input })
+    .filter((command) => command.id.startsWith("view:web-"));
+  const off = web({ webInboxOn: false });
+  assert.deepEqual(off.map((command) => [command.id, command.label, command.enabled]), [
+    ["view:web-start", "Phone inbox: Off", true],
+    ["view:web-autostart", "Start phone inbox with dashboard: Off", true],
+  ]);
+  const on = web({ webInboxOn: true, webAutostartEnabled: true });
+  assert.deepEqual(on.map((command) => [command.id, command.label]), [
+    ["view:web-stop", "Phone inbox: On"],
+    ["view:web-autostart", "Start phone inbox with dashboard: On"],
+  ]);
+  for (const command of [...off, ...on]) assert.deepEqual(command.bindings, []);
+  assert.ok(searchDashboardCommands(off, "phone").some((command) => command.id === "view:web-start"));
+  // A tier header or an empty board blocks session actions, not these global toggles.
+  assert.ok(web({ interactionBlockedReason: "select a visible session first" }).every((command) => command.enabled));
+  const missing = buildDashboardCommands({ sessions: [] }).filter((command) => command.id.startsWith("view:web-"));
+  assert.ok(missing.every((command) => !command.enabled && command.disabledReason === "phone inbox unavailable"));
+  const views = dashboardHelpSections().find((section) => section.label === "Views")!.commands.map((command) => command.label);
+  assert.equal(views.filter((label) => label === "Phone inbox").length, 1);
+  assert.ok(views.includes("Start phone inbox with dashboard"));
+});

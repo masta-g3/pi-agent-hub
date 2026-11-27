@@ -56,6 +56,8 @@ export interface PanelViewport { pageSize: number; maxOffset: number; fallback?:
 
 export interface SessionsLayout {
   usageHit?: { row: number; x: number; width: number };
+  /** The header's `web` signal, shown while the phone inbox runs. */
+  webHit?: { row: number; x: number; width: number };
   panelViewport?: PanelViewport;
   cardCommandHits: CardCommandHit[];
   lines: string[];
@@ -143,10 +145,11 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
   }
   if (model.empty && !model.guidance.coach && !model.guidance.releaseCue) {
     const summary = renderTopSummary(model, width, styles);
-    const showSummary = filterBar || model.usage?.accounts.length;
+    const showSummary = filterBar || model.usage?.accounts.length || summary.web;
     const body = showSummary ? [summary.line, ...filterLines, ...emptyLines(width, styles)] : emptyLines(width, styles);
     const layout = emptyLayout(wrapShell(width, body, model.height));
     if (showSummary && summary.quota && layout.lines.length > 0) layout.usageHit = { row: 0, x: 1 + summary.quota.x, width: summary.quota.width };
+    if (showSummary && summary.web && layout.lines.length > 0) layout.webHit = { row: 0, x: 1 + summary.web.x, width: summary.web.width };
     return layout;
   }
   if (model.noBoardSessions) {
@@ -156,6 +159,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
     const layout = emptyLayout(wrapShell(width, body, model.height));
     for (let i = 0; i < announcement.targets.length; i += 1) layout.announcementRowTargets[1 + filterLines.length + i] = announcement.targets[i];
     if (summary.quota && layout.lines.length > 0) layout.usageHit = { row: 0, x: 1 + summary.quota.x, width: summary.quota.width };
+    if (summary.web && layout.lines.length > 0) layout.webHit = { row: 0, x: 1 + summary.web.x, width: summary.web.width };
     return layout;
   }
   if (model.grouping === "stage" && model.showWorkspace && model.workspace?.fullScreen) {
@@ -291,6 +295,7 @@ export function renderSessions(model: RenderModel, theme?: SessionsTheme): Sessi
       ...(card && !side ? card.lineMeta.slice(0, cardHeight).flatMap((meta, index) => (meta?.commands ?? []).map(hit => ({ ...hit, row: cardStart + index, x: listStartX + hit.x }))) : []),
     ],
     ...(summary.quota && lines.length > 0 ? { usageHit: { row: 0, x: 1 + summary.quota.x, width: summary.quota.width } } : {}),
+    ...(summary.web && lines.length > 0 ? { webHit: { row: 0, x: 1 + summary.web.x, width: summary.web.width } } : {}),
     ...(summary.chips.length && lines.length > 0 ? { tierChipRow: 0 } : {}),
     tierChips: lines.length > 0 ? summary.chips.map((chip) => ({ ...chip, x: chip.x + 1 })) : [],
     workspaceRowTargets,
@@ -639,11 +644,18 @@ function pinSummaryLabel(model: RenderModel): string {
   return summary.hidden ? `${summary.count} ${summary.count === 1 ? "pin" : "pins"} hidden` : `${summary.count} pinned`;
 }
 
-interface HeaderSummary { line: string; chips: TierChip[]; quota?: { x: number; width: number } }
+interface HeaderSummary { line: string; chips: TierChip[]; quota?: { x: number; width: number }; web?: { x: number; width: number } }
 
 const BRAND = icons ? `${icons.brand} pi hub` : "pi hub";
 
-/** The brand is the header's lowest priority: it shows only when mode, signals and quota leave room. */
+const WEB_SIGNAL = "web";
+const WEB_GAP = ` ${glyphs.pendingStep} `;
+const WEB_GAP_WIDTH = displayWidth(WEB_GAP);
+
+/**
+ * The brand is the header's lowest priority: it shows only when mode, signals and quota leave room.
+ * The phone inbox's `web` is fitted last, into whatever gap remains, so it never shortens anything else.
+ */
 function headerWithQuota(mode: string, right: string, model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {
   const brandWidth = displayWidth(BRAND) + 2;
   const label = styles.mode(mode);
@@ -653,7 +665,14 @@ function headerWithQuota(mode: string, right: string, model: RenderModel, width:
   const brand = room - (quota ? displayWidth(quota) + 3 : 0) >= brandWidth ? `${styles.strong(BRAND)}  ` : "";
   const modeX = displayWidth(brand);
   const left = brand + label + (quota ? `   ${quota}` : "");
-  return { line: headerBand(twoColumn(left, right, width), width, styles), chips: [], ...(quota ? { quota: { x: modeX + modeWidth + 3, width: displayWidth(quota) } } : {}) };
+  const webSuffix = `${styles.border(WEB_GAP)}${styles.muted(WEB_SIGNAL)}`;
+  const web = model.webPorts?.length && displayWidth(left) + displayWidth(right) + displayWidth(webSuffix) + 1 <= width;
+  return {
+    line: headerBand(twoColumn(left, web ? right + webSuffix : right, width), width, styles),
+    chips: [],
+    ...(quota ? { quota: { x: modeX + modeWidth + 3, width: displayWidth(quota) } } : {}),
+    ...(web ? { web: { x: width - displayWidth(WEB_SIGNAL), width: displayWidth(WEB_SIGNAL) } } : {}),
+  };
 }
 
 /** Fleet meter cells: a distinct shape per tier, so the tiers read without color. */
@@ -711,13 +730,15 @@ function renderHeaderSummary(model: RenderModel, width: number, styles: LayoutSt
   }
   if (!fits()) return renderTopSummary(model, width, styles);
   const line = right();
-  let x = width - displayWidth(line);
+  const header = headerWithQuota("FLEET", line, model, width, styles);
+  // Chips are right-aligned with the signals, so a fitted `web` suffix moves them left by its width.
+  let x = (header.web ? header.web.x - WEB_GAP_WIDTH : width) - displayWidth(line);
   const chips = entries.map((entry) => {
     const chip = { tier: entry.tier, x, width: displayWidth(group(entry)) };
     x += chip.width + 1;
     return chip;
   });
-  return { ...headerWithQuota("FLEET", line, model, width, styles), chips };
+  return { ...header, chips };
 }
 
 function renderTopSummary(model: RenderModel, width: number, styles: LayoutStyles): HeaderSummary {

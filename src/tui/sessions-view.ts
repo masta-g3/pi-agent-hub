@@ -123,6 +123,7 @@ export class SessionsView implements Component {
   private dialog: SessionDialog | undefined;
   private usageState = createUsageView();
   private usageHit?: { row: number; x: number; width: number };
+  private webHit?: { row: number; x: number; width: number };
   private fullWindowWanted = false;
   private helpScroll = 0;
   private helpPageSize = 1;
@@ -511,6 +512,7 @@ export class SessionsView implements Component {
     this.tierChipRow = undefined;
     this.tierChips = [];
     this.usageHit = undefined;
+    this.webHit = undefined;
     this.confirmationReview = undefined;
     this.dialogHits = [];
     this.dialogHitOwner = this.dialog ?? this.pendingRestart;
@@ -618,6 +620,7 @@ export class SessionsView implements Component {
     const model = buildRenderModel({
       sessions: snapshot.sessions,
       usage: snapshot.usage,
+      webPorts: this.actions.webInbox?.ports(),
       selectedId: snapshot.selectedId,
       visibleRequestCount: this.visibleRequestIds().length,
       width,
@@ -677,6 +680,7 @@ export class SessionsView implements Component {
       && (selected?.status === "running" || selected?.status === "starting")
       && layout.rowTargets.some((target) => target?.kind === "session" && target.id === selected.id);
     this.usageHit = layout.usageHit;
+    this.webHit = layout.webHit;
     this.tierChipRow = layout.tierChipRow;
     this.tierChips = layout.tierChips;
     this.workspaceRowTargets = layout.workspaceRowTargets;
@@ -1167,6 +1171,7 @@ export class SessionsView implements Component {
       acknowledge: true,
       attentionBell: Boolean(this.actions.attentionDelivery?.setAttentionBell),
       followDefault: Boolean(this.actions.followPreference),
+      webInbox: Boolean(this.actions.webInbox),
     };
     return buildDashboardCommands({
       sessions: this.commandSessions(snapshot),
@@ -1182,6 +1187,8 @@ export class SessionsView implements Component {
       attentionRequests: this.activeAttentionAnnouncements().map(({ sessionId, requestId }) => ({ sessionId, requestId })),
       attentionBellEnabled: this.actions.attentionDelivery?.attentionBellEnabled?.() ?? false,
       followDefaultEnabled: this.actions.followPreference?.followDefault() ?? false,
+      webInboxOn: (this.actions.webInbox?.ports().length ?? 0) > 0,
+      webAutostartEnabled: this.actions.webInbox?.autostart() ?? false,
       visibleRequestCount: this.visibleRequestIds().length,
       undoLabel: this.undo?.label,
       pinState: {
@@ -1410,6 +1417,9 @@ export class SessionsView implements Component {
       case "view:theme": this.startThemeDialog(); return;
       case "view:attention-bell": this.toggleAttentionBell(); return;
       case "view:follow-default": this.toggleFollowDefault(); return;
+      case "view:web-start": this.startWebInbox(); return;
+      case "view:web-stop": this.stopWebInbox(); return;
+      case "view:web-autostart": this.toggleWebAutostart(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
@@ -2034,6 +2044,12 @@ export class SessionsView implements Component {
       if (this.dialog?.kind === "usage") this.usageState.tab = "limits";
       return;
     }
+    // Shows where the inbox runs; stopping stays a deliberate palette choice.
+    if (event.kind === "press" && this.webHit && event.y - 1 === this.webHit.row && event.x >= this.webHit.x && event.x < this.webHit.x + this.webHit.width) {
+      const ports = this.actions.webInbox?.ports() ?? [];
+      if (ports.length) this.flashMessage(webInboxStatus(ports));
+      return;
+    }
     const tierChip = event.kind === "press" && event.y - 1 === this.tierChipRow
       ? this.tierChips.find((chip) => event.x >= chip.x && event.x < chip.x + chip.width)
       : undefined;
@@ -2100,6 +2116,30 @@ export class SessionsView implements Component {
     }
     this.controller.selectSession(ownerId);
     this.listScrollTop = 0;
+  }
+
+  /** The palette drops a start or stop entry whose state changed before Enter, so neither reverses what the user saw. */
+  private startWebInbox() {
+    const web = this.actions.webInbox;
+    if (!web) { this.message = "phone inbox unavailable"; return; }
+    this.runAction(() => web.start(), "starting phone inbox...", (status) => this.flashMessage(webInboxStatus([(status as { port: number }).port])));
+  }
+
+  private stopWebInbox() {
+    const web = this.actions.webInbox;
+    if (!web) { this.message = "phone inbox unavailable"; return; }
+    this.runAction(() => web.stop(), "stopping phone inbox...", (stopped) => this.flashMessage(stopped ? "phone inbox off" : "phone inbox already off"));
+  }
+
+  private toggleWebAutostart() {
+    const web = this.actions.webInbox;
+    if (!web) { this.message = "phone inbox unavailable"; return; }
+    const next = !web.autostart();
+    this.runAction(
+      () => web.setAutostart(next),
+      "saving phone inbox autostart...",
+      () => this.flashMessage(`start phone inbox with dashboard ${glyphs.pendingStep} ${next ? "On" : "Off"}`),
+    );
   }
 
   private toggleAttentionBell() {
@@ -2866,6 +2906,10 @@ export class SessionsView implements Component {
     }
   }
 
+}
+
+function webInboxStatus(ports: readonly number[]): string {
+  return `phone inbox on ${ports.map((port) => `127.0.0.1:${port}`).join(", ")} ${glyphs.pendingStep} ": Phone inbox" stops it`;
 }
 
 function questionRequestId(session: RuntimeSession): string | undefined {

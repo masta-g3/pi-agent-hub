@@ -145,6 +145,17 @@ export interface AttentionDeliveryActions {
   setAttentionBell: (enabled: boolean) => void | Promise<void>;
 }
 
+/** The `pi-hub web` phone inbox, run as its own tmux session; the dashboard only starts, stops and reads it. */
+export interface WebInboxActions {
+  /** Ports of verified servers from the last refresh; empty when none runs. */
+  ports: () => readonly number[];
+  start: () => Promise<{ port: number }>;
+  /** Resolves to how many servers stopped. */
+  stop: () => Promise<number>;
+  autostart: () => boolean;
+  setAutostart: (enabled: boolean) => void | Promise<void>;
+}
+
 export interface FollowPreferenceActions {
   followDefault: () => boolean;
   setFollowDefault: (enabled: boolean) => void | Promise<void>;
@@ -168,6 +179,7 @@ export interface SessionsViewActions {
   shortcutActions?: Partial<DashboardShortcutActions>;
   attentionDelivery?: Partial<AttentionDeliveryActions>;
   followPreference?: FollowPreferenceActions;
+  webInbox?: WebInboxActions;
 
   initialViewState?: SessionsViewState;
   /** Legacy flat fields remain accepted at the SessionsView composition boundary. */

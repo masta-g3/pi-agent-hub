@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { configPath, effectiveDashboardFollowDefault, setDashboardFollowDefault, effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
+import { configPath, effectiveDashboardFollowDefault, setDashboardFollowDefault, effectiveDashboardWebAutostart, setDashboardWebAutostart, effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveMcpCatalogPath, effectiveSessionPrelude, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardThemePreference, setSessionPrelude, setSkillPoolDirs, setWorktreeDefault, unsetSessionPrelude, unsetWorktreeDefault } from "../src/core/config.js";
 import { loadMcpCatalog } from "../src/mcp/config.js";
 import { listSkillPool } from "../src/skills/catalog.js";
 
@@ -36,6 +36,19 @@ test("follow view is opt-in and the saved preference overrides the default", asy
   assert.equal(await effectiveDashboardFollowDefault(env), true);
   await setDashboardFollowDefault(false, env);
   assert.equal(await effectiveDashboardFollowDefault(env), false);
+});
+
+test("phone inbox autostart is opt-in, saved, and validated", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-agent-hub-web-config-"));
+  const env = { PI_AGENT_HUB_DIR: root };
+  assert.equal(await effectiveDashboardWebAutostart(env), false);
+  await setDashboardWebAutostart(true, env);
+  assert.equal(await effectiveDashboardWebAutostart(env), true);
+  assert.equal(JSON.parse(await readFile(configPath(env), "utf8")).dashboard.webAutostart, true);
+  await setDashboardWebAutostart(false, env);
+  assert.equal(await effectiveDashboardWebAutostart(env), false);
+  await writeFile(configPath(env), JSON.stringify({ version: 1, dashboard: { webAutostart: "yes" } }), "utf8");
+  await assert.rejects(effectiveDashboardWebAutostart(env), /Invalid dashboard.webAutostart/u);
 });
 
 test("session prelude config is trimmed and validated", async () => {

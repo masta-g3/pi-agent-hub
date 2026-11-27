@@ -15,7 +15,7 @@ import { dashboardThemeForSetting, readDashboardAppearance, effectiveDashboardTh
 import { loadProjectSkillsState, setProjectSkills } from "../skills/attach.js";
 import { listSkillPool } from "../skills/catalog.js";
 import { loadMcpCatalog, loadProjectMcpState, setProjectMcpServers } from "../mcp/config.js";
-import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardFollowDefault, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardFollowDefault, setDashboardThemePreference, setSkillPoolDirs } from "../core/config.js";
+import { effectiveDashboardAttentionBell, effectiveDashboardAttentionNotify, effectiveDashboardFollowDefault, effectiveDashboardShortcuts, effectiveDashboardThemePreference, effectiveDashboardWebAutostart, effectiveSkillPoolDirs, effectiveWorktreeDefault, setDashboardAttentionBell, setDashboardFollowDefault, setDashboardThemePreference, setDashboardWebAutostart, setSkillPoolDirs } from "../core/config.js";
 import { publishThemeCommand } from "../core/theme-command.js";
 import { projectStateCwd } from "../core/multi-repo.js";
 import { tmuxChromeFromTheme } from "../core/chrome.js";
@@ -24,9 +24,11 @@ import type { RegistryChange } from "../core/session-undo.js";
 import { dashboardFilterFromState, dashboardFilterState, parseDashboardFilter, serializeDashboardFilter } from "../core/dashboard-filter.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renameSessionFavorite, removeSessionFavorite } from "../core/session-favorites.js";
-import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, listTmuxClients, realTmuxExec, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
+import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, hasTmux, listTmuxClients, realTmuxExec, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
+import { startWebInbox, stopWebInbox } from "./web-inbox.js";
+import { readWebStatuses } from "../core/web-status.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
 import { addManagedSession, forkManagedSession, restartManagedSession, restartManagedSessionFresh } from "./session-lifecycle.js";
@@ -385,6 +387,24 @@ export async function runTui(): Promise<void> {
   const dashboardShortcuts = await effectiveDashboardShortcuts();
   let attentionBellEnabled = await effectiveDashboardAttentionBell();
   let followDefaultEnabled = await effectiveDashboardFollowDefault();
+  let webAutostartEnabled = await effectiveDashboardWebAutostart();
+  let webPorts: number[] = [];
+  let webStatusError: string | undefined;
+  /** A passive read: a failure shows once and reads as off, so attention and pin bookkeeping still run. */
+  const readWebPorts = async () => {
+    try {
+      webPorts = (await readWebStatuses()).map((status) => status.port);
+      webStatusError = undefined;
+    } catch (error) {
+      webPorts = [];
+      const message = `phone inbox status: ${error instanceof Error ? error.message : String(error)}`;
+      // Before the view exists the message waits for the next refresh.
+      if (view && message !== webStatusError) {
+        view.setMessage(message);
+        webStatusError = message;
+      }
+    }
+  };
   const attentionNotifyEnabled = await effectiveDashboardAttentionNotify();
   const worktreeDefault = await effectiveWorktreeDefault();
   let skillPoolDirs = await effectiveSkillPoolDirs();
@@ -405,6 +425,7 @@ export async function runTui(): Promise<void> {
   let stopActionLoop: (() => Promise<void>) | undefined;
   let stopped = false;
   let view!: SessionsView;
+  await readWebPorts();
   const ownsDashboardTmux = await dashboardOwnsTmuxSession(
     process.env.TMUX,
     () => currentTmuxSession(realTmuxExec),
@@ -419,6 +440,7 @@ export async function runTui(): Promise<void> {
   let lastSeen = { archived: archivedSessionIds(controller.snapshot().registry.sessions), paneIds: new Set<string>() };
   const afterRefresh = async () => {
     void view.refreshInteraction();
+    await readWebPorts();
     const observation = observeAttentionDelivery(attentionState, controller.snapshot().sessions);
     attentionState = observation.state;
     view.setAttentionAnnouncements(observation.active);
@@ -678,6 +700,24 @@ export async function runTui(): Promise<void> {
         attentionBellEnabled = enabled;
       },
     },
+    webInbox: {
+      ports: () => webPorts,
+      async start() {
+        const status = await startWebInbox();
+        await readWebPorts();
+        return status;
+      },
+      async stop() {
+        const stopped = await stopWebInbox();
+        await readWebPorts();
+        return stopped;
+      },
+      autostart: () => webAutostartEnabled,
+      async setAutostart(enabled) {
+        await setDashboardWebAutostart(enabled);
+        webAutostartEnabled = enabled;
+      },
+    },
     followPreference: {
       followDefault: () => followDefaultEnabled,
       async setFollowDefault(enabled) {
@@ -808,6 +848,12 @@ export async function runTui(): Promise<void> {
   terminal.write(MOUSE_ENABLE);
   if (process.env.TMUX) void setDashboardMouse({ name: DASHBOARD_SESSION, enabled: true }).catch(() => {});
   stopLoop = startRefreshLoop(controller, tui, afterRefresh);
+  // Once per dashboard start; a server that exits later is not restarted. A failure only shows a message.
+  if (webAutostartEnabled && !webPorts.length && await hasTmux(realTmuxExec)) {
+    void startWebInbox().then(readWebPorts).catch((error: unknown) => {
+      view.setMessage(`phone inbox: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => tui.requestRender());
+  }
 }
 
 export function startDashboardActionLoop(processAction: () => Promise<void>, intervalMs = 250): () => Promise<void> {

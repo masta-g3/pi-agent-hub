@@ -38,7 +38,7 @@ Pins and follow view are opt-in. Use `P` to keep a live session beside the list,
 | Explainable status | `i` or `pi-hub explain <id-or-prefix>` shows the evidence behind status and placement. |
 | Reply | `p` edits a reply on the card: Send while idle, or Steer/Queue while busy. `/` completes the agent's skills; workflow steps appear as chips. |
 | Next skill | `>` sends the next workflow step's skill once the current step is complete. |
-| Phone inbox | `pi-hub web` serves a page to answer, reply with skills, read the session card, advance workflows, archive or backlog, resume or start sessions, and get notifications on a phone. |
+| Phone inbox | `pi-hub web` serves a page to answer, reply with skills, read the session card, advance workflows, archive or backlog, resume or start sessions, and get notifications on a phone. Start or stop it from the dashboard `:` palette; the header shows `web` while it runs. |
 | Custom shortcuts | Configure keys that send Pi commands to a live session. |
 | Themes | `t` previews Pi themes and saves a global or Hub-only choice. |
 | Usage and quotas | `u` shows Cost, Tokens, and Limits from an optional usage producer. |
@@ -384,6 +384,8 @@ A phone and a desktop can attach to the same dashboard. tmux sizes the shared wi
 - **Archive, Backlog, Restore:** from the card. **Archive…** asks for **Done**, **Abandoned** or **Archive only**, like `A`. **Restore** returns an archived or backlogged session to Active and clears its outcome, like `U`. None of them stop tmux or Pi. If the session is pinned in the terminal dashboard, its pin closes at the dashboard's next refresh. There is no undo on the phone; Restore reverses.
 - **Skills:** type `/` in the reply box to pick one of the session's loaded skills; `/review the card` sends Pi's `/skill:review the card`. In an empty box, the workflow steps show as chips with the next step filled; a chip fills the box and never sends by itself.
 - **List rows** add only a thin progress line when the workflow reports progress, and the step's short name.
+
+From the dashboard, **Phone inbox: Off** in the `:` palette starts `pi-hub web` in its own tmux session, `pi-hub-web`, so it keeps running after the dashboard quits. **Phone inbox: On** stops it, including a server you started by hand. While it runs, the header ends with a muted `web`; it is the first header signal to drop when the header is narrow. Clicking it shows the address; it never stops the server. **Start phone inbox with dashboard** saves `dashboard.webAutostart`. Publishing the page with Tailscale Serve stays a manual step.
 
 The page cannot stop, delete, rename, fork or finish a worktree session, and it shows no subagent rows, pane output, tool output, or diffs. Answers and replies use the same channel as the dashboard, so the same Pi reload and rpiv requirements apply. See [Phone inbox setup](CONFIG.md#phone-inbox).
 

@@ -227,6 +227,8 @@ export interface AttentionAnnouncement {
 
 export interface RenderModel {
   usage?: UsageData;
+  /** Ports of running phone inbox servers; the header shows `web` while any runs. */
+  webPorts?: readonly number[];
   width: number;
   now: number;
   height?: number;
@@ -584,6 +586,7 @@ function orderCockpitRows(rows: RuntimeSession[], tiers: ReadonlyMap<string, Coc
 
 export interface BuildRenderModelInput {
   usage?: UsageData;
+  webPorts?: readonly number[];
   filterDisclosure?: FilterDisclosure;
   sessions: RuntimeSession[];
   selectedId?: string;
@@ -729,6 +732,7 @@ export function buildRenderModel(input: BuildRenderModelInput): RenderModel {
   const noBoardMatches = board && filterActive && allRows.length > 0 && mapped.length === 0;
   return {
     usage: input.usage,
+    ...(input.webPorts?.length ? { webPorts: input.webPorts } : {}),
     width: input.width,
     now: input.now ?? Date.now(),
     empty: input.sessions.length === 0,

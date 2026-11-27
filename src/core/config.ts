@@ -23,6 +23,7 @@ export interface SessionsConfig {
     attentionBell?: boolean;
     attentionNotify?: boolean;
     followDefault?: boolean;
+    webAutostart?: boolean;
   };
 }
 
@@ -141,6 +142,14 @@ export async function setDashboardAttentionBell(enabled: boolean, env: NodeJS.Pr
   await updateSessionsConfig((config) => ({ ...config, dashboard: { ...config.dashboard, attentionBell: enabled } }), env);
 }
 
+export async function effectiveDashboardWebAutostart(env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+  return (await loadSessionsConfig(env)).dashboard?.webAutostart ?? false;
+}
+
+export async function setDashboardWebAutostart(enabled: boolean, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  await updateSessionsConfig((config) => ({ ...config, dashboard: { ...config.dashboard, webAutostart: enabled } }), env);
+}
+
 export async function setDashboardFollowDefault(enabled: boolean, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   await updateSessionsConfig((config) => ({ ...config, dashboard: { ...config.dashboard, followDefault: enabled } }), env);
 }
@@ -171,6 +180,7 @@ function validateConfig(config: SessionsConfig): void {
   if (config.dashboard?.attentionBell !== undefined && typeof config.dashboard.attentionBell !== "boolean") throw new Error("Invalid dashboard.attentionBell in pi-agent-hub config");
   if (config.dashboard?.attentionNotify !== undefined && typeof config.dashboard.attentionNotify !== "boolean") throw new Error("Invalid dashboard.attentionNotify in pi-agent-hub config");
   if (config.dashboard?.followDefault !== undefined && typeof config.dashboard.followDefault !== "boolean") throw new Error("Invalid dashboard.followDefault in pi-agent-hub config");
+  if (config.dashboard?.webAutostart !== undefined && typeof config.dashboard.webAutostart !== "boolean") throw new Error("Invalid dashboard.webAutostart in pi-agent-hub config");
   validateDashboardShortcuts(config.dashboard?.shortcuts);
 }
 

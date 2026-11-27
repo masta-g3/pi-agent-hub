@@ -317,6 +317,7 @@ Optional global config lives at `config.json` under the global state directory:
     "attentionBell": false,
     "attentionNotify": false,
     "followDefault": false,
+    "webAutostart": false,
     "shortcuts": [
       {
         "key": "C-n",
@@ -363,6 +364,12 @@ tailscale serve reset         # stop sharing
 Anyone who can open the page can make your agents act, resume them, archive or backlog them, and start new sessions in your known repositories, so do not publish it with Tailscale Funnel or a public tunnel. The server refuses requests whose `Host` is not a loopback name or a `.ts.net` name, and writes that do not come from the page's own origin.
 
 To get notifications on an iPhone, open the `https://…ts.net` address in Safari, choose **Share → Add to Home Screen**, open Hub from the Home Screen, then tap the bell, then **Turn on notifications**. iOS offers notifications only to Home Screen web apps. Other browsers can subscribe from a normal tab.
+
+The dashboard can start and stop the server: see [Phone inbox](FEATURES.md#phone-inbox). It runs `pi-hub web` in the tmux session `pi-hub-web`, from your home directory, with the dashboard's resolved `PI_CODING_AGENT_DIR` and `PI_AGENT_HUB_DIR`, so the server reads the same state. If that tmux session already exists without a running server, Start refuses; attach with `tmux attach -t pi-hub-web` to see why. Stop sends `SIGTERM` to every running server in the state directory and waits for each to exit.
+
+Each running server writes `web/<pid>.json` under the global state directory (`pid`, `port`, a random `instanceId`, `startedAt`) and removes it on shutdown. The dashboard counts a server as running only when the pid is alive and `GET /api/instance` on its port returns the same `instanceId`, so a stale record or a reused pid never reads as running or gets signalled. A record whose pid is dead is deleted on the next read.
+
+`dashboard.webAutostart` starts the server once when the dashboard opens, if none runs and tmux is available. It defaults to `false`. Use the unbound **Start phone inbox with dashboard: On/Off** action in the `:` palette to persist it. A server that exits later is not restarted, and a failed start shows a message without blocking the dashboard.
 
 `pi-hub web` runs as a headless dashboard: it refreshes session status and prunes expired archived rows like the terminal dashboard, with or without one open. It sends a notification for each new request that carries a producer request ID; requests that existed when it started send none. Notification text is encrypted for the device, so the browser's push service cannot read it. Signing keys and device subscriptions (at most 16) live in `web-push.json` under the global state directory; delete the file to forget all devices.
 

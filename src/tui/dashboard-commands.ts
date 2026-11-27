@@ -62,6 +62,7 @@ export interface DashboardCommandCapabilities {
   acknowledge?: boolean;
   attentionBell?: boolean;
   followDefault?: boolean;
+  webInbox?: boolean;
   answerQuestion?: boolean;
   copyPath?: boolean;
 }
@@ -90,6 +91,9 @@ export interface DashboardCommandInput {
   attentionRequests?: readonly { sessionId: string; requestId: string }[];
   attentionBellEnabled?: boolean;
   followDefaultEnabled?: boolean;
+  /** A verified `pi-hub web` runs; picks the start or the stop command, so a submit acts on what the user saw. */
+  webInboxOn?: boolean;
+  webAutostartEnabled?: boolean;
   visibleRequestCount?: number;
   /** Label of the in-memory undo entry; undo targets that entry, so selection never disables it. */
   undoLabel?: string;
@@ -486,6 +490,11 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
   const bellEnabled = input.capabilities?.attentionBell === true;
   const bellOn = input.attentionBellEnabled === true;
   const followDefaultOn = input.followDefaultEnabled === true;
+  const webOn = input.webInboxOn === true;
+  const webAutostartOn = input.webAutostartEnabled === true;
+  // Global toggles: not gated by interactionBlockedReason, which reports a missing session selection.
+  const webAvailable = input.capabilities?.webInbox === true;
+  const webReason = webAvailable ? undefined : "phone inbox unavailable";
   return [
     makeCommand({ id: "action:new", group: "views", label: "New session", hint: "create a managed Pi session", displayKey: "n", bindings: [{ key: "n" }], enabled: true, searchText: "n new session create" }),
     makeCommand({ id: "view:conversation", group: "views", label: input.conversation ? "Return to overview" : "Conversation", helpLabel: "Show/hide conversation", hint: "read the selected live conversation", displayKey: "c", bindings: [{ key: "c" }], enabled: !input.pinState?.count, disabledReason: input.pinState?.following ? FOLLOWING_REASON : input.pinState?.count ? "Close pinned panes to use Conversation" : undefined, searchText: "c conversation read overview" }),
@@ -564,6 +573,28 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       enabled: input.capabilities?.followDefault === true,
       disabledReason: input.capabilities?.followDefault === true ? undefined : "follow default setting unavailable",
       searchText: `follow view by default automatic o ${followDefaultOn ? "on disable off" : "off enable on"}`,
+    }),
+    makeCommand({
+      id: webOn ? "view:web-stop" : "view:web-start",
+      group: "views",
+      label: `Phone inbox: ${webOn ? "On" : "Off"}`,
+      helpLabel: "Phone inbox",
+      helpHint: "start or stop pi-hub web for the phone page",
+      hint: webOn ? "stop pi-hub web" : "start pi-hub web in tmux session pi-hub-web",
+      enabled: webAvailable,
+      disabledReason: webReason,
+      searchText: `phone inbox pi-hub web server tailscale ${webOn ? "on stop disable off" : "off start enable on"}`,
+    }),
+    makeCommand({
+      id: "view:web-autostart",
+      group: "views",
+      label: `Start phone inbox with dashboard: ${webAutostartOn ? "On" : "Off"}`,
+      helpLabel: "Start phone inbox with dashboard",
+      helpHint: "start pi-hub web when the dashboard opens",
+      hint: `turn ${webAutostartOn ? "off" : "on"} starting pi-hub web when the dashboard opens`,
+      enabled: webAvailable,
+      disabledReason: webReason,
+      searchText: `start phone inbox with dashboard autostart automatic pi-hub web ${webAutostartOn ? "on disable off" : "off enable on"}`,
     }),
     ...[1, 2, 3, 4].map((slot) => {
       const sessionId = input.pinState?.slots?.[slot - 1];

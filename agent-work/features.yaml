@@ -1848,3 +1848,16 @@
   - web-006
   plan_file: agent-work/history/20261121_web-007_phone_power_tools.md
   completed_at: '2026-11-21'
+- id: web-008
+  status: done
+  title: Phone inbox toggle
+  subtitle: Start and see the phone inbox
+  description: The dashboard header shows when pi-hub web runs, a palette entry and
+    header click start or stop it in its own tmux session, and an optional setting
+    starts it with the dashboard.
+  priority: 2
+  created_at: '2026-11-26'
+  depends_on:
+  - web-007
+  plan_file: agent-work/history/20261126_web-008_phone_inbox_toggle.md
+  completed_at: '2026-11-26'

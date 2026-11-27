@@ -56,6 +56,8 @@ export interface WebServerDeps {
     restore(sessionId: string, expected: LifecycleTarget): Promise<void>;
   };
   usage?(): UsageData | undefined;
+  /** This process's random id; `GET /api/instance` returns it so the dashboard can tell which process holds the port. */
+  instanceId?: string;
   push?: {
     publicKey(): Promise<string>;
     subscribe(subscription: PushSubscriptionInput): Promise<void>;
@@ -186,6 +188,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         req.on("close", () => streams.delete(res));
         return;
       }
+      if (path === "/api/instance" && deps.instanceId) return json(res, 200, { instanceId: deps.instanceId });
       if (path === "/api/new" && deps.newSession) return json(res, 200, deps.newSession.options());
       if (path === "/api/push/key" && deps.push) return json(res, 200, { key: await deps.push.publicKey() });
       if (sessionRoute && !sessionRoute[2]) {

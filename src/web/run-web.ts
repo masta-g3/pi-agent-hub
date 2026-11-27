@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SessionsController } from "../app/controller.js";
 import { createRegistryMutator, startRefreshLoop, type RefreshLoopHandle } from "../app/refresh-loop.js";
 import { buildNewFormContext } from "../app/run-tui.js";
@@ -7,6 +8,7 @@ import { effectiveDashboardShortcuts } from "../core/config.js";
 import { CLI_COMMAND } from "../core/names.js";
 import { loadRepoHistory, mergeRepoCwds, rankedRepoCwds } from "../core/repo-history.js";
 import { sessionWorktrees } from "../core/worktree.js";
+import { clearWebStatus, writeWebStatus } from "../core/web-status.js";
 import { createPushSender, createRequestNotifier } from "./push.js";
 import { createWebServer, webAssetsDir } from "./server.js";
 
@@ -17,6 +19,11 @@ const RESUME_SETTLE_MS = 60_000;
 /** A headless dashboard: the same refresh and registry bookkeeping as the TUI, serving the phone inbox on loopback. */
 export async function runWeb(options: { port?: number } = {}): Promise<void> {
   const port = options.port ?? DEFAULT_WEB_PORT;
+  // Installed first: a signal during startup still runs the one cleanup in serveUntilShutdown().
+  const shutdown = new AbortController();
+  process.once("SIGINT", () => shutdown.abort());
+  process.once("SIGTERM", () => shutdown.abort());
+  const instanceId = randomUUID();
   const controller = new SessionsController();
   await controller.refresh();
 
@@ -93,6 +100,7 @@ export async function runWeb(options: { port?: number } = {}): Promise<void> {
       }),
     },
     usage: () => controller.snapshot().usage,
+    instanceId,
     push,
   });
   const afterRefresh = () => {
@@ -119,20 +127,52 @@ export async function runWeb(options: { port?: number } = {}): Promise<void> {
       .catch((error: unknown) => { if (done) return result; throw error; });
   }
 
-  await new Promise<void>((resolve, reject) => {
-    web.server.once("error", reject);
-    web.server.listen(port, "127.0.0.1", resolve);
-  });
-  stopLoop = startRefreshLoop(controller, render, afterRefresh);
-  console.log(`${CLI_COMMAND} web: http://127.0.0.1:${port}
+  await serveUntilShutdown({
+    signal: shutdown.signal,
+    listen: () => new Promise<void>((resolve, reject) => {
+      web.server.once("error", reject);
+      web.server.listen(port, "127.0.0.1", () => {
+        // Started before any request can reach the mutator, whose resume would otherwise start a second loop.
+        stopLoop = startRefreshLoop(controller, render, afterRefresh);
+        resolve();
+      });
+    }),
+    publish: () => writeWebStatus({ pid: process.pid, port, instanceId, startedAt: Date.now() }),
+    started() {
+      console.log(`${CLI_COMMAND} web: http://127.0.0.1:${port}
 Share with your own devices:  tailscale serve --bg ${port}
 Stop sharing:                 tailscale serve reset`);
-
-  await new Promise<void>((resolve) => {
-    const stop = () => { stopped = true; resolve(); };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
+    },
+    async cleanup() {
+      stopped = true;
+      await stopLoop?.stop();
+      await web.close();
+      await clearWebStatus(process.pid);
+    },
   });
-  await stopLoop?.stop();
-  await web.close();
+}
+
+/**
+ * Listen, publish this process's record, then serve until the signal aborts. One cleanup runs however startup ends,
+ * so a failed publication or an early signal never leaves a listener without a record or a record without a listener.
+ */
+export async function serveUntilShutdown(steps: {
+  signal: AbortSignal;
+  listen(): Promise<void>;
+  publish(): Promise<void>;
+  started(): void;
+  cleanup(): Promise<void>;
+}): Promise<void> {
+  try {
+    await steps.listen();
+    await steps.publish();
+    if (steps.signal.aborted) return;
+    steps.started();
+    await new Promise<void>((resolve) => {
+      if (steps.signal.aborted) resolve();
+      else steps.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+  } finally {
+    await steps.cleanup();
+  }
 }
