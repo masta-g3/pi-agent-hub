@@ -5,6 +5,7 @@ import { CLI_COMMAND, STATE_ENV } from "../core/names.js";
 import { agentDir, sessionsStateDir } from "../core/paths.js";
 import { newSession, realTmuxExec, sessionExists, shellQuote, type TmuxExec } from "../core/tmux.js";
 import { pidAlive, readWebStatuses, type WebStatus } from "../core/web-status.js";
+import { readServeStatus, servedAddress } from "../core/tailscale-serve.js";
 import { dashboardEnv } from "./dashboard.js";
 
 /** Not `pi-agent-hub-…`: that prefix marks managed Pi sessions for pins and the return key. */
@@ -81,6 +82,23 @@ export async function stopWebInbox(deps: WaitOptions & {
   if (!exited) for (const pid of signalled.filter(alive)) failures.push(`pid ${pid} did not exit`);
   if (failures.length) throw new Error(`phone inbox: ${failures.join("; ")}`);
   return running.length;
+}
+
+/**
+ * The address a phone can open: the first running server that Tailscale Serve publishes, else the first running
+ * server's loopback address. Undefined when none runs. Both reads are fresh, so a stopped server never shows.
+ */
+export async function phoneInboxAddress(deps: {
+  readServe?: () => Promise<unknown>;
+  read?: () => Promise<WebStatus[]>;
+} = {}): Promise<{ address: string; published: boolean; port: number } | undefined> {
+  const serve = await (deps.readServe ?? readServeStatus)();
+  const ports = (await (deps.read ?? (() => readWebStatuses()))()).map((status) => status.port);
+  for (const port of ports) {
+    const address = servedAddress(serve, port);
+    if (address) return { address, published: true, port };
+  }
+  return ports[0] === undefined ? undefined : { address: `http://127.0.0.1:${ports[0]}`, published: false, port: ports[0] };
 }
 
 async function poll<T>(check: () => Promise<T | undefined>, options: WaitOptions): Promise<T | undefined> {

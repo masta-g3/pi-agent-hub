@@ -54,6 +54,12 @@ const mode = process.env.PI_AGENT_HUB_GLYPHS;
 export const glyphs: GlyphSet = mode === "ascii" ? ascii : mode === "nerd" ? nerd : unicode;
 
 /**
+ * QR code half blocks: exact module data, not decoration, so no set replaces them. They are undefined in ASCII
+ * mode, where the terminal may lack them and the dialog shows no QR code.
+ */
+export const qrBlocks: { full: string; upper: string; lower: string } | undefined = mode === "ascii" ? undefined : { full: "\u2588", upper: "\u2580", lower: "\u2584" };
+
+/**
  * Nerd Font vendor icons for the model badge, enabled by `PI_AGENT_HUB_GLYPHS=nerd`; other sets show text only.
  * The Claude and OpenAI logos exist only in Nerd Fonts 3.5 patched fonts, not in the Symbols fallback font that
  * terminals bundle, so the badge uses a star, a camera iris and a robot that every 3.x font has.

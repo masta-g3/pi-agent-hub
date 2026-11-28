@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { startWebInbox, stopWebInbox, WEB_TMUX_SESSION } from "../src/app/web-inbox.js";
+import { phoneInboxAddress, startWebInbox, stopWebInbox, WEB_TMUX_SESSION } from "../src/app/web-inbox.js";
 import type { TmuxExec } from "../src/core/tmux.js";
 import type { WebStatus } from "../src/core/web-status.js";
 
@@ -121,4 +121,14 @@ test("stop waits on one shared deadline for every signalled server", async () =>
     /pid 42 did not exit; pid 43 did not exit; pid 44 did not exit/u,
   );
   assert.ok(Date.now() - started < 250, "one deadline, not one per pid");
+});
+
+test("the phone address prefers the first published server and falls back to loopback", async () => {
+  const serve = (port: number) => ({ TCP: { 443: { HTTPS: true } }, Web: { "mac.tail1.ts.net:443": { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } } } });
+  const two = async () => [RUNNING, { ...RUNNING, pid: 43, port: 4800 }];
+  // 4747 is not published, 4800 is: the published one wins.
+  assert.deepEqual(await phoneInboxAddress({ readServe: async () => serve(4800), read: two }), { address: "https://mac.tail1.ts.net", published: true, port: 4800 });
+  assert.deepEqual(await phoneInboxAddress({ readServe: async () => undefined, read: two }), { address: "http://127.0.0.1:4747", published: false, port: 4747 });
+  // Serve still points at a server that already stopped: nothing runs, so nothing shows.
+  assert.equal(await phoneInboxAddress({ readServe: async () => serve(4747), read: async () => [] }), undefined);
 });

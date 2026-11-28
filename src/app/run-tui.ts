@@ -1,5 +1,5 @@
 import { interactionTarget, loadSessionInteractionState, loadSessionConversation, submitSessionAnswer, runSessionShortcut, sendSessionMessage } from "./session-interaction.js";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
 import { plainTerminalText } from "../core/terminal-text.js";
 import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
@@ -27,7 +27,7 @@ import { loadSessionFavorites, saveSessionFavorite, updateSessionFavorite, renam
 import { attachSessionCommand, configureDashboardStatusBar, configureManagedSessionStatusBar, currentTmuxSession, displayClientMessage, hasTmux, listTmuxClients, realTmuxExec, setDashboardMouse, setSessionAttentionCount, type TmuxClient } from "../core/tmux.js";
 import { createSidePaneLifecycle, type SidePaneLifecycle } from "./side-pane-lifecycle.js";
 import { DASHBOARD_SESSION, dashboardEnv } from "./dashboard.js";
-import { startWebInbox, stopWebInbox } from "./web-inbox.js";
+import { phoneInboxAddress, startWebInbox, stopWebInbox } from "./web-inbox.js";
 import { readWebStatuses } from "../core/web-status.js";
 import { consumeDashboardAction, type DashboardAction } from "./dashboard-action.js";
 import { deleteManagedSession, deleteManagedSubagentSessions } from "./delete-session.js";
@@ -717,6 +717,12 @@ export async function runTui(): Promise<void> {
         await setDashboardWebAutostart(enabled);
         webAutostartEnabled = enabled;
       },
+      address: () => phoneInboxAddress(),
+      ...(process.platform === "darwin" ? {
+        openAddress: (address: string) => new Promise<void>((resolve, reject) => {
+          execFile("open", [address], (error) => (error ? reject(error) : resolve()));
+        }),
+      } : {}),
     },
     followPreference: {
       followDefault: () => followDefaultEnabled,

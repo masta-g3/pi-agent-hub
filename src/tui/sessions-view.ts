@@ -74,6 +74,7 @@ import { createPickerDialog, handlePickerDialogInput, renderPickerDialog } from 
 import { handleNewSessionInput, openNewSessionDialog, renderNewSessionDialog } from "./new-session-dialog.js";
 import { handleFavoritesInput, renderFavoritesDialog } from "./session-favorites-dialog.js";
 import { createThemeDialog, handleThemeDialogInput, renderThemeDialog } from "./theme-dialog.js";
+import { handlePhoneInboxInput, renderPhoneInboxDialog, type PhoneInboxDialog } from "./phone-inbox-dialog.js";
 import { completeAttentionTrip, COCKPIT_RELEASE_CUE, releaseCueVisible, startAttentionTrip, type CockpitOnboardingState } from "./cockpit-onboarding.js";
 
 const MIN_RENDER_WIDTH = MIN_LAYOUT_WIDTH;
@@ -88,7 +89,7 @@ const BURST_QUIET_MS = 600;
 /** Held navigation keys auto-repeat faster than BURST_GAP_MS. */
 const REPEATABLE_KEYS = new Set(["j", "k", "J", "K", "+", "-"]);
 /** Dialogs whose keys are choices, not text. */
-const COMMAND_DIALOGS = new Set<SessionDialog["kind"]>(["confirm", "archive", "help", "usage"]);
+const COMMAND_DIALOGS = new Set<SessionDialog["kind"]>(["confirm", "archive", "help", "usage", "phoneInbox"]);
 
 interface ReplyDraft {
   target: InteractionTarget;
@@ -340,6 +341,7 @@ export class SessionsView implements Component {
       else if (this.dialog.kind === "form") this.dialog = handleFormDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "confirm") this.dialog = handleConfirmInput(this.dialog, data, this.dialogContext(), this.confirmationReview);
       else if (this.dialog.kind === "archive") this.dialog = handleArchiveInput(this.dialog, data, this.dialogContext());
+      else if (this.dialog.kind === "phoneInbox") this.dialog = handlePhoneInboxInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "picker") this.dialog = handlePickerDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "theme") this.dialog = handleThemeDialogInput(this.dialog, data, this.dialogContext());
       else if (this.dialog.kind === "new" || this.dialog.kind === "repoPicker") this.dialog = handleNewSessionInput(this.dialog, data, this.dialogContext());
@@ -585,6 +587,7 @@ export class SessionsView implements Component {
     if (this.dialog?.kind === "sessionFavorites") return this.dialogRows(renderFavoritesDialog(this.dialog, width, this.dialogContext(), hits), height, width);
     if (this.dialog?.kind === "form") return this.dialogRows(renderFormDialog(this.dialog, width, this.dialogContext(), height, hits), height, width);
     if (this.dialog?.kind === "archive") return this.dialogRows(renderArchiveDialog(this.dialog, width, this.dialogContext(), hits), height, width);
+    if (this.dialog?.kind === "phoneInbox") return this.dialogRows(renderPhoneInboxDialog(this.dialog, width, height, this.dialogContext(), hits), height, width);
     if (this.dialog?.kind === "confirm" || this.pendingRestart) {
       const rendered = this.dialog?.kind === "confirm"
         ? renderConfirmDialog(this.dialog, width, height, this.dialogContext(), hits)
@@ -1420,6 +1423,7 @@ export class SessionsView implements Component {
       case "view:web-start": this.startWebInbox(); return;
       case "view:web-stop": this.stopWebInbox(); return;
       case "view:web-autostart": this.toggleWebAutostart(); return;
+      case "view:web-address": this.openPhoneInbox(); return;
       case "view:backlog": this.toggleBacklogFilter(); return;
       case "view:grouping": this.closeConversation(); this.toggleGrouping(); return;
       case "view:fleet-grouping": this.closeConversation(); this.toggleFleetGrouping(); return;
@@ -2044,10 +2048,9 @@ export class SessionsView implements Component {
       if (this.dialog?.kind === "usage") this.usageState.tab = "limits";
       return;
     }
-    // Shows where the inbox runs; stopping stays a deliberate palette choice.
+    // Opens the address dialog; stopping stays a deliberate palette choice.
     if (event.kind === "press" && this.webHit && event.y - 1 === this.webHit.row && event.x >= this.webHit.x && event.x < this.webHit.x + this.webHit.width) {
-      const ports = this.actions.webInbox?.ports() ?? [];
-      if (ports.length) this.flashMessage(webInboxStatus(ports));
+      this.openPhoneInbox();
       return;
     }
     const tierChip = event.kind === "press" && event.y - 1 === this.tierChipRow
@@ -2118,11 +2121,32 @@ export class SessionsView implements Component {
     this.listScrollTop = 0;
   }
 
+  /**
+   * Opens the dialog at once in a loading state, then reads the phone address fresh. The result applies only while
+   * that exact loading dialog is open, so Esc or any dialog that took over discards it: nothing is copied or replaced.
+   */
+  private openPhoneInbox() {
+    const web = this.actions.webInbox;
+    if (!web) { this.message = "phone inbox unavailable"; return; }
+    const loading: PhoneInboxDialog = { kind: "phoneInbox", loading: true };
+    this.openDialog(() => loading);
+    const settle = (apply: () => void) => {
+      if (this.dialog !== loading) return;
+      apply();
+      this.actions.requestRender?.();
+    };
+    web.address().then((found) => settle(() => {
+      if (!found) { this.dialog = undefined; this.flashMessage("phone inbox off"); return; }
+      this.actions.copy?.(found.address);
+      this.dialog = { kind: "phoneInbox", ...found };
+    }), (error: unknown) => settle(() => { this.dialog = undefined; this.message = errorMessage(error); }));
+  }
+
   /** The palette drops a start or stop entry whose state changed before Enter, so neither reverses what the user saw. */
   private startWebInbox() {
     const web = this.actions.webInbox;
     if (!web) { this.message = "phone inbox unavailable"; return; }
-    this.runAction(() => web.start(), "starting phone inbox...", (status) => this.flashMessage(webInboxStatus([(status as { port: number }).port])));
+    this.runAction(() => web.start(), "starting phone inbox...", (status) => this.flashMessage(`phone inbox on 127.0.0.1:${(status as { port: number }).port}`));
   }
 
   private stopWebInbox() {
@@ -2906,10 +2930,6 @@ export class SessionsView implements Component {
     }
   }
 
-}
-
-function webInboxStatus(ports: readonly number[]): string {
-  return `phone inbox on ${ports.map((port) => `127.0.0.1:${port}`).join(", ")} ${glyphs.pendingStep} ": Phone inbox" stops it`;
 }
 
 function questionRequestId(session: RuntimeSession): string | undefined {

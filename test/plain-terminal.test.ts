@@ -188,3 +188,16 @@ test("dashboard glyph literals stay in the glyph module", async () => {
     assert.doesNotMatch(await readFile(`${root}/${name}`, "utf8"), /[^\x00-\x7f]/, name);
   }
 });
+
+test("ASCII glyphs keep the phone inbox dialog free of QR half blocks", () => {
+  const source = `
+    const { renderPhoneInboxDialog } = await import('./dist/src/tui/phone-inbox-dialog.js');
+    const lines = renderPhoneInboxDialog({ kind: 'phoneInbox', address: 'https://mac.tail1.ts.net', published: true, port: 4747 }, 100, 40,
+      { theme: darkTheme, actions: {} }).map(stripAnsi);
+    console.log(JSON.stringify(lines));`;
+  const ascii = JSON.parse(run(source, { PI_AGENT_HUB_GLYPHS: "ascii" })) as string[];
+  assert.ok(ascii.some((line) => line.includes("needs Unicode glyphs")));
+  assert.ok(!ascii.some((line) => /[\u2580\u2584\u2588]/u.test(line)));
+  const unicode = JSON.parse(run(source, {})) as string[];
+  assert.ok(unicode.some((line) => /[\u2580\u2584\u2588]/u.test(line)));
+});

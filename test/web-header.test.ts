@@ -76,7 +76,7 @@ test("no phone inbox leaves the header unchanged", () => {
   assert.equal(after.webHit, undefined);
 });
 
-test("clicking web shows where the inbox runs and never stops it", () => {
+test("clicking web opens the address dialog and never stops the server", async () => {
   const calls: string[] = [];
   const view = new SessionsView(new SessionsController({ version: 1, sessions: [{ id: "a", title: "a", cwd: "/tmp/a", group: "g", tmuxSession: "pi-agent-hub-a", status: "idle", createdAt: 1, updatedAt: 1 }] }), () => {}, {
     terminalRows: () => 24,
@@ -86,14 +86,17 @@ test("clicking web shows where the inbox runs and never stops it", () => {
       stop: async () => { calls.push("stop"); return 1; },
       autostart: () => false,
       setAutostart: () => { calls.push("autostart"); },
+      address: async () => { calls.push("address"); return { address: "http://127.0.0.1:4747", published: false, port: 4747 }; },
     },
   });
   const header = stripAnsi(view.render(120)[0]!);
   const x = header.lastIndexOf("web") + 1;
   view.handleInput(`\x1b[<0;${x};1M`);
+  await new Promise((done) => setImmediate(done));
   const frame = stripAnsi(view.render(120).join("\n"));
-  assert.match(frame, /phone inbox on 127\.0\.0\.1:4747 · ": Phone inbox" stops it/u);
-  assert.deepEqual(calls, []);
+  assert.match(frame, /Phone inbox/u);
+  assert.match(frame, /http:\/\/127\.0\.0\.1:4747/u);
+  assert.deepEqual(calls, ["address"]);
 });
 
 test("web shows on roomy headers and drops on tight ones", () => {

@@ -1861,3 +1861,17 @@
   - web-007
   plan_file: agent-work/history/20261126_web-008_phone_inbox_toggle.md
   completed_at: '2026-11-26'
+- id: web-009
+  status: done
+  title: Phone inbox address
+  subtitle: Copy, scan or open the inbox
+  description: Clicking the header web signal or a palette entry opens a dialog with
+    the phone inbox address from Tailscale Serve, copies it, draws a QR code from
+    a built-in encoder, and can open it in the browser.
+  priority: 2
+  created_at: '2026-11-27'
+  depends_on:
+  - web-008
+  discovered_from: web-008
+  plan_file: agent-work/history/20261127_web-009_phone_inbox_address.md
+  completed_at: '2026-11-27'

@@ -585,6 +585,15 @@ function viewCommands(input: DashboardCommandInput): DashboardCommand[] {
       disabledReason: webReason,
       searchText: `phone inbox pi-hub web server tailscale ${webOn ? "on stop disable off" : "off start enable on"}`,
     }),
+    ...(webOn ? [makeCommand({
+      id: "view:web-address",
+      group: "views",
+      label: "Phone inbox address",
+      hint: "copy, scan or open the phone inbox address",
+      enabled: webAvailable,
+      disabledReason: webReason,
+      searchText: "phone inbox address url qr code copy scan open tailscale",
+    })] : []),
     makeCommand({
       id: "view:web-autostart",
       group: "views",

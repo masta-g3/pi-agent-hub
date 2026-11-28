@@ -513,6 +513,7 @@ test("phone inbox commands bind to the shown state, stay palette-only, and ignor
   const on = web({ webInboxOn: true, webAutostartEnabled: true });
   assert.deepEqual(on.map((command) => [command.id, command.label]), [
     ["view:web-stop", "Phone inbox: On"],
+    ["view:web-address", "Phone inbox address"],
     ["view:web-autostart", "Start phone inbox with dashboard: On"],
   ]);
   for (const command of [...off, ...on]) assert.deepEqual(command.bindings, []);

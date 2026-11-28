@@ -16,6 +16,7 @@ import type { ArchiveDialog, ConfirmDialog } from "./confirm-dialogs.js";
 import type { PickerDialog } from "./picker-dialog.js";
 import type { NewSessionDialog, RepoPickerDialog } from "./new-session-dialog.js";
 import type { ThemeDialog, ThemeDialogInput } from "./theme-dialog.js";
+import type { PhoneInboxDialog } from "./phone-inbox-dialog.js";
 import type { CommandPaletteDialog } from "./command-palette-dialog.js";
 import type { CockpitOnboardingState } from "./cockpit-onboarding.js";
 import type { DashboardFilterState } from "../core/dashboard-filter.js";
@@ -154,6 +155,10 @@ export interface WebInboxActions {
   stop: () => Promise<number>;
   autostart: () => boolean;
   setAutostart: (enabled: boolean) => void | Promise<void>;
+  /** The address the phone can open for the first running server, or undefined when none runs. */
+  address: () => Promise<{ address: string; published: boolean; port: number } | undefined>;
+  /** Opens the address in the desktop browser; absent where Hub cannot open one. */
+  openAddress?: (address: string) => Promise<void>;
 }
 
 export interface FollowPreferenceActions {
@@ -245,7 +250,7 @@ export interface SessionsViewActions {
   terminalRows?: () => number;
 }
 
-export type SessionDialog = { kind: "usage" } | { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog;
+export type SessionDialog = { kind: "usage" } | { kind: "help" } | CommandPaletteDialog | PromptDialog | FormDialog | ConfirmDialog | ArchiveDialog | PickerDialog | NewSessionDialog | RepoPickerDialog | FavoritesDialog | ThemeDialog | PhoneInboxDialog;
 
 export interface DialogContext {
   viewport: { width: number; height?: number };
